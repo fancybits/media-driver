@@ -67,7 +67,7 @@ set(CMRT_DEFINES "")
 cmrt_include_directory(${CMAKE_CURRENT_LIST_DIR}/../agnostic)
 cmrt_include_directory(${CMAKE_CURRENT_LIST_DIR}/../linux)
 
-add_library(igfxcmrt SHARED "${CMRT_SOURCES}")
+add_library(igfxcmrt STATIC "${CMRT_SOURCES}")
 
 set(CMRT_DEFINES ${CMRT_DEFINES} VPHAL ISTDLIB_UMD CM_RT_EXPORTS)
 
