@@ -457,6 +457,9 @@ int32_t MOS_CloseHandle(HANDLE hObject)
 //library
 MOS_STATUS MOS_LoadLibrary(const char * const lpLibFileName, PHMODULE phModule)
 {
+#if 1
+    return MOS_STATUS_LOAD_LIBRARY_FAILED;
+#else
     if (lpLibFileName == nullptr)
     {
         return MOS_STATUS_INVALID_PARAMETER;
@@ -465,6 +468,7 @@ MOS_STATUS MOS_LoadLibrary(const char * const lpLibFileName, PHMODULE phModule)
     *phModule = dlopen((const char *)lpLibFileName, RTLD_LAZY);
 
     return ((*phModule != nullptr) ? MOS_STATUS_SUCCESS : MOS_STATUS_LOAD_LIBRARY_FAILED);
+#endif
 }
 
 int32_t MOS_FreeLibrary (HMODULE hLibModule)
@@ -473,7 +477,10 @@ int32_t MOS_FreeLibrary (HMODULE hLibModule)
 
     if(hLibModule != nullptr)
     {
+#if 1
+#else
         iRet = dlclose(hLibModule);
+#endif
     }
     return (iRet == 0) ? true : false;
 }
@@ -489,7 +496,10 @@ void  *MOS_GetProcAddress(HMODULE hModule, const char *lpProcName)
     }
     else
     {
+#if 1
+#else
         pSym = dlsym(hModule, lpProcName);
+#endif
     }
 
     return pSym;

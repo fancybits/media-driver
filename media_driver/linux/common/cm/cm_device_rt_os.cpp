@@ -323,6 +323,9 @@ int32_t CmDeviceRT::LoadJITDll()
 {
     int result = 0;
 
+#if 1
+    return result;
+#else
     if (nullptr == m_hJITDll)
     {
         m_hJITDll = dlopen( "libigc.so", RTLD_LAZY );
@@ -361,6 +364,7 @@ int32_t CmDeviceRT::LoadJITDll()
     }
 
     return result;
+#endif
 }
 
 //*-----------------------------------------------------------------------------

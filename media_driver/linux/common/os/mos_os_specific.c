@@ -5935,6 +5935,9 @@ MOS_STATUS Mos_Specific_LoadLibrary(
     MOS_OS_ASSERT(pFileName);
     //---------------------------------
 
+#if 1
+    return MOS_STATUS_LOAD_LIBRARY_FAILED;
+#else
     *ppvModule = dlopen(pFileName, RTLD_LAZY);
     if (!(*ppvModule))
     {
@@ -5945,6 +5948,7 @@ MOS_STATUS Mos_Specific_LoadLibrary(
     }
 
     return ((*ppvModule) ? MOS_STATUS_SUCCESS : MOS_STATUS_LOAD_LIBRARY_FAILED);
+#endif
 }
 
 //*-----------------------------------------------------------------------------
@@ -5966,7 +5970,11 @@ MOS_STATUS Mos_Specific_FreeLibrary(
     MOS_OS_ASSERT(hInstance);
     //---------------------------------
 
+#if 1
+    bStatus = -1;
+#else
     bStatus = dlclose(hInstance);
+#endif
     return (bStatus != 0) ? MOS_STATUS_SUCCESS : MOS_STATUS_UNKNOWN;
 }
 
@@ -5985,7 +5993,11 @@ void  *Mos_Specific_GetProcAddress(
     MOS_OS_ASSERT(pModuleName);
     //---------------------------------
 
+#if 1
+    return NULL;
+#else
     return dlsym(hInstance, pModuleName);
+#endif
 }
 
 //!

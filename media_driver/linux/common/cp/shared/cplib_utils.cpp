@@ -46,6 +46,9 @@ const char *CPLibUtils::FUNC_DELETE_SECUREDECODE     = "Delete_SecureDecode";
 
 bool CPLibUtils::LoadCPLib(VADriverContextP ctx)
 {
+#if 1
+    return false;
+#else
     m_phandle = dlopen(CPLIB_PATH, RTLD_NOW | RTLD_LOCAL);
 
     if(nullptr == m_phandle)
@@ -105,6 +108,7 @@ bool CPLibUtils::LoadCPLib(VADriverContextP ctx)
 
     CPLIB_NORMALMESSAGE("CPLIB Loaded Successfully");
     return true;
+#endif
 }
 
 void CPLibUtils::UnloadCPLib(VADriverContextP ctx)
@@ -115,7 +119,10 @@ void CPLibUtils::UnloadCPLib(VADriverContextP ctx)
     if(nullptr != m_phandle)
     {
         m_symbols.clear();
+#if 1
+#else
         if(0 != dlclose(m_phandle)) // dlclose will return 0 if execution sucecceed
             CPLIB_ASSERTMESSAGE("Failed to close CPLIB %s", dlerror());
+#endif
     }
 }
