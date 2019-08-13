@@ -160,7 +160,8 @@ public:
                                             m_requestShutdownSubslicesForVmeUsage(false),
                                             m_overridePowerOptionPerGpuContext(false),
                                             m_redirectRcsToCcs(false),
-                                            m_decompress(false){};
+                                            m_decompress(false),
+                                            m_fastpathDefault(false){};
 
     virtual ~CM_HAL_GENERIC(){};
 
@@ -659,6 +660,36 @@ public:
     {
         return MOS_STATUS_SUCCESS;
     }
+
+    //!
+    //! \brief    Init the default value of task related property
+    //! \param    [in,out]  taskConfig
+    //!           Task related property
+    //! \return   MOS_STATUS_SUCCESS
+    //!
+    virtual MOS_STATUS InitTaskProperty(CM_TASK_CONFIG &taskConfig)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+
+    //!
+    //! \brief    Whether switch to fast path by default
+    //! \return   true or false
+    //!
+    virtual void SetFastPathByDefault(bool flag)
+    {
+        m_fastpathDefault = flag;
+    }
+
+    //!
+    //! \brief    Whether switch to fast path by default
+    //! \return   true or false
+    //!
+    virtual bool IsFastPathByDefault()
+    {
+        return m_fastpathDefault;
+    }
+
 protected:
     uint32_t              m_platformID;
     uint32_t              m_genGT;
@@ -668,6 +699,7 @@ protected:
     bool                  m_overridePowerOptionPerGpuContext;
     bool                  m_redirectRcsToCcs;
     bool                  m_decompress;
+    bool                  m_fastpathDefault;
 };
 
 #endif  // #ifndef MEDIADRIVER_AGNOSTIC_COMMON_CM_CMHALGENERIC_H_

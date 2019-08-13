@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2018, Intel Corporation
+* Copyright (c) 2009-2019, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -50,6 +50,9 @@
 #include <sys/sem.h>
 #include <sys/types.h>
 #endif
+
+#include "mos_os_virtualengine.h"
+#include "mos_util_user_interface.h"
 
 //!
 //! \brief DRM VMAP patch
@@ -197,8 +200,11 @@ int32_t Linux_GetCommandBuffer(
     pCmdBuffer->iRemaining  = cmd_bo->size;
     pCmdBuffer->iCmdIndex   = -1;
     pCmdBuffer->iVdboxNodeIndex = MOS_VDBOX_NODE_INVALID;
+    pCmdBuffer->iVeboxNodeIndex = MOS_VEBOX_NODE_INVALID;
 
     MOS_ZeroMemory(pCmdBuffer->pCmdBase, cmd_bo->size);
+    pCmdBuffer->iSubmissionType = SUBMISSION_TYPE_SINGLE_PIPE;
+    MOS_ZeroMemory(&pCmdBuffer->Attributes, sizeof(pCmdBuffer->Attributes));
     bResult = true;
 
 finish:
@@ -251,6 +257,7 @@ void Linux_ReturnCommandBuffer(
     pOsGpuContext->pCB->iRemaining = pCmdBuffer->iRemaining;
     pOsGpuContext->pCB->pCmdPtr    = pCmdBuffer->pCmdPtr;
     pOsGpuContext->pCB->iVdboxNodeIndex = pCmdBuffer->iVdboxNodeIndex;
+    pOsGpuContext->pCB->iVeboxNodeIndex = pCmdBuffer->iVeboxNodeIndex;
 
 finish:
     return;
@@ -1090,13 +1097,11 @@ void Linux_Destroy(
         Linux_ReleaseGPUStatus(pOsContext);
     }
 
-#ifndef ANDROID
     if (pOsContext->contextOffsetList.size())
     {
          pOsContext->contextOffsetList.clear();
          pOsContext->contextOffsetList.shrink_to_fit();
     }
-#endif
 
     if (!MODSEnabled && (pOsContext->intel_context))
     {
@@ -1297,7 +1302,7 @@ MOS_STATUS Linux_InitContext(
     if (!MODSEnabled)
     {
        pContext->intel_context = mos_gem_context_create_ext(pOsDriverContext->bufmgr,0);
-       if (pContext->intel_context)
+       if (!Mos_Solo_IsEnabled() && pContext->intel_context)
        {
            pContext->intel_context->vm = mos_gem_vm_create(pOsDriverContext->bufmgr);
            if (pContext->intel_context->vm == nullptr)
@@ -1320,13 +1325,6 @@ MOS_STATUS Linux_InitContext(
             MOS_OS_ASSERTMESSAGE("Failed to create drm intel context");
             return MOS_STATUS_UNKNOWN;
        }
-    }
-
-    //check if gem bo 48b address supported
-    if(mos_gem_bo_48b_address_supported(pContext->intel_context))
-    {
-        MOS_OS_ASSERTMESSAGE("Failed to check gem bo 48b address flag.");
-        return MOS_STATUS_UNKNOWN;
     }
 
     pContext->intel_context->pOsContext = pContext;
@@ -2409,7 +2407,6 @@ void Mos_Specific_FreeResource(
 
         mos_bo_unreference((MOS_LINUX_BO *)(pOsResource->bo));
 
-#ifndef ANDROID
         if ( pOsInterface->pOsContext != nullptr && pOsInterface->pOsContext->contextOffsetList.size()) 
         {
           MOS_CONTEXT *pOsCtx = pOsInterface->pOsContext;
@@ -2427,7 +2424,7 @@ void Mos_Specific_FreeResource(
              }
           }
         }
-#endif
+
         pOsResource->bo = nullptr;
         if (pOsResource->pGmmResInfo != nullptr && 
             pOsInterface->pOsContext != nullptr &&
@@ -2597,16 +2594,6 @@ void  *Mos_Specific_LockResource(
             }
             else
             {
-#ifdef ANDROID
-                if (pOsResource->TileType != MOS_TILE_LINEAR ||pLockFlags->Uncached)
-                {
-                    mos_gem_bo_map_gtt(bo);
-                }
-                else
-                {
-                    mos_bo_map(bo, (OSKM_LOCKFLAG_WRITEONLY&pLockFlags->WriteOnly));
-                }
-#else
                 if (pOsResource->TileType != MOS_TILE_LINEAR && !pLockFlags->TiledAsTiled)
                 {
                     if (pContext->bUseSwSwizzling)
@@ -2643,7 +2630,6 @@ void  *Mos_Specific_LockResource(
                     mos_bo_map(bo, (OSKM_LOCKFLAG_WRITEONLY&pLockFlags->WriteOnly));
                     pOsResource->MmapOperation = MOS_MMAP_OPERATION_MMAP;
                 }
-#endif
             }
             pOsResource->pData   = pOsResource->pSystemShadow ? pOsResource->pSystemShadow : (uint8_t*)bo->virt;
             pOsResource->bMapped = true;
@@ -2728,16 +2714,6 @@ MOS_STATUS Mos_Specific_UnlockResource(
            }
            else
            {
-#ifdef ANDROID
-               if (pOsResource->TileType == MOS_TILE_LINEAR)
-               {
-                   mos_bo_unmap(pOsResource->bo);
-               }
-               else
-               {
-                   mos_gem_bo_unmap_gtt(pOsResource->bo);
-               }
-#else
                if (pOsResource->pSystemShadow)
                {
                    int32_t flags = pContext->bTileYFlag ? 0 : 1;
@@ -2762,7 +2738,6 @@ MOS_STATUS Mos_Specific_UnlockResource(
                         MOS_OS_ASSERTMESSAGE("Invalid mmap operation type");
                         break;
                }
-#endif
            }
            pOsResource->bo->virt = nullptr;
            pOsResource->bMapped  = false;
@@ -3576,11 +3551,9 @@ MOS_STATUS Mos_Specific_SubmitCommandBuffer(
     drm_clip_rect_t                     *cliprects;
     int32_t                             num_cliprects;
     int32_t                             DR4, ret;
-#ifndef ANDROID
     uint64_t                            boOffset;
 
     boOffset = 0;
-#endif
     eStatus  = MOS_STATUS_SUCCESS;
     ret      = 0;
 
@@ -3632,7 +3605,6 @@ MOS_STATUS Mos_Specific_SubmitCommandBuffer(
             pCurrentPatch,
             pResource));
 
-#ifndef ANDROID
         boOffset = alloc_bo->offset64;
         if (alloc_bo != cmd_bo)
         {
@@ -3666,28 +3638,7 @@ MOS_STATUS Mos_Specific_SubmitCommandBuffer(
                           I915_GEM_DOMAIN_RENDER,                                              // Read domain
                           (pCurrentPatch->uiWriteOperation) ? I915_GEM_DOMAIN_RENDER : 0x0,   // Write domain
                           boOffset);
-#else
-        if (pOsContext->bUse64BitRelocs)
-        {
-            *((uint64_t*)((uint8_t*)cmd_bo->virt + pCurrentPatch->PatchOffset)) =
-                    alloc_bo->offset64 + pCurrentPatch->AllocationOffset;
-        }
-        else
-        {
-            *((uint32_t*)((uint8_t*)cmd_bo->virt + pCurrentPatch->PatchOffset)) =
-                    alloc_bo->offset64 + pCurrentPatch->AllocationOffset;
-        }
 
-        // This call will patch the command buffer with the offsets of the indirect state region of the command buffer
-        ret = mos_bo_emit_reloc(
-                          cmd_bo,                                                              // Command buffer
-                          pCurrentPatch->PatchOffset,                                          // Offset in the command buffer
-                          alloc_bo,                                                            // Allocation object for which the patch will be made.
-                          pCurrentPatch->AllocationOffset,                                     // Offset to the indirect state
-                          I915_GEM_DOMAIN_RENDER,                                              // Read domain
-                          (pCurrentPatch->uiWriteOperation) ? I915_GEM_DOMAIN_RENDER : 0x0);   // Write domain
-
-#endif
         if (ret != 0)
         {
             MOS_OS_ASSERTMESSAGE("Error patching alloc_bo = 0x%x, cmd_bo = 0x%x.",
@@ -3832,7 +3783,8 @@ MOS_STATUS Mos_Specific_SubmitCommandBuffer(
                                        cliprects,
                                        num_cliprects,
                                        DR4,
-                                       ExecFlag);
+                                       ExecFlag,
+                                       nullptr);
       if (ret != 0) {
           eStatus = MOS_STATUS_UNKNOWN;
       }
@@ -5228,6 +5180,14 @@ MOS_STATUS Mos_Specific_WaitForBBCompleteNotifyEvent(
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS Mos_Specific_WaitAllCmdCompletion_Os(
+    PMOS_INTERFACE pOsInterface)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    return eStatus;
+}
+
 //!
 //! \brief    Determines if the resource should be CPU cacheable during allocation
 //! \param    PMOS_INTERFACE pOsInterface
@@ -5939,13 +5899,6 @@ MOS_STATUS Mos_Specific_LoadLibrary(
     return MOS_STATUS_LOAD_LIBRARY_FAILED;
 #else
     *ppvModule = dlopen(pFileName, RTLD_LAZY);
-    if (!(*ppvModule))
-    {
-#ifdef ANDROID
-        error = (char *)dlerror();
-        ALOGD("%s", error);
-#endif
-    }
 
     return ((*ppvModule) ? MOS_STATUS_SUCCESS : MOS_STATUS_LOAD_LIBRARY_FAILED);
 #endif
@@ -6094,12 +6047,7 @@ void Mos_Specific_SetSliceCount(
 void Mos_Specific_LogData(
     char       *pData)
 {
-#ifdef Android
-    ALOGD(pData);
-#else
     MOS_UNUSED(pData);
-#endif
-
     return;
 }
 
@@ -6124,6 +6072,90 @@ MOS_STATUS Mos_Specific_CheckVirtualEngineSupported(
     }
 
     return MOS_STATUS_SUCCESS;
+}
+
+static MOS_STATUS Mos_Specific_InitInterface_Ve(
+    PMOS_INTERFACE osInterface)
+{
+    PLATFORM                            Platform;
+    MOS_STATUS                          eStatus;
+    MOS_USER_FEATURE_VALUE_DATA         userFeatureData;
+
+    MOS_OS_FUNCTION_ENTER;
+
+    eStatus = MOS_STATUS_SUCCESS;
+
+    // Get platform information
+    memset(&Platform, 0, sizeof(PLATFORM));
+    if (!Mos_Solo_IsEnabled())
+    {
+        osInterface->pfnGetPlatform(osInterface, &Platform);
+    }
+
+    if (GFX_IS_GEN_11_OR_LATER(Platform) || Mos_Solo_IsEnabled())
+    {
+        //keep this as false until VE is enabled by all media components
+        osInterface->bSupportVirtualEngine = false;
+        osInterface->bUseHwSemaForResSyncInVE = false;
+        osInterface->pVEInterf = nullptr;
+        osInterface->VEEnable = false;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+        //Read Scalable/Legacy Decode mode on Gen11+
+        //1:by default for scalable decode mode
+        //0:for legacy decode mode
+        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+        auto eStatusUserFeature = MOS_UserFeature_ReadValue_ID(
+            NULL,
+            __MEDIA_USER_FEATURE_VALUE_ENABLE_HCP_SCALABILITY_DECODE_ID,
+            &userFeatureData);
+        osInterface->bHcpDecScalabilityMode = userFeatureData.u32Data ? true : false;
+
+        if (MosUtilUserInterface::IsDefaultValueChanged() &&
+           (eStatusUserFeature == MOS_STATUS_USER_FEATURE_KEY_READ_FAILED ||
+            eStatusUserFeature == MOS_STATUS_USER_FEATURE_KEY_OPEN_FAILED))
+        {
+            osInterface->bHcpDecScalabilityMode = false;
+        }
+
+        osInterface->frameSplit                  = false;
+        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+        MOS_UserFeature_ReadValue_ID(
+            NULL,
+            __MEDIA_USER_FEATURE_VALUE_ENABLE_LINUX_FRAME_SPLIT_ID,
+            &userFeatureData);
+        osInterface->frameSplit = (uint32_t)userFeatureData.i32Data;
+
+        // read the "Force VEBOX" user feature key
+        // 0: not force
+        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+        MOS_UserFeature_ReadValue_ID(
+            NULL,
+            __MEDIA_USER_FEATURE_VALUE_FORCE_VEBOX_ID,
+            &userFeatureData);
+        osInterface->eForceVebox = (MOS_FORCE_VEBOX)userFeatureData.u32Data;
+
+        //KMD Virtual Engine DebugOverride
+        // 0: not Override
+        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+        MOS_UserFeature_ReadValue_ID(
+            NULL,
+            __MEDIA_USER_FEATURE_VALUE_ENABLE_VE_DEBUG_OVERRIDE_ID,
+            &userFeatureData);
+        osInterface->bEnableDbgOvrdInVE = userFeatureData.u32Data ? true : false;
+
+        // UMD Vebox Virtual Engine Scalability Mode
+        // 0: disable. can set to 1 only when KMD VE is enabled.
+        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+        MOS_UserFeature_ReadValue_ID(
+            NULL,
+            __MEDIA_USER_FEATURE_VALUE_ENABLE_VEBOX_SCALABILITY_MODE_ID,
+            &userFeatureData);
+        osInterface->bVeboxScalabilityMode = userFeatureData.u32Data ? true : false;
+#endif
+    }
+
+    return eStatus;
 }
 
 //! \brief    Unified OS Initializes OS Linux Interface
@@ -6163,6 +6195,7 @@ MOS_STATUS Mos_Specific_InitInterface(
 
     pOsInterface->modularizedGpuCtxEnabled    = true;
     pOsInterface->veDefaultEnable             = true;
+    pOsInterface->phasedSubmission            = true;
 
     // Create Linux OS Context
     pOsContext = (PMOS_OS_CONTEXT)MOS_AllocAndZeroMemory(sizeof(MOS_OS_CONTEXT));
@@ -6310,6 +6343,7 @@ MOS_STATUS Mos_Specific_InitInterface(
     pOsInterface->pfnPerformOverlaySync                     = Mos_Specific_PerformOverlaySync;
     pOsInterface->pfnEngineSignal                           = Mos_Specific_EngineSignal;
     pOsInterface->pfnEngineWait                             = Mos_Specific_EngineWait;
+    pOsInterface->pfnWaitAllCmdCompletion                   = Mos_Specific_WaitAllCmdCompletion_Os;
     pOsInterface->pfnResourceSignal                         = Mos_Specific_ResourceSignal;
     pOsInterface->pfnResourceWait                           = Mos_Specific_ResourceWait;
     pOsInterface->pfnCreateSyncResource                     = Mos_Specific_CreateSyncResource;
@@ -6435,6 +6469,12 @@ MOS_STATUS Mos_Specific_InitInterface(
         __MEDIA_USER_FEATURE_VALUE_LINUX_PERFORMANCETAG_ENABLE_ID,
         &UserFeatureData);
     pOsContext->uEnablePerfTag = UserFeatureData.i32Data;
+
+    eStatus = Mos_Specific_InitInterface_Ve(pOsInterface);
+    if(eStatus != MOS_STATUS_SUCCESS)
+    {
+        goto finish;
+    }
 
     eStatus = MOS_STATUS_SUCCESS;
 

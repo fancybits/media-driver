@@ -150,6 +150,9 @@
 #define VPHAL_DEBUG_FUNCTION_ENTER                                                   \
     MOS_FUNCTION_ENTER(MOS_COMPONENT_VP, MOS_VP_SUBCOMP_DEBUG)
 
+#define VPHAL_DEBUG_FUNCTION_EXIT                                                    \
+    MOS_FUNCTION_EXIT(MOS_COMPONENT_VP, MOS_VP_SUBCOMP_DEBUG)
+
 #define VPHAL_DEBUG_CHK_STATUS(_stmt)                                                \
     MOS_CHK_STATUS(MOS_COMPONENT_VP, MOS_VP_SUBCOMP_DEBUG, _stmt)
 
@@ -440,7 +443,7 @@ public:
     //!           The size of array pQueryReport.
     //! \return   MOS_STATUS
     //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
-    MOS_STATUS GetStatusReport(
+    virtual MOS_STATUS GetStatusReport(
         PQUERY_STATUS_REPORT_APP        pQueryReport,
         uint16_t                        numStatus);
 
@@ -526,6 +529,9 @@ protected:
     // Render GPU context/node
     MOS_GPU_NODE                m_renderGpuNode;
     MOS_GPU_CONTEXT             m_renderGpuContext;
+
+    // StatusTable indicating if command is done by gpu or not
+    VPHAL_STATUS_TABLE          m_statusTable = {};
 
     //!
     //! \brief    Create instance of VphalRenderer

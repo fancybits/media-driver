@@ -57,6 +57,39 @@ shared_ptr<MhwCmdReader> MhwCmdReader::GetInstance()
     return m_instance;
 }
 
+string MhwCmdReader::TrimSpace(const string &str)
+{
+    int32_t sz = static_cast<int32_t>(str.size());
+    int32_t beg = 0;
+    while (beg < sz)
+    {
+        if (str[beg] != ' ')
+        {
+            break;
+        }
+        ++beg;
+    }
+
+    int32_t end = sz - 1;
+    while (end >= beg)
+    {
+        if (str[end] != ' ')
+        {
+            break;
+        }
+        --end;
+    }
+
+    if (beg < sz)
+    {
+        return str.substr(beg, end - beg + 1);
+    }
+    else
+    {
+        return string();
+    }
+}
+
 void MhwCmdReader::OverrideCmdDataFromFile(string cmdName, uint32_t cmdLen, uint32_t *cmd)
 {
     if (!m_ready)
@@ -84,13 +117,24 @@ void MhwCmdReader::OverrideCmdDataFromFile(string cmdName, uint32_t cmdLen, uint
             if (it->info.dwordIdx < cmdLen)
             {
                 AssignField(cmd, *it);
-            }
 
-            it = m_shortTermFields.erase(it);
-            while (it != m_shortTermFields.end() && it->info.cmdIdx == cmdIdx &&
-                it->info.dwordIdx == dwordIdx && it->info.stardBit == stardBit)
+                it = m_shortTermFields.erase(it);
+                while (it != m_shortTermFields.end() && it->info.cmdIdx == cmdIdx &&
+                    it->info.dwordIdx == dwordIdx && it->info.stardBit == stardBit)
+                {
+                    ++it;
+                }
+            }
+            else if (it->info.dwordIdx == 0xff)
             {
-                ++it;
+                // 0xff is a delimiter which indicates following override data are for next time adding this command
+                m_shortTermFields.erase(it);
+                break;
+            }
+            else
+            {
+                // dwordIdx is greater than cmdLen, should be discarded
+                it = m_shortTermFields.erase(it);
             }
         }
         else
@@ -206,28 +250,28 @@ void MhwCmdReader::PrepareCmdDataCsv()
 
         size_t beg = 0;
         size_t end = line.find(',');
-        name = line.substr(beg, end);
+        name = TrimSpace(line.substr(beg, end - beg));
         names.insert(name);
 
         beg = end + 1;
         end = line.find(',', beg);
-        field.info.dwordIdx = stoul(line.substr(beg, end));
+        field.info.dwordIdx = stoul(TrimSpace(line.substr(beg, end - beg)));
 
         beg = end + 1;
         end = line.find(',', beg);
-        field.info.stardBit = stoul(line.substr(beg, end));
+        field.info.stardBit = stoul(TrimSpace(line.substr(beg, end - beg)));
 
         beg = end + 1;
         end = line.find(',', beg);
-        field.info.endBit = stoul(line.substr(beg, end));
+        field.info.endBit = stoul(TrimSpace(line.substr(beg, end - beg)));
 
         beg = end + 1;
         end = line.find(',', beg);
-        field.info.longTermUse = stoul(line.substr(beg, end));
+        field.info.longTermUse = stoul(TrimSpace(line.substr(beg, end - beg)));
 
         beg = end + 1;
         end = line.find(',', beg);
-        field.value = stoul(line.substr(beg, end), 0, 0);
+        field.value = stoul(TrimSpace(line.substr(beg, end - beg)), 0, 0);
 
         data.push_back(make_pair(field, name));
     }

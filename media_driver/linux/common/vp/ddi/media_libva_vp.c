@@ -203,6 +203,9 @@ MOS_FORMAT VpGetFormatFromMediaFormat(DDI_MEDIA_FORMAT mf)
     case Media_Format_RGBP:
         format = Format_RGBP;
         break;
+    case Media_Format_BGRP:
+        format = Format_BGRP;
+        break;
     case Media_Format_Y210:
         format = Format_Y210;
         break;
@@ -217,6 +220,27 @@ MOS_FORMAT VpGetFormatFromMediaFormat(DDI_MEDIA_FORMAT mf)
         break;
     case Media_Format_AYUV:
         format = Format_AYUV;
+        break;
+    case Media_Format_Y8:
+        format = Format_Y8;
+        break;
+    case Media_Format_Y16S:
+        format = Format_Y16S;
+        break;
+    case Media_Format_Y16U:
+        format = Format_Y16U;
+        break;
+    case Media_Format_VYUY:
+        format = Format_VYUY;
+        break;
+    case Media_Format_YVYU:
+        format = Format_YVYU;
+        break;
+    case Media_Format_A16R16G16B16:
+        format = Format_A16R16G16B16;
+        break;
+    case Media_Format_A16B16G16R16:
+        format = Format_A16B16G16R16;
         break;
     default:
         VP_DDI_ASSERTMESSAGE("ERROR media format to vphal format.");
@@ -1145,16 +1169,144 @@ DdiVp_SetProcPipelineParams(
     }
     //init interlace scaling flag
     pVpHalSrcSurf->bInterlacedScaling = false;
-    // For interlace scaling
+    pVpHalSrcSurf->bFieldWeaving      = false;
+
     if (pVpHalSrcSurf->pDeinterlaceParams == nullptr)
+    {
+        if (pPipelineParam->input_surface_flag & VA_TOP_FIELD_FIRST)
+        {
+            if (pPipelineParam->output_surface_flag & VA_TOP_FIELD_FIRST)
+            {
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_INTERLEAVED_TO_INTERLEAVED;
+                pVpHalSrcSurf->SampleType = SAMPLE_INTERLEAVED_EVEN_FIRST_TOP_FIELD;
+                pVpHalSrcSurf->bInterlacedScaling = true;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }else if (pPipelineParam->output_surface_flag & VA_TOP_FIELD)
+            {
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_INTERLEAVED_TO_FIELD;
+                pVpHalSrcSurf->SampleType = SAMPLE_INTERLEAVED_EVEN_FIRST_TOP_FIELD;
+                pVpHalTgtSurf->SampleType = SAMPLE_SINGLE_TOP_FIELD;
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }else if (pPipelineParam->output_surface_flag & VA_BOTTOM_FIELD)
+            {
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_INTERLEAVED_TO_FIELD;
+                pVpHalSrcSurf->SampleType = SAMPLE_INTERLEAVED_EVEN_FIRST_BOTTOM_FIELD;
+                pVpHalTgtSurf->SampleType = SAMPLE_SINGLE_BOTTOM_FIELD;
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }else
+            {
+                VP_DDI_ASSERTMESSAGE("output_surface_flag need to be set for interlaced scaling.");
+                pVpHalSrcSurf->SampleType = SAMPLE_PROGRESSIVE;
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_NONE;
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }
+        }
+        else if (pPipelineParam->input_surface_flag & VA_BOTTOM_FIELD_FIRST)
+        {
+            if (pPipelineParam->output_surface_flag & VA_BOTTOM_FIELD_FIRST)
+            {
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_INTERLEAVED_TO_INTERLEAVED;
+                pVpHalSrcSurf->SampleType = SAMPLE_INTERLEAVED_ODD_FIRST_BOTTOM_FIELD;
+                pVpHalSrcSurf->bInterlacedScaling = true;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }else if (pPipelineParam->output_surface_flag & VA_TOP_FIELD)
+            {
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_INTERLEAVED_TO_FIELD;
+                pVpHalSrcSurf->SampleType = SAMPLE_INTERLEAVED_ODD_FIRST_TOP_FIELD;
+                pVpHalTgtSurf->SampleType = SAMPLE_SINGLE_TOP_FIELD;
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }else if (pPipelineParam->output_surface_flag & VA_BOTTOM_FIELD)
+            {
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_INTERLEAVED_TO_FIELD;
+                pVpHalSrcSurf->SampleType = SAMPLE_INTERLEAVED_ODD_FIRST_BOTTOM_FIELD;
+                pVpHalTgtSurf->SampleType = SAMPLE_SINGLE_BOTTOM_FIELD;
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }else
+            {
+                VP_DDI_ASSERTMESSAGE("output_surface_flag need to be set for interlaced scaling.");
+                pVpHalSrcSurf->SampleType = SAMPLE_PROGRESSIVE;
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_NONE;
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }
+        }else if (pPipelineParam->input_surface_flag & VA_TOP_FIELD)
+        {
+            if (pPipelineParam->output_surface_flag & VA_TOP_FIELD_FIRST)
+            {
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_FIELD_TO_INTERLEAVED;
+                pVpHalSrcSurf->SampleType = SAMPLE_SINGLE_TOP_FIELD;
+                pVpHalTgtSurf->SampleType = SAMPLE_INTERLEAVED_EVEN_FIRST_TOP_FIELD;
+
+                DDI_CHK_NULL(pVpHalSrcSurf->pBwdRef, "No Ref Field!", VA_STATUS_ERROR_UNIMPLEMENTED);
+                pVpHalSrcSurf->pBwdRef->InterlacedScalingType = ISCALING_FIELD_TO_INTERLEAVED;
+                pVpHalSrcSurf->pBwdRef->SampleType = SAMPLE_SINGLE_BOTTOM_FIELD;
+
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = true;
+            }else if(pPipelineParam->output_surface_flag & VA_TOP_FIELD)
+            {
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_FIELD_TO_FIELD;
+                pVpHalSrcSurf->SampleType = SAMPLE_SINGLE_TOP_FIELD;
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }else
+            {
+                pVpHalSrcSurf->SampleType = SAMPLE_PROGRESSIVE;
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }
+        }else if (pPipelineParam->input_surface_flag & VA_BOTTOM_FIELD)
+        {
+            if (pPipelineParam->output_surface_flag & VA_BOTTOM_FIELD_FIRST)
+            {
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_FIELD_TO_INTERLEAVED;
+                pVpHalSrcSurf->SampleType = SAMPLE_SINGLE_BOTTOM_FIELD;
+                pVpHalTgtSurf->SampleType = SAMPLE_INTERLEAVED_ODD_FIRST_BOTTOM_FIELD;
+
+                DDI_CHK_NULL(pVpHalSrcSurf->pBwdRef, "No Ref Field!", VA_STATUS_ERROR_UNIMPLEMENTED);
+                pVpHalSrcSurf->pBwdRef->InterlacedScalingType = ISCALING_FIELD_TO_INTERLEAVED;
+                pVpHalSrcSurf->pBwdRef->SampleType = SAMPLE_SINGLE_TOP_FIELD;
+
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = true;
+            }else if(pPipelineParam->output_surface_flag & VA_BOTTOM_FIELD)
+            {
+                pVpHalSrcSurf->InterlacedScalingType = ISCALING_FIELD_TO_FIELD;
+                pVpHalSrcSurf->SampleType = SAMPLE_SINGLE_BOTTOM_FIELD;
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }else
+            {
+                pVpHalSrcSurf->SampleType = SAMPLE_PROGRESSIVE;
+                pVpHalSrcSurf->bInterlacedScaling = false;
+                pVpHalSrcSurf->bFieldWeaving = false;
+            }
+        }else
+        {
+            pVpHalSrcSurf->SampleType = SAMPLE_PROGRESSIVE;
+            pVpHalSrcSurf->InterlacedScalingType = ISCALING_NONE;
+            pVpHalSrcSurf->bInterlacedScaling = false;
+            pVpHalSrcSurf->bFieldWeaving = false;
+        }
+    }
+
+    // For legacy interlace scaling
+    if (pVpHalSrcSurf->pDeinterlaceParams == nullptr && pVpHalSrcSurf->InterlacedScalingType == ISCALING_NONE)
     {
         if (pPipelineParam->filter_flags & VA_TOP_FIELD)
         {
+            pVpHalSrcSurf->SampleType = SAMPLE_INTERLEAVED_EVEN_FIRST_TOP_FIELD;
             pVpHalSrcSurf->ScalingMode = VPHAL_SCALING_AVS;
             pVpHalSrcSurf->bInterlacedScaling = true;
         }
         else if (pPipelineParam->filter_flags & VA_BOTTOM_FIELD)
         {
+            pVpHalSrcSurf->SampleType = SAMPLE_INTERLEAVED_ODD_FIRST_BOTTOM_FIELD;
             pVpHalSrcSurf->ScalingMode = VPHAL_SCALING_AVS;
             pVpHalSrcSurf->bInterlacedScaling = true;
         }
@@ -1343,6 +1495,8 @@ VAStatus VpSetOsResource(
 /////////////////////////////////////////////////////////////////////////////////////////////
 VAStatus DdiVp_InitCtx(VADriverContextP pVaDrvCtx, PDDI_VP_CONTEXT pVpCtx)
 {
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_VP, PERF_LEVEL_DDI);
+
     PVPHAL_RENDER_PARAMS            pVpHalRenderParams = nullptr;
     int32_t                         uSurfIndex;
     PDDI_MEDIA_CONTEXT              pMediaCtx;
@@ -1485,6 +1639,8 @@ DdiVp_InitVpHal(
     PDDI_VP_CONTEXT   pVpCtx
 )
 {
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_VP, PERF_LEVEL_DDI);
+
     VphalState                *pVpHal;
     VphalSettings             VpHalSettings;
 
@@ -2690,6 +2846,8 @@ VAStatus DdiVp_ConvertSurface(
     uint16_t             desth
 )
 {
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_VP, PERF_LEVEL_DDI);
+
     VAStatus                    vaStatus;
     PVPHAL_SURFACE              pSurface;
     PVPHAL_SURFACE              pTarget;
@@ -2816,6 +2974,8 @@ VAStatus DdiVp_CreateContext (
     VAContextID        *pVaCtxID
 )
 {
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_VP, PERF_LEVEL_DDI);
+
     PDDI_MEDIA_CONTEXT                pMediaCtx;
     VAStatus                          vaStatus;
     PDDI_VP_CONTEXT                   pVpCtx;
@@ -2885,6 +3045,8 @@ VAStatus DdiVp_DestroyContext (
     VAContextID         vaCtxID
     )
 {
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_VP, PERF_LEVEL_DDI);
+
     PDDI_MEDIA_CONTEXT       pMediaCtx;
     PDDI_VP_CONTEXT          pVpCtx;
     uint32_t                 uiVpIndex;
@@ -2945,6 +3107,8 @@ VAStatus DdiVp_BeginPicture(
         VAContextID         vaCtxID,
         VASurfaceID         vaSurfID)
 {
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_VP, PERF_LEVEL_DDI);
+
     PDDI_MEDIA_CONTEXT          pMediaDrvCtx;
     PDDI_VP_CONTEXT             pVpCtx;
     uint32_t                    ctxType;
@@ -3203,6 +3367,8 @@ VAStatus DdiVp_RenderPicture (
     int32_t             num_buffers
 )
 {
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_VP, PERF_LEVEL_DDI);
+
     PDDI_MEDIA_CONTEXT        pMediaCtx;
     PDDI_VP_CONTEXT           pVpCtx;
     PDDI_MEDIA_BUFFER         pBuf;
@@ -3284,6 +3450,8 @@ VAStatus DdiVp_EndPicture (
         VADriverContextP    pVaDrvCtx,
         VAContextID         vaCtxID)
 {
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_VP, PERF_LEVEL_DDI);
+
     PDDI_VP_CONTEXT         pVpCtx;
     uint32_t                uiCtxType;
     VphalState              *pVpHal;
@@ -3353,6 +3521,8 @@ VAStatus DdiVp_VideoProcessPipeline(
     VASurfaceID         dstSurface,
     VARectangle         *dstRect)
 {
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_VP, PERF_LEVEL_DDI);
+
     VAStatus            vaStatus;
     uint32_t            ctxType;
     PDDI_VP_CONTEXT     pVpCtx;

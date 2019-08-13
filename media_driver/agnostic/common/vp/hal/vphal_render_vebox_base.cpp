@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2018, Intel Corporation
+* Copyright (c) 2011-2019, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -33,6 +33,7 @@
 
 #include "vphal_render_common.h"
 #include "renderhal_platform_interface.h"
+#include "hal_oca_interface.h"
 
 extern const Kdll_Layer g_cSurfaceType_Layer[];
 
@@ -764,6 +765,9 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxSetPerfTag(
                             case Format_Y210:
                             case Format_Y216:
                             case Format_AYUV:
+                            case Format_Y8:
+                            case Format_Y16S:
+                            case Format_Y16U:
                                 *pPerfTag = VPHAL_NONE;
                                 break;
                             default:
@@ -807,6 +811,9 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxSetPerfTag(
                             case Format_Y210:
                             case Format_Y216:
                             case Format_AYUV:
+                            case Format_Y8:
+                            case Format_Y16S:
+                            case Format_Y16U:
                                 *pPerfTag = VPHAL_NONE;
                                 break;
                             default:
@@ -875,6 +882,9 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxSetPerfTag(
                             case Format_Y210:
                             case Format_Y216:
                             case Format_AYUV:
+                            case Format_Y8:
+                            case Format_Y16S:
+                            case Format_Y16U:
                                 *pPerfTag = VPHAL_NONE;
                                 break;
                             default:
@@ -919,6 +929,9 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxSetPerfTag(
                             case Format_Y210:
                             case Format_Y216:
                             case Format_AYUV:
+                            case Format_Y8:
+                            case Format_Y16S:
+                            case Format_Y16U:
                                 *pPerfTag = VPHAL_NONE;
                                 break;
                             default:
@@ -1023,6 +1036,7 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxPopulateDNDIParams(
     // DI and Luma Denoise Params
     if (pLumaParams != nullptr)
     {
+        VPHAL_RENDER_NORMALMESSAGE("bProgressiveDN %d, bDNDITopFirst %d", pLumaParams->bProgressiveDN, pLumaParams->bDNDITopFirst);
         if (pRenderData->bDenoise)
         {
             pVeboxDNDIParams->dwDenoiseASDThreshold     = pLumaParams->dwDenoiseASDThreshold;
@@ -1050,6 +1064,7 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxPopulateDNDIParams(
     // Chroma Denoise Params
     if (pRenderData->bChromaDenoise && pChromaParams != nullptr)
     {
+        VPHAL_RENDER_NORMALMESSAGE("bChromaDNEnable %d", pRenderData->bChromaDenoise);
         pVeboxDNDIParams->dwChromaSTADThreshold     = pChromaParams->dwSTADThresholdU; // Use U threshold for now
         pVeboxDNDIParams->dwChromaLTDThreshold      = pChromaParams->dwLTDThresholdU;  // Use U threshold for now
         pVeboxDNDIParams->dwChromaTDThreshold       = pChromaParams->dwTDThresholdU;   // Use U threshold for now
@@ -1173,36 +1188,55 @@ finish:
 //!
 MOS_STATUS VPHAL_VEBOX_STATE::VeboxFlushUpdateStateCmdBuffer()
 {
-    PRENDERHAL_INTERFACE                pRenderHal;
-    PRENDERHAL_STATE_HEAP               pStateHeap;
-    MhwRenderInterface                  *pMhwRender;
-    PMOS_INTERFACE                      pOsInterface;
-    MOS_COMMAND_BUFFER                  CmdBuffer;
-    MOS_STATUS                          eStatus;
-    int32_t                             i, iRemaining;
-    PMHW_MI_INTERFACE                   pMhwMiInterface;
-    MHW_MEDIA_OBJECT_PARAMS             MediaObjectParams;
-    MEDIA_OBJECT_KA2_INLINE_DATA        InlineData;
-    int32_t                             iInlineSize;
-    MHW_PIPE_CONTROL_PARAMS             PipeCtlParams;
-    MHW_ID_LOAD_PARAMS                  IdLoadParams;
+    PRENDERHAL_INTERFACE                pRenderHal = nullptr;
+    PRENDERHAL_STATE_HEAP               pStateHeap = nullptr;
+    MhwRenderInterface                  *pMhwRender = nullptr;
+    PMOS_INTERFACE                      pOsInterface = nullptr;
+    MOS_COMMAND_BUFFER                  CmdBuffer = {};
+    MOS_STATUS                          eStatus = MOS_STATUS_SUCCESS;
+    int32_t                             i = 0, iRemaining = 0;
+    PMHW_MI_INTERFACE                   pMhwMiInterface = nullptr;
+    MHW_MEDIA_OBJECT_PARAMS             MediaObjectParams = {};
+    MEDIA_OBJECT_KA2_INLINE_DATA        InlineData = {};
+    int32_t                             iInlineSize = 0;
+    MHW_PIPE_CONTROL_PARAMS             PipeCtlParams = {};
+    MHW_ID_LOAD_PARAMS                  IdLoadParams = {};
     PVPHAL_VEBOX_STATE                  pVeboxState = this;
     PVPHAL_VEBOX_RENDER_DATA            pRenderData = GetLastExecRenderData();
-    MediaPerfProfiler                   *pPerfProfiler;
+    MediaPerfProfiler                   *pPerfProfiler = nullptr;
+    MOS_CONTEXT                         *pOsContext = nullptr;
+    PMHW_MI_MMIOREGISTERS               pMmioRegisters = nullptr;
 
-    eStatus                 = MOS_STATUS_SUCCESS;
+    VPHAL_RENDER_CHK_NULL(pVeboxState);
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal);
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal->pMhwMiInterface);
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal->pMhwRenderInterface);
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal->pMhwRenderInterface->GetMmioRegisters());
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal->pOsInterface);
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal->pOsInterface->pOsContext);
+
     pRenderHal              = pVeboxState->m_pRenderHal;
     pStateHeap              = pRenderHal->pStateHeap;
     pMhwRender              = pRenderHal->pMhwRenderInterface;
     pMhwMiInterface         = pRenderHal->pMhwMiInterface;
-    pOsInterface            = pVeboxState->m_pOsInterface;
+    pOsInterface            = pRenderHal->pOsInterface;
     pPerfProfiler           = pRenderHal->pPerfProfiler;
+    pOsContext              = pOsInterface->pOsContext;
+    pMmioRegisters          = pMhwRender->GetMmioRegisters();
 
     iRemaining = 0;
     VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnGetCommandBuffer(pOsInterface, &CmdBuffer, 0));
 
     // Set initial state
     iRemaining = CmdBuffer.iRemaining;
+
+    HalOcaInterface::On1stLevelBBStart(CmdBuffer, *pOsContext, pOsInterface->CurrentGpuContextHandle,
+        *pMhwMiInterface, *pMmioRegisters);
+
+    // Add kernel info to log.
+    HalOcaInterface::DumpVpKernelInfo(CmdBuffer, *pOsContext, kernelVeboxUpdateDnState, 0, nullptr);
+    // Add vphal param to log.
+    HalOcaInterface::DumpVphalParam(CmdBuffer, *pOsContext, pRenderHal->pVphalOcaDumper);
 
     // Initialize command buffer and insert prolog
     VPHAL_RENDER_CHK_STATUS(pRenderHal->pfnInitCommandBuffer(pRenderHal, &CmdBuffer, nullptr));
@@ -1254,6 +1288,8 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxFlushUpdateStateCmdBuffer()
     MOS_ZeroMemory(&MediaObjectParams, sizeof(MediaObjectParams));
     MediaObjectParams.dwInlineDataSize              = iInlineSize;
     MediaObjectParams.pInlineData                   = &InlineData;
+
+    HalOcaInterface::OnDispatch(CmdBuffer, *pOsContext, *pMhwMiInterface, *pMmioRegisters);
 
 #if VEBOX_AUTO_DENOISE_SUPPORTED
     // Launch Interface Descriptor for DN Update kernel
@@ -1311,6 +1347,8 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxFlushUpdateStateCmdBuffer()
 
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectEndCmd((void*)pRenderHal, pOsInterface, pRenderHal->pMhwMiInterface, &CmdBuffer));
 
+    HalOcaInterface::On1stLevelBBEnd(CmdBuffer, *pOsContext);
+
     if (VpHal_RndrCommonIsMiBBEndNeeded(pOsInterface))
     {
         // Add Batch Buffer end command (HW/OS dependent)
@@ -1318,6 +1356,11 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxFlushUpdateStateCmdBuffer()
     }
 
 finish:
+    if (nullptr == CmdBuffer.pCmdBase || nullptr == pOsInterface)
+    {
+        return eStatus;
+    }
+
     // Failed -> discard all changes in Command Buffer
     if (eStatus != MOS_STATUS_SUCCESS)
     {
@@ -1828,15 +1871,13 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxRenderVeboxCmd(
     MediaPerfProfiler                       *pPerfProfiler = nullptr;
     MOS_CONTEXT                             *pOsContext = nullptr;
     PMHW_MI_MMIOREGISTERS                   pMmioRegisters = nullptr;
-    RenderhalOcaSupport                     *pRenderhalOcaSupport = nullptr;
 
-    MHW_RENDERHAL_CHK_NULL(pVeboxState);
-    MHW_RENDERHAL_CHK_NULL(pVeboxState->m_pRenderHal);
-    MHW_RENDERHAL_CHK_NULL(pVeboxState->m_pRenderHal->pMhwMiInterface);
-    MHW_RENDERHAL_CHK_NULL(pVeboxState->m_pRenderHal->pMhwMiInterface->GetMmioRegisters());
-    MHW_RENDERHAL_CHK_NULL(pVeboxState->m_pRenderHal->pOsInterface);
-    MHW_RENDERHAL_CHK_NULL(pVeboxState->m_pRenderHal->pOsInterface->pOsContext);
-    MHW_RENDERHAL_CHK_NULL(pVeboxState->m_pRenderHal->pfnGetOcaSupport);
+    VPHAL_RENDER_CHK_NULL(pVeboxState);
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal);
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal->pMhwMiInterface);
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal->pMhwMiInterface->GetMmioRegisters());
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal->pOsInterface);
+    VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal->pOsInterface->pOsContext);
 
     eStatus                 = MOS_STATUS_SUCCESS;
     pRenderHal              = pVeboxState->m_pRenderHal;
@@ -1846,17 +1887,19 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxRenderVeboxCmd(
     pPerfProfiler           = pRenderHal->pPerfProfiler;
     pOsContext              = pOsInterface->pOsContext;
     pMmioRegisters          = pMhwMiInterface->GetMmioRegisters();
-    pRenderhalOcaSupport    = &pRenderHal->pfnGetOcaSupport();
 
     VPHAL_RENDER_CHK_STATUS(pVeboxInterface->GetVeboxHeapInfo(
                                 &pVeboxHeap));
     VPHAL_RENDER_CHK_NULL(pVeboxHeap);
 
+    HalOcaInterface::On1stLevelBBStart(CmdBuffer, *pOsContext, pOsInterface->CurrentGpuContextHandle,
+        *pRenderHal->pMhwMiInterface, *pMmioRegisters);
+
+    // Add vphal param to log.
+    HalOcaInterface::DumpVphalParam(CmdBuffer, *pOsContext, pRenderHal->pVphalOcaDumper);
+
     // Initialize command buffer and insert prolog
     VPHAL_RENDER_CHK_STATUS(pRenderHal->pfnInitCommandBuffer(pRenderHal, &CmdBuffer, pGenericPrologParams));
-
-    pRenderhalOcaSupport->On1stLevelBBStart(CmdBuffer, *pOsContext, pOsInterface->CurrentGpuContextHandle,
-        *pRenderHal->pMhwMiInterface, *pMmioRegisters);
 
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectStartCmd((void*)pRenderHal, pOsInterface, pRenderHal->pMhwMiInterface, &CmdBuffer));
 
@@ -1976,7 +2019,7 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxRenderVeboxCmd(
             &CmdBuffer));
     }
 
-    pRenderhalOcaSupport->OnDispatch(CmdBuffer, *pOsContext, *pRenderHal->pMhwMiInterface, *pMmioRegisters);
+    HalOcaInterface::OnDispatch(CmdBuffer, *pOsContext, *pRenderHal->pMhwMiInterface, *pMmioRegisters);
 
     //---------------------------------
     // Send CMD: Vebox_DI_IECP
@@ -2014,7 +2057,7 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxRenderVeboxCmd(
 
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectEndCmd((void*)pRenderHal, pOsInterface, pRenderHal->pMhwMiInterface, &CmdBuffer));
 
-    pRenderhalOcaSupport->On1stLevelBBEnd(CmdBuffer, *pOsContext);
+    HalOcaInterface::On1stLevelBBEnd(CmdBuffer, *pOsContext);
 
     if (pOsInterface->bNoParsingAssistanceInKmd)
     {
@@ -2100,10 +2143,13 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxSendVeboxCmd()
     VPHAL_RENDER_CHK_STATUS(VeboxSendVeboxCmdSetParamBeforeSubmit());
 
     // Flush the command buffer
-    VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnSubmitCommandBuffer(
-        pOsInterface,
-        &CmdBuffer,
-        pVeboxState->bNullHwRenderDnDi));
+    if (!bPhasedSubmission)
+    {
+        VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnSubmitCommandBuffer(
+            pOsInterface,
+            &CmdBuffer,
+            pVeboxState->bNullHwRenderDnDi));
+    }
 
     if (pVeboxState->bNullHwRenderDnDi == false)
     {
@@ -2367,7 +2413,8 @@ void VPHAL_VEBOX_STATE::VeboxSetRenderingFlags(
     pRenderData->bBeCsc             = (IS_VPHAL_OUTPUT_PIPE_VEBOX(pRenderData) &&
                                         pSrc->ColorSpace != pRenderTarget->ColorSpace);
 
-    pRenderData->bProcamp           = (IS_VPHAL_OUTPUT_PIPE_VEBOX(pRenderData)  &&
+    pRenderData->bProcamp           = ((IS_VPHAL_OUTPUT_PIPE_VEBOX(pRenderData) ||
+                                        IS_VPHAL_OUTPUT_PIPE_SFC(pRenderData))  &&
                                         pSrc->pProcampParams                    &&
                                         pSrc->pProcampParams->bEnabled);
 
@@ -4307,6 +4354,8 @@ VPHAL_VEBOX_STATE::VPHAL_VEBOX_STATE(
     m_hvsDenoiser         = nullptr;
     m_hvsKernelBinary     = nullptr;
     m_hvsKernelBinarySize = 0;
+
+    bPhasedSubmission     = false;
 }
 
 VPHAL_VEBOX_STATE::~VPHAL_VEBOX_STATE()
@@ -4465,6 +4514,115 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxSetHVSDNParams(
     }
 
     return eStatus;
+}
+
+//!
+//! \brief Comp can be bypassed when the following conditions are all met
+//!        1. Single Layer input only
+//!        2. Single render target only
+//!        3. Blending Disabled
+//!        4. Interlaced Scaling Disabled
+//!        5. Field Weaving Disabled
+//!        6. LumaKey Disabled
+//!        8. Constriction Disabled
+//!
+bool VPHAL_VEBOX_STATE::IS_COMP_BYPASS_FEASIBLE(bool _bCompNeeded, PCVPHAL_RENDER_PARAMS _pcRenderParams, PVPHAL_SURFACE _pSrcSurface)
+{
+    VPHAL_RENDER_NORMALMESSAGE(
+        "_bCompNeeded %d, \
+         uSrcCount %d, \
+         uDstCount %d, \
+         pBlendingParams %p, \
+         bInterlacedScaling %d, \
+         bFieldWeaving %d, \
+         pLumaKeyParams %p, \
+         pConstriction %p",
+        _bCompNeeded,
+        _pcRenderParams->uSrcCount,
+        _pcRenderParams->uDstCount,
+        _pSrcSurface->pBlendingParams,
+        _pSrcSurface->bInterlacedScaling,
+        _pSrcSurface->bFieldWeaving,
+        _pSrcSurface->pLumaKeyParams,
+        _pcRenderParams->pConstriction);
+
+    return (_bCompNeeded == false &&
+            _pcRenderParams->uSrcCount == 1 &&
+            _pcRenderParams->uDstCount == 1 &&
+            _pSrcSurface->pBlendingParams == nullptr &&
+            _pSrcSurface->bInterlacedScaling == false &&
+            _pSrcSurface->bFieldWeaving == false &&
+            _pSrcSurface->pLumaKeyParams == nullptr &&
+            _pcRenderParams->pConstriction == nullptr);
+}
+
+//!
+//! \brief Vebox can be the output pipe when the following conditions are all met
+//!        1. User feature keys value "Bypass Composition" is enabled.
+//!        2. Single render target only
+//!        3. Src Size = Dst Size
+//!        4. Src Size = Max Src Size
+//!        5. No Colorfill
+//!        6. IEF Disabled
+//!        7. Input is progressive
+//!        8. Rotation Disabled
+//!        9. Variance Query is disabled
+//!        10. Input format is supported by Vebox
+//!        11. RT format is supported by Vebox
+//!        12. 2PassCSC is not supported by Vebox only
+//!        13. Alpha Fill is disabled or when it's enabled, it's not background Alpha Fill mode
+//!        14. Dst parameters top/left are zero.
+//!
+bool VPHAL_VEBOX_STATE::IS_OUTPUT_PIPE_VEBOX_FEASIBLE(PVPHAL_VEBOX_STATE _pVeboxState, PCVPHAL_RENDER_PARAMS _pcRenderParams, PVPHAL_SURFACE _pSrcSurface)
+{
+    VPHAL_RENDER_NORMALMESSAGE(
+        "dwCompBypassMode %d, \
+         _pcRenderParams->uDstCount %d, \
+         SAME_SIZE_RECT(rcSrc, rcDst) %d, \
+         SAME_SIZE_RECT(rcSrc, rcMaxSrc) %d, \
+         SAME_SIZE_RECT(rcDst, pTarget[0]->rcDst) %p, \
+         pIEFParams %d, \
+         SampleType %d, \
+         Rotation %p, \
+         bQueryVariance %d, \
+         IsFormatSupported %p, \
+         IsRTFormatSupported %d, \
+         VeboxIs2PassesCSCNeeded %d, \
+         AlphaMode %p, \
+         rcDst.top %p, \
+         rcDst.left %p",
+        _pVeboxState->dwCompBypassMode,
+        _pcRenderParams->uDstCount,
+        SAME_SIZE_RECT(_pSrcSurface->rcSrc, _pSrcSurface->rcDst),
+        SAME_SIZE_RECT(_pSrcSurface->rcSrc, _pSrcSurface->rcMaxSrc),
+        SAME_SIZE_RECT(_pSrcSurface->rcDst, _pcRenderParams->pTarget[0]->rcDst),
+        _pSrcSurface->pIEFParams,
+        _pSrcSurface->SampleType,
+        _pSrcSurface->Rotation,
+        _pSrcSurface->bQueryVariance,
+        _pVeboxState->IsFormatSupported(_pSrcSurface),
+        _pVeboxState->IsRTFormatSupported(_pSrcSurface, _pcRenderParams->pTarget[0]),
+        _pVeboxState->VeboxIs2PassesCSCNeeded(_pSrcSurface, _pcRenderParams->pTarget[0]),
+        (_pcRenderParams->pCompAlpha == nullptr || _pcRenderParams->pCompAlpha->AlphaMode != VPHAL_ALPHA_FILL_MODE_BACKGROUND),
+        _pSrcSurface->rcDst.top,
+        _pSrcSurface->rcDst.left);
+
+    return (_pVeboxState->dwCompBypassMode != VPHAL_COMP_BYPASS_DISABLED &&
+            _pcRenderParams->uDstCount == 1 &&
+            SAME_SIZE_RECT(_pSrcSurface->rcSrc, _pSrcSurface->rcDst) &&
+            SAME_SIZE_RECT(_pSrcSurface->rcSrc, _pSrcSurface->rcMaxSrc) &&
+            SAME_SIZE_RECT(_pSrcSurface->rcDst, _pcRenderParams->pTarget[0]->rcDst) &&
+            _pSrcSurface->pIEFParams == nullptr &&
+            _pSrcSurface->SampleType == SAMPLE_PROGRESSIVE &&
+            _pSrcSurface->Rotation == VPHAL_ROTATION_IDENTITY &&
+            _pSrcSurface->bQueryVariance == false &&
+            _pVeboxState->IsFormatSupported(_pSrcSurface) &&
+            _pVeboxState->IsRTFormatSupported(_pSrcSurface, _pcRenderParams->pTarget[0]) &&
+            !(_pVeboxState->VeboxIs2PassesCSCNeeded(_pSrcSurface, _pcRenderParams->pTarget[0])) &&
+            (_pcRenderParams->pCompAlpha == nullptr ||
+                _pcRenderParams->pCompAlpha->AlphaMode != VPHAL_ALPHA_FILL_MODE_BACKGROUND) &&
+            _pSrcSurface->rcDst.top == 0 &&
+            _pSrcSurface->rcDst.left == 0);
 }
 
 VPHAL_VEBOX_RENDER_DATA::~VPHAL_VEBOX_RENDER_DATA()

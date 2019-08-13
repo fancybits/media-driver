@@ -55,8 +55,8 @@ CmSurface2DRTBase::CmSurface2DRTBase(
     m_handle(handle),
     m_pitch(pitch),
     m_format(format),
-    m_numAliases(0),
     m_umdResource(nullptr),
+    m_numAliases(0),
     m_frameType(CM_FRAME)
     {
         CmSurface::SetMemoryObjectControl(MEMORY_OBJECT_CONTROL_UNKNOW, CM_USE_PTE, 0);
@@ -410,6 +410,7 @@ CM_RT_API int32_t CmSurface2DRTBase::SetCompressionMode(MEMCOMP_STATE mmcMode)
     CM_CHK_NULL_RETURN_CMERROR(cmData->cmHalState);
 
     CM_CHK_MOSSTATUS_GOTOFINISH_CMERROR(cmData->cmHalState->pfnSetCompressionMode(cmData->cmHalState, mmcModeParam));
+    ++ m_propertyIndex;
 
 finish:
     return hr;
@@ -692,6 +693,7 @@ CM_RT_API int32_t CmSurface2DRTBase::WriteSurfaceHybridStrides( const unsigned c
     else
     {
         CM_CHK_CMSTATUS_GOTOFINISH(cmDevice->CreateQueue(cmQueue));
+
         if(IsGPUCopy((void*)sysMem, widthInBytes, m_height, horizontalStride))
         {
             CmEvent *tempEvent = CM_NO_EVENT;
@@ -991,6 +993,7 @@ CM_RT_API int32_t CmSurface2DRTBase::ReadSurfaceHybridStrides(unsigned char* sys
     else
     {
         CM_CHK_CMSTATUS_GOTOFINISH(cmDevice->CreateQueue(cmQueue));
+
         if (IsGPUCopy((void*)sysMem, widthInBytes, m_height, horizontalStride))
         {
             CmEvent *tempEvent = CM_NO_EVENT;
@@ -1188,15 +1191,12 @@ finish:
     return hr;
 }
 
+
 int32_t CmSurface2DRTBase::SetMemoryObjectControl( MEMORY_OBJECT_CONTROL memCtrl, MEMORY_TYPE memType, uint32_t age)
 {
-    INSERT_API_CALL_LOG();
-
-    CM_RETURN_CODE  hr = CM_SUCCESS;
+    int32_t  hr = CM_SUCCESS;
     uint16_t mocs = 0;
-
-    CmSurface::SetMemoryObjectControl( memCtrl, memType, age );
-
+    hr = CmSurface::SetMemoryObjectControl(memCtrl, memType, age);
     CmDeviceRT *cmDevice = nullptr;
     m_surfaceMgr->GetCmDevice(cmDevice);
     CM_CHK_NULL_RETURN_CMERROR(cmDevice);
@@ -1205,16 +1205,38 @@ int32_t CmSurface2DRTBase::SetMemoryObjectControl( MEMORY_OBJECT_CONTROL memCtrl
     CM_CHK_NULL_RETURN_CMERROR(cmData->cmHalState);
 
     mocs = (m_memObjCtrl.mem_ctrl << 8) | (m_memObjCtrl.mem_type<<4) | m_memObjCtrl.age;
-
     CM_CHK_MOSSTATUS_GOTOFINISH_CMERROR(cmData->cmHalState->pfnSetSurfaceMOCS(cmData->cmHalState, m_handle, mocs, ARG_KIND_SURFACE_2D));
-
+    ++ m_propertyIndex;
 finish:
     return hr;
 }
 
 CM_RT_API int32_t CmSurface2DRTBase::SelectMemoryObjectControlSetting(MEMORY_OBJECT_CONTROL memCtrl)
 {
+    INSERT_API_CALL_LOG();
+    ++ m_propertyIndex;
     return SetMemoryObjectControl(memCtrl, CM_USE_PTE, 0);
+}
+
+CMRT_UMD_API int32_t CmSurface2DRTBase::SetResourceUsage(const MOS_HW_RESOURCE_DEF mosUsage)
+{
+    INSERT_API_CALL_LOG();
+    int32_t  hr = CM_SUCCESS;
+    uint16_t mocs = 0;
+    hr = CmSurface::SetResourceUsage(mosUsage);
+
+    CmDeviceRT *cmDevice = nullptr;
+    m_surfaceMgr->GetCmDevice(cmDevice);
+    CM_CHK_NULL_RETURN_CMERROR(cmDevice);
+    PCM_CONTEXT_DATA cmData = (PCM_CONTEXT_DATA)cmDevice->GetAccelData();
+    CM_CHK_NULL_RETURN_CMERROR(cmData);
+    CM_CHK_NULL_RETURN_CMERROR(cmData->cmHalState);
+
+    mocs = (m_memObjCtrl.mem_ctrl << 8) | (m_memObjCtrl.mem_type << 4) | m_memObjCtrl.age;
+    CM_CHK_MOSSTATUS_GOTOFINISH_CMERROR(cmData->cmHalState->pfnSetSurfaceMOCS(cmData->cmHalState, m_handle, mocs, ARG_KIND_SURFACE_2D));
+    ++ m_propertyIndex;
+finish:
+    return hr;
 }
 
 int32_t CmSurface2DRTBase::Create2DAlias(SurfaceIndex* & aliasIndex)
@@ -1292,6 +1314,8 @@ CM_RT_API int32_t CmSurface2DRTBase::SetSurfaceStateParam( SurfaceIndex *surfInd
 
     CM_CHK_MOSSTATUS_GOTOFINISH_CMERROR( cmData->cmHalState->pfnSet2DSurfaceStateParam(cmData->cmHalState, &inParam, aliasIndex, m_handle) );
 
+    ++ m_propertyIndex;
+
 finish:
     return hr;
 }
@@ -1337,18 +1361,29 @@ void CmSurface2DRTBase::Log(std::ostringstream &oss)
 #endif
 }
 
-void CmSurface2DRTBase::DumpContent(uint32_t kernelNumber, char *kernelName, int32_t taskId, uint32_t argIndex)
+void CmSurface2DRTBase::DumpContent(uint32_t kernelNumber, char *kernelName, int32_t taskId, uint32_t argIndex, uint32_t vectorIndex)
 {
 #if MDF_SURFACE_CONTENT_DUMP
     std::ostringstream         outputFileName;
-    static uint32_t            surface2DDumpNumber = 0;
-    char                       fileNamePrefix[MAX_PATH];
-    std::ofstream              outputFileStream;
 
     outputFileName << "t_" << taskId
         << "_k_" << kernelNumber
         << "_" << kernelName
         << "_argi_" << argIndex
+        << "_vector_index_" << vectorIndex;
+
+    DumpContentToFile(outputFileName.str().c_str());
+#endif
+}
+
+void CmSurface2DRTBase::DumpContentToFile(const char *filename)
+{
+#if MDF_SURFACE_CONTENT_DUMP
+    static uint32_t surface2DDumpNumber = 0;
+    std::ostringstream outputFileName;
+    char fileNamePrefix[MAX_PATH] = {0};
+
+    outputFileName << filename
         << "_surf2d_surfi_"<< m_index->get_data()
         << "_w_" << m_width
         << "_h_" << m_height
@@ -1357,7 +1392,7 @@ void CmSurface2DRTBase::DumpContent(uint32_t kernelNumber, char *kernelName, int
         << "_" << surface2DDumpNumber;
 
     GetLogFileLocation(outputFileName.str().c_str(), fileNamePrefix);
-
+    std::ofstream outputFileStream;
     // Open file
     outputFileStream.open(fileNamePrefix, std::ios::app);
     CM_ASSERT(outputFileStream);
@@ -1414,6 +1449,7 @@ void CmSurface2DRTBase::DumpContent(uint32_t kernelNumber, char *kernelName, int
 
     outputFileStream.write(&surface[0], surfaceSize);
     outputFileStream.close();
+
     surface2DDumpNumber++;
 #endif
 }
@@ -1422,6 +1458,7 @@ CM_RT_API int32_t CmSurface2DRTBase::SetProperty(CM_FRAME_TYPE frameType)
 {
     m_frameType = frameType;
     m_surfaceMgr->UpdateSurface2DTableFrameType(m_handle, frameType);
+    ++ m_propertyIndex;
     return CM_SUCCESS;
 }
 
@@ -1444,6 +1481,7 @@ int32_t CmSurface2DRTBase::UpdateSurfaceProperty(uint32_t width, uint32_t height
     m_height = height;
     m_pitch = pitch;
     m_format = format;
+    ++ m_propertyIndex;
     return CM_SUCCESS;
 }
 

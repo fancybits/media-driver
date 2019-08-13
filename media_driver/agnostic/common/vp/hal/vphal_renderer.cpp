@@ -202,19 +202,25 @@ void VpHal_SaveRestorePrimaryFwdRefs(
 //! \details  The surface rects and width/height need to be aligned according to the surface format
 //! \param    [in,out] pSurface
 //!           Pointer to the surface
+//! \param    [in] formatForDstRect
+//!           Format for Dst Rect
 //! \return   MOS_STATUS
 //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
 //!
 MOS_STATUS VpHal_RndrRectSurfaceAlignment(
-    PVPHAL_SURFACE       pSurface)
+    PVPHAL_SURFACE       pSurface,
+    MOS_FORMAT           formatForDstRect)
 {
     uint16_t   wWidthAlignUnit;
     uint16_t   wHeightAlignUnit;
+    uint16_t   wWidthAlignUnitForDstRect;
+    uint16_t   wHeightAlignUnitForDstRect;
     MOS_STATUS eStatus;
 
     eStatus = MOS_STATUS_SUCCESS;
 
     VpHal_RndrGetAlignUnit(&wWidthAlignUnit, &wHeightAlignUnit, pSurface->Format);
+    VpHal_RndrGetAlignUnit(&wWidthAlignUnitForDstRect, &wHeightAlignUnitForDstRect, formatForDstRect);
 
     // The source rectangle is floored to the aligned unit to
     // get rid of invalid data(ex: an odd numbered src rectangle with NV12 format
@@ -227,11 +233,11 @@ MOS_STATUS VpHal_RndrRectSurfaceAlignment(
 
     // The Destination rectangle is rounded to the upper alignment unit to prevent the loss of
     // data which was present in the source rectangle
-    pSurface->rcDst.bottom = MOS_ALIGN_CEIL((uint32_t)pSurface->rcDst.bottom, wHeightAlignUnit);
-    pSurface->rcDst.right  = MOS_ALIGN_CEIL((uint32_t)pSurface->rcDst.right, wWidthAlignUnit);
+    pSurface->rcDst.bottom = MOS_ALIGN_CEIL((uint32_t)pSurface->rcDst.bottom, wHeightAlignUnitForDstRect);
+    pSurface->rcDst.right  = MOS_ALIGN_CEIL((uint32_t)pSurface->rcDst.right, wWidthAlignUnitForDstRect);
 
-    pSurface->rcDst.top    = MOS_ALIGN_FLOOR((uint32_t)pSurface->rcDst.top, wHeightAlignUnit);
-    pSurface->rcDst.left   = MOS_ALIGN_FLOOR((uint32_t)pSurface->rcDst.left, wWidthAlignUnit);
+    pSurface->rcDst.top    = MOS_ALIGN_FLOOR((uint32_t)pSurface->rcDst.top, wHeightAlignUnitForDstRect);
+    pSurface->rcDst.left   = MOS_ALIGN_FLOOR((uint32_t)pSurface->rcDst.left, wWidthAlignUnitForDstRect);
 
     if (pSurface->SurfType == SURF_OUT_RENDERTARGET)
     {
@@ -614,7 +620,7 @@ MOS_STATUS VphalRenderer::ProcessRenderParameter(
             pRenderPassData->uiPrimaryIndex     = uiIndex;
 
             // align rectangle and source surface
-            VPHAL_RENDER_CHK_STATUS(VpHal_RndrRectSurfaceAlignment(pSrcSurface));
+            VPHAL_RENDER_CHK_STATUS(VpHal_RndrRectSurfaceAlignment(pSrcSurface, pRenderParams->pTarget[0] ? pRenderParams->pTarget[0]->Format : pSrcSurface->Format));
 
             // update max Src rect in both pRenderer and primary surface
             VpHal_RenderInitMaxRect(this, pSrcSurface);
@@ -997,7 +1003,7 @@ bool VphalRenderer::IsFormatSupported(
     VPHAL_RENDER_ASSERT(pcRenderParams);
 
     // Protection mechanism
-    // P010 output support from BXT+
+    // P010 output support from SKL+
     if (m_pSkuTable)
     {
         if (pcRenderParams->pTarget[0])
@@ -1075,7 +1081,7 @@ MOS_STATUS VphalRenderer::Render(
         goto finish;
     }
 
-    // Protection mechanism, Only BXT+ support P010 output.
+    // Protection mechanism, Only SKL+ support P010 output.
     if (IsFormatSupported(pcRenderParams) == false)
     {
         VPHAL_RENDER_ASSERTMESSAGE("Invalid Render Target Output Format.");
@@ -1153,7 +1159,7 @@ MOS_STATUS VphalRenderer::Render(
     // align rectangle and source surface
     for (uiDst = 0; uiDst < RenderParams.uDstCount; uiDst++)
     {
-        VPHAL_RENDER_CHK_STATUS(VpHal_RndrRectSurfaceAlignment(RenderParams.pTarget[uiDst]));
+        VPHAL_RENDER_CHK_STATUS(VpHal_RndrRectSurfaceAlignment(RenderParams.pTarget[uiDst], RenderParams.pTarget[uiDst]->Format));
     }
 
     for (uiCurrentRenderPass = 0;
@@ -1413,7 +1419,12 @@ MOS_STATUS VphalRenderer::Initialize(
            pSettings,
            pKernelDllState))
 
-    AllocateDebugDumper();
+    eStatus = AllocateDebugDumper();
+    if (eStatus != MOS_STATUS_SUCCESS)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("Debug dumper allocate failed!");
+        goto finish;
+    }
 
     if (MEDIA_IS_SKU(m_pSkuTable, FtrVpDisableFor4K))
     {
@@ -1440,15 +1451,18 @@ VphalRenderer::~VphalRenderer()
     VPHAL_RENDER_CHK_NULL_NO_STATUS(m_pOsInterface);
 
 #if defined(LINUX)
-    MOS_USER_FEATURE_VALUE_WRITE_DATA   userFeatureWriteData;
-    MOS_ZeroMemory(&userFeatureWriteData, sizeof(userFeatureWriteData));
-    userFeatureWriteData.Value.i32Data  = m_reporting->OutputPipeMode;
-    userFeatureWriteData.ValueID        = __VPHAL_VEBOX_OUTPUTPIPE_MODE_ID;
-    MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
-    MOS_ZeroMemory(&userFeatureWriteData, sizeof(userFeatureWriteData));
-    userFeatureWriteData.Value.bData  = m_reporting->VEFeatureInUse;
-    userFeatureWriteData.ValueID        = __VPHAL_VEBOX_FEATURE_INUSE_ID;
-    MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+    if (m_reporting)
+    {
+        MOS_USER_FEATURE_VALUE_WRITE_DATA   userFeatureWriteData;
+        MOS_ZeroMemory(&userFeatureWriteData, sizeof(userFeatureWriteData));
+        userFeatureWriteData.Value.i32Data  = m_reporting->OutputPipeMode;
+        userFeatureWriteData.ValueID        = __VPHAL_VEBOX_OUTPUTPIPE_MODE_ID;
+        MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+        MOS_ZeroMemory(&userFeatureWriteData, sizeof(userFeatureWriteData));
+        userFeatureWriteData.Value.bData  = m_reporting->VEFeatureInUse;
+        userFeatureWriteData.ValueID        = __VPHAL_VEBOX_FEATURE_INUSE_ID;
+        MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+    }
 #endif
 
     FreeIntermediateSurfaces();
@@ -1652,7 +1666,7 @@ VphalRenderer::VphalRenderer(
     m_surfaceDumper(nullptr),
     m_parameterDumper(nullptr),
 #endif
-    StatusTable(),
+    m_statusTable(nullptr),
     maxSrcRect(),
     m_pRenderHal(pRenderHal),
     m_pOsInterface(pRenderHal ? pRenderHal->pOsInterface : nullptr),
@@ -2000,18 +2014,73 @@ finish:
     return;
 }
 
-void VphalRenderer::AllocateDebugDumper()
+MOS_STATUS VphalRenderer::AllocateDebugDumper()
 {
     PRENDERHAL_INTERFACE pRenderHal = m_pRenderHal;
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
     // Allocate feature report
     m_reporting = MOS_New(VphalFeatureReport);
+    if (m_reporting == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("Invalid null pointer!");
+        eStatus = MOS_STATUS_NULL_POINTER;
+        goto finish;
+    }
+
+#if (_DEBUG || _RELEASE_INTERNAL)
 
     // Initialize Surface Dumper
-    VPHAL_DBG_SURF_DUMP_CREATE();
+    VPHAL_DBG_SURF_DUMP_CREATE()
+    if (m_surfaceDumper == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("Invalid null pointer!");
+        eStatus = MOS_STATUS_NULL_POINTER;
+        goto finish;
+    }
 
     // Initialize State Dumper
-    VPHAL_DBG_STATE_DUMPPER_CREATE();
+    VPHAL_DBG_STATE_DUMPPER_CREATE()
+    if (pRenderHal->pStateDumper == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("Invalid null pointer!");
+        eStatus = MOS_STATUS_NULL_POINTER;
+        goto finish;
+    }
 
-    VPHAL_DBG_PARAMETERS_DUMPPER_CREATE();
+    VPHAL_DBG_PARAMETERS_DUMPPER_CREATE()
+    if (m_parameterDumper == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("Invalid null pointer!");
+        eStatus = MOS_STATUS_NULL_POINTER;
+        goto finish;
+    }
+
+#endif
+
+finish:
+    if (eStatus != MOS_STATUS_SUCCESS)
+    {
+        if (m_reporting)
+        {
+            MOS_Delete(m_reporting);
+            m_reporting = nullptr;
+        }
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+
+        if (m_surfaceDumper)
+        {
+            VPHAL_DBG_SURF_DUMP_DESTORY(m_surfaceDumper)
+        }
+
+        if (pRenderHal->pStateDumper)
+        {
+            VPHAL_DBG_STATE_DUMPPER_DESTORY(pRenderHal->pStateDumper)
+        }
+#endif
+
+    }
+
+    return eStatus;
 }

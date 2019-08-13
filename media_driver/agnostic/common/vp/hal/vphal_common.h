@@ -596,7 +596,9 @@ typedef enum _VPHAL_DI_REPORT_MODE
 //!
 typedef enum _VPHAL_COLORPACK
 {
-    VPHAL_COLORPACK_420 = 0,
+    VPHAL_COLORPACK_400 = 0,
+    VPHAL_COLORPACK_420,
+    VPHAL_COLORPACK_411,
     VPHAL_COLORPACK_422,
     VPHAL_COLORPACK_444,
     VPHAL_COLORPACK_UNKNOWN
@@ -618,7 +620,11 @@ typedef enum _VPHAL_OUTPUT_PIPE_MODE
 //! \def SET_VPHAL_OUTPUT_PIPE(_a, _Pipe)
 //! Set the output pipe
 //!
-#define SET_VPHAL_OUTPUT_PIPE(_a, _Pipe)              (_a->OutputPipe =  _Pipe)
+#define SET_VPHAL_OUTPUT_PIPE(_a, _Pipe)                           \
+    {                                                              \
+        (_a->OutputPipe = _Pipe);                                  \
+        VPHAL_RENDER_NORMALMESSAGE("VPHAL_OUTPUT_PIPE %d", _Pipe); \
+    }
 
 //!
 //! \def IS_VPHAL_OUTPUT_PIPE_INVALID(_a)

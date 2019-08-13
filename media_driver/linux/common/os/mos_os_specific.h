@@ -44,6 +44,7 @@
 typedef unsigned int MOS_OS_FORMAT;
 
 class GraphicsResource;
+class GraphicsResourceNext;
 class AuxTableMgr;
 class MosOcaInterface;
 
@@ -281,6 +282,7 @@ struct _MOS_SPECIFIC_RESOURCE
     uint64_t                user_provided_va;
     // for MODS Wrapper
     GraphicsResource*       pGfxResource;
+    GraphicsResourceNext*   pGfxResourceNext;
     bool                    bConvertedFromDDIResource;
 
 };
@@ -491,6 +493,7 @@ struct _MOS_OS_CONTEXT
     // Controlled OS resources (for analysis)
     MOS_BUFMGR       *bufmgr;
     MOS_LINUX_CONTEXT   *intel_context;
+    int32_t             submit_fence;
     uint32_t            uEnablePerfTag;           //!< 0: Do not pass PerfTag to KMD, perf data collection disabled;
                                                   //!< 1: Pass PerfTag to MVP driver, perf data collection enabled;
                                                   //!< 2: Pass PerfTag to DAPC driver, perf data collection enabled;
@@ -514,6 +517,7 @@ struct _MOS_OS_CONTEXT
     // For modulized GPU context
     void*               m_gpuContextMgr;
     void*               m_cmdBufMgr;
+    void*               m_osDeviceContext = nullptr;
 
     //For 2VD box
     int32_t             bKMDHasVCS2;

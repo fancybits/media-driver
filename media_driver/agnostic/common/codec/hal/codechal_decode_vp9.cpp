@@ -1143,6 +1143,7 @@ MOS_STATUS CodechalDecodeVp9::SetFrameStates ()
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_DECODE, PERF_LEVEL_HAL);
     CODECHAL_DECODE_FUNCTION_ENTER;
 
     CODECHAL_DECODE_CHK_NULL_RETURN(m_decodeParams.m_destSurface);
@@ -1494,7 +1495,9 @@ MOS_STATUS CodechalDecodeVp9 :: InitPicStateMhwParams()
         }
     }
 
+#ifdef _MMC_SUPPORTED
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_mmc->SetPipeBufAddr(m_picMhwParams.PipeBufAddrParams));
+#endif
 
     if (m_streamOutEnabled)
     {
@@ -1502,9 +1505,11 @@ MOS_STATUS CodechalDecodeVp9 :: InitPicStateMhwParams()
             &(m_streamOutBuffer[m_streamOutCurrBufIdx]);
     }
 
+#ifdef _MMC_SUPPORTED
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_mmc->CheckReferenceList(m_picMhwParams.PipeBufAddrParams));
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_mmc->SetRefrenceSync(m_disableDecodeSyncLock, m_disableLockForTranscode));
+#endif
 
     m_picMhwParams.PipeBufAddrParams->presMfdDeblockingFilterRowStoreScratchBuffer =
         &m_resDeblockingFilterLineRowStoreScratchBuffer;
@@ -1701,6 +1706,7 @@ MOS_STATUS CodechalDecodeVp9 :: DecodeStateLevel()
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_DECODE, PERF_LEVEL_HAL);
     CODECHAL_DECODE_FUNCTION_ENTER;
 
     if (m_secureDecoder && m_hcpDecPhase == CodechalHcpDecodePhaseInitialized)
@@ -1742,6 +1748,8 @@ MOS_STATUS CodechalDecodeVp9 :: DecodeStateLevel()
 MOS_STATUS CodechalDecodeVp9 :: DecodePrimitiveLevel()
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_DECODE, PERF_LEVEL_HAL);
 
     CODECHAL_DECODE_FUNCTION_ENTER;
 

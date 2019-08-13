@@ -182,6 +182,10 @@
 #define CM_SVM_ACCESS_FLAG_ATOMICS           (1 << 1)                            //Crosse IA/GT atomics supported SVM buffer, need CM_SVM_ACCESS_FLAG_FINE_GRAINED flag is set as well
 #define CM_SVM_ACCESS_FLAG_DEFAULT           CM_SVM_ACCESS_FLAG_COARSE_GRAINED   //default is coarse-grained SVM buffer
 
+#define CM_BUFFER_STATELESS_CREATE_OPTION_GFX_MEM 0
+#define CM_BUFFER_STATELESS_CREATE_OPTION_SYS_MEM 1
+#define CM_BUFFER_STATELESS_CREATE_OPTION_DEGAULT CM_BUFFER_STATELESS_CREATE_OPTION_GFX_MEM
+
 //**********************************************************************
 // OS-specific includings and types
 //**********************************************************************
@@ -298,6 +302,8 @@ typedef enum _CM_RETURN_CODE
     CM_FAILED_TO_CREATE_CURBE_SURFACE           = -100,
     CM_INVALID_CAP_NAME                         = -101,
     CM_INVALID_PARAM_FOR_CREATE_QUEUE_EX        = -102,
+    CM_INVALID_CREATE_OPTION_FOR_BUFFER_STATELESS = -103,
+    CM_INVALID_KERNEL_ARG_POINTER                 = -104,
 
     /*
      * RANGE <=-10000 FOR INTERNAL ERROR CODE
@@ -324,16 +330,11 @@ typedef enum _CM_PIXEL_TYPE
 
 enum GPU_PLATFORM{
     PLATFORM_INTEL_UNKNOWN     = 0,
-    PLATFORM_INTEL_SNB         = 1,
-    PLATFORM_INTEL_IVB         = 2,
-    PLATFORM_INTEL_HSW         = 3,
     PLATFORM_INTEL_BDW         = 4,
-    PLATFORM_INTEL_VLV         = 5,
-    PLATFORM_INTEL_CHV         = 6,
     PLATFORM_INTEL_SKL         = 7,
     PLATFORM_INTEL_BXT         = 8,
-    PLATFORM_INTEL_CNL         = 9,
     PLATFORM_INTEL_KBL         = 11,
+    PLATFORM_INTEL_ICLLP       = 13,
     PLATFORM_INTEL_GLK         = 16,
     PLATFORM_INTEL_CFL         = 17,
 };
@@ -377,7 +378,8 @@ typedef enum _CM_DEVICE_CAP_NAME
     CAP_USER_DEFINED_THREAD_COUNT_PER_THREAD_GROUP,
     CAP_SURFACE2DUP_COUNT,
     CAP_PLATFORM_INFO,
-    CAP_MAX_BUFFER_SIZE
+    CAP_MAX_BUFFER_SIZE,
+    CAP_MAX_SUBDEV_COUNT //for app to retrieve the total count of sub devices
 } CM_DEVICE_CAP_NAME;
 
 typedef enum _CM_FASTCOPY_OPTION
@@ -1256,6 +1258,7 @@ class CmProgram;
 class CmBuffer;
 class CmBufferUP;
 class CmBufferSVM;
+class CmBufferStateless;
 class CmSurface2D;
 class CmSurface2DUP;
 class CmSurface3D;
@@ -1314,6 +1317,8 @@ public:
     CM_RT_API virtual INT DeAssociateThreadSpace(CmThreadSpace* & pTS) = 0;
     CM_RT_API virtual INT DeAssociateThreadGroupSpace(CmThreadGroupSpace* & pTGS) = 0;
     CM_RT_API virtual INT QuerySpillSize(unsigned int &spillSize) = 0;
+    CM_RT_API virtual INT SetKernelArgPointer(UINT index, size_t size, const void *pValue) = 0;
+
 protected:
    ~CmKernel(){};
 };
@@ -1328,6 +1333,7 @@ public:
     CM_RT_API virtual INT AddConditionalEnd(SurfaceIndex* pSurface, UINT offset, CM_CONDITIONAL_END_PARAM *pCondParam) = 0;
     CM_RT_API virtual INT SetProperty(const CM_TASK_CONFIG &taskConfig) = 0;
     CM_RT_API virtual INT AddKernelWithConfig( CmKernel *pKernel, const CM_EXECUTION_CONFIG *config ) = 0;
+    CM_RT_API virtual INT GetProperty(CM_TASK_CONFIG &taskConfig) = 0;
 protected:
    ~CmTask(){};
 }; 
@@ -1361,6 +1367,21 @@ public:
     CM_RT_API virtual INT GetAddress( void * &pAddr) = 0;
 protected:
     ~CmBufferSVM(){};
+};
+
+class CmBufferStateless
+{
+public:
+    CM_RT_API virtual INT GetGfxAddress(uint64_t &gfxAddr) = 0;
+    CM_RT_API virtual INT GetSysAddress(void *&pSysAddr) = 0;
+    CM_RT_API virtual INT ReadSurface(unsigned char *pSysMem,
+                                      CmEvent *pEvent,
+                                      uint64_t sysMemSize = 0xFFFFFFFFFFFFFFFFULL) = 0;
+    CM_RT_API virtual INT WriteSurface(const unsigned char *pSysMem,
+                                       CmEvent *pEvent,
+                                       uint64_t sysMemSize = 0xFFFFFFFFFFFFFFFFULL) = 0;
+protected:
+    ~CmBufferStateless() {};
 };
 
 class CmSurface2DUP

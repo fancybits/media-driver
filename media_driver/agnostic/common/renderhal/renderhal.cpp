@@ -31,6 +31,7 @@
 #include "renderhal_platform_interface.h"
 #include "media_interfaces_renderhal.h"
 #include "media_interfaces_mhw.h"
+#include "hal_oca_interface.h"
 
 extern const SURFACE_STATE_TOKEN_COMMON g_cInit_SURFACE_STATE_TOKEN_COMMON =
 {
@@ -559,12 +560,12 @@ extern const MHW_SURFACE_PLANES g_cRenderHal_SurfacePlanes[RENDERHAL_PLANES_DEFI
             { MHW_GENERIC_PLANE, 1, 1, 1, 1, 2, 0, MHW_GFX3DSTATE_SURFACEFORMAT_R16_UNORM }
         }
     },
-    // RENDERHAL_PLANES_Y8
+        // RENDERHAL_PLANES_Y8
     {   1,
         {
             { MHW_GENERIC_PLANE, 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_PLANAR_411_8 }
         }
-    },
+    },    
     // RENDERHAL_PLANES_Y1
     {   1,
         {
@@ -787,6 +788,12 @@ extern const MHW_SURFACE_PLANES g_cRenderHal_SurfacePlanes[RENDERHAL_PLANES_DEFI
     {   1,
         {
             { MHW_GENERIC_PLANE, 1, 1, 1, 1, 0, 0, MHW_GFX3DSTATE_SURFACEFORMAT_R32G32B32A32_FLOAT }
+        }
+    },
+        //RENDERHAL_PLANES_Y8_ADV
+    {   1,
+        {
+            { MHW_GENERIC_PLANE, 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM }
         }
     }
 };
@@ -2004,6 +2011,9 @@ int32_t RenderHal_LoadKernel(
         }
     }
 
+    // The kernel size to be dumped in oca buffer.
+    pStateHeap->iKernelUsedForDump = iKernelSize;
+
     // Kernel already loaded: refresh timer; return allocation index
     if (iKernelAllocationID < iMaxKernels)
     {
@@ -2031,7 +2041,6 @@ int32_t RenderHal_LoadKernel(
         iSize    = MOS_ALIGN_CEIL(iKernelSize, pRenderHal->StateHeapSettings.iKernelBlockSize);
 
         // Update heap
-        pStateHeap->iKernelUsedForDump = pStateHeap->iKernelUsed + iKernelSize;
         pStateHeap->iKernelUsed += iSize;
 
         // Load kernel
@@ -2660,6 +2669,13 @@ MOS_STATUS RenderHal_AssignSurfaceState(
     pSurfaceEntry->dwSurfStateOffset    = (uint32_t)-1;                         // Each platform to setup
     pSurfaceEntry->pSurfaceState        = pStateHeap->pSshBuffer + dwOffset;
     pSurfaceEntry->pSurface             = (PMOS_SURFACE)MOS_AllocAndZeroMemory(sizeof(MOS_SURFACE));
+    if (pSurfaceEntry->pSurface == nullptr)
+    {
+        MHW_RENDERHAL_ASSERTMESSAGE("Allocating Surface failed!");
+        eStatus = MOS_STATUS_NO_SPACE;
+        goto finish;
+    }
+
     *ppSurfaceEntry                     = pSurfaceEntry;
 
     // Increment the Current Surface State Entry
@@ -3174,6 +3190,9 @@ MOS_STATUS RenderHal_GetSurfaceStateEntries(
                     PlaneDefinition = RENDERHAL_PLANES_Y8;
                 }
                 break;
+            case Format_Y8:
+                PlaneDefinition = RENDERHAL_PLANES_Y8_ADV;
+                break;
 
             case Format_L8:
             case Format_R8UN:
@@ -3477,7 +3496,7 @@ MOS_STATUS RenderHal_GetSurfaceStateEntries(
                 break;
 
             case Format_Y8:
-                PlaneDefinition = RENDERHAL_PLANES_Y8;
+                PlaneDefinition = RENDERHAL_PLANES_R8;
                 break;
 
             case Format_Y1:
@@ -4317,7 +4336,6 @@ MOS_STATUS RenderHal_SendCurbeLoad(
     PMOS_INTERFACE        pOsInterface = nullptr;
     MOS_CONTEXT           *pOsContext = nullptr;
     MOS_OCA_BUFFER_HANDLE hOcaBuf = 0;
-    RenderhalOcaSupport   *pRenderhalOcaSupport = nullptr;
 
     //-----------------------------------------
     MHW_RENDERHAL_CHK_NULL(pRenderHal);
@@ -4327,14 +4345,12 @@ MOS_STATUS RenderHal_SendCurbeLoad(
     MHW_RENDERHAL_CHK_NULL(pRenderHal->pStateHeap->pCurMediaState);
     MHW_RENDERHAL_CHK_NULL(pRenderHal->pOsInterface);
     MHW_RENDERHAL_CHK_NULL(pRenderHal->pOsInterface->pOsContext);
-    MHW_RENDERHAL_CHK_NULL(pRenderHal->pfnGetOcaSupport);
     //-----------------------------------------
 
     eStatus                 = MOS_STATUS_SUCCESS;
     pStateHeap              = pRenderHal->pStateHeap;
     pOsInterface            = pRenderHal->pOsInterface;
     pOsContext              = pOsInterface->pOsContext;
-    pRenderhalOcaSupport    = &pRenderHal->pfnGetOcaSupport();
 
     // CURBE size is in bytes
     if (pStateHeap->pCurMediaState->iCurbeOffset != 0)
@@ -4346,7 +4362,7 @@ MOS_STATUS RenderHal_SendCurbeLoad(
 
         MHW_RENDERHAL_CHK_STATUS(pRenderHal->pMhwRenderInterface->AddMediaCurbeLoadCmd(pCmdBuffer, &CurbeLoadParams));
 
-        pRenderhalOcaSupport->OnIndirectState(*pCmdBuffer, *pOsContext,pRenderHal->StateBaseAddressParams.presDynamicState,
+        HalOcaInterface::OnIndirectState(*pCmdBuffer, *pOsContext,pRenderHal->StateBaseAddressParams.presDynamicState,
             CurbeLoadParams.dwCURBEDataStartAddress, false, CurbeLoadParams.dwCURBETotalDataLength);
     }
 
@@ -4364,7 +4380,6 @@ MOS_STATUS RenderHal_SendMediaIdLoad(
     PMOS_INTERFACE        pOsInterface = nullptr;
     MOS_CONTEXT           *pOsContext = nullptr;
     MOS_OCA_BUFFER_HANDLE hOcaBuf = 0;
-    RenderhalOcaSupport   *pRenderhalOcaSupport = nullptr;
 
     //-----------------------------------------
     MHW_RENDERHAL_CHK_NULL(pRenderHal);
@@ -4374,14 +4389,12 @@ MOS_STATUS RenderHal_SendMediaIdLoad(
     MHW_RENDERHAL_CHK_NULL(pRenderHal->pMhwRenderInterface);
     MHW_RENDERHAL_CHK_NULL(pRenderHal->pOsInterface);
     MHW_RENDERHAL_CHK_NULL(pRenderHal->pOsInterface->pOsContext);
-    MHW_RENDERHAL_CHK_NULL(pRenderHal->pfnGetOcaSupport);
     //-----------------------------------------
 
     eStatus                 = MOS_STATUS_SUCCESS;
     pStateHeap              = pRenderHal->pStateHeap;
     pOsInterface            = pRenderHal->pOsInterface;
     pOsContext              = pOsInterface->pOsContext;
-    pRenderhalOcaSupport    = &pRenderHal->pfnGetOcaSupport();
 
     IdLoadParams.pKernelState                     = nullptr;
     IdLoadParams.dwInterfaceDescriptorStartOffset = pStateHeap->pCurMediaState->dwOffset +  pStateHeap->dwOffsetMediaID;
@@ -4389,7 +4402,7 @@ MOS_STATUS RenderHal_SendMediaIdLoad(
 
     MHW_RENDERHAL_CHK_STATUS(pRenderHal->pMhwRenderInterface->AddMediaIDLoadCmd(pCmdBuffer, &IdLoadParams));
 
-    pRenderhalOcaSupport->OnIndirectState(*pCmdBuffer, *pOsContext, pRenderHal->StateBaseAddressParams.presDynamicState,
+    HalOcaInterface::OnIndirectState(*pCmdBuffer, *pOsContext, pRenderHal->StateBaseAddressParams.presDynamicState,
         IdLoadParams.dwInterfaceDescriptorStartOffset, false, IdLoadParams.dwInterfaceDescriptorLength);
 
 finish:
@@ -5308,7 +5321,6 @@ MOS_STATUS RenderHal_SendMediaStates(
     MHW_MI_LOAD_REGISTER_IMM_PARAMS loadRegisterImmParams = {};
     PMHW_MI_MMIOREGISTERS        pMmioRegisters = nullptr;
     MOS_OCA_BUFFER_HANDLE        hOcaBuf = 0;
-    RenderhalOcaSupport          *pRenderhalOcaSupport = nullptr;
 
     //---------------------------------------
     MHW_RENDERHAL_CHK_NULL(pRenderHal);
@@ -5318,7 +5330,6 @@ MOS_STATUS RenderHal_SendMediaStates(
     MHW_RENDERHAL_CHK_NULL(pRenderHal->pRenderHalPltInterface);
     MHW_RENDERHAL_ASSERT(pRenderHal->pStateHeap->bGshLocked);
     MHW_RENDERHAL_CHK_NULL(pRenderHal->pMhwRenderInterface->GetMmioRegisters());
-    MHW_RENDERHAL_CHK_NULL(pRenderHal->pfnGetOcaSupport);
 
     //---------------------------------------
     pOsInterface            = pRenderHal->pOsInterface;
@@ -5327,7 +5338,6 @@ MOS_STATUS RenderHal_SendMediaStates(
     pStateHeap              = pRenderHal->pStateHeap;
     pOsContext              = pOsInterface->pOsContext;
     pMmioRegisters          = pMhwRender->GetMmioRegisters();
-    pRenderhalOcaSupport    = &pRenderHal->pfnGetOcaSupport();
 
     // This need not be secure, since PPGTT will be used here. But moving this after
     // L3 cache configuration will delay UMD from fetching another media state.
@@ -5351,7 +5361,7 @@ MOS_STATUS RenderHal_SendMediaStates(
                                                                  (pGpGpuWalkerParams) ? true: false));
 
     // The binding table for surface states is at end of command buffer. No need to add it to indirect state heap.
-    pRenderhalOcaSupport->OnIndirectState(*pCmdBuffer, *pOsContext, pRenderHal->StateBaseAddressParams.presInstructionBuffer,
+    HalOcaInterface::OnIndirectState(*pCmdBuffer, *pOsContext, pRenderHal->StateBaseAddressParams.presInstructionBuffer,
         pStateHeap->CurIDEntryParams.dwKernelOffset, false, pStateHeap->iKernelUsedForDump);
 
     // Send State Base Address command
@@ -5402,7 +5412,7 @@ MOS_STATUS RenderHal_SendMediaStates(
     // Send Palettes in use
     MHW_RENDERHAL_CHK_STATUS(pRenderHal->pfnSendPalette(pRenderHal, pCmdBuffer));
 
-    pRenderhalOcaSupport->OnDispatch(*pCmdBuffer, *pOsContext, *pRenderHal->pMhwMiInterface, *pMmioRegisters);
+    HalOcaInterface::OnDispatch(*pCmdBuffer, *pOsContext, *pRenderHal->pMhwMiInterface, *pMmioRegisters);
 
     // Send Media object walker
     if(pWalkerParams)
@@ -6859,7 +6869,10 @@ MOS_STATUS RenderHal_InitInterface(
     // Initialize MHW State Heap Interface
     // Note: there are two pStateHeapInterface in below line. First one is pointer to legacy MHW_STATE_HEAP
     // sturcture, while the last one points to the new class.
-    pRenderHal->pMhwStateHeap = pRenderHal->pMhwRenderInterface->m_stateHeapInterface->pStateHeapInterface;
+    if (pRenderHal->pMhwRenderInterface->m_stateHeapInterface != nullptr)
+    {
+        pRenderHal->pMhwStateHeap = pRenderHal->pMhwRenderInterface->m_stateHeapInterface->pStateHeapInterface;
+    }
 
     pRenderHal->pHwCaps  = pRenderHal->pMhwRenderInterface->GetHwCaps();
 
@@ -7007,7 +7020,6 @@ MOS_STATUS RenderHal_InitInterface(
     pRenderHal->pfnSendRcsStatusTag           = RenderHal_SendRcsStatusTag;
     pRenderHal->pfnSendSyncTag                = RenderHal_SendSyncTag;
     pRenderHal->pfnSendCscCoeffSurface        = RenderHal_SendCscCoeffSurface;
-    pRenderHal->pfnGetOcaSupport              = RenderHal_GetOcaSupport;
 
     // Tracker tag
     pRenderHal->pfnSetupPrologParams          = RenderHal_SetupPrologParams;
