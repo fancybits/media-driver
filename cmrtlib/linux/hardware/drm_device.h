@@ -248,6 +248,8 @@ static bool drmNodeIsDRM(int maj, int min)
     snprintf(path, sizeof(path), "/sys/dev/char/%d:%d/device/drm",
         maj, min);
     return stat(path, &sbuf) == 0;
+#elif defined(__FreeBSD__)
+    return maj == 145;
 #else
     return maj == DRM_MAJOR;
 #endif
@@ -941,7 +943,7 @@ static int drmParseSubsystemType(int maj, int min)
     }
 
     return -EINVAL;
-#elif defined(__OpenBSD__) || defined(__DragonFly__)
+#elif defined(__OpenBSD__) || defined(__DragonFly__) || defined(__FreeBSD__)
     return DRM_BUS_PCI;
 #else
     #warning "Missing implementation of drmParseSubsystemType"
