@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2018, Intel Corporation
+* Copyright (c) 2011-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -28,6 +28,7 @@
 #include "codechal_decode_avc_g11.h"
 #include "codechal_secure_decode_interface.h"
 #include "mhw_vdbox_mfx_g11_X.h"
+#include "hal_oca_interface.h"
 
 MOS_STATUS CodechalDecodeAvcG11::AllocateStandard(
     CodechalSetting *          settings)
@@ -163,10 +164,12 @@ MOS_STATUS CodechalDecodeAvcG11::DecodeStateLevel()
     PIC_MHW_PARAMS picMhwParams;
     CODECHAL_DECODE_CHK_STATUS_RETURN(InitPicMhwParams(&picMhwParams));
 
+    auto mmioRegisters = m_hwInterface->GetMfxInterface()->GetMmioRegisters(m_vdboxIndex);
+    HalOcaInterface::On1stLevelBBStart(cmdBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle, *m_miInterface, *mmioRegisters);
+
     if (m_cencBuf && m_cencBuf->checkStatusRequired)
     {
         CODECHAL_DECODE_COND_ASSERTMESSAGE((m_vdboxIndex > m_hwInterface->GetMfxInterface()->GetMaxVdboxIndex()), "ERROR - vdbox index exceed the maximum");
-        auto mmioRegisters = m_hwInterface->GetMfxInterface()->GetMmioRegisters(m_vdboxIndex);
 
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_hwInterface->GetCpInterface()->CheckStatusReportNum(
             mmioRegisters,
@@ -190,7 +193,6 @@ MOS_STATUS CodechalDecodeAvcG11::DecodeStateLevel()
 MOS_STATUS CodechalDecodeAvcG11::DecodePrimitiveLevel()
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
-    CODECHAL_DECODE_PROCESSING_PARAMS *decProcessingParams = nullptr;
 
     CODECHAL_DECODE_FUNCTION_ENTER;
 
@@ -228,15 +230,15 @@ MOS_STATUS CodechalDecodeAvcG11::DecodePrimitiveLevel()
     }
 
 #ifdef _DECODE_PROCESSING_SUPPORTED
-    decProcessingParams = (CODECHAL_DECODE_PROCESSING_PARAMS *)m_decodeParams.m_procParams;
-    if (decProcessingParams != nullptr && decProcessingParams->bIsReferenceOnlyPattern)
+    DecodeProcessingParams *decProcessingParams = (DecodeProcessingParams *)m_decodeParams.m_procParams;
+    if (decProcessingParams != nullptr && decProcessingParams->m_isReferenceOnlyPattern)
     {
         HucCopy(&cmdBuffer, 
             &m_destSurface.OsResource, 
-            &decProcessingParams->pOutputSurface->OsResource, 
-            decProcessingParams->pOutputSurface->dwSize,
+            &decProcessingParams->m_outputSurface->OsResource, 
+            decProcessingParams->m_outputSurface->dwSize,
             m_destSurface.dwOffset,
-            decProcessingParams->pOutputSurface->dwOffset
+            decProcessingParams->m_outputSurface->dwOffset
         );
     }
 #endif
@@ -327,12 +329,14 @@ MOS_STATUS CodechalDecodeAvcG11::DecodePrimitiveLevel()
         CodecHalDecodeSinglePipeVE_PopulateHintParams(m_veState, &cmdBuffer, true);
     }
 
+    HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
+
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &cmdBuffer, m_videoContextUsesNullHw));
 
     CODECHAL_DEBUG_TOOL(
         m_mmc->UpdateUserFeatureKey(&m_destSurface);)
 #ifdef _DECODE_PROCESSING_SUPPORTED
-    decProcessingParams = (CODECHAL_DECODE_PROCESSING_PARAMS *)m_decodeParams.m_procParams;
+    decProcessingParams = (DecodeProcessingParams *)m_decodeParams.m_procParams;
     if (decProcessingParams != nullptr && !m_sfcState->m_sfcPipeOut && (m_isSecondField || m_avcPicParams->seq_fields.mb_adaptive_frame_field_flag))
     {
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_fieldScalingInterface->DoFieldScaling(
@@ -367,7 +371,7 @@ MOS_STATUS CodechalDecodeAvcG11::DecodePrimitiveLevel()
         {
             syncParams = g_cInitSyncParams;
             syncParams.GpuContext = m_renderContext;
-            syncParams.presSyncResource = &decProcessingParams->pOutputSurface->OsResource;
+            syncParams.presSyncResource = &decProcessingParams->m_outputSurface->OsResource;
 
             CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnResourceSignal(m_osInterface, &syncParams));
         }
@@ -377,12 +381,12 @@ MOS_STATUS CodechalDecodeAvcG11::DecodePrimitiveLevel()
 #ifdef _DECODE_PROCESSING_SUPPORTED
     CODECHAL_DEBUG_TOOL(
         // Dump out downsampling result
-        if (decProcessingParams && decProcessingParams->pOutputSurface)
+        if (decProcessingParams && decProcessingParams->m_outputSurface)
         {
             MOS_SURFACE dstSurface;
             MOS_ZeroMemory(&dstSurface, sizeof(dstSurface));
             dstSurface.Format = Format_NV12;
-            dstSurface.OsResource = decProcessingParams->pOutputSurface->OsResource;
+            dstSurface.OsResource = decProcessingParams->m_outputSurface->OsResource;
 
             CODECHAL_DECODE_CHK_STATUS_RETURN(CodecHalGetResourceInfo(
                 m_osInterface,

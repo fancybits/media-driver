@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2017, Intel Corporation
+* Copyright (c) 2011-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -21,12 +21,14 @@
 */
 //!
 //! \file      codechal_hw.h 
-//! \brief         This modules implements HW interface layer to be used on all platforms on     all operating systems/DDIs, across CODECHAL components. 
+//! \brief     This modules implements HW interface layer to be used on all platforms on all operating systems/DDIs, across CODECHAL components. 
 //!
+
 #ifndef __CODECHAL_HW_H__
 #define __CODECHAL_HW_H__
 
 #include "codechal.h"
+#include "renderhal.h"
 #include "mhw_mi.h"
 #include "mhw_render.h"
 #include "mhw_state_heap.h"
@@ -41,6 +43,8 @@
 #include "mhw_vdbox_vdenc_interface.h"
 
 #include "media_interfaces_mhw.h"
+
+#include "gfxmacro.h"
 
 //------------------------------------------------------------------------------
 // Macros specific to MOS_CODEC_SUBCOMP_HW sub-comp
@@ -83,6 +87,7 @@
 
 #define CODECHAL_CACHELINE_SIZE                 64
 #define CODECHAL_PAGE_SIZE                      0x1000
+#define CODECHAL_PAK_OBJ_EACH_CU                66
 
 #define CODECHAL_SURFACE_PITCH_ALIGNMENT        128
 
@@ -205,8 +210,7 @@ typedef enum _CODECHAL_MEDIA_STATE_TYPE
     CODECHAL_MEDIA_STATE_SW_SCOREBOARD_INIT                 = 60,
     CODECHAL_NUM_MEDIA_STATES                               = 61
 } CODECHAL_MEDIA_STATE_TYPE;
-
-C_ASSERT(CODECHAL_NUM_MEDIA_STATES == (CODECHAL_MEDIA_STATE_SW_SCOREBOARD_INIT + 1)); //!< update this and add new entry in the default SSEU table for each platform()
+C_ASSERT(CODECHAL_NUM_MEDIA_STATES == CODECHAL_MEDIA_STATE_SW_SCOREBOARD_INIT + 1);  //!< update this and add new entry in the default SSEU table for each platform()
 
 typedef enum _CODECHAL_SLICE_STATE
 {
@@ -366,6 +370,8 @@ protected:
     MhwMiInterface                  *m_miInterface = nullptr;         //!< Pointer to Mhw mi interface
     MhwCpInterface                  *m_cpInterface = nullptr;         //!< Pointer to Mhw cp interface
     MhwRenderInterface              *m_renderInterface = nullptr;     //!< Pointer to Mhw render interface
+    RENDERHAL_INTERFACE             *m_renderHal = nullptr;           //!< RenderHal interface
+    MhwCpInterface                  *m_renderHalCpInterface = nullptr;//!< Pointer to RenderHal cp interface
     MhwVeboxInterface               *m_veboxInterface = nullptr;      //!< Pointer to Mhw vebox interface
     MhwSfcInterface                 *m_sfcInterface = nullptr;        //!< Pointer to Mhw sfc interface
     MhwVdboxMfxInterface            *m_mfxInterface = nullptr;        //!< Pointer to Mhw mfx interface
@@ -374,6 +380,7 @@ protected:
     MhwVdboxVdencInterface          *m_vdencInterface = nullptr;      //!< Pointer to Mhw vdenc interface
 
     CODECHAL_SSEU_SETTING const         *m_ssEuTable = nullptr;       //!< Pointer to the default SSEU settings table
+    uint16_t                            m_numMediaStates = CODECHAL_NUM_MEDIA_STATES;  //!< number of media states
 
     MHW_MEMORY_OBJECT_CONTROL_PARAMS    m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_END_CODEC];  //!< Cacheability Settings list
 
@@ -394,6 +401,8 @@ protected:
     uint32_t                    m_sizeOfCmdMediaStateFlush = 0;  //!> Size of media state flush cmd
 
     bool                        m_noSeparateL3LlcCacheabilitySettings = false;   // No separate L3 LLC cacheability settings
+
+    bool                        m_disableScalability                  = false;   //!> Flag to indicate if disable scalability by default
 
 public:
     // Hardware dependent parameters
@@ -423,6 +432,12 @@ public:
     uint32_t                    m_numRequestedEuSlices = 0;                     //!> Number of requested Slices
     uint32_t                    m_numRequestedSubSlices = 0;                    //!> Number of requested Sub-slices
     uint32_t                    m_numRequestedEus = 0;                          //!> Number of requested EUs
+#if (_DEBUG || _RELEASE_INTERNAL)
+    bool                        m_numRequestedOverride = false;                 //!> Flag to indicate whether these params are set by Reg
+    uint32_t                    m_numRequestedEuSlicesOverride = 0;             //!> Number of requested Slices set by Reg
+    uint32_t                    m_numRequestedSubSlicesOverride = 0;            //!> Number of requested Sub-slices set by Reg
+    uint32_t                    m_numRequestedEusOverride = 0;                  //!> Number of requested EUs set by Reg
+#endif
 
     uint32_t                    m_ssdResolutionThreshold = 0;                   //!> Slice shutdown resolution threshold
     uint32_t                    m_ssdTargetUsageThreshold = 0;                  //!> Slice shutdown target usage threshold
@@ -430,13 +445,16 @@ public:
 
     bool                        m_slicePowerGate = false;                       //!> Slice power gate
 
+    bool                        m_enableCodecMmc = false;                       //!> Flag to indicate if enable codec MMC by default or not
+
     //!
     //! \brief    Constructor
     //!
     CodechalHwInterface(
         PMOS_INTERFACE    osInterface,
         CODECHAL_FUNCTION codecFunction,
-        MhwInterfaces     *mhwInterfaces);
+        MhwInterfaces     *mhwInterfaces,
+        bool              disableScalability = false);
 
     //!
     //! \brief    Copy constructor
@@ -579,6 +597,18 @@ public:
     inline MhwRenderInterface *GetRenderInterface()
     {
         return m_renderInterface;
+    }
+
+    //!
+    //! \brief    Get renderHal interface
+    //! \details  Get renderHal interface in codechal hw interface
+    //!
+    //! \return   [out] RENDERHAL_INTERFACE*
+    //!           Interface got.
+    //!
+    inline RENDERHAL_INTERFACE *GetRenderHalInterface()
+    {
+        return m_renderHal;
     }
 
     //!
@@ -846,6 +876,83 @@ public:
         bool                            modeSpecific);
 
     //!
+    //! \brief    Calculates the maximum size for HCP picture level commands
+    //! \details  Client facing function to calculate the maximum size for HCP picture level commands
+    //! \param    [in] mode
+    //!           Indicate the codec mode
+    //! \param    [out] commandsSize
+    //!           The maximum command buffer size
+    //! \param    [out] patchListSize
+    //!           The maximum command patch list size
+    //! \param    [in] params
+    //!           Indicate the command size parameters
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS GetHcpStateCommandSize(
+        uint32_t                        mode,
+        uint32_t *                      commandsSize,
+        uint32_t *                      patchListSize,
+        PMHW_VDBOX_STATE_CMDSIZE_PARAMS params);
+
+    //!
+    //! \brief    Calculates maximum size for HCP slice/MB level commands
+    //! \details  Client facing function to calculate maximum size for HCP slice/MB level commands
+    //! \param    [in] mode
+    //!           Indicate the codec mode
+    //! \param    [out] commandsSize
+    //!            The maximum command buffer size
+    //! \param    [out] patchListSize
+    //!           The maximum command patch list size
+    //! \param    [in] modeSpecific
+    //!           Indicate the long or short format
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS GetHcpPrimitiveCommandSize(
+        uint32_t  mode,
+        uint32_t *commandsSize,
+        uint32_t *patchListSize,
+        bool      modeSpecific);
+
+    //!
+    //! \brief    Calculates the maximum size for Huc picture level commands
+    //! \details  Client facing function to calculate the maximum size for HUC picture level commands
+    //! \param    [in] mode
+    //!           Indicate the codec mode
+    //! \param    [out] commandsSize
+    //!           The maximum command buffer size
+    //! \param    [out] patchListSize
+    //!           The maximum command patch list size
+    //! \param    [in] params
+    //!           Indicate the command size parameters
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS GetHucStateCommandSize(
+        uint32_t mode,
+        uint32_t *commandsSize,
+        uint32_t *patchListSize,
+        PMHW_VDBOX_STATE_CMDSIZE_PARAMS params);
+
+    //!
+    //! \brief    Calculates maximum size for Huc slice/MB level commands
+    //! \details  Client facing function to calculate maximum size for Huc slice/MB level commands
+    //! \param    [in] mode
+    //!           Indicate the codec mode
+    //! \param    [out] commandsSize
+    //!            The maximum command buffer size
+    //! \param    [out] patchListSize
+    //!           The maximum command patch list size
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS GetHucPrimitiveCommandSize(
+        uint32_t mode,
+        uint32_t *commandsSize,
+        uint32_t *patchListSize);
+
+    //!
     //! \brief    Calculates the maximum size for Vdenc state level commands
     //! \details  Client facing function to calculate the maximum size for Vdenc state level commands
     //! \param    [in] mode
@@ -863,6 +970,23 @@ public:
         uint32_t                   *patchListSize);
 
     //!
+    //! \brief    Calculates maximum size for all slice level VDEnc commands
+    //! \details  Client facing function to calculate the maximum size for Vdenc slice level commands
+    //! \param    [in] mode
+    //!           Indicate the codec mode
+    //! \param    [out] commandsSize
+    //!           The maximum command buffer size
+    //! \param    [out] patchListSize
+    //!           The maximum command patch list size
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS GetVdencPrimitiveCommandsDataSize(
+        uint32_t                    mode,
+        uint32_t                   *commandsSize,
+        uint32_t                   *patchListSize);
+
+    //!
     //! \brief    Calculates the maximum size for Vdenc picture 2nd level commands
     //! \details  Client facing function to calculate the maximum size for Vdenc picture 2nd level commands
     //! \param    [in] mode
@@ -872,7 +996,7 @@ public:
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS GetVdencPictureSecondLevelCommandsSize(
+    virtual MOS_STATUS GetVdencPictureSecondLevelCommandsSize(
         uint32_t                    mode,
         uint32_t                   *commandsSize);
 
@@ -900,8 +1024,8 @@ public:
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS Initialize(
-        CodechalSetting * settings);
+    virtual MOS_STATUS Initialize(
+        CodechalSetting *settings);
 
     //!
     //! \brief    Get meida object buffer size
@@ -1433,6 +1557,35 @@ public:
     {
         return m_osInterface ? m_osInterface->bSimIsActive : false;
     }
+
+    //!
+    //! \brief    Check if disable scalability by default
+    //! \return   bool
+    //!           True if it is to disable scalability by default, else it is not.
+    //!
+    bool IsDisableScalability()
+    {
+        return m_disableScalability;
+    }
+
+    virtual bool UsesRenderEngine(CODECHAL_FUNCTION codecFunction, uint32_t standard);
+
+    //!
+    //! \brief    Get film grain kernel info
+    //! \details  Get kernel base and size
+    //!
+    //! \param    [out] kernelBase
+    //!           base addr of film grain kernels
+    //!
+    //! \param    [out] kernelSize
+    //!           size of film grain kernels
+    //!
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS GetFilmGrainKernelInfo(
+        uint8_t*    &kernelBase,
+        uint32_t    &kernelSize);
 
     //! \brief    default disable vdbox balancing by UMD
     bool bEnableVdboxBalancingbyUMD = false;

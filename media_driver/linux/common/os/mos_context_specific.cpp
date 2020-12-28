@@ -365,6 +365,23 @@ void OsContextSpecific::DestroySSEUIPC()
     }
 }
 
+void OsContextSpecific::GetGpuPriority(int32_t* pPriority)
+{
+    uint64_t priority = 0;
+    mos_get_context_param(m_intelContext, 0, I915_CONTEXT_PARAM_PRIORITY, &priority);
+    *pPriority = (int32_t)priority;
+}
+
+void OsContextSpecific::SetGpuPriority(int32_t priority)
+{
+    int ret = 0;
+    ret = mos_set_context_param(m_intelContext, 0, I915_CONTEXT_PARAM_PRIORITY,(uint64_t)priority);
+    if (ret != 0)
+    {
+        MOS_OS_NORMALMESSAGE("Warning: failed to set the gpu priority, errno is %d", ret);
+    }
+}
+
 void OsContextSpecific::SetSliceCount(uint32_t *pSliceCount)
 {
     if (pSliceCount == nullptr)
@@ -392,7 +409,7 @@ MOS_STATUS OsContextSpecific::Init(PMOS_CONTEXT pOsDriverContext)
             MOS_OS_ASSERT(false);
             return MOS_STATUS_INVALID_HANDLE;
         }
-    
+        m_apoMosEnabled = pOsDriverContext->m_apoMosEnabled;
         m_bufmgr        = pOsDriverContext->bufmgr;
         m_gpuContextMgr = static_cast<GpuContextMgr *>(pOsDriverContext->m_gpuContextMgr);
         m_cmdBufMgr     = static_cast<CmdBufMgr *>(pOsDriverContext->m_cmdBufMgr);
@@ -415,7 +432,7 @@ MOS_STATUS OsContextSpecific::Init(PMOS_CONTEXT pOsDriverContext)
             MOS_ZeroMemory(&skuTable, sizeof(skuTable));
             MOS_ZeroMemory(&waTable, sizeof(waTable));
             MOS_ZeroMemory(&gtSystemInfo, sizeof(gtSystemInfo));
-            eStatus = HWInfo_GetGfxInfo(pOsDriverContext->fd, &platformInfo, &skuTable, &waTable, &gtSystemInfo);
+            eStatus = HWInfo_GetGfxInfo(pOsDriverContext->fd, pOsDriverContext->bufmgr, &platformInfo, &skuTable, &waTable, &gtSystemInfo);
             if (eStatus != MOS_STATUS_SUCCESS)
             {
                 MOS_OS_ASSERTMESSAGE("Fatal error - unsuccesfull Sku/Wa/GtSystemInfo initialization");
@@ -448,10 +465,10 @@ MOS_STATUS OsContextSpecific::Init(PMOS_CONTEXT pOsDriverContext)
         }
 
         m_use64BitRelocs = true;
-        m_useSwSwizzling = MEDIA_IS_SKU(&m_skuTable, FtrSimulationMode); 
+        m_useSwSwizzling = pOsDriverContext->bSimIsActive || MEDIA_IS_SKU(&m_skuTable, FtrUseSwSwizzling);
         m_tileYFlag      = MEDIA_IS_SKU(&m_skuTable, FtrTileY);
     
-        if (!Mos_Solo_IsEnabled() && MEDIA_IS_SKU(&m_skuTable,FtrContextBasedScheduling))
+        if (!Mos_Solo_IsEnabled(nullptr) && MEDIA_IS_SKU(&m_skuTable,FtrContextBasedScheduling))
         {
             m_intelContext = mos_gem_context_create_ext(pOsDriverContext->bufmgr,0);
             if (m_intelContext)
@@ -515,7 +532,9 @@ MOS_STATUS OsContextSpecific::Init(PMOS_CONTEXT pOsDriverContext)
     
         // For Media Memory compression
         m_mediaMemDecompState       = pOsDriverContext->ppMediaMemDecompState;
-        m_memoryDecompress       = pOsDriverContext->pfnMemoryDecompress;
+        m_memoryDecompress          = pOsDriverContext->pfnMemoryDecompress;
+        m_mediaMemCopy              = pOsDriverContext->pfnMediaMemoryCopy;
+        m_mediaMemCopy2D            = pOsDriverContext->pfnMediaMemoryCopy2D;
         m_mosContext                = pOsDriverContext;
     
         m_noParsingAssistanceInKmd  = true;
@@ -534,7 +553,7 @@ MOS_STATUS OsContextSpecific::Init(PMOS_CONTEXT pOsDriverContext)
         m_inlineCodecStatusUpdate   = true;
     
     #if MOS_COMMAND_BUFFER_DUMP_SUPPORTED
-        CommandBufferDumpInit();
+        CommandBufferDumpInit(pOsDriverContext);
     #endif
     
         SetOsContextValid(true);
@@ -548,22 +567,26 @@ void OsContextSpecific::Destroy()
 
     if (GetOsContextValid() == true)
     {
-        for (auto i = 0; i < MOS_GPU_CONTEXT_MAX; i++)
+        // APO MOS will destory each stream's GPU context at different place
+        if (!m_apoMosEnabled)
         {
-            if (m_GpuContextHandle[i] != MOS_GPU_CONTEXT_INVALID_HANDLE)
+            for (auto i = 0; i < MOS_GPU_CONTEXT_MAX; i++)
             {
-                if (m_gpuContextMgr == nullptr)
+                if (m_GpuContextHandle[i] != MOS_GPU_CONTEXT_INVALID_HANDLE)
                 {
-                    MOS_OS_ASSERTMESSAGE("GpuContextMgr is null when destroy GpuContext");
-                    break;
+                    if (m_gpuContextMgr == nullptr)
+                    {
+                        MOS_OS_ASSERTMESSAGE("GpuContextMgr is null when destroy GpuContext");
+                        break;
+                    }
+                    auto gpuContext = m_gpuContextMgr->GetGpuContext(m_GpuContextHandle[i]);
+                    if (gpuContext == nullptr)
+                    {
+                        MOS_OS_ASSERTMESSAGE("cannot find the gpuContext corresponding to the active gpuContextHandle");
+                        continue;
+                    }
+                    m_gpuContextMgr->DestroyGpuContext(gpuContext);
                 }
-                auto gpuContext = m_gpuContextMgr->GetGpuContext(m_GpuContextHandle[i]);
-                if (gpuContext == nullptr)
-                {
-                    MOS_OS_ASSERTMESSAGE("cannot find the gpuContext corresponding to the active gpuContextHandle");
-                    continue;
-                }
-                m_gpuContextMgr->DestroyGpuContext(gpuContext);
             }
         }
     
@@ -584,6 +607,7 @@ void OsContextSpecific::Destroy()
         {
             mos_gem_context_destroy(m_intelContext);
         }
+
         SetOsContextValid(false);
     }
 }

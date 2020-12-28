@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2015-2018, Intel Corporation
+* Copyright (c) 2015-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -27,6 +27,8 @@
 
 #ifndef  __MEDIA_LIBVA_CP_INTERFACE_H__
 #define  __MEDIA_LIBVA_CP_INTERFACE_H__
+
+#include <map>
 #include "media_libva.h"
 #include "codechal_encoder_base.h"
 #include "mos_os.h"
@@ -34,6 +36,23 @@
 typedef struct _DDI_ENCODE_STATUS_REPORT_INFO *PDDI_ENCODE_STATUS_REPORT_INFO;
 class CodechalSetting;
 struct CodechalDecodeParams;
+
+class DdiCpInterface;
+
+//core structure for CP DDI
+typedef struct DDI_CP_CONTEXT
+{
+    PDDI_MEDIA_CONTEXT                  pMediaCtx;
+    DdiCpInterface                      *pCpDdiInterface;
+    std::shared_ptr<void>               pDrvPrivate;
+    std::multimap<uint32_t, void *>     mapAttaching;
+
+} DDI_CP_CONTEXT, *PDDI_CP_CONTEXT;
+
+static __inline PDDI_CP_CONTEXT DdiCp_GetCpContextFromPVOID(void *cpCtx)
+{
+    return (PDDI_CP_CONTEXT)cpCtx;
+}
 
 class DdiCpInterface
 {
@@ -69,7 +88,7 @@ public:
 
     virtual VAStatus ParseCpParamsForEncode();
 
-    virtual void SetHdcp2Enabled(int32_t flag);
+    virtual void SetCpFlags(int32_t flag);
 
     virtual bool IsHdcp2Enabled();
 
@@ -81,25 +100,32 @@ public:
         CodechalSetting *           settings);
 
     virtual VAStatus SetDecodeParams(CodechalDecodeParams    *decodeParams);
+
+    virtual bool IsCencProcessing();
+
+    virtual VAStatus EndPicture(
+        VADriverContextP    ctx,
+        VAContextID         context
+    );
+
 };
 
 //!
-//! \brief    Create DdiCpInterface Object according CPLIB loading status
+//! \brief    Create DdiCpInterface Object
 //!           Must use Delete_DdiCpInterface to delete created Object to avoid ULT Memory Leak errors
 //!
 //! \param    [in] *pMosCtx
 //!           MOS_CONTEXT*
 //!
-//! \return   Return CP Wrapper Object if CPLIB not loaded
+//! \return   Return CP Wrapper Object
 //!
 DdiCpInterface* Create_DdiCpInterface(MOS_CONTEXT& mosCtx);
 
 //!
-//! \brief    Delete the MhwCpInterface Object according CPLIB loading status
+//! \brief    Delete the MhwCpInterface Object
 //!
-//! \param    [in] *pDdiCpInterface 
+//! \param    [in] *pDdiCpInterface
 //!           DdiCpInterface
 //!
 void Delete_DdiCpInterface(DdiCpInterface* pDdiCpInterface);
 #endif
-

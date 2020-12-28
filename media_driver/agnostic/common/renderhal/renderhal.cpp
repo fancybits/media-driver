@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2019, Intel Corporation
+* Copyright (c) 2009-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -401,9 +401,9 @@ extern const MHW_SURFACE_PLANES g_cRenderHal_SurfacePlanes[RENDERHAL_PLANES_DEFI
     // RENDERHAL_PLANES_PL3_ADV
     {   3,
         {
-            { MHW_Y_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
-            { MHW_U_PLANE      , 2, 2, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
-            { MHW_V_PLANE      , 2, 2, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
+            { MHW_Y_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
+            { MHW_U_PLANE      , 2, 2, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
+            { MHW_V_PLANE      , 2, 2, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
         }
     },
     // RENDERHAL_PLANES_NV12_ADV
@@ -501,57 +501,57 @@ extern const MHW_SURFACE_PLANES g_cRenderHal_SurfacePlanes[RENDERHAL_PLANES_DEFI
     // RENDERHAL_PLANES_411P_ADV
     {   3,
         {
-            { MHW_Y_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
-            { MHW_U_PLANE      , 4, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
-            { MHW_V_PLANE      , 4, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
+            { MHW_Y_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
+            { MHW_U_PLANE      , 4, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
+            { MHW_V_PLANE      , 4, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
         }
     },
     // RENDERHAL_PLANES_411R_ADV
     {   3,
         {
-            { MHW_Y_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
-            { MHW_U_PLANE      , 1, 4, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
-            { MHW_V_PLANE      , 1, 4, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
+            { MHW_Y_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
+            { MHW_U_PLANE      , 1, 4, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
+            { MHW_V_PLANE      , 1, 4, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
         }
     },
     // RENDERHAL_PLANES_422H_ADV
     {   3,
         {
-            { MHW_Y_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
-            { MHW_U_PLANE      , 2, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
-            { MHW_V_PLANE      , 2, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
+            { MHW_Y_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
+            { MHW_U_PLANE      , 2, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
+            { MHW_V_PLANE      , 2, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
         }
     },
     // RENDERHAL_PLANES_422V_ADV
     {   3,
         {
-            { MHW_Y_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
-            { MHW_U_PLANE      , 1, 2, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
-            { MHW_V_PLANE      , 1, 2, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
+            { MHW_Y_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
+            { MHW_U_PLANE      , 1, 2, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
+            { MHW_V_PLANE      , 1, 2, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
         }
     },
     // RENDERHAL_PLANES_444P_ADV
     {   3,
         {
-            { MHW_Y_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
-            { MHW_U_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
-            { MHW_V_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
+            { MHW_Y_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
+            { MHW_U_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
+            { MHW_V_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
         }
     },
     // RENDERHAL_PLANES_RGBP_ADV
     {   3,
         {
-            { MHW_U_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
-            { MHW_V_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
-            { MHW_Y_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
+            { MHW_U_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
+            { MHW_V_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
+            { MHW_Y_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
         }
     },
     // RENDERHAL_PLANES_BGRP_ADV
     {   3,
         {
-            { MHW_U_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
-            { MHW_Y_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
-            { MHW_V_PLANE      , 1, 1, 2, 2, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
+            { MHW_U_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y8_UNORM },
+            { MHW_Y_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM },
+            { MHW_V_PLANE      , 1, 1, 1, 1, 4, 1, MHW_MEDIASTATE_SURFACEFORMAT_R8_UNORM }
         }
     },
     // RENDERHAL_PLANES_R16_UNORM
@@ -643,8 +643,8 @@ extern const MHW_SURFACE_PLANES g_cRenderHal_SurfacePlanes[RENDERHAL_PLANES_DEFI
     // RENDERHAL_PLANES_P016_2PLANES_ADV
     {   2,
         {
-            { MHW_Y_PLANE      , 1, 1, 2, 2, 2, 1, MHW_GFX3DSTATE_SURFACEFORMAT_R16_UNORM   },
-            { MHW_U_PLANE      , 2, 2, 2, 2, 1, 1, MHW_GFX3DSTATE_SURFACEFORMAT_R16G16_UNORM }
+            { MHW_Y_PLANE      , 1, 1, 2, 2, 2, 1, MHW_MEDIASTATE_SURFACEFORMAT_Y16_UNORM   },
+            { MHW_U_PLANE      , 2, 2, 2, 2, 1, 1, MHW_MEDIASTATE_SURFACEFORMAT_R16B16_UNORM }
         }
     },
     // RENDERHAL_PLANES_P010
@@ -941,8 +941,8 @@ void RenderHal_AdjustBoundary(
 
         case RENDERHAL_SS_BOUNDARY_ORIGINAL:
         default:
-            *pdwSurfaceHeight = MOS_ALIGN_CEIL(pSurface->dwHeight, wHeightAlignUnit);
-            *pdwSurfaceWidth  = MOS_ALIGN_CEIL(pSurface->dwWidth,  wWidthAlignUnit);
+            *pdwSurfaceHeight = (pRenderHalSurface->dwHeightInUse == 0) ? MOS_ALIGN_CEIL(pSurface->dwHeight, wHeightAlignUnit) : pRenderHalSurface->dwHeightInUse;
+            *pdwSurfaceWidth  = (pRenderHalSurface->dwWidthInUse == 0) ? MOS_ALIGN_CEIL(pSurface->dwWidth, wWidthAlignUnit) : pRenderHalSurface->dwWidthInUse;
             break;
     }
 }
@@ -1603,6 +1603,7 @@ MOS_STATUS RenderHal_AllocateBB(
     AllocParams.Format   = Format_Buffer;
     AllocParams.dwBytes  = iSize;
     AllocParams.pBufName = "RenderHalBB";
+    AllocParams.ResUsageType = MOS_HW_RESOURCE_USAGE_MEDIA_BATCH_BUFFERS;
 
     MHW_RENDERHAL_CHK_STATUS(pOsInterface->pfnAllocateResource(
         pOsInterface,
@@ -3012,17 +3013,6 @@ MOS_STATUS RenderHal_GetSurfaceStateEntries(
                 Direction           = pRenderHal->pfnSetChromaDirection(pRenderHal, pRenderHalSurface);
                 break;
 
-            case Format_P016:
-                if (pParams->bVmeUse)
-                {
-                    PlaneDefinition = RENDERHAL_PLANES_P010_1PLANE_ADV;
-                }
-                else
-                {
-                    PlaneDefinition = RENDERHAL_PLANES_P016_2PLANES_ADV;
-                }
-                break;
-
             case Format_P208:
                 PlaneDefinition = RENDERHAL_PLANES_P208_1PLANE_ADV;
                 break;
@@ -3236,6 +3226,7 @@ MOS_STATUS RenderHal_GetSurfaceStateEntries(
                 break;
 
             case Format_P010:
+            case Format_P016:
                 if (pParams->bVmeUse)
                 {
                     PlaneDefinition = RENDERHAL_PLANES_P010_1PLANE_ADV;
@@ -3369,16 +3360,17 @@ MOS_STATUS RenderHal_GetSurfaceStateEntries(
                 PlaneDefinition = RENDERHAL_PLANES_NV12;
                 break;
 
-            case Format_P016:
-                PlaneDefinition = RENDERHAL_PLANES_P016;
-                break;
-
             case Format_P208:
                 PlaneDefinition = RENDERHAL_PLANES_P208;
                 break;
 
             case Format_P010:
-                if (pRenderHal->bEnableP010SinglePass &&
+            case Format_P016:
+                if (pParams->bUseSinglePlane == true)
+                {
+                    PlaneDefinition = RENDERHAL_PLANES_R16_UNORM;
+                }
+                else if (pRenderHal->bEnableP010SinglePass &&
                     (pRenderHalSurface->SurfType != RENDERHAL_SURF_OUT_RENDERTARGET))
                 {
                     PlaneDefinition = RENDERHAL_PLANES_P010_1PLANE;
@@ -3436,19 +3428,26 @@ MOS_STATUS RenderHal_GetSurfaceStateEntries(
                 // to enable 2 plane NV12 when the width or Height is not a multiple of 4.
                 // For G10+, enable 2 plane NV12 when width is not multiple of 2 or height
                 // is not multiple of 4.
-                if ( pRenderHalSurface->SurfType == RENDERHAL_SURF_OUT_RENDERTARGET   ||
-                     (pParams->bWidthInDword_Y && pParams->bWidthInDword_UV)          ||
-                     pParams->b2PlaneNV12NeededByKernel                               ||
-                     bIsChromaSitEnabled ||
-                     pRenderHal->pfnIs2PlaneNV12Needed(pRenderHal,
-                                                       pRenderHalSurface,
-                                                       pParams->Boundary))
+                if (pParams->bUseSinglePlane == true)
+                {
+                    PlaneDefinition = RENDERHAL_PLANES_R8;
+                }
+                else if (pRenderHalSurface->SurfType == RENDERHAL_SURF_OUT_RENDERTARGET ||
+                    (pParams->bWidthInDword_Y && pParams->bWidthInDword_UV) ||
+                    pParams->b2PlaneNV12NeededByKernel ||
+                    bIsChromaSitEnabled ||
+                    pRenderHal->pfnIs2PlaneNV12Needed(pRenderHal,
+                        pRenderHalSurface,
+                        pParams->Boundary))
                 {
                     PlaneDefinition = RENDERHAL_PLANES_NV12_2PLANES;
                 }
                 else
                 {
                     PlaneDefinition = RENDERHAL_PLANES_NV12;
+                    MHW_RENDERHAL_CHK_NULL(pRenderHal->pRenderHalPltInterface);
+                    pRenderHal->pRenderHalPltInterface->GetPlaneDefForFormatNV12(
+                     PlaneDefinition);
                 }
                 break;
 
@@ -4202,7 +4201,11 @@ MOS_STATUS RenderHal_Destroy(PRENDERHAL_INTERFACE pRenderHal)
     eStatus      = MOS_STATUS_UNKNOWN;
 
     // Free State Heaps
-    MHW_CHK_STATUS(pRenderHal->pfnFreeStateHeaps(pRenderHal));
+    eStatus = (MOS_STATUS)(pRenderHal->pfnFreeStateHeaps(pRenderHal));
+    if (eStatus != MOS_STATUS_SUCCESS)
+    {
+        MHW_RENDERHAL_ASSERTMESSAGE("Failed to free state heeps, eStatus:%d.\n", eStatus);
+    }
 
     // Destroy MHW Render Interface
     if (pRenderHal->pMhwRenderInterface)
@@ -4927,7 +4930,7 @@ MOS_STATUS RenderHal_InitCommandBuffer(
             pCmdBuffer->Attributes.bEnableMediaFrameTracking = pGenericPrologParams->bEnableMediaFrameTracking;
             pCmdBuffer->Attributes.dwMediaFrameTrackingTag = pGenericPrologParams->dwMediaFrameTrackingTag;
             pCmdBuffer->Attributes.dwMediaFrameTrackingAddrOffset = pGenericPrologParams->dwMediaFrameTrackingAddrOffset;
-            pCmdBuffer->Attributes.resMediaFrameTrackingSurface = *(pGenericPrologParams->presMediaFrameTrackingSurface);
+            pCmdBuffer->Attributes.resMediaFrameTrackingSurface   = pGenericPrologParams->presMediaFrameTrackingSurface;
         }
         else
         {
@@ -5148,7 +5151,7 @@ MOS_STATUS RenderHal_SendRcsStatusTag(
     PMOS_INTERFACE               pOsInterface;
     PMHW_MI_INTERFACE            pMhwMiInterface;
     MHW_PIPE_CONTROL_PARAMS      PipeCtl;
-    MOS_RESOURCE                 OsResource;
+    PMOS_RESOURCE                osResource = nullptr;
 
     //------------------------------------
     MHW_RENDERHAL_CHK_NULL(pRenderHal);
@@ -5161,14 +5164,15 @@ MOS_STATUS RenderHal_SendRcsStatusTag(
     pMhwMiInterface = pRenderHal->pMhwMiInterface;
 
     // Get the Os Resource
-    MHW_RENDERHAL_CHK_STATUS(pOsInterface->pfnGetGpuStatusBufferResource(pOsInterface, &OsResource));
+    MHW_RENDERHAL_CHK_STATUS(pOsInterface->pfnGetGpuStatusBufferResource(pOsInterface, osResource));
+    MHW_RENDERHAL_CHK_NULL(osResource);
 
     // Register the buffer
-    MHW_RENDERHAL_CHK_STATUS(pOsInterface->pfnRegisterResource(pOsInterface, &OsResource, true, true));
+    MHW_RENDERHAL_CHK_STATUS(pOsInterface->pfnRegisterResource(pOsInterface, osResource, true, true));
 
     // Issue pipe control to write GPU Status Tag
     PipeCtl                   = g_cRenderHal_InitPipeControlParams;
-    PipeCtl.presDest          = &OsResource;
+    PipeCtl.presDest          = osResource;
     PipeCtl.dwResourceOffset  = pOsInterface->pfnGetGpuStatusTagOffset(pOsInterface, pOsInterface->CurrentGpuContextOrdinal); //MOS_GPU_CONTEXT_RENDER or MOS_GPU_CONTEXT_RENDER3
     PipeCtl.dwDataDW1         = pOsInterface->pfnGetGpuStatusTag(pOsInterface, pOsInterface->CurrentGpuContextOrdinal);
     PipeCtl.dwPostSyncOp      = MHW_FLUSH_WRITE_IMMEDIATE_DATA;
@@ -5228,7 +5232,10 @@ MOS_STATUS RenderHal_SendCscCoeffSurface(
     pOsInterface    = pRenderHal->pOsInterface;
     pMhwMiInterface = pRenderHal->pMhwMiInterface;
     dwOffset        = 0;
-    dwCount         = sizeof(pKernelEntry->pCscParams->Matrix[0].Coeff) / sizeof(uint64_t);
+    static_assert(
+        (sizeof(pKernelEntry->pCscParams->Matrix[0].Coeff) % sizeof(uint64_t)) == 0,
+        "Coeff array size must be multiple of 8");
+    dwCount         = sizeof(pKernelEntry->pCscParams->Matrix[0].Coeff) / (sizeof(uint64_t));
     MOS_ZeroMemory(&Surface, sizeof(Surface));
 
     // Register the buffer
@@ -5661,6 +5668,9 @@ MOS_STATUS RenderHal_SetSurfaceStateBuffer(
     Params.pSurfaceState = (uint8_t*)pSurfaceState;
     Params.dwCacheabilityControl = pParams->dwCacheabilityControl;
 
+    // Default tile mode of surface state buffer is linear
+    Params.bGMMTileEnabled       = true;
+
     // Setup Surface State Entry via MHW state heap interface
     MHW_RENDERHAL_CHK_STATUS(pRenderHal->pMhwStateHeap->SetSurfaceStateEntry(&Params));
 
@@ -5880,6 +5890,11 @@ MOS_STATUS RenderHal_SetupSurfaceStatesOs(
             additional_plane_offset *= pSurface->dwPitch;
             TokenParams.dwSurfaceOffset
                     = pSurface->dwOffset + additional_plane_offset;
+            //force it to 0 for 1D buffer
+            if (pParams->bBufferUse)
+            {
+                TokenParams.dwSurfaceOffset = 0;
+            }
             break;
     }
 
@@ -6180,6 +6195,8 @@ bool RenderHal_Is2PlaneNV12Needed(
     uint16_t wHeightAlignUnit;
     uint32_t dwSurfaceHeight;
     uint32_t dwSurfaceWidth;
+    uint32_t widthAlignUnit;
+    uint32_t heightAlignUnit;
     bool bRet = false;
 
     //---------------------------------------------
@@ -6213,30 +6230,10 @@ bool RenderHal_Is2PlaneNV12Needed(
             break;
     }
 
-    // On G8, NV12 format needs the width and Height to be a multiple
-    // of 4 for both 3D sampler and 8x8 sampler; G75 needs the width
-    // of NV12 input surface to be a multiple of 4 for 3D sampler.
-    // On G9+, width need to be a multiple of 2, while height still need
-    // be a multiple of 4. Since G9 already post PV, just keep the old logic
-    // to enable 2 plane NV12 when the width or Height is not a multiple of 4.
-    // For G10+, enable 2 plane NV12 when width is not multiple of 2 or height
-    // is not multiple of 4.
-    if (!GFX_IS_GEN_10_OR_LATER(pRenderHal->Platform))
-    {
-        bRet = (!MOS_IS_ALIGNED(dwSurfaceHeight, 4) || !MOS_IS_ALIGNED(dwSurfaceWidth, 4));
-    }
-    else
-    {
-        // For AVS sampler, no limitation for 4 alignment.
-        if (RENDERHAL_SCALING_AVS == pRenderHalSurface->ScalingMode)
-        {
-            bRet = (!MOS_IS_ALIGNED(dwSurfaceHeight, 2) || !MOS_IS_ALIGNED(dwSurfaceWidth, 2));
-        }
-        else
-        {
-            bRet = (!MOS_IS_ALIGNED(dwSurfaceHeight, 4) || !MOS_IS_ALIGNED(dwSurfaceWidth, 2));
-        }
-    }
+    // NV12 format needs the width and height to be a multiple for both 3D sampler and 8x8 sampler.
+    // For AVS sampler, no limitation for 4 alignment.
+    pRenderHal->pMhwRenderInterface->GetSamplerResolutionAlignUnit(RENDERHAL_SCALING_AVS == pRenderHalSurface->ScalingMode, widthAlignUnit, heightAlignUnit);
+    bRet = (!MOS_IS_ALIGNED(dwSurfaceHeight, heightAlignUnit) || !MOS_IS_ALIGNED(dwSurfaceWidth, widthAlignUnit));
 
     // Note: Always using 2 plane NV12 as WA for the corruption of NV12 input
     // of which the height is greater than 16352
@@ -6735,7 +6732,10 @@ MOS_STATUS RenderHal_SendSurfaceStateEntry(
 
     MOS_MEMCOMP_STATE mmcMode = MOS_MEMCOMP_DISABLED;
     PMOS_RESOURCE pMosResource = (PMOS_RESOURCE)pSurfaceStateToken->pResourceInfo;
-    pOsInterface->pfnGetMemoryCompressionMode(pOsInterface, pMosResource, &mmcMode);
+    if (pOsInterface->pfnGetMemoryCompressionMode)
+    {
+        pOsInterface->pfnGetMemoryCompressionMode(pOsInterface, pMosResource, &mmcMode);
+    }
 
     if (mmcMode == MOS_MEMCOMP_RC && pSurfaceStateToken->DW3.SurfaceStateType == MEDIASTATE_BTS_DEFAULT_TYPE)
     {
@@ -6826,8 +6826,6 @@ MOS_STATUS RenderHal_InitInterface(
     PMOS_INTERFACE       pOsInterface)
 {
     PMOS_USER_FEATURE_INTERFACE     pUserFeatureInterface = nullptr;
-    MOS_USER_FEATURE                UserFeature;
-    MOS_USER_FEATURE_VALUE          UserFeatureValue;
     MOS_STATUS                      eStatus = MOS_STATUS_SUCCESS;
     MHW_VFE_PARAMS                  *pVfeStateParams = nullptr;
 
@@ -6896,34 +6894,32 @@ MOS_STATUS RenderHal_InitInterface(
     }
 
     // Read VDI Walker Regkey once during initialization
-    MOS_ZeroMemory(&UserFeatureValue, sizeof(UserFeatureValue));
-    pUserFeatureInterface   = &pRenderHal->pOsInterface->UserFeatureInterface;
-    UserFeature             = *pUserFeatureInterface->pUserFeatureInit;
-    UserFeature.Type        = MOS_USER_FEATURE_TYPE_USER;
-    UserFeature.pPath       = __MEDIA_USER_FEATURE_SUBKEY_INTERNAL;
-    UserFeature.pValues     = &UserFeatureValue;
-    UserFeature.uiNumValues = 1;
+    MOS_USER_FEATURE_VALUE_DATA userFeatureValueData;
 
-    UserFeatureValue.u32Data = true;    // Init as default value
+    MOS_ZeroMemory(&userFeatureValueData, sizeof(userFeatureValueData));
+    userFeatureValueData.u32Data = true;  // Init as default value
+    userFeatureValueData.i32DataFlag = MOS_USER_FEATURE_VALUE_DATA_FLAG_CUSTOM_DEFAULT_VALUE_TYPE;
 #if (_DEBUG || _RELEASE_INTERNAL)
-    MOS_UserFeature_ReadValue(
+    MOS_UserFeature_ReadValue_ID(
         nullptr,
-        &UserFeature,
-        __MEDIA_USER_FEATURE_VALUE_VDI_MODE,
-        MOS_USER_FEATURE_VALUE_TYPE_UINT32);
+        __MEDIA_USER_FEATURE_VALUE_VDI_MODE_ID,
+        &userFeatureValueData,
+        pOsInterface->pOsContext);
 #endif
-    pRenderHal->bVDIWalker = UserFeature.pValues[0].u32Data ? true : false;
+    pRenderHal->bVDIWalker = userFeatureValueData.u32Data ? true : false;
 
-    UserFeatureValue.u32Data = MHW_WALKER_MODE_NOT_SET;    // Init as default value
+    MOS_ZeroMemory(&userFeatureValueData, sizeof(userFeatureValueData));
+    userFeatureValueData.u32Data     = MHW_WALKER_MODE_NOT_SET;  // Init as default value
+    userFeatureValueData.i32DataFlag = MOS_USER_FEATURE_VALUE_DATA_FLAG_CUSTOM_DEFAULT_VALUE_TYPE;
 #if (_DEBUG || _RELEASE_INTERNAL)
     // Read Media Walker Mode from RegKey once in initialization
-    MOS_UserFeature_ReadValue(
+    MOS_UserFeature_ReadValue_ID(
         nullptr,
-        &UserFeature,
-        __MEDIA_USER_FEATURE_VALUE_MEDIA_WALKER_MODE,
-        MOS_USER_FEATURE_VALUE_TYPE_UINT32);
+        __MEDIA_USER_FEATURE_VALUE_MEDIA_WALKER_MODE_ID,
+        &userFeatureValueData,
+        pOsInterface->pOsContext);
 #endif
-    pRenderHal->MediaWalkerMode = (MHW_WALKER_MODE)UserFeature.pValues[0].u32Data;
+    pRenderHal->MediaWalkerMode = (MHW_WALKER_MODE)userFeatureValueData.u32Data;
 
     pRenderHal->pPlaneDefinitions             = g_cRenderHal_SurfacePlanes;
 

@@ -28,13 +28,12 @@ if (MEDIA_EXT)
     list(REMOVE_ITEM SOURCES ./mos_bufmgr_mock.c)
     list(REMOVE_ITEM SOURCES ./libdrm_mock/xf86drm_mock.c)
     set(SOURCES
-        ${MEDIA_EXT_ULT}/linux/libdrm_mock/mos_bufmgr_mock.c
-        ${MEDIA_EXT_ULT}/linux/libdrm_mock/xf86drm_mock.c
+        ${MEDIA_EXT_ULT}/linux/mock/libdrm_mock/mos_bufmgr_mock.c
+        ${MEDIA_EXT_ULT}/linux/mock/libdrm_mock/xf86drm_mock.c
 )
 endif ()
 
 set_source_files_properties(${SOURCES} PROPERTIES LANGUAGE "CXX")
 add_library(drm_mock SHARED ${SOURCES})
 
-target_link_libraries(drm_mock pciaccess)
 set_target_properties(drm_mock PROPERTIES VERSION 2.4.0 SOVERSION 2)

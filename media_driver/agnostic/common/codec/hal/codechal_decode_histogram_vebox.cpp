@@ -234,6 +234,8 @@ MOS_STATUS CodechalDecodeHistogramVebox::SetVeboxSurfaceStateParams(
     veboxSurfParams->SurfInput.dwUYoffset       = m_inputSurface->UPlaneOffset.iYOffset;
     veboxSurfParams->SurfInput.dwPitch          = m_inputSurface->dwPitch;
     veboxSurfParams->SurfInput.TileType         = m_inputSurface->TileType;
+    veboxSurfParams->SurfInput.TileModeGMM      = m_inputSurface->TileModeGMM;
+    veboxSurfParams->SurfInput.bGMMTileEnabled  = m_inputSurface->bGMMTileEnabled;
     veboxSurfParams->SurfInput.pOsResource      = &m_inputSurface->OsResource;
     veboxSurfParams->SurfInput.rcMaxSrc.left    = 0;
     veboxSurfParams->SurfInput.rcMaxSrc.top     = 0;
@@ -459,7 +461,7 @@ MOS_STATUS CodechalDecodeHistogramVebox::RenderHistogram(
     MOS_ZeroMemory(&userFeatureWriteData, sizeof(userFeatureWriteData));
     userFeatureWriteData.Value.i32Data = 1;
     userFeatureWriteData.ValueID       = __MEDIA_USER_FEATURE_VALUE_DECODE_HISTOGRAM_FROM_VEBOX_ID;
-    MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+    MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, m_osInterface->pOsContext);
 
     return eStatus;
 }

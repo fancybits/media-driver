@@ -1,7 +1,7 @@
 /**************************************************************************
  *
- * Copyright © 2007 Red Hat Inc.
- * Copyright © 2007-2018 Intel Corporation
+ * Copyright Â© 2007 Red Hat Inc.
+ * Copyright Â© 2007-2020 Intel Corporation
  * Copyright 2006 Tungsten Graphics, Inc., Bismarck, ND., USA
  * All Rights Reserved.
  *
@@ -28,7 +28,7 @@
  *
  **************************************************************************/
 /*
- * Authors: Thomas Hellström <thomas-at-tungstengraphics-dot-com>
+ * Authors: Thomas HellstrÃ¶m <thomas-at-tungstengraphics-dot-com>
  *          Keith Whitwell <keithw-at-tungstengraphics-dot-com>
  *        Eric Anholt <eric@anholt.net>
  *        Dave Airlie <airlied@linux.ie>
@@ -136,8 +136,6 @@ struct mos_bufmgr_gem {
     drmMMListHead managers;
 
     drmMMListHead named;
-    drmMMListHead vma_cache;
-    int vma_count, vma_open, vma_max;
 
     uint64_t gtt_size;
     int available_fences;
@@ -157,11 +155,20 @@ struct mos_bufmgr_gem {
         void *ptr;
         uint32_t handle;
     } userptr_active;
+
+    // manage address for softpin buffer object
+    uint64_t head_offset;
+    bool use_softpin;
 } mos_bufmgr_gem;
 
 #define DRM_INTEL_RELOC_FENCE (1<<0)
 
 struct mos_reloc_target {
+    struct mos_linux_bo *bo;
+    int flags;
+};
+
+struct mos_softpin_target {
     struct mos_linux_bo *bo;
     int flags;
 };
@@ -205,7 +212,7 @@ struct mos_bo_gem {
     /** Number of entries in relocs */
     int reloc_count;
     /** Array of BOs that are referenced by this buffer and will be softpinned */
-    struct mos_linux_bo **softpin_target;
+    struct mos_softpin_target *softpin_target;
     /** Number softpinned BOs that are referenced by this buffer */
     int softpin_target_count;
     /** Maximum amount of softpinned BOs that are referenced by this buffer */
@@ -223,7 +230,6 @@ struct mos_bo_gem {
      */
     void *user_virtual;
     int map_count;
-    drmMMListHead vma_list;
 
     /** BO cache list */
     drmMMListHead head;
@@ -431,7 +437,7 @@ mos_gem_dump_validation_list(struct mos_bufmgr_gem *bufmgr_gem)
         }
 
         for (j = 0; j < bo_gem->softpin_target_count; j++) {
-            struct mos_linux_bo *target_bo = bo_gem->softpin_target[j];
+            struct mos_linux_bo *target_bo = bo_gem->softpin_target[j].bo;
             struct mos_bo_gem *target_gem =
                 (struct mos_bo_gem *) target_bo;
             MOS_DBG("%2d: %d %s(%s) -> "
@@ -481,7 +487,7 @@ mos_add_validate_buffer(struct mos_linux_bo *bo)
         int new_size = bufmgr_gem->exec_size * 2;
 
         if (new_size == 0)
-            new_size = 5;
+            new_size = ARRAY_INIT_SIZE;
 
         exec_objects = (struct drm_i915_gem_exec_object *)realloc(bufmgr_gem->exec_objects,
                 sizeof(*bufmgr_gem->exec_objects) * new_size);
@@ -542,7 +548,7 @@ mos_add_validate_buffer2(struct mos_linux_bo *bo, int need_fence)
         int new_size = bufmgr_gem->exec_size * 2;
 
         if (new_size == 0)
-            new_size = 5;
+            new_size = ARRAY_INIT_SIZE;
         exec2_objects = (struct drm_i915_gem_exec_object2 *)
                 realloc(bufmgr_gem->exec2_objects,
                     sizeof(*bufmgr_gem->exec2_objects) * new_size);
@@ -574,6 +580,124 @@ mos_add_validate_buffer2(struct mos_linux_bo *bo, int need_fence)
     bufmgr_gem->exec2_objects[index].rsvd1 = 0;
     bufmgr_gem->exec2_objects[index].pad_to_size = bo_gem->pad_to_size;
     bufmgr_gem->exec2_objects[index].rsvd2 = 0;
+    bufmgr_gem->exec_count++;
+}
+
+static void
+mos_add_reloc_objects(struct mos_reloc_target reloc_target)
+{
+    struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *)reloc_target.bo->bufmgr;
+    struct mos_bo_gem *bo_gem = (struct mos_bo_gem *)reloc_target.bo;
+    int index;
+    struct drm_i915_gem_exec_object2 *exec2_objects;
+    struct mos_linux_bo **exec_bos;
+
+    if (bo_gem->validate_index != -1) {
+        bufmgr_gem->exec2_objects[bo_gem->validate_index].flags |= reloc_target.flags;
+        return;
+    }
+
+    /* Extend the array of validation entries as necessary. */
+    if (bufmgr_gem->exec_count == bufmgr_gem->exec_size) {
+        int new_size = bufmgr_gem->exec_size * 2;
+
+        if (new_size == 0)
+            new_size = ARRAY_INIT_SIZE;
+        exec2_objects = (struct drm_i915_gem_exec_object2 *)
+                realloc(bufmgr_gem->exec2_objects,
+                    sizeof(*bufmgr_gem->exec2_objects) * new_size);
+        if (!exec2_objects)
+        {
+            MOS_DBG("realloc exec2_objects failed!\n");
+            return;
+        }
+
+        bufmgr_gem->exec2_objects = exec2_objects;
+
+        exec_bos = (struct mos_linux_bo **)realloc(bufmgr_gem->exec_bos,
+                sizeof(*bufmgr_gem->exec_bos) * new_size);
+        if (!exec_bos)
+        {
+            MOS_DBG("realloc exec_bo failed!\n");
+            return;
+        }
+
+        bufmgr_gem->exec_bos = exec_bos;
+        bufmgr_gem->exec_size = new_size;
+    }
+
+    index = bufmgr_gem->exec_count;
+    bo_gem->validate_index = index;
+    /* Fill in array entry */
+    bufmgr_gem->exec2_objects[index].handle           = bo_gem->gem_handle;
+    bufmgr_gem->exec2_objects[index].relocation_count = bo_gem->reloc_count;
+    bufmgr_gem->exec2_objects[index].relocs_ptr       = (uintptr_t)bo_gem->relocs;
+    bufmgr_gem->exec2_objects[index].alignment        = reloc_target.bo->align;
+    bufmgr_gem->exec2_objects[index].offset           = 0;
+    bufmgr_gem->exec_bos[index]                       = reloc_target.bo;
+    bufmgr_gem->exec2_objects[index].flags            = reloc_target.flags;
+    bufmgr_gem->exec2_objects[index].rsvd1            = 0;
+    bufmgr_gem->exec2_objects[index].pad_to_size      = bo_gem->pad_to_size;
+    bufmgr_gem->exec2_objects[index].rsvd2            = 0;
+    bufmgr_gem->exec_count++;
+}
+
+static void
+mos_add_softpin_objects(struct mos_softpin_target softpin_target)
+{
+    struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *)softpin_target.bo->bufmgr;
+    struct mos_bo_gem *bo_gem = (struct mos_bo_gem *)softpin_target.bo;
+    int index;
+    struct drm_i915_gem_exec_object2 *exec2_objects;
+    struct mos_linux_bo **exec_bos;
+
+    if (bo_gem->validate_index != -1) {
+        bufmgr_gem->exec2_objects[bo_gem->validate_index].flags |= softpin_target.flags;
+        return;
+    }
+
+    /* Extend the array of validation entries as necessary. */
+    if (bufmgr_gem->exec_count == bufmgr_gem->exec_size) {
+        int new_size = bufmgr_gem->exec_size * 2;
+
+        if (new_size == 0)
+            new_size = ARRAY_INIT_SIZE;
+        exec2_objects = (struct drm_i915_gem_exec_object2 *)
+                realloc(bufmgr_gem->exec2_objects,
+                    sizeof(*bufmgr_gem->exec2_objects) * new_size);
+        if (!exec2_objects)
+        {
+            MOS_DBG("realloc exec2_objects failed!\n");
+            return;
+        }
+
+        bufmgr_gem->exec2_objects = exec2_objects;
+
+        exec_bos = (struct mos_linux_bo **)realloc(bufmgr_gem->exec_bos,
+                sizeof(*bufmgr_gem->exec_bos) * new_size);
+        if (!exec_bos)
+        {
+            MOS_DBG("realloc exec_bo failed!\n");
+            return;
+        }
+
+        bufmgr_gem->exec_bos = exec_bos;
+        bufmgr_gem->exec_size = new_size;
+    }
+
+    index = bufmgr_gem->exec_count;
+    bo_gem->validate_index = index;
+    /* Fill in array entry */
+    bufmgr_gem->exec2_objects[index].handle           = bo_gem->gem_handle;
+    bufmgr_gem->exec2_objects[index].relocation_count = bo_gem->reloc_count;
+    bufmgr_gem->exec2_objects[index].relocs_ptr       = (uintptr_t)bo_gem->relocs;
+    bufmgr_gem->exec2_objects[index].alignment        = softpin_target.bo->align;
+    bufmgr_gem->exec2_objects[index].offset           = softpin_target.bo->offset64;
+    bufmgr_gem->exec2_objects[index].flags            = softpin_target.flags;
+    bufmgr_gem->exec2_objects[index].pad_to_size      = bo_gem->pad_to_size;
+    bufmgr_gem->exec2_objects[index].rsvd1            = 0;
+    bufmgr_gem->exec2_objects[index].rsvd2            = 0;
+    bufmgr_gem->exec_bos[index]                       = softpin_target.bo;
     bufmgr_gem->exec_count++;
 }
 
@@ -703,7 +827,8 @@ mos_gem_bo_alloc_internal(struct mos_bufmgr *bufmgr,
                 unsigned long flags,
                 uint32_t tiling_mode,
                 unsigned long stride,
-                unsigned int alignment)
+                unsigned int alignment,
+                int mem_type)
 {
     struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *) bufmgr;
     struct mos_bo_gem *bo_gem;
@@ -813,7 +938,6 @@ retry:
         /* drm_intel_gem_bo_free calls DRMLISTDEL() for an uninitialized
            list (vma_list), so better set the list head here */
         DRMINITLISTHEAD(&bo_gem->name_list);
-        DRMINITLISTHEAD(&bo_gem->vma_list);
         if (mos_gem_bo_set_tiling_internal(&bo_gem->bo,
                              tiling_mode,
                              stride)) {
@@ -833,6 +957,11 @@ retry:
 
     mos_bo_gem_set_in_aperture_size(bufmgr_gem, bo_gem, alignment);
 
+    if (bufmgr_gem->use_softpin)
+    {
+        mos_bo_set_softpin(&bo_gem->bo);
+    }
+
     MOS_DBG("bo_create: buf %d (%s) %ldb\n",
         bo_gem->gem_handle, bo_gem->name, size);
 
@@ -843,28 +972,31 @@ static struct mos_linux_bo *
 mos_gem_bo_alloc_for_render(struct mos_bufmgr *bufmgr,
                   const char *name,
                   unsigned long size,
-                  unsigned int alignment)
+                  unsigned int alignment,
+                  int mem_type)
 {
     return mos_gem_bo_alloc_internal(bufmgr, name, size,
                            I915_TILING_NONE, 0,
                            BO_ALLOC_FOR_RENDER,
-                           alignment);
+                           alignment, mem_type);
 }
 
 static struct mos_linux_bo *
 mos_gem_bo_alloc(struct mos_bufmgr *bufmgr,
                const char *name,
                unsigned long size,
-               unsigned int alignment)
+               unsigned int alignment,
+               int mem_type)
 {
     return mos_gem_bo_alloc_internal(bufmgr, name, size, 0,
-                           I915_TILING_NONE, 0, 0);
+                           I915_TILING_NONE, 0, 0, mem_type);
 }
 
 static struct mos_linux_bo *
 mos_gem_bo_alloc_tiled(struct mos_bufmgr *bufmgr, const char *name,
                  int x, int y, int cpp, uint32_t *tiling_mode,
-                 unsigned long *pitch, unsigned long flags)
+                 unsigned long *pitch, unsigned long flags,
+                 int mem_type)
 {
     struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *)bufmgr;
     unsigned long size, stride;
@@ -908,7 +1040,7 @@ mos_gem_bo_alloc_tiled(struct mos_bufmgr *bufmgr, const char *name,
         stride = 0;
 
     return mos_gem_bo_alloc_internal(bufmgr, name, size, flags,
-                           tiling, stride, 0);
+                           tiling, stride, 0, mem_type);
 }
 
 static struct mos_linux_bo *
@@ -969,7 +1101,6 @@ mos_gem_bo_alloc_userptr(struct mos_bufmgr *bufmgr,
     bo_gem->stride       = 0;
 
     DRMINITLISTHEAD(&bo_gem->name_list);
-    DRMINITLISTHEAD(&bo_gem->vma_list);
 
     bo_gem->name = name;
     atomic_set(&bo_gem->refcount, 1);
@@ -1155,7 +1286,6 @@ mos_bo_gem_create_from_name(struct mos_bufmgr *bufmgr,
 
     mos_bo_gem_set_in_aperture_size(bufmgr_gem, bo_gem, 0);
 
-    DRMINITLISTHEAD(&bo_gem->vma_list);
     DRMLISTADDTAIL(&bo_gem->name_list, &bufmgr_gem->named);
     pthread_mutex_unlock(&bufmgr_gem->lock);
     MOS_DBG("bo_create_from_handle: %d (%s)\n", handle, bo_gem->name);
@@ -1171,20 +1301,16 @@ mos_gem_bo_free(struct mos_linux_bo *bo)
     struct drm_gem_close close;
     int ret;
 
-    DRMLISTDEL(&bo_gem->vma_list);
     if (bo_gem->mem_virtual) {
         VG(VALGRIND_FREELIKE_BLOCK(bo_gem->mem_virtual, 0));
         drm_munmap(bo_gem->mem_virtual, bo_gem->bo.size);
-        bufmgr_gem->vma_count--;
     }
     if (bo_gem->gtt_virtual) {
         drm_munmap(bo_gem->gtt_virtual, bo_gem->bo.size);
-        bufmgr_gem->vma_count--;
     }
     if (bo_gem->mem_wc_virtual) {
         VG(VALGRIND_FREELIKE_BLOCK(bo_gem->mem_wc_virtual, 0));
         drm_munmap(bo_gem->mem_wc_virtual, bo_gem->bo.size);
-        bufmgr_gem->vma_count--;
     }
 
     /* Close this object */
@@ -1246,78 +1372,6 @@ mos_gem_cleanup_bo_cache(struct mos_bufmgr_gem *bufmgr_gem, time_t time)
     bufmgr_gem->time = time;
 }
 
-static void mos_gem_bo_purge_vma_cache(struct mos_bufmgr_gem *bufmgr_gem)
-{
-    int limit;
-
-    MOS_DBG("%s: cached=%d, open=%d, limit=%d\n", __FUNCTION__,
-        bufmgr_gem->vma_count, bufmgr_gem->vma_open, bufmgr_gem->vma_max);
-
-    if (bufmgr_gem->vma_max < 0)
-        return;
-
-    /* We may need to evict a few entries in order to create new mmaps */
-    limit = bufmgr_gem->vma_max - 2*bufmgr_gem->vma_open;
-    if (bufmgr_gem->has_ext_mmap)
-        limit -= bufmgr_gem->vma_open;
-    if (limit < 0)
-        limit = 0;
-
-    while (bufmgr_gem->vma_count > limit) {
-        struct mos_bo_gem *bo_gem;
-
-        bo_gem = DRMLISTENTRY(struct mos_bo_gem,
-                      bufmgr_gem->vma_cache.next,
-                      vma_list);
-        assert(bo_gem->map_count == 0);
-        DRMLISTDELINIT(&bo_gem->vma_list);
-
-        if (bo_gem->mem_virtual) {
-            drm_munmap(bo_gem->mem_virtual, bo_gem->bo.size);
-            bo_gem->mem_virtual = nullptr;
-            bufmgr_gem->vma_count--;
-        }
-        if (bo_gem->gtt_virtual) {
-            drm_munmap(bo_gem->gtt_virtual, bo_gem->bo.size);
-            bo_gem->gtt_virtual = nullptr;
-            bufmgr_gem->vma_count--;
-        }
-        if (bo_gem->mem_wc_virtual) {
-            drm_munmap(bo_gem->mem_wc_virtual, bo_gem->bo.size);
-            bo_gem->mem_wc_virtual = nullptr;
-            bufmgr_gem->vma_count--;
-        }
-    }
-}
-
-static void mos_gem_bo_close_vma(struct mos_bufmgr_gem *bufmgr_gem,
-                     struct mos_bo_gem *bo_gem)
-{
-    bufmgr_gem->vma_open--;
-    DRMLISTADDTAIL(&bo_gem->vma_list, &bufmgr_gem->vma_cache);
-    if (bo_gem->mem_virtual)
-        bufmgr_gem->vma_count++;
-    if (bo_gem->gtt_virtual)
-        bufmgr_gem->vma_count++;
-    if (bo_gem->mem_wc_virtual)
-        bufmgr_gem->vma_count++;
-    mos_gem_bo_purge_vma_cache(bufmgr_gem);
-}
-
-static void mos_gem_bo_open_vma(struct mos_bufmgr_gem *bufmgr_gem,
-                      struct mos_bo_gem *bo_gem)
-{
-    bufmgr_gem->vma_open++;
-    DRMLISTDEL(&bo_gem->vma_list);
-    if (bo_gem->mem_virtual)
-        bufmgr_gem->vma_count--;
-    if (bo_gem->gtt_virtual)
-        bufmgr_gem->vma_count--;
-    if (bo_gem->mem_wc_virtual)
-        bufmgr_gem->vma_count--;
-    mos_gem_bo_purge_vma_cache(bufmgr_gem);
-}
-
 drm_export void
 mos_gem_bo_unreference_final(struct mos_linux_bo *bo, time_t time)
 {
@@ -1335,7 +1389,7 @@ mos_gem_bo_unreference_final(struct mos_linux_bo *bo, time_t time)
         }
     }
     for (i = 0; i < bo_gem->softpin_target_count; i++)
-        mos_gem_bo_unreference_locked_timed(bo_gem->softpin_target[i],
+        mos_gem_bo_unreference_locked_timed(bo_gem->softpin_target[i].bo,
                                   time);
     bo_gem->reloc_count = 0;
     bo_gem->used_as_reloc_target = false;
@@ -1365,7 +1419,6 @@ mos_gem_bo_unreference_final(struct mos_linux_bo *bo, time_t time)
     if (bo_gem->map_count) {
         MOS_DBG("bo freed with non-zero map-count %d\n", bo_gem->map_count);
         bo_gem->map_count = 0;
-        mos_gem_bo_close_vma(bufmgr_gem, bo_gem);
         mos_gem_bo_mark_mmaps_incoherent(bo);
     }
 
@@ -1434,9 +1487,6 @@ map_wc(struct mos_linux_bo *bo)
     if (!bufmgr_gem->has_ext_mmap)
         return -EINVAL;
 
-    if (bo_gem->map_count++ == 0)
-        mos_gem_bo_open_vma(bufmgr_gem, bo_gem);
-
     /* Get a mapping of the buffer if we haven't before. */
     if (bo_gem->mem_wc_virtual == nullptr) {
         struct drm_i915_gem_mmap mmap_arg;
@@ -1457,8 +1507,6 @@ map_wc(struct mos_linux_bo *bo)
             MOS_DBG("%s:%d: Error mapping buffer %d (%s): %s .\n",
                 __FILE__, __LINE__, bo_gem->gem_handle,
                 bo_gem->name, strerror(errno));
-            if (--bo_gem->map_count == 0)
-                mos_gem_bo_close_vma(bufmgr_gem, bo_gem);
             return ret;
         }
         VG(VALGRIND_MALLOCLIKE_BLOCK(mmap_arg.addr_ptr, mmap_arg.size, 0, 1));
@@ -1559,9 +1607,6 @@ drm_export int mos_gem_bo_map(struct mos_linux_bo *bo, int write_enable)
 
     pthread_mutex_lock(&bufmgr_gem->lock);
 
-    if (bo_gem->map_count++ == 0)
-        mos_gem_bo_open_vma(bufmgr_gem, bo_gem);
-
     if (!bo_gem->mem_virtual) {
         struct drm_i915_gem_mmap mmap_arg;
 
@@ -1579,8 +1624,6 @@ drm_export int mos_gem_bo_map(struct mos_linux_bo *bo, int write_enable)
             MOS_DBG("%s:%d: Error mapping buffer %d (%s): %s .\n",
                 __FILE__, __LINE__, bo_gem->gem_handle,
                 bo_gem->name, strerror(errno));
-            if (--bo_gem->map_count == 0)
-                mos_gem_bo_close_vma(bufmgr_gem, bo_gem);
             pthread_mutex_unlock(&bufmgr_gem->lock);
             return ret;
         }
@@ -1631,9 +1674,6 @@ map_gtt(struct mos_linux_bo *bo)
     if (bo_gem->is_userptr)
         return -EINVAL;
 
-    if (bo_gem->map_count++ == 0)
-        mos_gem_bo_open_vma(bufmgr_gem, bo_gem);
-
     /* Get a mapping of the buffer if we haven't before. */
     if (bo_gem->gtt_virtual == nullptr) {
         struct drm_i915_gem_mmap_gtt mmap_arg;
@@ -1654,8 +1694,6 @@ map_gtt(struct mos_linux_bo *bo)
                 __FILE__, __LINE__,
                 bo_gem->gem_handle, bo_gem->name,
                 strerror(errno));
-            if (--bo_gem->map_count == 0)
-                mos_gem_bo_close_vma(bufmgr_gem, bo_gem);
             return ret;
         }
 
@@ -1670,8 +1708,6 @@ map_gtt(struct mos_linux_bo *bo)
                 __FILE__, __LINE__,
                 bo_gem->gem_handle, bo_gem->name,
                 strerror(errno));
-            if (--bo_gem->map_count == 0)
-                mos_gem_bo_close_vma(bufmgr_gem, bo_gem);
             return ret;
         }
     }
@@ -1826,7 +1862,6 @@ drm_export int mos_gem_bo_unmap(struct mos_linux_bo *bo)
      * limits and cause later failures.
      */
     if (--bo_gem->map_count == 0) {
-        mos_gem_bo_close_vma(bufmgr_gem, bo_gem);
         mos_gem_bo_mark_mmaps_incoherent(bo);
 #ifdef __cplusplus
         bo->virt = nullptr;
@@ -2192,7 +2227,6 @@ do_bo_emit_reloc2(struct mos_linux_bo *bo, uint32_t offset,
     struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *) bo->bufmgr;
     struct mos_bo_gem *bo_gem = (struct mos_bo_gem *) bo;
     struct mos_bo_gem *target_bo_gem = (struct mos_bo_gem *) target_bo;
-    bool fenced_command;
 
     if (bo_gem->has_error)
         return -ENOMEM;
@@ -2201,11 +2235,6 @@ do_bo_emit_reloc2(struct mos_linux_bo *bo, uint32_t offset,
         bo_gem->has_error = true;
         return -ENOMEM;
     }
-
-    /* We never use HW fences for rendering on 965+ */
-    need_fence = false;
-
-    fenced_command = need_fence;
 
     /* Create a new relocation list if needed */
     if (bo_gem->relocs == nullptr && mos_setup_reloc_list(bo))
@@ -2236,15 +2265,19 @@ do_bo_emit_reloc2(struct mos_linux_bo *bo, uint32_t offset,
         bo_gem->reloc_tree_fences += target_bo_gem->reloc_tree_fences;
     }
 
-    bo_gem->reloc_target_info[bo_gem->reloc_count].bo = target_bo;
+    int flags = 0;
+    if (target_bo_gem->pad_to_size)
+        flags |= EXEC_OBJECT_PAD_TO_SIZE;
+    if (target_bo_gem->use_48b_address_range)
+        flags |= EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
+    if (target_bo_gem->exec_async)
+        flags |= EXEC_OBJECT_ASYNC;
+
     if (target_bo != bo)
         mos_gem_bo_reference(target_bo);
-    if (fenced_command)
-        bo_gem->reloc_target_info[bo_gem->reloc_count].flags =
-            DRM_INTEL_RELOC_FENCE;
-    else
-        bo_gem->reloc_target_info[bo_gem->reloc_count].flags = 0;
 
+    bo_gem->reloc_target_info[bo_gem->reloc_count].bo = target_bo;
+    bo_gem->reloc_target_info[bo_gem->reloc_count].flags = flags;
     bo_gem->relocs[bo_gem->reloc_count].offset = offset;
     bo_gem->relocs[bo_gem->reloc_count].delta = target_offset;
     bo_gem->relocs[bo_gem->reloc_count].target_handle =
@@ -2265,14 +2298,40 @@ mos_gem_bo_use_48b_address_range(struct mos_linux_bo *bo, uint32_t enable)
 }
 
 static void
-mos_gem_bo_set_exec_object_async(struct mos_linux_bo *bo)
+mos_gem_bo_set_object_async(struct mos_linux_bo *bo)
 {
     struct mos_bo_gem *bo_gem = (struct mos_bo_gem *)bo;
     bo_gem->exec_async = true;
 }
 
+static void
+mos_gem_bo_set_exec_object_async(struct mos_linux_bo *bo, struct mos_linux_bo *target_bo)
+{
+    struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *) bo->bufmgr;
+    struct mos_bo_gem *bo_gem = (struct mos_bo_gem *) bo;
+    struct mos_bo_gem *target_bo_gem = (struct mos_bo_gem *) target_bo;
+    int i;
+    for (i = 0; i < bo_gem->reloc_count; i++)
+    {
+        if (bo_gem->reloc_target_info[i].bo == target_bo)
+        {
+            bo_gem->reloc_target_info[i].flags |= EXEC_OBJECT_ASYNC;
+            break;
+        }
+    }
+
+    for (i = 0; i < bo_gem->softpin_target_count; i++)
+    {
+        if (bo_gem->softpin_target[i].bo == target_bo)
+        {
+            bo_gem->softpin_target[i].flags |= EXEC_OBJECT_ASYNC;
+            break;
+        }
+    }
+}
+
 static int
-mos_gem_bo_add_softpin_target(struct mos_linux_bo *bo, struct mos_linux_bo *target_bo)
+mos_gem_bo_add_softpin_target(struct mos_linux_bo *bo, struct mos_linux_bo *target_bo, bool write_flag)
 {
     struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *) bo->bufmgr;
     struct mos_bo_gem *bo_gem = (struct mos_bo_gem *) bo;
@@ -2295,14 +2354,26 @@ mos_gem_bo_add_softpin_target(struct mos_linux_bo *bo, struct mos_linux_bo *targ
         if (new_size == 0)
             new_size = bufmgr_gem->max_relocs;
 
-        bo_gem->softpin_target = (struct mos_linux_bo **)realloc(bo_gem->softpin_target, new_size *
-                sizeof(struct mos_linux_bo *));
+        bo_gem->softpin_target = (struct mos_softpin_target *)realloc(bo_gem->softpin_target, new_size *
+                sizeof(struct mos_softpin_target));
         if (!bo_gem->softpin_target)
             return -ENOMEM;
 
         bo_gem->softpin_target_size = new_size;
     }
-    bo_gem->softpin_target[bo_gem->softpin_target_count] = target_bo;
+
+    int flags = EXEC_OBJECT_PINNED;
+    if (target_bo_gem->pad_to_size)
+        flags |= EXEC_OBJECT_PAD_TO_SIZE;
+    if (target_bo_gem->use_48b_address_range)
+        flags |= EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
+    if (target_bo_gem->exec_async)
+        flags |= EXEC_OBJECT_ASYNC;
+    if (write_flag)
+        flags |= EXEC_OBJECT_WRITE;
+
+    bo_gem->softpin_target[bo_gem->softpin_target_count].bo = target_bo;
+    bo_gem->softpin_target[bo_gem->softpin_target_count].flags = flags;
     mos_gem_bo_reference(target_bo);
     bo_gem->softpin_target_count++;
 
@@ -2327,14 +2398,10 @@ mos_gem_bo_emit_reloc(struct mos_linux_bo *bo, uint32_t offset,
                 uint32_t read_domains, uint32_t write_domain)
 {
     struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *)bo->bufmgr;
-    struct mos_bo_gem *target_bo_gem = (struct mos_bo_gem *)target_bo;
 
-    if (target_bo_gem->is_softpin)
-        return mos_gem_bo_add_softpin_target(bo, target_bo);
-    else
-        return do_bo_emit_reloc(bo, offset, target_bo, target_offset,
-                    read_domains, write_domain,
-                    !bufmgr_gem->fenced_relocs);
+    return do_bo_emit_reloc(bo, offset, target_bo, target_offset,
+                read_domains, write_domain,
+                !bufmgr_gem->fenced_relocs);
 }
 
 static int
@@ -2346,9 +2413,9 @@ mos_gem_bo_emit_reloc2(struct mos_linux_bo *bo, uint32_t offset,
     struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *)bo->bufmgr;
 
     return do_bo_emit_reloc2(bo, offset, target_bo, target_offset,
-                    read_domains, write_domain,
-                    !bufmgr_gem->fenced_relocs,
-                    presumed_offset);
+                read_domains, write_domain,
+                false,
+                presumed_offset);
 }
 
 static int
@@ -2410,7 +2477,7 @@ mos_gem_bo_clear_relocs(struct mos_linux_bo *bo, int start)
     bo_gem->reloc_count = start;
 
     for (i = 0; i < bo_gem->softpin_target_count; i++) {
-        struct mos_bo_gem *target_bo_gem = (struct mos_bo_gem *) bo_gem->softpin_target[i];
+        struct mos_bo_gem *target_bo_gem = (struct mos_bo_gem *) bo_gem->softpin_target[i].bo;
         mos_gem_bo_unreference_locked_timed(&target_bo_gem->bo, time.tv_sec);
     }
     bo_gem->softpin_target_count = 0;
@@ -2470,22 +2537,19 @@ mos_gem_bo_process_reloc2(struct mos_linux_bo *bo)
         /* Continue walking the tree depth-first. */
         mos_gem_bo_process_reloc2(target_bo);
 
-        need_fence = (bo_gem->reloc_target_info[i].flags &
-                  DRM_INTEL_RELOC_FENCE);
-
         /* Add the target to the validate list */
-        mos_add_validate_buffer2(target_bo, need_fence);
+        mos_add_reloc_objects(bo_gem->reloc_target_info[i]);
     }
 
     for (i = 0; i < bo_gem->softpin_target_count; i++) {
-        struct mos_linux_bo *target_bo = bo_gem->softpin_target[i];
+        struct mos_linux_bo *target_bo = bo_gem->softpin_target[i].bo;
 
         if (target_bo == bo)
             continue;
 
         mos_gem_bo_mark_mmaps_incoherent(bo);
         mos_gem_bo_process_reloc2(target_bo);
-        mos_add_validate_buffer2(target_bo, false);
+        mos_add_softpin_objects(bo_gem->softpin_target[i]);
     }
 }
 
@@ -2899,6 +2963,37 @@ mos_gem_bo_set_softpin_offset(struct mos_linux_bo *bo, uint64_t offset)
     return 0;
 }
 
+static int
+mos_gem_bo_set_softpin(MOS_LINUX_BO *bo)
+{
+    int ret = 0;
+    struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *) bo->bufmgr;
+    uint64_t offset = bufmgr_gem->head_offset;
+
+    // if offset is over 48b address range, return error
+    if (offset > MEMZONE_TOTAL)
+    {
+        MOS_DBG("softpin failed: address over 48b range");
+        return -EINVAL;
+    }
+
+    if (!mos_gem_bo_is_softpin(bo))
+    {
+        // update the head_offset, need to be 64K aligned
+        bufmgr_gem->head_offset += MOS_ALIGN_CEIL(bo->size, PAGE_SIZE_64K);
+
+        // softpin the BO to the given offset
+        ret = mos_gem_bo_set_softpin_offset(bo, offset);
+        if (ret == 0)
+        {
+            ret = mos_bo_use_48b_address_range(bo, 1);
+        }
+        return ret;
+    }
+
+    return ret;
+}
+
 struct mos_linux_bo *
 mos_bo_gem_create_from_prime(struct mos_bufmgr *bufmgr, int prime_fd, int size)
 {
@@ -2964,7 +3059,6 @@ mos_bo_gem_create_from_prime(struct mos_bufmgr *bufmgr, int prime_fd, int size)
     bo_gem->reusable = false;
     bo_gem->use_48b_address_range = bufmgr_gem->bufmgr.bo_use_48b_address_range ? true : false;
 
-    DRMINITLISTHEAD(&bo_gem->vma_list);
     DRMLISTADDTAIL(&bo_gem->name_list, &bufmgr_gem->named);
     pthread_mutex_unlock(&bufmgr_gem->lock);
 
@@ -3278,9 +3372,9 @@ _mos_gem_bo_references(struct mos_linux_bo *bo, struct mos_linux_bo *target_bo)
     }
 
     for (i = 0; i< bo_gem->softpin_target_count; i++) {
-        if (bo_gem->softpin_target[i] == target_bo)
+        if (bo_gem->softpin_target[i].bo == target_bo)
             return 1;
-        if (_mos_gem_bo_references(bo_gem->softpin_target[i], target_bo))
+        if (_mos_gem_bo_references(bo_gem->softpin_target[i].bo, target_bo))
             return 1;
     }
 
@@ -3337,16 +3431,6 @@ init_cache_buckets(struct mos_bufmgr_gem *bufmgr_gem)
         add_bucket(bufmgr_gem, size + size * 2 / 4);
         add_bucket(bufmgr_gem, size + size * 3 / 4);
     }
-}
-
-void
-mos_bufmgr_gem_set_vma_cache_size(struct mos_bufmgr *bufmgr, int limit)
-{
-    struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *)bufmgr;
-
-    bufmgr_gem->vma_max = limit;
-
-    mos_gem_bo_purge_vma_cache(bufmgr_gem);
 }
 
 /**
@@ -3746,6 +3830,18 @@ mos_bufmgr_gem_unref(struct mos_bufmgr *bufmgr)
     }
 }
 
+int
+mos_bufmgr_gem_get_memory_info(struct mos_bufmgr *bufmgr, char *info, uint32_t length)
+{
+    return 0;
+}
+
+void mos_bufmgr_gem_enable_softpin(struct mos_bufmgr *bufmgr)
+{
+    struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *)bufmgr;
+    bufmgr_gem->use_softpin = true;
+}
+
 /**
  * Initializes the GEM buffer manager, which uses the kernel to allocate, map,
  * and manage map buffer objections.
@@ -3847,12 +3943,17 @@ mos_bufmgr_gem_init(int fd, int batch_size)
     gp.param = I915_PARAM_HAS_EXEC_SOFTPIN;
     ret = drmIoctl(bufmgr_gem->fd, DRM_IOCTL_I915_GETPARAM, &gp);
     if (ret == 0 && *gp.value > 0)
-        bufmgr_gem->bufmgr.bo_set_softpin_offset = mos_gem_bo_set_softpin_offset;
+    {
+        bufmgr_gem->bufmgr.bo_set_softpin        = mos_gem_bo_set_softpin;
+        bufmgr_gem->bufmgr.bo_add_softpin_target = mos_gem_bo_add_softpin_target;
+    }
 
     gp.param = I915_PARAM_HAS_EXEC_ASYNC;
     ret = drmIoctl(bufmgr_gem->fd, DRM_IOCTL_I915_GETPARAM, &gp);
-    if (ret == 0 && *gp.value > 0)
+    if (ret == 0 && *gp.value > 0) {
+        bufmgr_gem->bufmgr.set_object_async      = mos_gem_bo_set_object_async;
         bufmgr_gem->bufmgr.set_exec_object_async = mos_gem_bo_set_exec_object_async;
+    }
 
     struct drm_i915_gem_context_param context_param;
     memset(&context_param, 0, sizeof(context_param));
@@ -3916,10 +4017,11 @@ mos_bufmgr_gem_init(int fd, int batch_size)
     DRMINITLISTHEAD(&bufmgr_gem->named);
     init_cache_buckets(bufmgr_gem);
 
-    DRMINITLISTHEAD(&bufmgr_gem->vma_cache);
-    bufmgr_gem->vma_max = -1; /* unlimited by default */
-
     DRMLISTADD(&bufmgr_gem->managers, &bufmgr_list);
+
+    // init head_offset to 64K, since 0 will be regarded as nullptr in some condition
+    bufmgr_gem->head_offset = MEMZONE_SYS_START;
+    bufmgr_gem->use_softpin = false;
 
 exit:
     pthread_mutex_unlock(&bufmgr_list_mutex);
@@ -4037,7 +4139,29 @@ mos_gem_context_create_shared(struct mos_bufmgr *bufmgr, mos_linux_context* ctx,
     return context;
 }
 
-int mos_query_engines(int fd,
+int mos_query_engines_count(struct mos_bufmgr *bufmgr,
+                      unsigned int *nengine)
+{
+    assert(bufmgr);
+    assert(nengine);
+    int fd = ((struct mos_bufmgr_gem*)bufmgr)->fd;
+    struct drm_i915_query query;
+    struct drm_i915_query_item query_item;
+    int ret, len;
+
+    memclear(query_item);
+    query_item.query_id = DRM_I915_QUERY_ENGINE_INFO;
+    query_item.length = 0;
+    memclear(query);
+    query.num_items = 1;
+    query.items_ptr = (uintptr_t)&query_item;
+
+    ret = drmIoctl(fd, DRM_IOCTL_I915_QUERY, &query);
+    *nengine = query_item.length;
+    return ret;
+}
+
+int mos_query_engines(struct mos_bufmgr *bufmgr,
                       __u16 engine_class,
                       __u64 caps,
                       unsigned int *nengine,
@@ -4047,6 +4171,8 @@ int mos_query_engines(int fd,
     struct drm_i915_query_item query_item;
     struct drm_i915_query_engine_info *engines = nullptr;
     int ret, len;
+    assert(bufmgr);
+    int fd = ((struct mos_bufmgr_gem*)bufmgr)->fd;
 
     memclear(query_item);
     query_item.query_id = DRM_I915_QUERY_ENGINE_INFO;
@@ -4120,7 +4246,8 @@ int mos_set_context_param_load_balance(struct mos_linux_context *ctx,
     struct i915_context_engines_load_balance* balancer = nullptr;
     struct i915_context_param_engines* set_engines = nullptr;
 
-    assert(ci);
+    MOS_OS_CHECK_CONDITION(ci == nullptr, "Invalid (nullptr) Pointer.", EINVAL);
+    MOS_OS_CHECK_CONDITION(count == 0, "Invalid input parameter. Number of engines must be > 0.", EINVAL);
 
     /* I915_DEFINE_CONTEXT_ENGINES_LOAD_BALANCE */
     size = sizeof(struct i915_context_engines_load_balance) + count * sizeof(*ci);
@@ -4224,4 +4351,23 @@ fini:
     if (balancer)
         free(balancer);
     return ret;
+}
+
+drm_export bool mos_gem_bo_is_softpin(struct mos_linux_bo *bo)
+{
+    struct mos_bo_gem *bo_gem = (struct mos_bo_gem *) bo;
+    if (bo_gem == nullptr)
+    {
+        return false;
+    }
+
+    return bo_gem->is_softpin;
+}
+
+drm_export bool
+mos_gem_bo_is_exec_object_async(struct mos_linux_bo *bo)
+{
+    struct mos_bo_gem *bo_gem = (struct mos_bo_gem *)bo;
+
+    return bo_gem->exec_async;
 }

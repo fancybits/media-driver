@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2019, Intel Corporation
+* Copyright (c) 2011-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -120,14 +120,6 @@ typedef enum _CODECHAL_CS_ENGINE_ID_DEF
     // Class ID
     CODECHAL_CLASS_ID_VIDEO_ENGINE = 1,
 } CODECHAL_CS_ENGINE_ID_DEF;
-
-typedef enum _CODECHAL_DUMMY_REFERENCE_STATUS
-{
-    CODECHAL_DUMMY_REFERENCE_INVALID,
-    CODECHAL_DUMMY_REFERENCE_DPB,
-    CODECHAL_DUMMY_REFERENCE_DEST_SURFACE,
-    CODECHAL_DUMMY_REFERENCE_ALLOCATED
-} CODECHAL_DUMMY_REFERENCE_STATUS;
 
 typedef union _CODECHAL_CS_ENGINE_ID
 {
@@ -396,15 +388,15 @@ public:
     //!           Surface name
     //! \param    [in] format
     //!           Surface format, by default is NV12
-    //! \param    [in] isCompressed
-    //!           Compress flag, by default is false
+    //! \param    [in] isCompressible
+    //!           Compressible flag, by default is false
     MOS_STATUS AllocateSurface(
         PMOS_SURFACE surface,
         uint32_t width,
         uint32_t height,
         const char* name,
         MOS_FORMAT format = Format_NV12,
-        bool isCompressed = false);
+        bool isCompressible = false);
 
     //!
     //! \brief  Entry to allocate and intialize the decode instance
@@ -414,13 +406,6 @@ public:
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS Allocate(CodechalSetting * codecHalSettings) override;
-
-    //!
-    //! \brief  The handle at the begining of each frame.
-    //! \return MOS_STATUS
-    //!         MOS_STATUS_SUCCESS if success, else fail reason
-    //!
-    MOS_STATUS BeginFrame() override;
 
     //!
     //! \brief  The handle at the end of each frame.
@@ -530,6 +515,15 @@ public:
     uint32_t GetMode() { return m_mode; }
 
     //!
+    //! \brief  Get the perf profiler pointer
+    //! \return The perf profiler \see m_perfProfiler
+    //!
+    MediaPerfProfiler *GetPerfProfiler()
+    {
+        return m_perfProfiler;
+    }
+
+    //!
     //! \brief  Gets the decode standard
     //! \return The decode standard \see m_standard
     //!
@@ -582,9 +576,9 @@ public:
 
     //!
     //! \brief  Indicates whether or not the first execute call
-    //! \return If first execute call \see m_firstExecuteCall
+    //! \return If first execute call \see m_executeCallIndex
     //!
-    bool IsFirstExecuteCall() { return m_firstExecuteCall; }
+    inline bool IsFirstExecuteCall() { return (m_executeCallIndex == 0); }
 
     //!
     //! \brief  Indicates whether or not the decoder is inuse
@@ -621,18 +615,6 @@ public:
     //! \return Flags which indicates whether render context uses null hardware \see m_renderContextUsesNullHw
     //!
     bool GetRenderContextUsesNullHw() { return m_renderContextUsesNullHw; }
-
-    //!
-    //! \brief  Get Huc product family
-    //! \return Huc prodoct family
-    //!
-    uint32_t GetHuCProductFamily() { return m_huCProductFamily; }
-
-    //!
-    //! \brief  Set Huc product family
-    //! \return N/A
-    //!
-    void SetHuCProductFamily(uint32_t huCProductFamily) { m_huCProductFamily = huCProductFamily; }
 
     //!
     //! \brief  Set decode histogram
@@ -683,6 +665,12 @@ public:
     {
         m_dummyReferenceStatus = status;
     }
+
+    //!
+    //! \brief  Get mmc enable flag
+    //! \return bool
+    //!
+    bool IsDecoderMmcEnabled(){return m_mmc ? m_mmc->IsMmcEnabled() : false;}
 
 protected:
 
@@ -822,7 +810,7 @@ protected:
 
 #if USE_CODECHAL_DEBUG_TOOL
     MOS_STATUS DumpProcessingParams(
-        PCODECHAL_DECODE_PROCESSING_PARAMS decProcParams);
+        DecodeProcessingParams *decProcParams);
 
 #endif
 
@@ -987,8 +975,10 @@ protected:
     uint32_t                    m_standard          = CODECHAL_UNDEFINED;
     //! \brief Current frame number
     uint32_t                    m_frameNum          = 0;
-    //! \brief Indicates if current field is second field(bottom field)
+    //! \brief Indicates if current field is second field
     bool                        m_secondField       = false;
+    //! \brief Indidates if fields are completed
+    uint32_t                    m_fullFieldsFrame     = 0;
     //! \brief picture information of current render target
     CODEC_PICTURE               m_crrPic            = {0};
     //! \brief Video GPU node inuse
@@ -1014,8 +1004,8 @@ protected:
     uint32_t                    m_standardDecodePatchListSizeNeeded = 0;
     //! \brief Indicates if current input bitstream is incomplete
     bool                        m_incompletePicture = false;
-    //! \brief Indicates if current is frist execution call in multiple execution call mode
-    bool                        m_firstExecuteCall  = false;
+    //! \brief The index of execution call in multiple execution call mode
+    bool                        m_executeCallIndex  = 0;
     //! \brief Indicates if current is frist execution call in multiple execution call mode
     bool                        m_consecutiveMbErrorConcealmentInUse = false;
     //! \brief Indicates if phantom MBs is required for MPEG2 decode
@@ -1092,9 +1082,6 @@ protected:
     //! \brief Downsampled surfaces
     PMOS_SURFACE                m_downsampledSurfaces = nullptr;
 #endif
-
-    //! \brief Huc product family
-    uint32_t                    m_huCProductFamily = HUC_UNKNOWN;
 
     //! \brief    Decode histogram interface
     //! \details  Support YUV Luma histogram.

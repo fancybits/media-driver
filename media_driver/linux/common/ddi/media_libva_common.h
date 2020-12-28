@@ -38,6 +38,10 @@
 #include "mos_gpucontextmgr.h"
 #include "mos_cmdbufmgr.h"
 
+#include "mos_context_next.h"
+#include "mos_gpucontextmgr_next.h"
+#include "mos_cmdbufmgr_next.h"
+
 #include "mos_os.h"
 #include "mos_auxtable_mgr.h"
 
@@ -89,7 +93,7 @@ static int32_t atrace_switch            = 0;
 
 #define DDI_MEDIA_VACONTEXTID_OFFSET_DECODER       0x10000000
 #define DDI_MEDIA_VACONTEXTID_OFFSET_ENCODER       0x20000000
-#define DDI_MEDIA_VACONTEXTID_OFFSET_CENC          0x30000000
+#define DDI_MEDIA_VACONTEXTID_OFFSET_PROT          0x30000000
 #define DDI_MEDIA_VACONTEXTID_OFFSET_VP            0x40000000
 #define DDI_MEDIA_VACONTEXTID_OFFSET_MFE           0x70000000
 #define DDI_MEDIA_VACONTEXTID_OFFSET_CM            0x80000000
@@ -101,7 +105,7 @@ static int32_t atrace_switch            = 0;
 #define DDI_MEDIA_CONTEXT_TYPE_VP                  3
 #define DDI_MEDIA_CONTEXT_TYPE_MEDIA               4
 #define DDI_MEDIA_CONTEXT_TYPE_CM                  5
-#define DDI_MEDIA_CONTEXT_TYPE_CENC_DECODER        6
+#define DDI_MEDIA_CONTEXT_TYPE_PROTECTED           6
 #define DDI_MEDIA_CONTEXT_TYPE_MFE                 7
 #define DDI_MEDIA_CONTEXT_TYPE_NONE                0
 
@@ -152,6 +156,8 @@ typedef enum _DDI_MEDIA_FORMAT
     Media_Format_R5G6B5      ,
     Media_Format_R10G10B10A2 ,
     Media_Format_B10G10R10A2 ,
+    Media_Format_R10G10B10X2 ,
+    Media_Format_B10G10R10X2 ,
     Media_Format_CPU         ,
 
     Media_Format_YUY2        ,
@@ -185,15 +191,20 @@ typedef enum _DDI_MEDIA_FORMAT
     Media_Format_YVYU        ,
     Media_Format_A16R16G16B16,
     Media_Format_A16B16G16R16,
+    Media_Format_P012        ,
+#if VA_CHECK_VERSION(1, 9, 0)
+    Media_Format_Y212        ,
+    Media_Format_Y412        ,
+#endif
     Media_Format_Count
 } DDI_MEDIA_FORMAT;
 
 typedef enum _DDI_MEDIA_STATUS_REPORT_QUERY_STATE
 {
-    DDI_MEDIA_STATUS_REPORT_QUREY_STATE_INIT,
-    DDI_MEDIA_STATUS_REPORT_QUREY_STATE_PENDING,
-    DDI_MEDIA_STATUS_REPORT_QUREY_STATE_COMPLETED,
-    DDI_MEDIA_STATUS_REPORT_QUREY_STATE_RELEASED
+    DDI_MEDIA_STATUS_REPORT_QUERY_STATE_INIT,
+    DDI_MEDIA_STATUS_REPORT_QUERY_STATE_PENDING,
+    DDI_MEDIA_STATUS_REPORT_QUERY_STATE_COMPLETED,
+    DDI_MEDIA_STATUS_REPORT_QUERY_STATE_RELEASED
 } DDI_MEDIA_STATUS_REPORT_QUERY_STATE;
 
 //!
@@ -213,6 +224,7 @@ typedef struct _DDI_MEDIA_SURFACE_DESCRIPTOR
     bool       bIsGralloc;                            // buffer allocated by Gralloc
     void      *pPrivateData;                          // brief reserved for passing private data
     GMM_RESCREATE_PARAMS GmmParam;                    // GMM Params for Gralloc buffer
+    uint64_t   modifier;                              // used for VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2
 } DDI_MEDIA_SURFACE_DESCRIPTOR,*PDDI_MEDIA_SURFACE_DESCRIPTOR;
 
 //!
@@ -255,6 +267,7 @@ typedef union _DDI_MEDIA_SURFACE_STATUS_REPORT
     } vpp;
 } DDI_MEDIA_SURFACE_STATUS_REPORT, *PDDI_MEDIA_SURFACE_STATUS_REPORT;
 
+struct _DDI_MEDIA_BUFFER;
 typedef struct _DDI_MEDIA_SURFACE
 {
     // for hwcomposer, remove this after we have a solution
@@ -292,8 +305,12 @@ typedef struct _DDI_MEDIA_SURFACE
     PMEDIA_SEM_T            pReferenceFrameSemaphore; // to sync reference frame surface. when this semaphore is posted, the surface is not used as reference frame, and safe to be destroied
 
     uint8_t                 *pSystemShadow;           // Shadow surface in system memory
+    _DDI_MEDIA_BUFFER       *pShadowBuffer;
 
     uint32_t                uiMapFlag;
+
+    uint32_t                uiVariantFlag;
+    int                     memType;
 } DDI_MEDIA_SURFACE, *PDDI_MEDIA_SURFACE;
 
 typedef struct _DDI_MEDIA_BUFFER
@@ -318,8 +335,10 @@ typedef struct _DDI_MEDIA_BUFFER
     uint32_t               uiMemtype;
     uint32_t               uiExportcount;
     uintptr_t              handle;
+    bool                   bPostponedBufFree;
 
     bool                   bCFlushReq; // No LLC between CPU & GPU, requries to call CPU Flush for CPU mapped buffer
+    bool                   bUseSysGfxMem;
     PDDI_MEDIA_SURFACE     pSurface;
     GMM_RESOURCE_INFO     *pGmmResourceInfo; // GMM resource descriptor
     PDDI_MEDIA_CONTEXT     pMediaCtx; // Media driver Context
@@ -412,11 +431,16 @@ struct DDI_MEDIA_CONTEXT
     PDDI_MEDIA_HEAP     pVpCtxHeap;
     uint32_t            uiNumVPs;
 
+    PDDI_MEDIA_HEAP     pProtCtxHeap;
+    uint32_t            uiNumProts;
+
     PDDI_MEDIA_HEAP     pCmCtxHeap;
     uint32_t            uiNumCMs;
 
     PDDI_MEDIA_HEAP     pMfeCtxHeap;
     uint32_t            uiNumMfes;
+
+    bool                cpLibWasLoaded;
 
     // display info
     uint32_t            uiDisplayWidth;
@@ -431,6 +455,9 @@ struct DDI_MEDIA_CONTEXT
     GpuContextMgr      *m_gpuContextMgr;
     CmdBufMgr          *m_cmdBufMgr;
 
+    // Apogeio MOS module
+    MOS_DEVICE_HANDLE   m_osDeviceContext = MOS_INVALID_HANDLE;
+
     // mutexs to protect the shared resource among multiple context
     MEDIA_MUTEX_T       SurfaceMutex;
     MEDIA_MUTEX_T       BufferMutex;
@@ -438,6 +465,7 @@ struct DDI_MEDIA_CONTEXT
     MEDIA_MUTEX_T       DecoderMutex;
     MEDIA_MUTEX_T       EncoderMutex;
     MEDIA_MUTEX_T       VpMutex;
+    MEDIA_MUTEX_T       ProtMutex;
     MEDIA_MUTEX_T       CmMutex;
     MEDIA_MUTEX_T       MfeMutex;
 
@@ -447,10 +475,50 @@ struct DDI_MEDIA_CONTEXT
     // Media memory decompression data structure
     void               *pMediaMemDecompState;
 
+    // Media copy data structure
+    void               *pMediaCopyState;
+
     // Media memory decompression function
     void (* pfnMemoryDecompress)(
         PMOS_CONTEXT  pMosCtx,
         PMOS_RESOURCE pOsResource);
+
+    //!
+    //! \brief  the function ptr for surface copy function
+    //!
+    void  (* pfnMediaMemoryCopy )(
+        PMOS_CONTEXT       pMosCtx,
+        PMOS_RESOURCE      pInputResource,
+        PMOS_RESOURCE      pOutputResource,
+        bool               bOutputCompressed);
+
+    //!
+    //! \brief  the function ptr for Media Memory 2D copy function
+    //!
+    void (* pfnMediaMemoryCopy2D)(
+        PMOS_CONTEXT       pMosCtx,
+        PMOS_RESOURCE      pInputResource,
+        PMOS_RESOURCE      pOutputResource,
+        uint32_t           copyWidth,
+        uint32_t           copyHeight,
+        uint32_t           copyInputOffset,
+        uint32_t           copyOutputOffset,
+        uint32_t           bpp,
+        bool               bOutputCompressed);
+
+    //!
+    //! \brief  the function ptr for Media Tile Convert function
+    //!
+    VAStatus (* pfnMediaMemoryTileConvert)(
+        PMOS_CONTEXT       pMosCtx,
+        PMOS_RESOURCE      pInputResource,
+        PMOS_RESOURCE      pOutputResource,
+        uint32_t           copyWidth,
+        uint32_t           copyHeight,
+        uint32_t           copyInputOffset,
+        uint32_t           copyOutputOffset,
+        bool               isTileToLinear,
+        bool               outputCompressed);
 
     PLATFORM            platform;
 
@@ -476,6 +544,7 @@ struct DDI_MEDIA_CONTEXT
     MEDIA_MUTEX_T    PutSurfaceRenderMutex;
     MEDIA_MUTEX_T    PutSurfaceSwapBufferMutex;
 #endif
+    bool m_apoMosEnabled;
 };
 
 static __inline PDDI_MEDIA_CONTEXT DdiMedia_GetMediaContext (VADriverContextP ctx)
@@ -528,7 +597,6 @@ void* DdiMedia_GetContextFromContextID (VADriverContextP ctx, VAContextID vaCtxI
 //!
 DDI_MEDIA_SURFACE* DdiMedia_GetSurfaceFromVASurfaceID (PDDI_MEDIA_CONTEXT mediaCtx, VASurfaceID surfaceID);
 
-
 //!
 //! \brief  replace the surface with given format
 //!
@@ -541,6 +609,17 @@ DDI_MEDIA_SURFACE* DdiMedia_GetSurfaceFromVASurfaceID (PDDI_MEDIA_CONTEXT mediaC
 //!     Pointer to new ddi media surface
 //!
 PDDI_MEDIA_SURFACE DdiMedia_ReplaceSurfaceWithNewFormat(PDDI_MEDIA_SURFACE surface, DDI_MEDIA_FORMAT expectedFormat);
+
+//!
+//! \brief  replace the surface with correlation variant format
+//!
+//! \param  [in] surface
+//!     Pointer to the old surface
+//!
+//! \return DDI_MEDIA_SURFACE*
+//!     Pointer to new ddi media surface
+//!
+PDDI_MEDIA_SURFACE DdiMedia_ReplaceSurfaceWithVariant(PDDI_MEDIA_SURFACE surface, VAEntrypoint entrypoint);
 
 //!
 //! \brief  Get VA surface ID  from surface
@@ -591,5 +670,35 @@ void* DdiMedia_GetContextFromVABufferID (PDDI_MEDIA_CONTEXT mediaCtx, VABufferID
 //!     true if destroy buffer from VA buffer ID, else false
 //!
 bool DdiMedia_DestroyBufFromVABufferID (PDDI_MEDIA_CONTEXT mediaCtx, VABufferID bufferID);
+
+//!
+//! \brief  Get gpu priority
+//!
+//! \param  [in] ctx
+//!     Pointer to VA driver context
+//! \param  [in] buffers
+//!     VA buffer ID
+//! \param  [in] numBuffers
+//!     Number of buffers
+//! \param  [out] updatePriority
+//!     Update priority
+//! \param  [out] priority
+//!     Priority value
+//! \return     int32_t
+//!
+int32_t DdiMedia_GetGpuPriority (VADriverContextP ctx, VABufferID *buffers, int32_t numBuffers, bool *updatePriority, int32_t *priority);
+
+//!
+//! \brief  Move a bufferID to the end of buffers
+//!
+//! \param  [in,out] buffers
+//!     VA buffer ID
+//! \param  [in] priorityIndexInBuf
+//!     Location of priority buffer
+//! \param  [in] numBuffers
+//!     Number of buffers
+//! \return     void
+//!
+void MovePriorityBufferIdToEnd (VABufferID *buffers, int32_t priorityIndexInBuf, int32_t numBuffers);
 
 #endif

@@ -66,10 +66,10 @@ MOS_STATUS CodechalVdencVp9StateG11::UserFeatureKeyReport()
     CODECHAL_ENCODE_CHK_STATUS_RETURN(CodechalVdencVp9State::UserFeatureKeyReport());
 
 #if (_DEBUG || _RELEASE_INTERNAL)
-    CodecHalEncodeWriteKey(__MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_VDBOX_NUM_ID, m_numPipe);
-    CodecHalEncodeWriteKey(__MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_ENABLE_VE_ID, m_useVirtualEngine);
-    CodecHalEncodeWriteKey(__MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_ENABLE_HW_STITCH, m_enableTileStitchByHW);
-    CodecHalEncodeWriteKey(__MEDIA_USER_FEATURE_VALUE_ENABLE_ENCODE_VE_CTXSCHEDULING_ID, MOS_VE_CTXBASEDSCHEDULING_SUPPORTED(m_osInterface));
+    CodecHalEncodeWriteKey(__MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_VDBOX_NUM_ID, m_numPipe, m_osInterface->pOsContext);
+    CodecHalEncodeWriteKey(__MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_ENABLE_VE_ID, m_useVirtualEngine, m_osInterface->pOsContext);
+    CodecHalEncodeWriteKey(__MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_ENABLE_HW_STITCH, m_enableTileStitchByHW, m_osInterface->pOsContext);
+    CodecHalEncodeWriteKey(__MEDIA_USER_FEATURE_VALUE_ENABLE_ENCODE_VE_CTXSCHEDULING_ID, MOS_VE_CTXBASEDSCHEDULING_SUPPORTED(m_osInterface), m_osInterface->pOsContext);
 #endif
 
     return eStatus;
@@ -172,10 +172,11 @@ MOS_STATUS CodechalVdencVp9StateG11::GetSystemPipeNumberCommon()
     statusKey = MOS_UserFeature_ReadValue_ID(
         NULL,
         __MEDIA_USER_FEATURE_VALUE_ENCODE_DISABLE_SCALABILITY,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
 
     //Disable scalability temporarily
-    bool disableScalability = true;
+    bool disableScalability = true; // m_hwInterface->IsDisableScalability()
     if (statusKey == MOS_STATUS_SUCCESS)
     {
         disableScalability = userFeatureData.i32Data ? true : false;
@@ -219,7 +220,7 @@ MOS_STATUS CodechalVdencVp9StateG11::ExecuteDysSliceLevel()
     secondLevelBatchBuffer.bSecondLevel = true;
     if (!m_hucEnabled)
     {
-        secondLevelBatchBuffer.OsResource = m_resHucPakInsertUncompressedHeaderReadBuffer;
+        secondLevelBatchBuffer.OsResource = m_resHucPakInsertUncompressedHeaderReadBuffer[m_currRecycledBufIdx];
     }
     else
     {
@@ -1820,7 +1821,11 @@ MOS_STATUS CodechalVdencVp9StateG11::GetStatusReport(
         m_osInterface,
         &currRefList.resBitstreamBuffer,
         &lockFlags);
-    CODECHAL_ENCODE_CHK_NULL_RETURN(bitstream);
+    if (bitstream == nullptr)
+    {
+        MOS_SafeFreeMemory(tempBsBuffer);
+        CODECHAL_ENCODE_CHK_NULL_RETURN(nullptr);
+    }
 
     for (uint32_t i = 0; i < encodeStatusReport->NumberTilesInFrame; i++)
     {
@@ -2251,7 +2256,7 @@ MOS_STATUS CodechalVdencVp9StateG11::ExecuteTileLevel()
 
         if (!m_hucEnabled)
         {
-            secondLevelBatchBuffer.OsResource = m_resHucPakInsertUncompressedHeaderReadBuffer;
+            secondLevelBatchBuffer.OsResource = m_resHucPakInsertUncompressedHeaderReadBuffer[m_currRecycledBufIdx];
         }
         else
         {
@@ -2458,13 +2463,6 @@ MOS_STATUS CodechalVdencVp9StateG11::ExecuteSliceLevel()
     CODECHAL_ENCODE_FUNCTION_ENTER;
 
     return ExecuteTileLevel();
-}
-
-PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS CodechalVdencVp9StateG11::CreateMhwVdboxPipeModeSelectParams()
-{
-    auto pipeModeSelectParams = MOS_New(MHW_VDBOX_PIPE_MODE_SELECT_PARAMS_G11);
-
-    return pipeModeSelectParams;
 }
 
 void CodechalVdencVp9StateG11::SetHcpPipeModeSelectParams(MHW_VDBOX_PIPE_MODE_SELECT_PARAMS& pipeModeSelectParams)
@@ -2764,7 +2762,8 @@ MOS_STATUS CodechalVdencVp9StateG11::SubmitCommandBuffer(
 
 MOS_STATUS CodechalVdencVp9StateG11::SendPrologWithFrameTracking(
     PMOS_COMMAND_BUFFER cmdBuffer,
-    bool frameTrackingRequested)
+    bool frameTrackingRequested,
+    MHW_MI_MMIOREGISTERS *mmioRegister)
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
@@ -2809,7 +2808,7 @@ MOS_STATUS CodechalVdencVp9StateG11::SendPrologWithFrameTracking(
         {
             commandBufferInUse->Attributes.bEnableMediaFrameTracking = true;
             commandBufferInUse->Attributes.resMediaFrameTrackingSurface =
-                m_encodeStatusBuf.resStatusBuffer;
+                &m_encodeStatusBuf.resStatusBuffer;
             commandBufferInUse->Attributes.dwMediaFrameTrackingTag = m_storeData;
             // Set media frame tracking address offset(the offset from the encoder status buffer page)
             commandBufferInUse->Attributes.dwMediaFrameTrackingAddrOffset = 0;
@@ -2819,7 +2818,7 @@ MOS_STATUS CodechalVdencVp9StateG11::SendPrologWithFrameTracking(
         MOS_ZeroMemory(&genericPrologParams, sizeof(genericPrologParams));
         genericPrologParams.pOsInterface = m_hwInterface->GetOsInterface();
         genericPrologParams.pvMiInterface = m_hwInterface->GetMiInterface();
-        genericPrologParams.bMmcEnabled = CodecHalMmcState::IsMmcEnabled();
+        genericPrologParams.bMmcEnabled = m_mmcState ? m_mmcState->IsMmcEnabled() : false;
         genericPrologParams.dwStoreDataValue = m_storeData - 1;
         CODECHAL_ENCODE_CHK_STATUS_RETURN(Mhw_SendGenericPrologCmd(commandBufferInUse, &genericPrologParams));
     }
@@ -3217,7 +3216,7 @@ MOS_STATUS CodechalVdencVp9StateG11::HuCVp9Prob()
 
     MHW_VDBOX_HUC_DMEM_STATE_PARAMS dmemParams;
     MOS_ZeroMemory(&dmemParams, sizeof(dmemParams));
-    dmemParams.presHucDataSource = &m_resHucProbDmemBuffer[currPass];
+    dmemParams.presHucDataSource = &m_resHucProbDmemBuffer[currPass][m_currRecycledBufIdx];
     dmemParams.dwDataLength = MOS_ALIGN_CEIL(sizeof(HucProbDmem), CODECHAL_CACHELINE_SIZE);
     dmemParams.dwDmemOffset = HUC_DMEM_OFFSET_RTOS_GEMS;
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hucInterface->AddHucDmemStateCmd(&cmdBuffer, &dmemParams));
@@ -3250,8 +3249,8 @@ MOS_STATUS CodechalVdencVp9StateG11::HuCVp9Prob()
     {
         virtualAddrParams.regionParams[7].presRegion = &m_resVdencPictureState2NdLevelBatchBufferRead[currPass][m_vdencPictureState2ndLevelBBIndex];
     }
-    
-    virtualAddrParams.regionParams[8].presRegion = &m_resHucPakInsertUncompressedHeaderReadBuffer;
+
+    virtualAddrParams.regionParams[8].presRegion = &m_resHucPakInsertUncompressedHeaderReadBuffer[m_currRecycledBufIdx];
     virtualAddrParams.regionParams[9].presRegion = &m_resHucDefaultProbBuffer;
 
     // Output regions
@@ -3374,11 +3373,22 @@ MOS_STATUS CodechalVdencVp9StateG11::HuCVp9Prob()
         CODECHAL_ENCODE_CHK_STATUS_RETURN(SubmitCommandBuffer(&cmdBuffer, renderFlags));
 
         CODECHAL_DEBUG_TOOL(
+        if(m_superFrameHucPass)
+        {
             CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpHucDmem(
-                &m_resHucProbDmemBuffer[currPass],
+                &m_resHucProbDmemBuffer[currPass][m_currRecycledBufIdx],
+                sizeof(HucProbDmem),
+                currPass,
+                CodechalHucRegionDumpType::hucRegionDumpHpuSuperFrame));
+        }
+        else
+        {
+            CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpHucDmem(
+                &m_resHucProbDmemBuffer[currPass][m_currRecycledBufIdx],
                 sizeof(HucProbDmem),
                 currPass,
                 CodechalHucRegionDumpType::hucRegionDumpHpu));
+        }
 
             for (auto i = 0; i < 16; i++) {
                 if (virtualAddrParams.regionParams[i].presRegion)
@@ -3921,7 +3931,7 @@ MOS_STATUS CodechalVdencVp9StateG11::ExecutePictureLevel()
 
     if (IsFirstPass() && IsFirstPipe())
     {
-        CODECHAL_ENCODE_CHK_STATUS_RETURN(ConstructPakInsertObjBatchBuf(&m_resHucPakInsertUncompressedHeaderReadBuffer));
+        CODECHAL_ENCODE_CHK_STATUS_RETURN(ConstructPakInsertObjBatchBuf(&m_resHucPakInsertUncompressedHeaderReadBuffer[m_currRecycledBufIdx]));
     }
 
     // For VDENC dynamic scaling, here are the steps we need to process
@@ -4326,6 +4336,7 @@ MOS_STATUS CodechalVdencVp9StateG11::ExecutePictureLevel()
     // set HCP_PIPE_BUF_ADDR_STATE values
     PMHW_VDBOX_PIPE_BUF_ADDR_PARAMS pipeBufAddrParams = nullptr;
     pipeBufAddrParams = CreateHcpPipeBufAddrParams(pipeBufAddrParams);
+    CODECHAL_ENCODE_CHK_NULL_RETURN(pipeBufAddrParams);
     CODECHAL_ENCODE_CHK_STATUS_RETURN(SetHcpPipeBufAddrParams(*pipeBufAddrParams, refSurface, refSurfaceNonScaled, dsRefSurface4x, dsRefSurface8x));
     pipeBufAddrParams->pRawSurfParam = &surfaceParams[CODECHAL_HCP_SRC_SURFACE_ID];
     pipeBufAddrParams->pDecodedReconParam = &surfaceParams[CODECHAL_HCP_DECODED_SURFACE_ID];
@@ -4337,7 +4348,7 @@ MOS_STATUS CodechalVdencVp9StateG11::ExecutePictureLevel()
 
     // set HCP_PIPE_MODE_SELECT values
     PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS pipeModeSelectParams = nullptr;
-    pipeModeSelectParams = CreateMhwVdboxPipeModeSelectParams();
+    pipeModeSelectParams = m_vdencInterface->CreateMhwVdboxPipeModeSelectParams();
     SetHcpPipeModeSelectParams(*pipeModeSelectParams);
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hcpInterface->AddHcpPipeModeSelectCmd(&cmdBuffer, pipeModeSelectParams));
 
@@ -5045,7 +5056,8 @@ MOS_STATUS CodechalVdencVp9StateG11::Initialize(CodechalSetting * settings)
     MOS_STATUS eStatusKey = MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_ENABLE_HW_STITCH,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     m_enableTileStitchByHW = userFeatureData.i32Data ? true : false;
 
     userFeatureData.i32Data = 1;
@@ -5053,7 +5065,8 @@ MOS_STATUS CodechalVdencVp9StateG11::Initialize(CodechalSetting * settings)
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_HUC_ENABLE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     m_hucEnabled = (userFeatureData.i32Data) ? true : false;
 
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -5062,7 +5075,8 @@ MOS_STATUS CodechalVdencVp9StateG11::Initialize(CodechalSetting * settings)
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_SINGLE_TASK_PHASE_ENABLE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     m_singleTaskPhaseSupported = (userFeatureData.i32Data) ? true : false;
     m_singleTaskPhaseSupportedInPak = m_singleTaskPhaseSupported;
     // For dynamic scaling, the SingleTaskPhaseSupported is set to true and it does not get restored
@@ -5074,7 +5088,8 @@ MOS_STATUS CodechalVdencVp9StateG11::Initialize(CodechalSetting * settings)
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_MULTIPASS_BRC_ENABLE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     m_multipassBrcSupported = (userFeatureData.i32Data) ? true : false;
     m_vdencBrcStatsBufferSize     = m_brcStatsBufSize;
     m_vdencBrcPakStatsBufferSize  = m_brcPakStatsBufSize;
@@ -5085,14 +5100,16 @@ MOS_STATUS CodechalVdencVp9StateG11::Initialize(CodechalSetting * settings)
     MOS_UserFeature_ReadValue_ID(
         NULL,
         __MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_ME_ENABLE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     m_hmeSupported = (userFeatureData.i32Data) ? true : false;
 
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
     MOS_UserFeature_ReadValue_ID(
         NULL,
         __MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_16xME_ENABLE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     m_16xMeSupported = (userFeatureData.i32Data) ? true : false;
 
     // disable superHME when HME is disabled

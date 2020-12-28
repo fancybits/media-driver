@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2014-2018, Intel Corporation
+* Copyright (c) 2014-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -37,7 +37,6 @@
 #include "mos_os.h"
 #include "mhw_utilities.h"
 #include "mhw_cp_interface.h"
-#include "mhw_cmd_reader.h"
 
 #define MHW_VDBOX_VC1_BITPLANE_BUFFER_PITCH_SMALL         64
 #define MHW_VDBOX_VC1_BITPLANE_BUFFER_PITCH_LARGE         128
@@ -49,9 +48,8 @@
 #define MHW_VDBOX_HCP_RECON_UV_PLANE_ALIGNMENT            8
 
 #define MHW_VDBOX_PAK_BITSTREAM_OVERFLOW_SIZE             400
+#define MHW_VDBOX_PAK_SLICE_HEADER_OVERFLOW_SIZE          50
 #define MHW_VDBOX_VDENC_DYNAMIC_SLICE_WA_COUNT            1500
-
-#define MHW_VDBOX_NODE_MAX                                2
 
 // Rowstore Cache values
 #define MHW_VDBOX_PICWIDTH_1K                                                 1024
@@ -104,6 +102,7 @@ typedef enum _MHW_VDBOX_NODE_IND
 {
     MHW_VDBOX_NODE_1           = 0x0,
     MHW_VDBOX_NODE_2           = 0x1,
+    MHW_VDBOX_NODE_MAX
 } MHW_VDBOX_NODE_IND;
 
 typedef struct _MHW_VDBOX_AVC_QM_PARAMS
@@ -165,6 +164,13 @@ typedef enum _MULTI_ENGINE_MODE
     MHW_VDBOX_HCP_MULTI_ENGINE_MODE_MIDDLE        = 3,
 }MHW_VDBOX_HCP_MULTI_ENGINE_MODE;
 
+typedef enum
+{
+    MHW_VDBOX_HCP_RT_FIRST_PHASE    = 0, //!< First phase
+    MHW_VDBOX_HCP_RT_MIDDLE_PHASE   = 1, //!< Middle phase
+    MHW_VDBOX_HCP_RT_LAST_PHASE     = 2  //!< Last phase
+} MHW_HCP_RT_PHASE_INDICATOR;
+
 typedef enum _VDENC_PIPE_NUM_OF_PIPE
 {
     VDENC_PIPE_SINGLE_PIPE          = 0,
@@ -205,21 +211,11 @@ enum ROWSTORE_SCRATCH_BUFFER_CACHE
     BUFFER_TO_INTERNALMEDIASTORAGE = 0x1
 };
 
-//!
-//! \enum     SLICE_THRESHOLD_TABLE_MODE
-//! \brief    Slice thershold table mode, dynamic slice tuning params
-//!
-enum SLICE_THRESHOLD_TABLE_MODE
-{
-    NO_SLICE_THRESHOLD_TABLE = 0,
-    USE_SLICE_THRESHOLD_TABLE_100_PERCENT = 1,
-    USE_SLICE_THRESHOLD_TABLE_90_PERCENT = 2
-};
-
 struct MHW_VDBOX_PIPE_MODE_SELECT_PARAMS
 {
     uint32_t                    Mode = 0;
     bool                        bStreamOutEnabled = false;
+    bool                        bStreamOutEnabledExtEnabled = false;
     bool                        bShortFormatInUse = false;
     bool                        bVC1OddFrameHeight = false;
     bool                        pakFrmLvlStrmoutEnable = false;
@@ -314,6 +310,8 @@ struct MHW_VDBOX_PIPE_BUF_ADDR_PARAMS
     PMOS_RESOURCE               presVdenc4xDsSurface[CODEC_MAX_NUM_REF_FRAME] = {};
     PMOS_RESOURCE               presVdenc8xDsSurface[CODEC_MAX_NUM_REF_FRAME] = {};
 
+    PMOS_RESOURCE               presVdencColocatedMVWriteBuffer = nullptr;                 // For AVC only
+    PMOS_RESOURCE               presVdencColocatedMVReadBuffer    = nullptr;               // For AVC only
     PMOS_RESOURCE               presDeblockingFilterTileRowStoreScratchBuffer = nullptr;   // For HEVC, VP9
     PMOS_RESOURCE               presDeblockingFilterColumnRowStoreScratchBuffer = nullptr; // For HEVC, VP9
     PMOS_RESOURCE               presMetadataLineBuffer = nullptr;                          // For HEVC, VP9
@@ -367,6 +365,7 @@ typedef struct _MHW_VDBOX_IND_OBJ_BASE_ADDR_PARAMS
     uint32_t                    dwMvObjectOffset;
     PMOS_RESOURCE               presPakBaseObjectBuffer;
     uint32_t                    dwPakBaseObjectSize;
+    uint32_t                    dwPakBaseObjectOffset;
     PMOS_RESOURCE               presPakTileSizeStasBuffer;
     uint32_t                    dwPakTileSizeStasBufferSize;
     uint32_t                    dwPakTileSizeRecordOffset;
@@ -409,7 +408,7 @@ struct MHW_VDBOX_AVC_IMG_PARAMS
     uint8_t                                 ucKernelMode = 0;     // normal, performance, quality.
 
     //FEI multiple passes PAK ---max frame size
-    uint8_t                                 ucCurrPass = 0;
+    uint16_t                                currPass = 0;
     uint8_t                                *pDeltaQp = nullptr;
     uint32_t                                dwMaxFrameSize = 0;
 
@@ -421,13 +420,15 @@ struct MHW_VDBOX_AVC_IMG_PARAMS
     bool                                    bVdencBRCEnabled = false;
     bool                                    bSliceSizeStreamOutEnabled = false;
     bool                                    bCrePrefetchEnable = false;
+    bool                                    bPerMBStreamOut = false;
+    bool                                    bRollingIRestrictFracCand = false;
 
     uint32_t                                dwMbSlcThresholdValue = 0;  // For VDENC dynamic slice size control
-    uint32_t                                dwSliceThresholdTable = 0;
     uint32_t                                dwVdencSliceMinusBytes = 0;
     uint8_t                                *pVDEncModeCost = nullptr;
     uint8_t                                *pVDEncMvCost = nullptr;
     uint8_t                                *pVDEncHmeMvCost = nullptr;
+    uint32_t                               biWeight = 0;
     virtual ~MHW_VDBOX_AVC_IMG_PARAMS(){}
 };
 using PMHW_VDBOX_AVC_IMG_PARAMS = MHW_VDBOX_AVC_IMG_PARAMS * ;

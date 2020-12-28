@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2015-2018, Intel Corporation
+* Copyright (c) 2015-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -368,7 +368,8 @@ MOS_STATUS VpHal_RndrCommonSetPowerMode(
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_SSEU_SETTING_OVERRIDE_ID,
-        &UserFeatureData);
+        &UserFeatureData,
+        pRenderHal->pOsInterface->pOsContext);
 
     if (UserFeatureData.u32Data != 0xDEADC0DE)
     {
@@ -427,7 +428,7 @@ MOS_STATUS VpHal_RndrCommonSubmitCommands(
     MHW_MEDIA_STATE_FLUSH_PARAM         FlushParam = {};
     bool                                bEnableSLM = false;
     RENDERHAL_GENERIC_PROLOG_PARAMS     GenericPrologParams = {};
-    MOS_RESOURCE                        GpuStatusBuffer = {};
+    PMOS_RESOURCE                       gpuStatusBuffer = nullptr;
     MediaPerfProfiler                   *pPerfProfiler = nullptr;
     MOS_CONTEXT                         *pOsContext = nullptr;
     PMHW_MI_MMIOREGISTERS               pMmioRegisters = nullptr;
@@ -464,13 +465,13 @@ MOS_STATUS VpHal_RndrCommonSubmitCommands(
     if (bLastSubmission && pOsInterface->bEnableKmdMediaFrameTracking)
     {
         // Get GPU Status buffer
-        VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnGetGpuStatusBufferResource(pOsInterface, &GpuStatusBuffer));
-
+        VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnGetGpuStatusBufferResource(pOsInterface, gpuStatusBuffer));
+        VPHAL_RENDER_CHK_NULL(gpuStatusBuffer);
         // Register the buffer
-        VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnRegisterResource(pOsInterface, &GpuStatusBuffer, true, true));
+        VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnRegisterResource(pOsInterface, gpuStatusBuffer, true, true));
 
         GenericPrologParams.bEnableMediaFrameTracking = true;
-        GenericPrologParams.presMediaFrameTrackingSurface = &GpuStatusBuffer;
+        GenericPrologParams.presMediaFrameTrackingSurface  = gpuStatusBuffer;
         GenericPrologParams.dwMediaFrameTrackingTag = pOsInterface->pfnGetGpuStatusTag(pOsInterface, pOsInterface->CurrentGpuContextOrdinal);
         GenericPrologParams.dwMediaFrameTrackingAddrOffset = pOsInterface->pfnGetGpuStatusTagOffset(pOsInterface, pOsInterface->CurrentGpuContextOrdinal);
 
@@ -493,6 +494,8 @@ MOS_STATUS VpHal_RndrCommonSubmitCommands(
     // Write timing data for 3P budget
     VPHAL_RENDER_CHK_STATUS(pRenderHal->pfnSendTimingData(pRenderHal, &CmdBuffer, true));
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectStartCmd((void*)pRenderHal, pOsInterface, pMhwMiInterface, &CmdBuffer));
+
+    VPHAL_RENDER_CHK_STATUS(NullHW::StartPredicate(pRenderHal->pMhwMiInterface, &CmdBuffer));
 
     bEnableSLM = (pGpGpuWalkerParams && pGpGpuWalkerParams->SLMSize > 0)? true : false;
     VPHAL_RENDER_CHK_STATUS(pRenderHal->pfnSetCacheOverrideParams(
@@ -529,6 +532,8 @@ MOS_STATUS VpHal_RndrCommonSubmitCommands(
     {
         VPHAL_RENDER_CHK_STATUS(pRenderHal->pfnSendRcsStatusTag(pRenderHal, &CmdBuffer));
     }
+
+    VPHAL_RENDER_CHK_STATUS(NullHW::StopPredicate(pRenderHal->pMhwMiInterface, &CmdBuffer));
 
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectEndCmd((void*)pRenderHal, pOsInterface, pMhwMiInterface, &CmdBuffer));
 
@@ -576,7 +581,7 @@ MOS_STATUS VpHal_RndrCommonSubmitCommands(
         }
     }
 
-    HalOcaInterface::On1stLevelBBEnd(CmdBuffer, *pOsContext);
+    HalOcaInterface::On1stLevelBBEnd(CmdBuffer, *pOsInterface);
 
     if (pBatchBuffer)
     {
@@ -692,7 +697,7 @@ MOS_STATUS VpHal_RndrSubmitCommands(
     MHW_MEDIA_STATE_FLUSH_PARAM         FlushParam = {};
     bool                                bEnableSLM = false;
     RENDERHAL_GENERIC_PROLOG_PARAMS     GenericPrologParams = {};
-    MOS_RESOURCE                        GpuStatusBuffer = {};
+    PMOS_RESOURCE                       gpuStatusBuffer = nullptr;
     MediaPerfProfiler                   *pPerfProfiler = nullptr;
     MOS_CONTEXT                         *pOsContext = nullptr;
     PMHW_MI_MMIOREGISTERS               pMmioRegisters = nullptr;
@@ -729,13 +734,14 @@ MOS_STATUS VpHal_RndrSubmitCommands(
     if (bLastSubmission && pOsInterface->bEnableKmdMediaFrameTracking)
     {
         // Get GPU Status buffer
-        VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnGetGpuStatusBufferResource(pOsInterface, &GpuStatusBuffer));
+        VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnGetGpuStatusBufferResource(pOsInterface, gpuStatusBuffer));
+        VPHAL_RENDER_CHK_NULL(gpuStatusBuffer);
 
         // Register the buffer
-        VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnRegisterResource(pOsInterface, &GpuStatusBuffer, true, true));
+        VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnRegisterResource(pOsInterface, gpuStatusBuffer, true, true));
 
         GenericPrologParams.bEnableMediaFrameTracking = true;
-        GenericPrologParams.presMediaFrameTrackingSurface = &GpuStatusBuffer;
+        GenericPrologParams.presMediaFrameTrackingSurface = gpuStatusBuffer;
         GenericPrologParams.dwMediaFrameTrackingTag = pOsInterface->pfnGetGpuStatusTag(pOsInterface, pOsInterface->CurrentGpuContextOrdinal);
         GenericPrologParams.dwMediaFrameTrackingAddrOffset = pOsInterface->pfnGetGpuStatusTagOffset(pOsInterface, pOsInterface->CurrentGpuContextOrdinal);
 
@@ -756,6 +762,8 @@ MOS_STATUS VpHal_RndrSubmitCommands(
     VPHAL_RENDER_CHK_STATUS(pRenderHal->pfnInitCommandBuffer(pRenderHal, &CmdBuffer, &GenericPrologParams));
 
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectStartCmd((void*)pRenderHal, pOsInterface, pMhwMiInterface, &CmdBuffer));
+
+    VPHAL_RENDER_CHK_STATUS(NullHW::StartPredicate(pRenderHal->pMhwMiInterface, &CmdBuffer));
 
     // Write timing data for 3P budget
     VPHAL_RENDER_CHK_STATUS(pRenderHal->pfnSendTimingData(pRenderHal, &CmdBuffer, true));
@@ -804,6 +812,8 @@ MOS_STATUS VpHal_RndrSubmitCommands(
         VPHAL_RENDER_CHK_STATUS(pRenderHal->pfnSendRcsStatusTag(pRenderHal, &CmdBuffer));
     }
 
+    VPHAL_RENDER_CHK_STATUS(NullHW::StopPredicate(pRenderHal->pMhwMiInterface, &CmdBuffer));
+
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectEndCmd((void*)pRenderHal, pOsInterface, pMhwMiInterface, &CmdBuffer));
 
     // Write timing data for 3P budget
@@ -850,7 +860,7 @@ MOS_STATUS VpHal_RndrSubmitCommands(
         }
     }
 
-    HalOcaInterface::On1stLevelBBEnd(CmdBuffer, *pOsContext);
+    HalOcaInterface::On1stLevelBBEnd(CmdBuffer, *pOsInterface);
 
     if (pBatchBuffer)
     {
@@ -961,6 +971,8 @@ MOS_STATUS VpHal_RndrCommonInitRenderHalSurface(
     pRenderHalSurface->OsSurface.dwPitch            = pVpSurface->dwPitch;
     pRenderHalSurface->OsSurface.Format             = pVpSurface->Format;
     pRenderHalSurface->OsSurface.TileType           = pVpSurface->TileType;
+    pRenderHalSurface->OsSurface.TileModeGMM        = pVpSurface->TileModeGMM;
+    pRenderHalSurface->OsSurface.bGMMTileEnabled    = pVpSurface->bGMMTileEnabled;
     pRenderHalSurface->OsSurface.dwOffset           = pVpSurface->dwOffset;
     pRenderHalSurface->OsSurface.bIsCompressed      = pVpSurface->bIsCompressed;
     pRenderHalSurface->OsSurface.bCompressible      = pVpSurface->bCompressible;
@@ -1683,6 +1695,17 @@ MOS_STATUS VpHal_RndrUpdateStatusTableAfterSubmit(
     pStatusEntry->dwTag             = dwLastTag;
     pStatusEntry->dwStatus          = (eLastStatus == MOS_STATUS_SUCCESS)? VPREP_NOTREADY : VPREP_ERROR;
     pStatusTable->uiCurrent         = (pStatusTable->uiCurrent + 1) & (VPHAL_STATUS_TABLE_MAX_SIZE - 1);
+
+    // CM may use a different streamIndex, record it here
+    if (pStatusTableUpdateParams->bUpdateStreamIndex)
+    {
+        pStatusEntry->isStreamIndexSet = true;
+        pStatusEntry->streamIndex = (uint16_t)pOsInterface->streamIndex;
+    }
+    else
+    {
+        pStatusEntry->isStreamIndexSet = false;
+    }
 
 finish:
     return eStatus;

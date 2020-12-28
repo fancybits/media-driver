@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2018, Intel Corporation
+* Copyright (c) 2011-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -29,6 +29,7 @@
 #include "codechal_decode_mpeg2.h"
 #include "codechal_secure_decode_interface.h"
 #include "codechal_mmc_decode_mpeg2.h"
+#include "hal_oca_interface.h"
 #if USE_CODECHAL_DEBUG_TOOL
 #include <sstream>
 #include <fstream>
@@ -362,9 +363,9 @@ MOS_STATUS CodechalDecodeMpeg2::AllocateResources ()
         m_osInterface,
         &m_resSyncObjectVideoContextInUse));
 
-    CodecHalAllocateDataList(
+    CODECHAL_DECODE_CHK_STATUS_RETURN(CodecHalAllocateDataList(
         m_mpeg2RefList,
-        CODECHAL_NUM_UNCOMPRESSED_SURFACE_MPEG2);
+        CODECHAL_NUM_UNCOMPRESSED_SURFACE_MPEG2));
 
     for (uint32_t i = 0; i < CODECHAL_NUM_UNCOMPRESSED_SURFACE_MPEG2; i++)
     {
@@ -545,7 +546,7 @@ MOS_STATUS CodechalDecodeMpeg2::SetFrameStates ()
 
     MOS_ZeroMemory(m_vldSliceRecord, (m_numSlices * sizeof(CODECHAL_VLD_SLICE_RECORD)));
 
-    if (m_firstExecuteCall)
+    if (IsFirstExecuteCall())
     {
         CODECHAL_DECODE_CHK_STATUS_MESSAGE_RETURN(InitializeBeginFrame(),
             "Initial Beginframe in CodecHal failed.");
@@ -732,6 +733,9 @@ MOS_STATUS CodechalDecodeMpeg2::DecodeStateLevel()
 
     MOS_COMMAND_BUFFER cmdBuffer;
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnGetCommandBuffer(m_osInterface, &cmdBuffer, 0));
+
+    auto mmioRegisters = m_hwInterface->GetMfxInterface()->GetMmioRegisters(m_vdboxIndex);
+    HalOcaInterface::On1stLevelBBStart(cmdBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle, *m_miInterface, *mmioRegisters);
 
     MHW_VDBOX_PIPE_MODE_SELECT_PARAMS pipeModeSelectParams;
     pipeModeSelectParams.Mode                  = m_mode;
@@ -1172,6 +1176,8 @@ MOS_STATUS CodechalDecodeMpeg2::SliceLevel()
 
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnEngineWait(m_osInterface, &syncParams));
 
+        HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
+
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(
             m_osInterface,
             &cmdBuffer,
@@ -1606,6 +1612,8 @@ MOS_STATUS CodechalDecodeMpeg2::MacroblockLevel()
         syncParams.presSyncResource     = &m_resSyncObjectWaContextInUse;
 
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnEngineWait(m_osInterface, &syncParams));
+
+        HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
 
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(
             m_osInterface,

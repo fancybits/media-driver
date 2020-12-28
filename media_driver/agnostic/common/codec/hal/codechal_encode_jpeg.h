@@ -121,7 +121,7 @@ struct CodechalEncodeJpegScanHeader
     uint16_t                          m_sos;                                  //!< Start of scan marker
     uint16_t                          m_ls;                                   //!< Scan header length
     uint8_t                           m_ns;                                   //!< Number of image components in scan
-    CodechalEncodeJpegScanComponent   m_scanComponent[jpegNumComponent - 1];  //!< ignoring alpha component
+    CodechalEncodeJpegScanComponent   m_scanComponent[jpegNumComponent];
     uint8_t                           m_ss;                                   //!< start of spectral selection
     uint8_t                           m_se;                                   //!< end of spectral selection
     uint8_t                           m_ahl;                                  //!< successive approximation bit position high and low
@@ -168,9 +168,9 @@ public:
 
     uint32_t CalculateCommandBufferSize() override;
 
-    MOS_STATUS GetStatusReport(
-            EncodeStatus*       encodeStatus,
-            EncodeStatusReport* encodeStatusReport) override { return MOS_STATUS_SUCCESS;};
+    virtual MOS_STATUS GetStatusReport(
+        EncodeStatus* encodeStatus,
+        EncodeStatusReport* encodeStatusReport) override;
 
     MOS_STATUS ExecuteKernelFunctions() override { return MOS_STATUS_SUCCESS;};
 

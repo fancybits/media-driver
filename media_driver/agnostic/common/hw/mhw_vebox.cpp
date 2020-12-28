@@ -26,6 +26,7 @@
 
 #include "mhw_utilities.h"
 #include "mhw_vebox.h"
+#include "hal_oca_interface.h"
 
 void MhwVeboxInterface::RefreshVeboxSync()
 {
@@ -94,6 +95,7 @@ MOS_STATUS MhwVeboxInterface::AssignVeboxState()
     PMOS_INTERFACE          pOsInterface;
     PMHW_VEBOX_HEAP_STATE   pVeboxCurState;
     PMHW_VEBOX_HEAP         pVeboxHeap;
+    uint32_t                uiOffset;
 
     MHW_FUNCTION_ENTER;
     MHW_CHK_NULL(m_veboxHeap);
@@ -164,6 +166,10 @@ MOS_STATUS MhwVeboxInterface::AssignVeboxState()
     pVeboxHeap->uiCurState  = pVeboxHeap->uiNextState;
     pVeboxHeap->uiNextState = (pVeboxHeap->uiNextState + 1) %
                               (m_veboxSettings.uiNumInstances);
+
+    //Clean the memory of current veboxheap to avoid the history states
+    uiOffset = pVeboxHeap->uiCurState * pVeboxHeap->uiInstanceSize;
+    MOS_ZeroMemory(pVeboxHeap->pLockedDriverResourceMem + uiOffset, pVeboxHeap->uiInstanceSize);
 
 finish:
     return eStatus;
@@ -254,11 +260,8 @@ MOS_STATUS MhwVeboxInterface::CreateHeap( )
     m_veboxHeap->uiGammaCorrectionStateOffset = uiOffset;
     uiOffset += m_veboxSettings.uiGammaCorrectionStateSize;
 
-    m_veboxHeap->ui3DLUTStateOffset = uiOffset;
-    uiOffset += m_veboxSettings.ui3DLUTStateSize;
-
-    m_veboxHeap->ui1DLUTStateOffset = uiOffset;
-    uiOffset += m_veboxSettings.ui1DLUTStateSize;
+    m_veboxHeap->uiHdrStateOffset = uiOffset;
+    uiOffset += m_veboxSettings.uiHdrStateSize;
 
     m_veboxHeap->uiInstanceSize = uiOffset;
 
@@ -284,6 +287,7 @@ MOS_STATUS MhwVeboxInterface::CreateHeap( )
     AllocParams.Format   = Format_Buffer;
     AllocParams.dwBytes  = uiSize;
     AllocParams.pBufName = "VphalVeboxHeap";
+    AllocParams.ResUsageType = MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_FF;
 
     MHW_CHK_STATUS(m_osInterface->pfnAllocateResource(
         m_osInterface,
@@ -382,5 +386,27 @@ MhwVeboxInterface::MhwVeboxInterface(PMOS_INTERFACE pOsInterface)
     else  //PatchList
     {
         pfnAddResourceToCmd = Mhw_AddResourceToCmd_PatchList;
+    }
+}
+
+void MhwVeboxInterface::TraceIndirectStateInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, bool isCmBuffer, bool useVeboxHeapKernelResource)
+{
+    if (isCmBuffer)
+    {
+        char ocaLog[] = "Vebox indirect state use CmBuffer";
+        HalOcaInterface::TraceMessage(cmdBuffer, mosContext, ocaLog, sizeof(ocaLog));
+    }
+    else
+    {
+        if (useVeboxHeapKernelResource)
+        {
+            char ocaLog[] = "Vebox indirect state use KernelResource";
+            HalOcaInterface::TraceMessage(cmdBuffer, mosContext, ocaLog, sizeof(ocaLog));
+        }
+        else
+        {
+            char ocaLog[] = "Vebox indirect state use DriverResource";
+            HalOcaInterface::TraceMessage(cmdBuffer, mosContext, ocaLog, sizeof(ocaLog));
+        }
     }
 }

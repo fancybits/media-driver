@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2017, Intel Corporation
+* Copyright (c) 2009-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -62,8 +62,8 @@
 #endif
 #define DDI_CODEC_GEN_MAX_ATTRIBS_TYPE             4    //VAConfigAttribRTFormat,    VAConfigAttribRateControl,    VAConfigAttribDecSliceMode,    VAConfigAttribEncPackedHeaders
 
-#define DDI_CODEC_GEN_MAX_SURFACE_ATTRIBUTES       18   // Use the same value as I965
-#define DDI_CODEC_GEN_STR_VENDOR                   "Intel iHD driver - " UFO_VERSION
+#define DDI_CODEC_GEN_MAX_SURFACE_ATTRIBUTES       24
+#define DDI_CODEC_GEN_STR_VENDOR                   "Intel iHD driver for Intel(R) Gen Graphics - " MEDIA_VERSION " (" MEDIA_VERSION_DETAILS ")"
 
 #define DDI_CODEC_GET_VTABLE(ctx)                  (ctx->vtable)
 #define DDI_CODEC_GET_VTABLE_VPP(ctx)              (ctx->vtable_vpp)
@@ -73,9 +73,9 @@
 #define DDI_CODEC_LEFT_SHIFT_FOR_REFLIST1          16
 
 /* Number of supported input color formats */
-#define DDI_VP_NUM_INPUT_COLOR_STD    5
+#define DDI_VP_NUM_INPUT_COLOR_STD    6
 /* Number of supported output color formats */
-#define DDI_VP_NUM_OUT_COLOR_STD      5
+#define DDI_VP_NUM_OUT_COLOR_STD      6
 /* Number of forward references */
 #define DDI_CODEC_NUM_FWD_REF         0
 /* Number of backward references */
@@ -92,6 +92,9 @@
 #define DDI_CODEC_MIN_VALUE_OF_MAX_BS_SIZE    10240
 #define DDI_CODEC_VDENC_MAX_L0_REF_FRAMES     3
 #define DDI_CODEC_VDENC_MAX_L1_REF_FRAMES     0
+
+#define DDI_CODEC_VDENC_MAX_L0_REF_FRAMES_LDB 3
+#define DDI_CODEC_VDENC_MAX_L1_REF_FRAMES_LDB 3
 
 #define DDI_CODEC_FEI_MAX_NUM_MVPREDICTOR     4
 #define DDI_CODEC_FEI_MAX_INTERFACE_REVISION  1000
@@ -110,9 +113,16 @@
 #define DDI_VP_MAX_NUM_FILTERS  8
 
 #define DDI_VP_GEN_CONFIG_ATTRIBUTES_BASE    2048 // VP config_id starts at this value
+#define DDI_CP_GEN_CONFIG_ATTRIBUTES_BASE    4092 // CP config_id starts at this value
+#define DDI_CP_ENCRYPT_TYPES_NUM             5    // CP encryption types number
 
 // Enable unlimited output buffer, delete this build option (remove multiple output buffer) when it is verified
 #define ENABLE_ENC_UNLIMITED_OUTPUT
+
+// Max timeout for i915 bo_wait
+#define DDI_BO_MAX_TIMEOUT       (~(0x8000000000000000))
+// Negative value for infinite timeout for i915 bo_wait
+#define DDI_BO_INFINITE_TIMEOUT  (-1)
 
 typedef struct _DDI_CODEC_VC1BITPLANE_OBJECT
 {

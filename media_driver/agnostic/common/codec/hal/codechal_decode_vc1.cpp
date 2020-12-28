@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2018, Intel Corporation
+* Copyright (c) 2011-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -30,6 +30,7 @@
 #include "codechal_decode_vc1.h"
 #include "codechal_secure_decode_interface.h"
 #include "codechal_mmc_decode_vc1.h"
+#include "hal_oca_interface.h"
 #if USE_CODECHAL_DEBUG_TOOL
 #include <sstream>
 #include <fstream>
@@ -1319,7 +1320,7 @@ MOS_STATUS CodechalDecodeVc1::HandleSkipFrame()
     MHW_GENERIC_PROLOG_PARAMS           genericPrologParams;
     MOS_SURFACE                         srcSurface;
     uint8_t                             fwdRefIdx;
-    uint16_t                            surfaceHeight;
+    uint32_t                            surfaceSize;
     MOS_SYNC_PARAMS                     syncParams;
     MOS_STATUS                          eStatus = MOS_STATUS_SUCCESS;
 
@@ -1336,7 +1337,10 @@ MOS_STATUS CodechalDecodeVc1::HandleSkipFrame()
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_mmc->SetSurfaceMmcMode(&m_destSurface, &srcSurface));
 #endif
 
-    surfaceHeight = MOS_ALIGN_CEIL(((srcSurface.dwHeight * 3) / 2), MOS_YTILE_H_ALIGNMENT);
+        surfaceSize = ((srcSurface.OsResource.pGmmResInfo->GetArraySize()) > 1) ?
+            ((uint32_t)(srcSurface.OsResource.pGmmResInfo->GetQPitchPlanar(GMM_PLANE_Y) *
+                        srcSurface.OsResource.pGmmResInfo->GetRenderPitch())) :
+            (uint32_t)(srcSurface.OsResource.pGmmResInfo->GetSizeMainSurface());
 
     // HuC is present
     if (m_hwInterface->m_noHuC)
@@ -1344,10 +1348,10 @@ MOS_STATUS CodechalDecodeVc1::HandleSkipFrame()
         CodechalDataCopyParams dataCopyParams;
         MOS_ZeroMemory(&dataCopyParams, sizeof(CodechalDataCopyParams));
         dataCopyParams.srcResource = &srcSurface.OsResource;
-        dataCopyParams.srcSize     = surfaceHeight * m_destSurface.dwPitch;
+        dataCopyParams.srcSize     = surfaceSize;
         dataCopyParams.srcOffset = srcSurface.dwOffset;
         dataCopyParams.dstResource = &m_destSurface.OsResource;
-        dataCopyParams.dstSize     = surfaceHeight * m_destSurface.dwPitch;
+        dataCopyParams.dstSize     = surfaceSize;
         dataCopyParams.dstOffset   = m_destSurface.dwOffset;
 
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_hwInterface->CopyDataSourceWithDrv(&dataCopyParams));
@@ -1380,7 +1384,7 @@ MOS_STATUS CodechalDecodeVc1::HandleSkipFrame()
             &cmdBuffer,                             // pCmdBuffer
             &srcSurface.OsResource,                 // presSrc
             &m_destSurface.OsResource,              // presDst
-            surfaceHeight * m_destSurface.dwPitch,  // u32CopyLength
+            surfaceSize,                            // u32CopyLength
             srcSurface.dwOffset,                    // u32CopyInputOffset
             m_destSurface.dwOffset));               // u32CopyOutputOffset
 
@@ -2898,9 +2902,9 @@ MOS_STATUS CodechalDecodeVc1::AllocateResources()
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnCreateSyncResource(m_osInterface, &m_resSyncObject));
 
-    CodecHalAllocateDataList(
+    CODECHAL_DECODE_CHK_STATUS_RETURN(CodecHalAllocateDataList(
         m_vc1RefList,
-        CODECHAL_NUM_UNCOMPRESSED_SURFACE_VC1);
+        CODECHAL_NUM_UNCOMPRESSED_SURFACE_VC1));
 
     m_vldSliceRecord =
         (PCODECHAL_VC1_VLD_SLICE_RECORD)MOS_AllocAndZeroMemory(m_picHeightInMb * sizeof(CODECHAL_VC1_VLD_SLICE_RECORD));
@@ -3361,6 +3365,9 @@ MOS_STATUS CodechalDecodeVc1::DecodeStateLevel()
 
     MOS_COMMAND_BUFFER  cmdBuffer;
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnGetCommandBuffer(m_osInterface, &cmdBuffer, 0));
+
+    auto mmioRegisters = m_hwInterface->GetMfxInterface()->GetMmioRegisters(m_vdboxIndex);
+    HalOcaInterface::On1stLevelBBStart(cmdBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle, *m_miInterface, *mmioRegisters);
 
     MHW_VDBOX_PIPE_MODE_SELECT_PARAMS   pipeModeSelectParams;
     pipeModeSelectParams.Mode = m_mode;
@@ -3912,6 +3919,8 @@ submit:
         m_huCCopyInUse = false;
     }
 
+    HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
+
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &cmdBuffer, m_videoContextUsesNullHw));
 
     CODECHAL_DEBUG_TOOL(
@@ -4212,6 +4221,8 @@ MOS_STATUS CodechalDecodeVc1::DecodePrimitiveLevelIT()
 
         m_huCCopyInUse = false;
     }
+
+    HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &cmdBuffer, m_videoContextUsesNullHw));
 
@@ -4740,7 +4751,8 @@ MOS_STATUS CodechalDecodeVc1::AllocateStandard(
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_DECODE_ENABLE_COMPUTE_CONTEXT_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     isComputeContextEnabled = (userFeatureData.u32Data) ? true : false;
 #endif
 

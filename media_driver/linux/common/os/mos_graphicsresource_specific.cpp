@@ -29,6 +29,7 @@
 
 #include "mos_graphicsresource_specific.h"
 #include "mos_context_specific.h"
+#include "memory_policy_manager.h"
 
 GraphicsResourceSpecific::GraphicsResourceSpecific()
 {
@@ -96,7 +97,9 @@ GMM_RESOURCE_FORMAT GraphicsResourceSpecific::ConvertMosFmtToGmmFmt(MOS_FORMAT f
         case Format_RGBP        : return GMM_FORMAT_RGBP_TYPE;
         case Format_BGRP        : return GMM_FORMAT_BGRP_TYPE;
         case Format_R8U         : return GMM_FORMAT_R8_UINT_TYPE;
+        case Format_R8UN        : return GMM_FORMAT_R8_UNORM;
         case Format_R16U        : return GMM_FORMAT_R16_UINT_TYPE;
+        case Format_R16F        : return GMM_FORMAT_R16_FLOAT_TYPE;
         case Format_P010        : return GMM_FORMAT_P010_TYPE;
         case Format_P016        : return GMM_FORMAT_P016_TYPE;
         case Format_Y216        : return GMM_FORMAT_Y216_TYPE;
@@ -140,6 +143,7 @@ MOS_STATUS GraphicsResourceSpecific::Allocate(OsContext* osContextPtr, CreatePar
     uint32_t           alignedHeight   = params.m_height;
     uint32_t           bufHeight       = params.m_height;
     GMM_RESOURCE_TYPE  resourceType    = RESOURCE_2D;
+    int                mem_type        = MOS_MEMPOOL_VIDEOMEMORY;
 
     GMM_RESCREATE_PARAMS    gmmParams;
     MOS_ZeroMemory(&gmmParams, sizeof(gmmParams));
@@ -184,14 +188,20 @@ MOS_STATUS GraphicsResourceSpecific::Allocate(OsContext* osContextPtr, CreatePar
     switch (tileformat)
     {
         case MOS_TILE_Y:
-            gmmParams.Flags.Gpu.MMC       = params.m_isCompressed;
+            gmmParams.Flags.Gpu.MMC       = params.m_isCompressible;
             tileFormatLinux               = I915_TILING_Y;
-            if (params.m_isCompressed && pOsContextSpecific->GetAuxTableMgr())
+            if (params.m_isCompressible && MEDIA_IS_SKU(pOsContextSpecific->GetSkuTable(), FtrE2ECompression))
             {
+                gmmParams.Flags.Gpu.MMC = true;
                 gmmParams.Flags.Info.MediaCompressed = 1;
                 gmmParams.Flags.Gpu.CCS = 1;
-                gmmParams.Flags.Gpu.UnifiedAuxSurface = 1;
                 gmmParams.Flags.Gpu.RenderTarget = 1;
+                gmmParams.Flags.Gpu.UnifiedAuxSurface = 1;
+
+                if(MEDIA_IS_SKU(pOsContextSpecific->GetSkuTable(), FtrFlatPhysCCS))
+                {
+                    gmmParams.Flags.Gpu.UnifiedAuxSurface = 0;
+                }
             }
             break;
         case MOS_TILE_X:
@@ -273,6 +283,21 @@ MOS_STATUS GraphicsResourceSpecific::Allocate(OsContext* osContextPtr, CreatePar
     char bufName[m_maxBufNameLength];
     MOS_SecureStrcpy(bufName, m_maxBufNameLength, params.m_name.c_str());
 
+    if(!params.m_pSystemMemory)
+    {
+        MemoryPolicyParameter memPolicyPar;
+        MOS_ZeroMemory(&memPolicyPar, sizeof(MemoryPolicyParameter));
+
+        memPolicyPar.skuTable = pOsContextSpecific->GetSkuTable();
+        memPolicyPar.waTable  = pOsContextSpecific->GetWaTable();
+        memPolicyPar.resInfo  = gmmResourceInfoPtr;
+        memPolicyPar.resName  = params.m_name.c_str();
+        memPolicyPar.preferredMemType = params.m_memType;
+
+        mem_type = MemoryPolicyManager::UpdateMemoryPolicy(&memPolicyPar);
+    }
+
+    MOS_TraceEventExt(EVENT_RESOURCE_ALLOCATE, EVENT_TYPE_START, nullptr, 0, nullptr, 0);
     if (nullptr != params.m_pSystemMemory)
     {
         boPtr = mos_bo_alloc_userptr(pOsContextSpecific->m_bufmgr,
@@ -286,11 +311,20 @@ MOS_STATUS GraphicsResourceSpecific::Allocate(OsContext* osContextPtr, CreatePar
     // Only Linear and Y TILE supported
     else if (tileFormatLinux == I915_TILING_NONE)
     {
-        boPtr = mos_bo_alloc(pOsContextSpecific->m_bufmgr, bufName, bufSize, 4096);
+        boPtr = mos_bo_alloc(pOsContextSpecific->m_bufmgr, bufName, bufSize, 4096, mem_type);
     }
     else
     {
-        boPtr = mos_bo_alloc_tiled(pOsContextSpecific->m_bufmgr, bufName, bufPitch, bufSize/bufPitch, 1, &tileFormatLinux, &linuxPitch, 0);
+        boPtr = mos_bo_alloc_tiled(pOsContextSpecific->m_bufmgr,
+                        bufName,
+                        bufPitch,
+                        bufSize/bufPitch,
+                        1,
+                        &tileFormatLinux,
+                        &linuxPitch,
+                        0,
+                        mem_type);
+
         bufPitch = (uint32_t)linuxPitch;
     }
 
@@ -314,6 +348,8 @@ MOS_STATUS GraphicsResourceSpecific::Allocate(OsContext* osContextPtr, CreatePar
         m_depth     = MOS_MAX(1, gmmResourceInfoPtr->GetBaseDepth());
         m_size      = (uint32_t)gmmResourceInfoPtr->GetSizeSurface();
         m_tileType  = tileformat;
+        m_tileModeGMM           = (MOS_TILE_MODE_GMM)gmmResourceInfoPtr->GetTileModeSurfaceState();
+        m_isGMMTileEnabled      = true;
 
         m_compressible    = gmmParams.Flags.Gpu.MMC ?
             (gmmResourceInfoPtr->GetMmcHint(0) == GMM_MMC_HINT_ON) : false;
@@ -321,12 +357,41 @@ MOS_STATUS GraphicsResourceSpecific::Allocate(OsContext* osContextPtr, CreatePar
         m_compressionMode = (MOS_RESOURCE_MMC_MODE)gmmResourceInfoPtr->GetMmcMode(0);
 
         MOS_OS_VERBOSEMESSAGE("Alloc %7d bytes (%d x %d resource).",bufSize, params.m_width, bufHeight);
+
+        struct {
+            uint32_t m_handle;
+            uint32_t m_resFormat;
+            uint32_t m_baseWidth;
+            uint32_t m_baseHeight;
+            uint32_t m_pitch;
+            uint32_t m_size;
+            uint32_t m_resTileType;
+            GMM_RESOURCE_FLAG m_resFlag;
+            uint32_t          m_reserve;
+        } eventData;
+
+        eventData.m_handle       = boPtr->handle;
+        eventData.m_baseWidth    = m_width;
+        eventData.m_baseHeight   = m_height;
+        eventData.m_pitch        = m_pitch;
+        eventData.m_size         = m_size;
+        eventData.m_resFormat    = m_format;
+        eventData.m_resTileType  = m_tileType;
+        eventData.m_resFlag      = gmmResourceInfoPtr->GetResFlags();
+        eventData.m_reserve      = 0;
+        MOS_TraceEventExt(EVENT_RESOURCE_ALLOCATE,
+            EVENT_TYPE_INFO,
+            &eventData,
+            sizeof(eventData),
+            params.m_name.c_str(),
+            params.m_name.size() + 1);
     }
     else
     {
         MOS_OS_ASSERTMESSAGE("Fail to Alloc %7d bytes (%d x %d resource).",bufSize, params.m_width, params.m_height);
         status = MOS_STATUS_NO_SPACE;
     }
+    MOS_TraceEventExt(EVENT_RESOURCE_ALLOCATE, EVENT_TYPE_END, &status, sizeof(status), nullptr, 0);
 
     m_memAllocCounterGfx++;
     return  status;
@@ -392,6 +457,8 @@ MOS_STATUS GraphicsResourceSpecific::ConvertToMosResource(MOS_RESOURCE* pMosReso
     pMosResource->iPitch   = m_pitch;
     pMosResource->iDepth   = m_depth;
     pMosResource->TileType = m_tileType;
+    pMosResource->TileModeGMM = m_tileModeGMM;
+    pMosResource->bGMMTileEnabled = m_isGMMTileEnabled;
     pMosResource->iCount   = 0;
     pMosResource->pData    = m_pData;
     pMosResource->bufname  = m_name.c_str();
@@ -432,9 +499,12 @@ void* GraphicsResourceSpecific::Lock(OsContext* osContextPtr, LockParams& params
     {
         // Do decompression for a compressed surface before lock
         const auto pGmmResInfo = m_gmmResInfo;
-         MOS_OS_ASSERT(pGmmResInfo);
+        MOS_OS_ASSERT(pGmmResInfo);
+        GMM_RESOURCE_FLAG GmmFlags = pGmmResInfo->GetResFlags();
+        
         if (!params.m_noDecompress &&
-             pGmmResInfo->IsMediaMemoryCompressed(0))
+            (((GmmFlags.Gpu.MMC || GmmFlags.Gpu.CCS) && GmmFlags.Info.MediaCompressed) ||
+             pGmmResInfo->IsMediaMemoryCompressed(0)))
         {
             if ((pOsContextSpecific->m_mediaMemDecompState == nullptr) ||
                 (pOsContextSpecific->m_memoryDecompress    == nullptr))

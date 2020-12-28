@@ -20,12 +20,13 @@
 * OTHER DEALINGS IN THE SOFTWARE.
 */
 //!
-//! \file      mhw_utilities.c 
-//! \brief         This modules implements utilities which are shared by both the HW interface     and the state heap interface. 
+//! \file      mhw_utilities.c
+//! \brief         This modules implements utilities which are shared by both the HW interface     and the state heap interface.
 //!
 #include "mhw_utilities.h"
 #include "mhw_render.h"
 #include "mhw_state_heap.h"
+#include "hal_oca_interface.h"
 
 #define MHW_NS_PER_TICK_RENDER_ENGINE 80  // 80 nano seconds per tick in render engine
 
@@ -63,6 +64,8 @@ MOS_STATUS Mhw_AddResourceToCmd_GfxAddress(
 
     pbCmdBufBase = (uint8_t*)pCmdBuffer->pCmdBase;
 
+    MOS_TraceEventExt(EVENT_RESOURCE_REGISTER, EVENT_TYPE_INFO2, &pParams->HwCommandType, sizeof(uint32_t), &pParams->dwLocationInCmd, sizeof(uint32_t));
+
     MHW_CHK_STATUS(pOsInterface->pfnRegisterResource(
         pOsInterface,
         pParams->presResource,
@@ -75,6 +78,8 @@ MOS_STATUS Mhw_AddResourceToCmd_GfxAddress(
     pParams->dwOffset = MOS_ALIGN_CEIL(pParams->dwOffset, dwAlign);
     ui64GfxAddress =
         pOsInterface->pfnGetResourceGfxAddress(pOsInterface, pParams->presResource) + pParams->dwOffset;
+    MHW_CHK_COND(ui64GfxAddress == 0, "Driver can't add resource with ui64GfxAddress == 0. DW location in cmd == %d.", pParams->dwLocationInCmd);
+
     dwGfxAddrBottom = (uint32_t)(ui64GfxAddress & 0x00000000FFFFFFFF);
     dwGfxAddrTop = (uint32_t)((ui64GfxAddress & 0xFFFFFFFF00000000) >> 32);
 
@@ -177,6 +182,8 @@ MOS_STATUS Mhw_AddResourceToCmd_PatchList(
     MHW_CHK_NULL(pParams->presResource);
     MHW_CHK_NULL(pCmdBuffer);
 
+    MOS_TraceEventExt(EVENT_RESOURCE_REGISTER, EVENT_TYPE_INFO2, &pParams->HwCommandType, sizeof(uint32_t), &pParams->dwLocationInCmd, sizeof(uint32_t));
+
     MHW_CHK_STATUS(pOsInterface->pfnRegisterResource(
         pOsInterface,
         pParams->presResource,
@@ -223,6 +230,7 @@ MOS_STATUS Mhw_AddResourceToCmd_PatchList(
     PatchEntryParams.shiftAmount      = pParams->shiftAmount;
     PatchEntryParams.shiftDirection   = pParams->shiftDirection;
     PatchEntryParams.offsetInSSH      = pParams->dwOffsetInSSH;
+    PatchEntryParams.cmdBuffer        = pCmdBuffer;
 
     // Add patch entry to patch the address field for this command
     MHW_CHK_STATUS(pOsInterface->pfnSetPatchEntry(
@@ -251,6 +259,7 @@ MOS_STATUS Mhw_AddResourceToCmd_PatchList(
         PatchEntryParams.shiftAmount      = pParams->shiftAmount;
         PatchEntryParams.shiftDirection   = pParams->shiftDirection;
         PatchEntryParams.offsetInSSH      = pParams->dwOffsetInSSH;
+        PatchEntryParams.cmdBuffer        = pCmdBuffer;
 
         if(dwLsbNum)
         {
@@ -330,7 +339,8 @@ finish:
 //!
 MOS_STATUS Mhw_SendGenericPrologCmd (
     PMOS_COMMAND_BUFFER         pCmdBuffer,
-    PMHW_GENERIC_PROLOG_PARAMS  pParams)
+    PMHW_GENERIC_PROLOG_PARAMS  pParams,
+    MHW_MI_MMIOREGISTERS       *pMmioReg)
 {
     PMOS_INTERFACE                  pOsInterface;
     MhwMiInterface                  *pMiInterface;
@@ -442,6 +452,16 @@ MOS_STATUS Mhw_SendGenericPrologCmd (
 
     MHW_CHK_STATUS(pMiInterface->AddProtectedProlog(pCmdBuffer));
 
+    if (pMmioReg)
+    {
+        HalOcaInterface::On1stLevelBBStart(
+            *pCmdBuffer,
+            *pOsInterface->pOsContext,
+            pOsInterface->CurrentGpuContextHandle,
+            *pMiInterface,
+            *pMmioReg);
+    }
+
 finish:
     return eStatus;
 }
@@ -521,6 +541,8 @@ finish:
 //!             [in]    is 8x8 Filter used
 //! \param      uint32_t   dwHwPhase
 //!             [in]    Number of phases in HW
+//! \param      float      fLanczosT
+//!             [in]    Lanczos factor
 //! \return   MOS_STATUS
 //!           MOS_STATUS_SUCCESS if success, else fail reason
 //!
@@ -531,7 +553,8 @@ MOS_STATUS Mhw_CalcPolyphaseTablesY(
     MOS_FORMAT      srcFmt,
     float           fHPStrength,
     bool            bUse8x8Filter,
-    uint32_t        dwHwPhase)
+    uint32_t        dwHwPhase,
+    float           fLanczosT)
 {
     uint32_t                dwNumEntries;
     uint32_t                dwTableCoefUnit;
@@ -543,7 +566,6 @@ MOS_STATUS Mhw_CalcPolyphaseTablesY(
     float                   fStartOffset;
     float                   fHPFilter[3], fHPSum, fHPHalfPhase; // Only used for Y_PLANE
     float                   fBase, fPos, fSumCoefs;
-    float                   fLanczosT;
     int32_t                 iCenterPixel;
     int32_t                 iSumQuantCoefs;
 
@@ -890,6 +912,7 @@ MOS_STATUS Mhw_AllocateBb(
     AllocParams.Format   = Format_Buffer;
     AllocParams.dwBytes  = allocSize;
     AllocParams.pBufName = "BatchBuffer";
+    AllocParams.ResUsageType = MOS_HW_RESOURCE_USAGE_MEDIA_BATCH_BUFFERS;
 
     MHW_CHK_STATUS(pOsInterface->pfnAllocateResource(
         pOsInterface,

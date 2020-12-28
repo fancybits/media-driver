@@ -1,5 +1,5 @@
 /*
- * Copyright © 2008 Intel Corporation
+ * Copyright © 2008-2020 Intel Corporation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -48,7 +48,7 @@ struct mos_bufmgr {
      * using bo_map() or drm_intel_gem_bo_map_gtt() to be used by the CPU.
      */
     struct mos_linux_bo *(*bo_alloc) (struct mos_bufmgr *bufmgr, const char *name,
-                   unsigned long size, unsigned int alignment);
+                   unsigned long size, unsigned int alignment, int mem_type);
 
     /**
      * Allocate a buffer object, hinting that it will be used as a
@@ -59,7 +59,8 @@ struct mos_bufmgr {
     struct mos_linux_bo *(*bo_alloc_for_render) (struct mos_bufmgr *bufmgr,
                           const char *name,
                           unsigned long size,
-                          unsigned int alignment);
+                          unsigned int alignment,
+                          int mem_type);
 
     /**
      * Allocate a buffer object from an existing user accessible
@@ -93,7 +94,8 @@ struct mos_bufmgr {
                      int x, int y, int cpp,
                      uint32_t *tiling_mode,
                      unsigned long *pitch,
-                     unsigned long flags);
+                     unsigned long flags,
+                     int mem_type);
 
     /** Takes a reference on a buffer object */
     void (*bo_reference) (struct mos_linux_bo *bo);
@@ -261,11 +263,18 @@ struct mos_bufmgr {
                   uint32_t * swizzle_mode);
 
     /**
-     * Set the offset at which this buffer will be softpinned
-     * \param bo Buffer to set the softpin offset for
-     * \param offset Softpin offset
+     * Softpin the buffer object 
+     * \param bo Buffer to set the softpin
      */
-    int (*bo_set_softpin_offset) (struct mos_linux_bo *bo, uint64_t offset);
+    int (*bo_set_softpin) (struct mos_linux_bo *bo);
+
+    /**
+     * Add softpin object to softpin target list of the command buffer 
+     * \param bo Command buffer which store the softpin target list
+     * \param target_bo  Softpin target to be added
+     * \param write_flag  Whether write flag is needed
+     */
+    int (*bo_add_softpin_target) (struct mos_linux_bo *bo, struct mos_linux_bo *target_bo, bool write_flag);
 
     /**
      * Create a visible name for a buffer which can be used by other apps
@@ -329,10 +338,24 @@ struct mos_bufmgr {
     /** Returns true if target_bo is in the relocation tree rooted at bo. */
     int (*bo_references) (struct mos_linux_bo *bo, struct mos_linux_bo *target_bo);
 
-    void (*set_exec_object_async) (struct mos_linux_bo *bo);
+    /**
+     * Set async flag for a buffer object.
+     *
+     * \param bo Buffer to set async
+     */
+    void (*set_object_async) (struct mos_linux_bo *bo);
+
+    /**
+     * Set execution async flag for a buffer object.
+     *
+     * \param bo Command buffer
+     * \param target_bo Buffer to set async
+     */
+    void (*set_exec_object_async) (struct mos_linux_bo *bo, struct mos_linux_bo *target_bo);
 
     /**< Enables verbose debugging printouts */
     int debug;
+    uint32_t *get_reserved = nullptr;
 };
 
 #define ALIGN(value, alignment)    ((value + alignment - 1) & ~(alignment - 1))

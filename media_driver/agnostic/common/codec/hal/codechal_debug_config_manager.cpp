@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017, Intel Corporation
+* Copyright (c) 2017-2019, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -49,7 +49,7 @@ CodechalDebugConfigMgr::~CodechalDebugConfigMgr()
     }
 }
 
-MOS_STATUS CodechalDebugConfigMgr::ParseConfig()
+MOS_STATUS CodechalDebugConfigMgr::ParseConfig(MOS_CONTEXT_HANDLE mosCtx)
 {
     std::string   configFilePath = m_outputFolderPath + "CodecDbgSetting.cfg";
     std::ifstream configStream(configFilePath);
@@ -62,7 +62,8 @@ MOS_STATUS CodechalDebugConfigMgr::ParseConfig()
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_CODECHAL_DEBUG_CFG_GENERATION_ID,
-            &userFeatureData);
+            &userFeatureData,
+            mosCtx);
         if (userFeatureData.i32Data)
         {
             GenerateDefaultConfig();
@@ -233,7 +234,10 @@ void CodechalDebugConfigMgr::GenerateDefaultConfig()
     ofs << "##" << CodechalDbgAttr::attrResidualDifference << ":0" << std::endl;
     ofs << "##" << CodechalDbgAttr::attrDeblocking << ":0" << std::endl;
     ofs << "##" << CodechalDbgAttr::attrMvData << ":0" << std::endl;
+    ofs << "##" << CodechalDbgAttr::attrForceYUVDumpWithMemcpy << ":0" << std::endl;
+    ofs << "##" << CodechalDbgAttr::attrDisableSwizzleForDumps << ":0" << std::endl;
     ofs << "##" << CodechalDbgAttr::attrSfcOutputSurface << ":0" << std::endl;
+    ofs << "##" << CodechalDbgAttr::attrSfcBuffers << ":0" << std::endl;
     ofs << "##" << CodechalDbgAttr::attrReferenceSurfaces << ":0" << std::endl;
     ofs << "##" << CodechalDbgAttr::attrEncodeRawInputSurface << ":0" << std::endl;
     ofs << "##" << CodechalDbgAttr::attrReconstructedSurface << ":0" << std::endl;

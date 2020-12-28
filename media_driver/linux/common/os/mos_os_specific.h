@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2018, Intel Corporation
+* Copyright (c) 2009-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -47,6 +47,7 @@ class GraphicsResource;
 class GraphicsResourceNext;
 class AuxTableMgr;
 class MosOcaInterface;
+class GraphicsResourceNext;
 
 ////////////////////////////////////////////////////////////////////
 
@@ -124,7 +125,7 @@ enum DdiSurfaceFormat
 
 // should be defined in libdrm, this is a temporary solution to pass QuickBuild
 #define I915_EXEC_VEBOX                  (4<<0)
-#define I915_EXEC_VCS2                   (5<<0)
+#define I915_EXEC_VCS2                   (7<<0)
 
 // I915_EXEC_BSD_* -- Attempt to provide backwards and forwards
 // compatibility with versions of include/drm/i915_drm.h that do not
@@ -173,7 +174,7 @@ typedef enum _MOS_MEDIA_OPERATION
 typedef enum _MOS_GPU_NODE
 {
     MOS_GPU_NODE_3D      = I915_EXEC_RENDER,
-    MOS_GPU_NODE_COMPUTE = (6<<0), //To change to compute CS later when linux define the name
+    MOS_GPU_NODE_COMPUTE = (5<<0), //To change to compute CS later when linux define the name
     MOS_GPU_NODE_VE      = I915_EXEC_VEBOX,
     MOS_GPU_NODE_VIDEO   = I915_EXEC_BSD,
     MOS_GPU_NODE_VIDEO2  = I915_EXEC_VCS2,
@@ -201,6 +202,10 @@ static inline MOS_GPU_NODE OSKMGetGpuNode(MOS_GPU_CONTEXT uiGpuContext)
         case MOS_GPU_CONTEXT_VIDEO:
         case MOS_GPU_CONTEXT_VIDEO2:
         case MOS_GPU_CONTEXT_VIDEO3:
+        case MOS_GPU_CONTEXT_VIDEO4:
+        case MOS_GPU_CONTEXT_VIDEO5:
+        case MOS_GPU_CONTEXT_VIDEO6:
+        case MOS_GPU_CONTEXT_VIDEO7:
             return MOS_GPU_NODE_VIDEO;
             break;
         case MOS_GPU_CONTEXT_VDBOX2_VIDEO:
@@ -252,7 +257,6 @@ struct _MOS_SPECIFIC_RESOURCE
     GMM_RESOURCE_INFO   *pGmmResInfo;        //!< GMM resource descriptor
     MOS_MMAP_OPERATION  MmapOperation;
     uint8_t             *pSystemShadow;
-    bool                bUsrPtrMode;        //!< indicate source info comes from app.
     MOS_PLANE_OFFSET    YPlaneOffset;       //!< Y surface plane offset
     MOS_PLANE_OFFSET    UPlaneOffset;       //!< U surface plane offset
     MOS_PLANE_OFFSET    VPlaneOffset;       //!< V surface plane offset
@@ -284,7 +288,11 @@ struct _MOS_SPECIFIC_RESOURCE
     GraphicsResource*       pGfxResource;
     GraphicsResourceNext*   pGfxResourceNext;
     bool                    bConvertedFromDDIResource;
+    bool                    bExternalSurface;    //!< indicate the surface not allocated by media
 
+    // Tile switch
+    MOS_TILE_MODE_GMM   TileModeGMM;
+    bool                bGMMTileEnabled;
 };
 
 //!
@@ -351,8 +359,27 @@ struct MOS_SURFACE
     uint32_t                CompressionFormat;                                   //!< [out] Memory compression format
     // deprecated: not to use MmcState
     MOS_MEMCOMP_STATE       MmcState;                                            // Memory compression state
+    // Tile Switch
+    MOS_TILE_MODE_GMM   TileModeGMM;                                            //!< [out] Transparent GMM Tiletype specifying in hwcmd finally
+    bool                bGMMTileEnabled;                                        //!< [out] GMM defined tile mode flag
+    uint32_t            YoffsetForUplane;                                       //!< [out] Y offset from U plane to Y plane.
+    uint32_t            YoffsetForVplane;                                       //!< [out] Y offset from V plane to Y plane.
 };
 typedef MOS_SURFACE *PMOS_SURFACE;
+
+//!
+//! \brief Structure to MOS_BUFFER
+//!
+struct MOS_BUFFER
+{
+    MOS_RESOURCE    OsResource; //!< Buffer resource
+    uint32_t        size;       //!< Buffer size
+    const char*     name;           //!< Buffer name
+    bool            initOnAllocate; //!< Flag to indicate whether initialize when allocate
+    uint8_t         initValue;      //!< Initialize value when initOnAllocate is set
+    bool            bPersistent;    //!< Persistent flag
+};
+typedef MOS_BUFFER *PMOS_BUFFER;
 
 //!
 //! \brief Structure to patch location list
@@ -365,10 +392,11 @@ typedef struct _PATCHLOCATIONLIST
     uint32_t                    cpCmdProps;
     int32_t                     uiRelocFlag;
     uint32_t                    uiWriteOperation;
+    MOS_LINUX_BO                *cmdBo;
 } PATCHLOCATIONLIST, *PPATCHLOCATIONLIST;
 
 //#define PATCHLOCATIONLIST_SIZE 25
-#define CODECHAL_MAX_REGS  128
+#define CODECHAL_MAX_REGS  256
 #define PATCHLOCATIONLIST_SIZE CODECHAL_MAX_REGS
 
 //!
@@ -465,6 +493,22 @@ struct MOS_CONTEXT_OFFSET
     uint64_t          offset64;
 };
 
+// APO related
+#define FUTURE_PLATFORM_MOS_APO   1234
+bool SetupApoMosSwitch(int32_t fd);
+
+enum OS_SPECIFIC_RESOURCE_TYPE
+{
+    OS_SPECIFIC_RESOURCE_INVALID = 0,
+    OS_SPECIFIC_RESOURCE_SURFACE = 1,
+    OS_SPECIFIC_RESOURCE_BUFFER = 2,
+    OS_SPECIFIC_RESOURCE_MAX
+};
+
+class OsContextNext;
+typedef OsContextNext    OsDeviceContext;
+typedef OsDeviceContext *MOS_DEVICE_HANDLE;
+
 typedef struct _MOS_OS_CONTEXT MOS_CONTEXT, *PMOS_CONTEXT, MOS_OS_CONTEXT, *PMOS_OS_CONTEXT, MOS_DRIVER_CONTEXT,*PMOS_DRIVER_CONTEXT;
 //!
 //! \brief Structure to OS context
@@ -513,11 +557,12 @@ struct _MOS_OS_CONTEXT
     bool                bTileYFlag;
 
     void                **ppMediaMemDecompState; //!<Media memory decompression data structure
+    void                **ppMediaCopyState;      //!<Media memory copy data structure
 
     // For modulized GPU context
     void*               m_gpuContextMgr;
     void*               m_cmdBufMgr;
-    void*               m_osDeviceContext = nullptr;
+    MOS_DEVICE_HANDLE   m_osDeviceContext = nullptr;
 
     //For 2VD box
     int32_t             bKMDHasVCS2;
@@ -539,10 +584,40 @@ struct _MOS_OS_CONTEXT
 
     std::vector< struct MOS_CONTEXT_OFFSET> contextOffsetList;
 
+    bool                bSimIsActive;   //!< To indicate if simulation environment
+    bool                m_apoMosEnabled;  //!< apo mos or not
+
     // Media memory decompression function
     void (* pfnMemoryDecompress)(
         PMOS_CONTEXT                pOsContext,
         PMOS_RESOURCE               pOsResource);
+
+    //!
+    //! \brief  the function ptr for surface copy function
+    //!
+    void  (* pfnMediaMemoryCopy )(
+        PMOS_CONTEXT       pOsContext,
+        PMOS_RESOURCE      pInputResource,
+        PMOS_RESOURCE      pOutputResource,
+        bool               bOutputCompressed);
+
+    //!
+    //! \brief  the function ptr for Media Memory 2D copy function
+    //!
+    void (* pfnMediaMemoryCopy2D)(
+        PMOS_CONTEXT       pOsContext,
+        PMOS_RESOURCE      pInputResource,
+        PMOS_RESOURCE      pOutputResource,
+        uint32_t           copyWidth,
+        uint32_t           copyHeight,
+        uint32_t           copyInputOffset,
+        uint32_t           copyOutputOffset,
+        uint32_t           bpp,
+        bool               bOutputCompressed);
+
+    //!
+    //! \brief  the function ptr for Media copy function
+    //!
 
     // Os Context interface functions
     void (* pfnDestroy)(
@@ -838,6 +913,19 @@ PMOS_RESOURCE Mos_Specific_GetMarkerResource(
 //!
 uint32_t Mos_Specific_GetTsFrequency(
     PMOS_INTERFACE         pOsInterface);
+    
+//!
+//! \brief    Checks whether the requested resource is releasable
+//! \param    PMOS_INTERFACE pOsInterface
+//!           [in] OS Interface
+//! \param    PMOS_RESOURCE pOsResource
+//!           [in] Pointer to OS Resource
+//! \return   MOS_STATUS
+//!           MOS_STATUS_SUCCESS if requested can be released, otherwise MOS_STATUS_UNKNOWN
+//!
+MOS_STATUS Mos_Specific_IsResourceReleasable(
+    PMOS_INTERFACE         pOsInterface,
+    PMOS_RESOURCE          pOsResource);
 
 #if (_DEBUG || _RELEASE_INTERNAL)
 MOS_LINUX_BO * Mos_GetNopCommandBuffer_Linux(

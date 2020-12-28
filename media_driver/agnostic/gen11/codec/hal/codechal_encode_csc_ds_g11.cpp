@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2017-2019, Intel Corporation
+* Copyright (c) 2017-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -72,7 +72,7 @@ MOS_STATUS CodechalEncodeCscDsG11::AllocateSurfaceCsc()
     return eStatus;
 }
 
-MOS_STATUS CodechalEncodeCscDsG11::CheckRawColorFormat(MOS_FORMAT format)
+MOS_STATUS CodechalEncodeCscDsG11::CheckRawColorFormat(MOS_FORMAT format, MOS_TILE_TYPE tileType)
 {
     CODECHAL_ENCODE_FUNCTION_ENTER;
 
@@ -127,6 +127,13 @@ MOS_STATUS CodechalEncodeCscDsG11::CheckRawColorFormat(MOS_FORMAT format)
             m_cscRequireConvTo8bPlanar = 1;
         }
         break;
+    case Format_AYUV:
+        if (m_encoder->m_vdencEnabled)
+        {
+            m_colorRawSurface = cscColorAYUV;
+            m_cscRequireColor = 1;
+            break;
+        }
     case Format_P210:
         // not supported yet so fall-thru to default
         m_colorRawSurface = cscColorP210;
@@ -250,6 +257,8 @@ MOS_STATUS CodechalEncodeCscDsG11::SetKernelParamsCsc(KernelParams* params)
     else
     {
         // do 16x/32x downscaling
+        inputFrameWidth = m_encoder->m_downscaledWidth4x;
+        inputFrameHeight = m_encoder->m_downscaledHeight4x;
         m_curbeParams.bConvertFlag = false;
         mbStatsSurface = nullptr;
 
@@ -285,6 +294,11 @@ MOS_STATUS CodechalEncodeCscDsG11::SetKernelParamsCsc(KernelParams* params)
     // setup Curbe
     m_curbeParams.dwInputPictureWidth = inputFrameWidth;
     m_curbeParams.dwInputPictureHeight = inputFrameHeight;
+    m_curbeParams.bFlatnessCheckEnabled = m_flatnessCheckEnabled;
+    m_curbeParams.bMBVarianceOutputEnabled = m_mbStatsEnabled;
+    m_curbeParams.bMBPixelAverageOutputEnabled = m_mbStatsEnabled;
+    m_curbeParams.bCscOrCopyOnly = !m_scalingEnabled || params->cscOrCopyOnly;
+    m_curbeParams.inputColorSpace = params->inputColorSpace;
 
     // setup surface states
     m_surfaceParamsCsc.psInputSurface = inputSurface;
@@ -331,12 +345,6 @@ MOS_STATUS CodechalEncodeCscDsG11::SetCurbeCsc()
 
     curbe.DW2_OriginalPicWidthInSamples = m_curbeParams.dwInputPictureWidth;
     curbe.DW2_OriginalPicHeightInSamples = m_curbeParams.dwInputPictureHeight;
-
-    // when the input surface is NV12 tiled format and not aligned with 4 bytes,
-    // need kernel to do the padding copy with force to linear format, it's
-    // transparent to kernel and hw can handle it
-    if (m_colorRawSurface == cscColorNv12TileY && m_cscFlag == 1)
-        curbe.DW1_PictureFormat = cscColorNv12Linear;
 
     // RGB->YUV CSC coefficients
     if (m_curbeParams.inputColorSpace == ECOLORSPACE_P709)
@@ -457,12 +465,13 @@ MOS_STATUS CodechalEncodeCscDsG11::SendSurfaceCsc(PMOS_COMMAND_BUFFER cmdBuffer)
                                                    cscColorNv12Linear == m_colorRawSurface);
     }
 
-    // when input surface is NV12 tiled and not aligned by 4 bytes, need kernel to do the
-    // padding copy by forcing to linear format and set the HeightInUse as Linear format
-    // kernel will use this info to calucate UV offset
+    if (m_encoder->m_vdencEnabled && (CODECHAL_HEVC == m_standard || CODECHAL_AVC == m_standard))
+    {
+        surfaceParams.bCheckCSC8Format= true;
+    }
+
     surfaceParams.psSurface = m_surfaceParamsCsc.psInputSurface;
-    if (cscColorNv12Linear == m_colorRawSurface ||
-        (cscColorNv12TileY == m_colorRawSurface && m_cscFlag == 1))
+    if (cscColorNv12Linear == m_colorRawSurface)
     {
         surfaceParams.dwHeightInUse = (surfaceParams.psSurface->dwHeight * 3) / 2;
     }
@@ -785,6 +794,16 @@ MOS_STATUS CodechalEncodeCscDsG11::InitSfcState()
         CODECHAL_ENCODE_CHK_STATUS_RETURN(m_sfcState->Initialize(m_hwInterface, m_osInterface));
 
         m_sfcState->SetInputColorSpace(MHW_CSpace_sRGB);
+    }
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS CodechalEncodeCscDsG11::CheckRawSurfaceAlignment(MOS_SURFACE surface)
+{
+    if (m_cscEnableCopy && (surface.dwWidth % m_rawSurfAlignment || surface.dwHeight % m_rawSurfAlignment) &&
+        m_colorRawSurface != cscColorNv12TileY)
+    {
+        m_cscRequireCopy = 1;
     }
     return MOS_STATUS_SUCCESS;
 }

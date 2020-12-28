@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2018, Intel Corporation
+* Copyright (c) 2009-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -40,6 +40,8 @@
 #include "media_ddi_decode_base.h"
 #include "media_interfaces.h"
 #include "media_ddi_decode_const.h"
+#include "decode_status_report.h"
+#include "vphal_render_vebox_memdecomp.h"
 
 #if !defined(ANDROID) && defined(X11_FOUND)
 #include <X11/Xutil.h>
@@ -170,6 +172,12 @@ VAStatus DdiDecode_RenderPicture (
     int32_t             numBuffers
 )
 {
+    VAStatus        va                      = VA_STATUS_SUCCESS;
+    int32_t         numOfBuffers            = numBuffers;
+    int32_t         priority                = 0;
+    int32_t         priorityIndexInBuffers  = -1;
+    bool            updatePriority          = false;
+
     DDI_FUNCTION_ENTER();
 
     PERF_UTILITY_AUTO(__FUNCTION__, PERF_DECODE, PERF_LEVEL_DDI);
@@ -180,9 +188,24 @@ VAStatus DdiDecode_RenderPicture (
     PDDI_DECODE_CONTEXT decCtx  = (PDDI_DECODE_CONTEXT)DdiMedia_GetContextFromContextID(ctx, context, &ctxType);
     DDI_CHK_NULL(decCtx,            "nullptr decCtx",            VA_STATUS_ERROR_INVALID_CONTEXT);
 
+    priorityIndexInBuffers = DdiMedia_GetGpuPriority(ctx, buffers, numOfBuffers, &updatePriority, &priority);
+    if (priorityIndexInBuffers != -1)
+    {
+        if(updatePriority)
+        {
+            va = DdiDecode_SetGpuPriority(ctx, decCtx, priority);
+            if(va != VA_STATUS_SUCCESS)
+                return va;
+        }
+        MovePriorityBufferIdToEnd(buffers, priorityIndexInBuffers, numOfBuffers);
+        numOfBuffers--;
+    }
+    if (numOfBuffers == 0)
+        return va;
+
     if (decCtx->m_ddiDecode)
     {
-        VAStatus va = decCtx->m_ddiDecode->RenderPicture(ctx, context, buffers, numBuffers);
+        va = decCtx->m_ddiDecode->RenderPicture(ctx, context, buffers, numOfBuffers);
         DDI_FUNCTION_EXIT(va);
         return va;
     }
@@ -214,6 +237,175 @@ void DdiDecodeCleanUp(
         }
     }
     return;
+}
+
+VAStatus DdiDecode_StatusReport(PDDI_MEDIA_CONTEXT mediaCtx, CodechalDecode *decoder, DDI_MEDIA_SURFACE *surface)
+{
+    if (decoder->IsStatusQueryReportingEnabled())
+    {
+        uint32_t i = 0;
+        if (surface->curStatusReportQueryState == DDI_MEDIA_STATUS_REPORT_QUERY_STATE_PENDING)
+        {
+            CodechalDecodeStatusBuffer *decodeStatusBuf = decoder->GetDecodeStatusBuf();
+            uint32_t uNumAvailableReport = (decodeStatusBuf->m_currIndex - decodeStatusBuf->m_firstIndex) & (CODECHAL_DECODE_STATUS_NUM - 1);
+            DDI_CHK_CONDITION((uNumAvailableReport == 0),
+                "No report available at all", VA_STATUS_ERROR_OPERATION_FAILED);
+
+            for (i = 0; i < uNumAvailableReport; i++)
+            {
+                int32_t index = (decodeStatusBuf->m_firstIndex + i) & (CODECHAL_DECODE_STATUS_NUM - 1);
+                if ((decodeStatusBuf->m_decodeStatus[index].m_decodeStatusReport.m_currDecodedPicRes.bo == surface->bo) ||
+                    (decoder->GetStandard() == CODECHAL_VC1 && decodeStatusBuf->m_decodeStatus[index].m_decodeStatusReport.m_deblockedPicResOlp.bo == surface->bo))
+                {
+                    break;
+                }
+            }
+
+            DDI_CHK_CONDITION((i == uNumAvailableReport),
+                "No report available for this surface", VA_STATUS_ERROR_OPERATION_FAILED);
+
+            uint32_t uNumCompletedReport = i+1;
+
+            for (i = 0; i < uNumCompletedReport; i++)
+            {
+                CodechalDecodeStatusReport tempNewReport;
+                MOS_ZeroMemory(&tempNewReport, sizeof(CodechalDecodeStatusReport));
+                MOS_STATUS eStatus = decoder->GetStatusReport(&tempNewReport, 1);
+                DDI_CHK_CONDITION(MOS_STATUS_SUCCESS != eStatus, "Get status report fail", VA_STATUS_ERROR_OPERATION_FAILED);
+
+                MOS_LINUX_BO *bo = tempNewReport.m_currDecodedPicRes.bo;
+
+                if (decoder->GetStandard() == CODECHAL_VC1)
+                {
+                    bo = (tempNewReport.m_deblockedPicResOlp.bo) ? tempNewReport.m_deblockedPicResOlp.bo : bo;
+                }
+
+                if ((tempNewReport.m_codecStatus == CODECHAL_STATUS_SUCCESSFUL) || (tempNewReport.m_codecStatus == CODECHAL_STATUS_ERROR) || (tempNewReport.m_codecStatus == CODECHAL_STATUS_INCOMPLETE))
+                {
+                    PDDI_MEDIA_SURFACE_HEAP_ELEMENT mediaSurfaceHeapElmt = (PDDI_MEDIA_SURFACE_HEAP_ELEMENT)mediaCtx->pSurfaceHeap->pHeapBase;
+
+                    uint32_t j = 0;
+                    for (j = 0; j < mediaCtx->pSurfaceHeap->uiAllocatedHeapElements; j++, mediaSurfaceHeapElmt++)
+                    {
+                        if (mediaSurfaceHeapElmt != nullptr &&
+                                mediaSurfaceHeapElmt->pSurface != nullptr &&
+                                bo == mediaSurfaceHeapElmt->pSurface->bo)
+                        {
+                            mediaSurfaceHeapElmt->pSurface->curStatusReport.decode.status = (uint32_t)tempNewReport.m_codecStatus;
+                            mediaSurfaceHeapElmt->pSurface->curStatusReport.decode.errMbNum = (uint32_t)tempNewReport.m_numMbsAffected;
+                            mediaSurfaceHeapElmt->pSurface->curStatusReport.decode.crcValue = (decoder->GetStandard() == CODECHAL_AVC)?(uint32_t)tempNewReport.m_frameCrc:0;
+                            mediaSurfaceHeapElmt->pSurface->curStatusReportQueryState = DDI_MEDIA_STATUS_REPORT_QUERY_STATE_COMPLETED;
+                            break;
+                        }
+                    }
+
+                    if (j == mediaCtx->pSurfaceHeap->uiAllocatedHeapElements)
+                    {
+                        return VA_STATUS_ERROR_OPERATION_FAILED;
+                    }
+                }
+                else
+                {
+                    // return failed if queried INCOMPLETE or UNAVAILABLE report.
+                    return VA_STATUS_ERROR_OPERATION_FAILED;
+                }
+            }
+        }
+
+        // check the report ptr of current surface.
+        if (surface->curStatusReportQueryState == DDI_MEDIA_STATUS_REPORT_QUERY_STATE_COMPLETED)
+        {
+            if (surface->curStatusReport.decode.status == CODECHAL_STATUS_SUCCESSFUL)
+            {
+                return VA_STATUS_SUCCESS;
+            }
+            else if (surface->curStatusReport.decode.status == CODECHAL_STATUS_ERROR)
+            {
+                return VA_STATUS_ERROR_DECODING_ERROR;
+            }
+            else if (surface->curStatusReport.decode.status == CODECHAL_STATUS_INCOMPLETE || surface->curStatusReport.decode.status == CODECHAL_STATUS_UNAVAILABLE)
+            {
+                return VA_STATUS_ERROR_HW_BUSY;
+            }
+        }
+        else
+        {
+            return VA_STATUS_ERROR_OPERATION_FAILED;
+        }
+    }
+    return VA_STATUS_SUCCESS;
+}
+
+VAStatus DdiDecode_StatusReport(PDDI_MEDIA_CONTEXT mediaCtx, DecodePipelineAdapter *decoder, DDI_MEDIA_SURFACE *surface)
+{
+    if (surface->curStatusReportQueryState == DDI_MEDIA_STATUS_REPORT_QUERY_STATE_PENDING)
+    {
+        uint32_t uNumCompletedReport = decoder->GetCompletedReport();
+        DDI_CHK_CONDITION((uNumCompletedReport == 0),
+            "No report available at all", VA_STATUS_ERROR_OPERATION_FAILED);
+
+        for (uint32_t i = 0; i < uNumCompletedReport; i++)
+        {
+            decode::DecodeStatusReportData tempNewReport;
+            MOS_ZeroMemory(&tempNewReport, sizeof(CodechalDecodeStatusReport));
+            MOS_STATUS eStatus = decoder->GetStatusReport(&tempNewReport, 1);
+            DDI_CHK_CONDITION(MOS_STATUS_SUCCESS != eStatus, "Get status report fail", VA_STATUS_ERROR_OPERATION_FAILED);
+
+            MOS_LINUX_BO *bo = tempNewReport.currDecodedPicRes.bo;
+
+            if ((tempNewReport.codecStatus == CODECHAL_STATUS_SUCCESSFUL) || (tempNewReport.codecStatus == CODECHAL_STATUS_ERROR) || (tempNewReport.codecStatus == CODECHAL_STATUS_INCOMPLETE))
+            {
+                PDDI_MEDIA_SURFACE_HEAP_ELEMENT mediaSurfaceHeapElmt = (PDDI_MEDIA_SURFACE_HEAP_ELEMENT)mediaCtx->pSurfaceHeap->pHeapBase;
+
+                uint32_t j = 0;
+                for (j = 0; j < mediaCtx->pSurfaceHeap->uiAllocatedHeapElements; j++, mediaSurfaceHeapElmt++)
+                {
+                    if (mediaSurfaceHeapElmt != nullptr &&
+                            mediaSurfaceHeapElmt->pSurface != nullptr &&
+                            bo == mediaSurfaceHeapElmt->pSurface->bo)
+                    {
+                        mediaSurfaceHeapElmt->pSurface->curStatusReport.decode.status = (uint32_t)tempNewReport.codecStatus;
+                        mediaSurfaceHeapElmt->pSurface->curStatusReport.decode.errMbNum = (uint32_t)tempNewReport.numMbsAffected;
+                        mediaSurfaceHeapElmt->pSurface->curStatusReport.decode.crcValue = (uint32_t)tempNewReport.frameCrc;
+                        mediaSurfaceHeapElmt->pSurface->curStatusReportQueryState = DDI_MEDIA_STATUS_REPORT_QUERY_STATE_COMPLETED;
+                        break;
+                    }
+                }
+
+                if (j == mediaCtx->pSurfaceHeap->uiAllocatedHeapElements)
+                {
+                    return VA_STATUS_ERROR_OPERATION_FAILED;
+                }
+            }
+            else
+            {
+                // return failed if queried INCOMPLETE or UNAVAILABLE report.
+                return VA_STATUS_ERROR_OPERATION_FAILED;
+            }
+        }
+    }
+
+    // check the report ptr of current surface.
+    if (surface->curStatusReportQueryState == DDI_MEDIA_STATUS_REPORT_QUERY_STATE_COMPLETED)
+    {
+        if (surface->curStatusReport.decode.status == CODECHAL_STATUS_SUCCESSFUL)
+        {
+            return VA_STATUS_SUCCESS;
+        }
+        else if (surface->curStatusReport.decode.status == CODECHAL_STATUS_ERROR)
+        {
+            return VA_STATUS_ERROR_DECODING_ERROR;
+        }
+        else if (surface->curStatusReport.decode.status == CODECHAL_STATUS_INCOMPLETE || surface->curStatusReport.decode.status == CODECHAL_STATUS_UNAVAILABLE)
+        {
+            return VA_STATUS_ERROR_HW_BUSY;
+        }
+    }
+    else
+    {
+        return VA_STATUS_ERROR_OPERATION_FAILED;
+    }
+    return VA_STATUS_SUCCESS;
 }
 
 /*
@@ -324,14 +516,19 @@ VAStatus DdiDecode_CreateContext (
     mosCtx.platform              = mediaCtx->platform;
     mosCtx.ppMediaMemDecompState = &mediaCtx->pMediaMemDecompState;
     mosCtx.pfnMemoryDecompress   = mediaCtx->pfnMemoryDecompress;
-    mosCtx.pPerfData             = (PERF_DATA *)MOS_AllocAndZeroMemory(sizeof(PERF_DATA));
+    mosCtx.pfnMediaMemoryCopy    = mediaCtx->pfnMediaMemoryCopy;
+    mosCtx.pfnMediaMemoryCopy2D  = mediaCtx->pfnMediaMemoryCopy2D;
+    mosCtx.ppMediaCopyState      = &mediaCtx->pMediaCopyState;
     mosCtx.m_auxTableMgr         = mediaCtx->m_auxTableMgr;
     mosCtx.pGmmClientContext     = mediaCtx->pGmmClientContext;
+    mosCtx.m_osDeviceContext     = mediaCtx->m_osDeviceContext;
+    mosCtx.m_apoMosEnabled       = mediaCtx->m_apoMosEnabled;
+    mosCtx.pPerfData             = (PERF_DATA *)MOS_AllocAndZeroMemory(sizeof(PERF_DATA));
 
     if (nullptr == mosCtx.pPerfData)
     {
         va = VA_STATUS_ERROR_ALLOCATION_FAILED;
-        DdiDecodeCleanUp(ctx,decCtx);
+        DdiDecodeCleanUp(ctx, decCtx);
         return va;
     }
 
@@ -427,3 +624,33 @@ VAStatus DdiDecode_DestroyContext (
 
     return VA_STATUS_SUCCESS;
 }
+
+VAStatus DdiDecode_SetGpuPriority(
+    VADriverContextP     ctx,
+    PDDI_DECODE_CONTEXT  decCtx,
+    int32_t              priority
+)
+{
+    PDDI_MEDIA_CONTEXT mediaCtx = DdiMedia_GetMediaContext(ctx);
+    DDI_CHK_NULL(mediaCtx,           "nullptr mediaCtx",                             VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(decCtx,             "nullptr decCtx",                               VA_STATUS_ERROR_INVALID_CONTEXT);
+
+    //Set the priority for Gpu
+    if(decCtx->pCodecHal != nullptr)
+    {
+        PMOS_INTERFACE osInterface = decCtx->pCodecHal->GetOsInterface();
+        DDI_CHK_NULL(osInterface, "nullptr osInterface.", VA_STATUS_ERROR_ALLOCATION_FAILED);
+        osInterface->pfnSetGpuPriority(osInterface, priority);
+    }
+#ifdef _MMC_SUPPORTED
+    //set the priority for decomp interface
+    if(mediaCtx->pMediaMemDecompState)
+    {
+        MediaVeboxDecompState *mediaVeboxDecompState = static_cast<MediaVeboxDecompState*>(mediaCtx->pMediaMemDecompState);
+        if(mediaVeboxDecompState->m_osInterface)
+            mediaVeboxDecompState->m_osInterface->pfnSetGpuPriority(mediaVeboxDecompState->m_osInterface, priority);
+    }
+#endif
+    return VA_STATUS_SUCCESS;
+}
+

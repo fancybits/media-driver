@@ -66,6 +66,11 @@
 #define CODECHAL_ENCODE_VP9_SEGMENT_STATE_BUFFER_SIZE           256
 #define CODECHAL_ENCODE_VP9_BRC_BITSTREAM_SIZE_BUFFER_SIZE      16
 #define CODECHAL_ENCODE_VP9_BRC_MSDK_PAK_BUFFER_SIZE            64
+#define CODECHAL_VDENC_VP9_BRC_HUC_STATUS_ERROR_MASK                     (1 << 30)
+#define CODECHAL_VDENC_VP9_BRC_HUC_STATUS_ARITHMETIC_OVERFLOW_ERROR_MASK (1 << 27)
+#define CODECHAL_VDENC_VP9_BRC_HUC_STATUS_MEMORY_ACCESS_ERROR_MASK       (1 << 26)
+#define CODECHAL_VDENC_VP9_BRC_HUC_STATUS_DMEM_ERROR_MASK                (1 << 24)
+
 #define __MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_ENABLE_BRC_DLL                 5158
 #define __MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_BRC_DLL_PATH                   5159
 #define __MEDIA_USER_FEATURE_VALUE_VP9_ENCODE_ENABLE_BRC_DLL_CUSTOMPATH      5160
@@ -1658,7 +1663,7 @@ public:
     bool                                        m_adaptiveRepakSupported = false;
     bool                                        m_tsEnabled = false;
     bool                                        m_superFrameHucPass = false;
-    bool                                        m_storeSingleTaskPhaseSupported; //For dynamic scaling, need to save the original state
+    bool                                        m_storeSingleTaskPhaseSupported = false; //For dynamic scaling, need to save the original state
     uint8_t                                     m_refFrameFlags = 0;
     uint8_t                                     m_numRefFrames = 0;
     uint8_t                                     m_dysRefFrameFlags = 0;
@@ -1695,10 +1700,10 @@ public:
 
     bool                                        m_hucEnabled = false;
     bool                                        m_segmentMapAllocated = false;
-    MOS_RESOURCE                                m_resHucProbDmemBuffer[3];
+    MOS_RESOURCE                                m_resHucProbDmemBuffer[3][CODECHAL_ENCODE_RECYCLED_BUFFER_NUM];
     MOS_RESOURCE                                m_resHucDefaultProbBuffer;
     MOS_RESOURCE                                m_resHucProbOutputBuffer;
-    MOS_RESOURCE                                m_resHucPakInsertUncompressedHeaderReadBuffer;
+    MOS_RESOURCE                                m_resHucPakInsertUncompressedHeaderReadBuffer[CODECHAL_ENCODE_RECYCLED_BUFFER_NUM];
     MOS_RESOURCE                                m_resHucPakInsertUncompressedHeaderWriteBuffer;
     MOS_RESOURCE                                m_resHucPakMmioBuffer;
     MOS_RESOURCE                                m_resHucDebugOutputBuffer;
@@ -1735,7 +1740,7 @@ public:
     bool                                        m_prevFrameSegEnabled = false;
     uint32_t                                    m_vdencPictureState2ndLevelBatchBufferSize = 0;
     uint16_t                                    m_sadQpLambda = 0;
-    uint16_t                                    m_rdQpLambda;
+    uint16_t                                    m_rdQpLambda = 0;
     uint16_t                                    m_hucPicStateOffset = 0;
     uint16_t                                    m_hucSlbbSize = 0;
     uint8_t                                     m_vdencMvCosts[12] = { 0 };
@@ -1768,9 +1773,9 @@ public:
 
     uint32_t                                    m_maxTileNumber = 1;
 
-    uint32_t                                    m_bitDepth;
-    uint8_t                                     m_chromaFormat;
-    uint32_t                                    m_sizeOfSseSrcPixelRowStoreBufferPerLcu;
+    uint32_t                                    m_bitDepth = 0;
+    uint8_t                                     m_chromaFormat = 0;
+    uint32_t                                    m_sizeOfSseSrcPixelRowStoreBufferPerLcu = 0;
     PCODECHAL_CMD_INITIALIZER                   m_hucCmdInitializer = nullptr;
 
 protected:
@@ -1839,13 +1844,6 @@ public:
 
     virtual MOS_STATUS SetupSegmentationStreamIn() = 0;
 
-    //!
-    //! \brief    Create PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS.
-    //!
-    //! \return   PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS
-    //!
-    virtual PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS CreateMhwVdboxPipeModeSelectParams();
-
     virtual void SetHcpPipeModeSelectParams(MHW_VDBOX_PIPE_MODE_SELECT_PARAMS& pipeModeSelectParams);
 
     virtual void SetHcpIndObjBaseAddrParams(MHW_VDBOX_IND_OBJ_BASE_ADDR_PARAMS& indObjBaseAddrParams);
@@ -1896,11 +1894,13 @@ public:
 
     virtual MOS_STATUS SetPictureStructs();
 
+    virtual MOS_STATUS SetRowstoreCachingOffsets();
+
     //!
     //! \brief      User feature key report
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS UserFeatureKeyReport();
 
@@ -1911,7 +1911,7 @@ public:
     //!            Pointer to command buffer
     //!
     //! \return   MOS_STATUS
-    //!           MOS_STATUS_SUCCESS if success, else fail reason 
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS ReadHcpStatus(
         PMOS_COMMAND_BUFFER cmdBuffer);
@@ -1923,7 +1923,7 @@ public:
     //! \brief      Construct super frame
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS ConstructSuperFrame();
 
@@ -1931,17 +1931,32 @@ public:
     //! \brief      Set dmem HuC Vp9 Prob
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS SetDmemHuCVp9Prob();
+    virtual MOS_STATUS SetDmemHuCVp9Prob();
 
     //!
     //! \brief      Store HuC status to register 
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS StoreHuCStatus2Register(PMOS_COMMAND_BUFFER cmdBuffer);
+
+    //!
+    //! \brief    Add store HUC_ERROR_STATUS register command in the command buffer
+    //!
+    //! \param    [in] mmioRegisters
+    //!           Pointer to mmio huc register
+    //! \param    [in] cmdBuffer
+    //!           Pointer to the command buffer
+    //! \param    [in] addToEnncodeStatus
+    //!           Flag to indicate whether huc error status will be stored in encode status buffer
+    //!
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS StoreHucErrorStatus(MmioRegistersHuc *mmioRegisters, PMOS_COMMAND_BUFFER cmdBuffer, bool addToEnncodeStatus);
 
     //!
     //! \brief     Init brc constant buffer
@@ -1952,7 +1967,7 @@ public:
     //!            Picture coding type
     //!
     //! \return    MOS_STATUS
-    //!            MOS_STATUS_SUCCESS if success, else fail reason 
+    //!            MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS InitBrcConstantBuffer(
         PMOS_RESOURCE brcConstResource,
@@ -1967,7 +1982,7 @@ public:
     //!            Init QPP
     //!
     //! \return    MOS_STATUS
-    //!            MOS_STATUS_SUCCESS if success, else fail reason 
+    //!            MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS ComputeVDEncBRCInitQP(
         int32_t* initQpI,
@@ -1977,7 +1992,7 @@ public:
     //! \brief     Set dmem huc brc update
     //!
     //! \return    MOS_STATUS
-    //!            MOS_STATUS_SUCCESS if success, else fail reason 
+    //!            MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS SetDmemHuCBrcUpdate();
 
@@ -1985,7 +2000,7 @@ public:
     //! \brief     Set dmem huc brc init reset 
     //!
     //! \return    MOS_STATUS
-    //!            MOS_STATUS_SUCCESS if success, else fail reason 
+    //!            MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS SetDmemHuCBrcInitReset();
 
@@ -1996,7 +2011,7 @@ public:
     //!            Update status
     //!
     //! \return    MOS_STATUS
-    //!            MOS_STATUS_SUCCESS if success, else fail reason 
+    //!            MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS SoftwareBRC(bool update);
 
@@ -2013,7 +2028,7 @@ public:
     //!             Buffer pitch
     //!
     //! \return     uint32_t
-    //!             Return 0if call success, else -1 if fail 
+    //!             Return 0if call success, else -1 if fail
     //!
     uint32_t CalculateBufferOffset(
         uint32_t idx,
@@ -2028,7 +2043,7 @@ public:
     //!             Pointer to MOS surface
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS PakConstructPicStateBatchBuf(
         PMOS_RESOURCE picStateBuffer);
@@ -2049,7 +2064,7 @@ public:
     //! \brief      Dys Reference frames
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS DysRefFrames();
 
@@ -2060,7 +2075,7 @@ public:
     //!             Pointer to Dys sampler state parameters
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS SetSamplerStateDys(
         DysSamplerStateParams* params);
@@ -2072,7 +2087,7 @@ public:
     //!             Pointer to Dys curbe parameters
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS SetCurbeDys(
         DysCurbeParams* params);
@@ -2086,7 +2101,7 @@ public:
     //!             Pointer to Dys surface parameters
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS SendDysSurfaces(
         PMOS_COMMAND_BUFFER cmdBuffer,
@@ -2099,7 +2114,7 @@ public:
     //!             Pointer to Dys kernel parameters
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     virtual MOS_STATUS DysKernel(
         DysKernelParams*  dysKernelParams);
@@ -2111,7 +2126,7 @@ public:
     //!             Pointer to Vdenc vme state
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS InitMEState(VdencVmeState* state);
 
@@ -2122,7 +2137,7 @@ public:
     //!             Pointer to Vdenc vme state
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS VdencSetCurbeHmeKernel(
         VdencVmeState* state);
@@ -2151,7 +2166,7 @@ public:
     //!             Pointer to Vdenc vme state
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS VdencHmeKernel(
         VdencVmeState* state);
@@ -2165,7 +2180,7 @@ public:
     //!             Pointer to MHW vdbox surface parameters
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     void SetHcpDsSurfaceParams(MHW_VDBOX_SURFACE_PARAMS* dsSurfaceParams);
 
@@ -2176,7 +2191,7 @@ public:
     //!             Index of the surface
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS Resize4x8xforDS(
         uint8_t bufIdx);
@@ -2196,7 +2211,7 @@ public:
     //!             Pointer to MOS surface
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
 
     MOS_STATUS SetHcpSrcSurfaceParams(MHW_VDBOX_SURFACE_PARAMS* surfaceParams,
@@ -2242,7 +2257,7 @@ public:
     //! \brief      Allocate resources brc
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS AllocateResourcesBrc();
 
@@ -2264,7 +2279,7 @@ public:
     //!             Max level ratios
     //!
     //! \return     MOS_STATUS
-    //!             MOS_STATUS_SUCCESS if success, else fail reason 
+    //!             MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS CalculateTemporalRatios(
         uint16_t numberOfLayers,

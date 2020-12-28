@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018, Intel Corporation
+* Copyright (c) 2018-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -31,7 +31,59 @@
 #include "mos_os.h"
 #include "codec_def_decode_jpeg.h"
 
+#define HISTOGRAM_BINCOUNT 256
+
 struct CencDecodeShareBuf;
+
+//!
+//! \struct FilmGrainProcParams
+//! \brief Define the film grain processing parameters
+//!
+struct FilmGrainProcParams
+{
+    PMOS_SURFACE m_inputSurface;
+    PMOS_SURFACE m_outputSurface;
+};
+
+//!
+//! \struct CodecRectangle
+//! \brief Parameters to describe a surface region
+//!
+struct CodecRectangle
+{
+    uint32_t m_x;
+    uint32_t m_y;
+    uint32_t m_width;
+    uint32_t m_height;
+};
+
+//!
+//! \struct DecodeProcessingParams
+//! \brief Parameters needed for the processing of the decode render target.
+//!
+struct DecodeProcessingParams
+{
+    // Input
+    PMOS_SURFACE   m_inputSurface;
+    CodecRectangle m_inputSurfaceRegion;
+    uint32_t       m_inputColorStandard;
+    uint32_t       m_inputColorRange;
+    uint32_t       m_chromaSitingType;
+
+    // Output
+    PMOS_SURFACE   m_outputSurface;
+    CodecRectangle m_outputSurfaceRegion;
+    uint32_t       m_outputColorStandard;
+
+    PMOS_SURFACE   m_histogramSurface;
+
+    // Processing state
+    uint32_t       m_rotationState;
+    uint32_t       m_blendState;
+    uint32_t       m_mirrorState;
+    bool           m_isSourceSurfAllocated;
+    bool           m_isReferenceOnlyPattern;
+};
 
 //!
 //! \struct CodechalDecodeParams
@@ -51,6 +103,12 @@ struct CodechalDecodeParams
     PMOS_RESOURCE           m_bitplaneBuffer = nullptr;
     //! \brief [VP8 & VP9] resource containing coefficient probability data
     PMOS_RESOURCE           m_coefProbBuffer = nullptr;
+    //! \brief [VP8 & VP9] resource containing the last reference surface which was not registered.
+    PMOS_RESOURCE           m_presNoneRegLastRefFrame = nullptr;
+    //! \brief [VP8 & VP9] resource containing the golden reference surface which was not registered.
+    PMOS_RESOURCE           m_presNoneRegGoldenRefFrame = nullptr;
+    //! \brief [VP8 & VP9] resource containing the alt reference surface which was not registered.
+    PMOS_RESOURCE           m_presNoneRegAltRefFrame = nullptr;
     //! \brief [VC1 IT] Deblock data
     //!    For advanced profile P frames, this data should be formated as an array of 6 bytes for each MB:
     //!        Byte0: ILDBControlDataforY0
@@ -114,6 +172,10 @@ struct CodechalDecodeParams
     //! \brief Parameters used for processing the decode render target, if invalid, decode render target processing will not be used.
     void                    *m_procParams = nullptr;
 #endif
+
+    //! \brief Parameters used for film grain process
+    FilmGrainProcParams     m_filmGrainProcParams;
+
     //! \brief [Predication] Resource for predication
     PMOS_RESOURCE           m_presPredication = nullptr;
     //! \brief [Predication] Offset for Predication resource
@@ -159,8 +221,19 @@ struct CodechalDecodeParams
     bool                    m_bFullFrameData = false;
     //! \brief MSDK event handling
     HANDLE                  m_gpuAppTaskEvent;
+    //! \brief execution call index in multiple execution call mode
+    uint32_t                m_executeCallIndex = 0;
+    //! \brief [Decode Histogram] Input buffer to hold decode histogram
+    MOS_SURFACE             m_histogramSurface = {};
 };
 
+typedef enum _CODECHAL_DUMMY_REFERENCE_STATUS
+{
+    CODECHAL_DUMMY_REFERENCE_INVALID,
+    CODECHAL_DUMMY_REFERENCE_DPB,
+    CODECHAL_DUMMY_REFERENCE_DEST_SURFACE,
+    CODECHAL_DUMMY_REFERENCE_ALLOCATED
+} CODECHAL_DUMMY_REFERENCE_STATUS;
 
 //!
 //! \class CodechalDecodeRestoreData

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2019, Intel Corporation
+* Copyright (c) 2011-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -616,6 +616,8 @@ public:
                                             bChromaDenoise = false;
                                             bOutOfBound    = false;
                                             bVDIWalker     = false;
+                                            b2PassesCSC    = false;
+                                            bBT2020TosRGB  = false;
                                             bIECP          = false;
                                             bColorPipe     = false;
                                             bProcamp       = false;
@@ -643,6 +645,8 @@ public:
                                             iMediaID1      = 0;
                                             // Perf
                                             PerfTag        = VPHAL_NONE;
+                                            // BT202 CSC destination Color Space
+                                            BT2020DstColorSpace = CSpace_Any;
                                             // States
                                             pMediaState        = nullptr;
                                             pVeboxState        = nullptr;
@@ -662,6 +666,7 @@ public:
                                             }
                                             pDNUVParams          = nullptr;
                                             iCurbeLength         = 0;
+                                            iCurbeOffset         = 0;
                                             iInlineLength        = 0;
                                             // Debug parameters
                                             pKernelName          = nullptr;
@@ -675,6 +680,7 @@ public:
                                             fScaleY              = 0.0f;
 
                                             bHdr3DLut            = false;
+                                            bUseVEHdrSfc         = false;
                                             uiMaxDisplayLum      = 4000;
                                             uiMaxContentLevelLum = 1000;
                                             hdrMode              = VPHAL_HDR_MODE_NONE;
@@ -701,7 +707,8 @@ public:
     bool                                bChromaDenoise;
     bool                                bOutOfBound;
     bool                                bVDIWalker;
-
+    bool                                b2PassesCSC;
+    bool                                bBT2020TosRGB;
     bool                                bIECP;
     bool                                bColorPipe;
     bool                                bProcamp;
@@ -734,6 +741,9 @@ public:
     // Perf
     VPHAL_PERFTAG                       PerfTag;
 
+    // BT202 CSC destination Color Space
+    VPHAL_CSPACE                        BT2020DstColorSpace;
+
     // States
     PRENDERHAL_MEDIA_STATE              pMediaState;
     PMHW_VEBOX_HEAP_STATE               pVeboxState;
@@ -756,6 +766,7 @@ public:
     Kdll_CacheEntry                     KernelEntry[VPHAL_NUM_KERNEL_VEBOX];
     PVPHAL_DNUV_PARAMS                  pDNUVParams;
     int32_t                             iCurbeLength;
+    int32_t                             iCurbeOffset;
     int32_t                             iInlineLength;
 
     // Debug parameters
@@ -776,6 +787,7 @@ public:
     float                               fScaleY;                                //!< Y Scaling ratio
 
     bool                                bHdr3DLut;                              //!< Enable 3DLut to process HDR
+    bool                                bUseVEHdrSfc;                              //!< Use SFC to perform CSC/Scaling for HDR content
     uint32_t                            uiMaxDisplayLum;                        //!< Maximum Display Luminance
     uint32_t                            uiMaxContentLevelLum;                   //!< Maximum Content Level Luminance
     VPHAL_HDR_MODE                      hdrMode;
@@ -869,12 +881,35 @@ public:
         PVPHAL_SURFACE                  pInSurface,
         PVPHAL_SURFACE                  pOutSurface);
 
+    //!
+    //! \brief    Allocate sfc 2pass 2nd time surface for Vebox output, only for multi-lays.
+    //! \details  Allocate sfc temp surface for Vebox output
+    //! \param    VphalRenderer* pRenderer
+    //!           [in,out] VPHAL renderer pointer
+    //! \param    PCVPHAL_RENDER_PARAMS pcRenderParams
+    //!           [in] Const pointer to VPHAL render parameter
+    //! \param    PVPHAL_VEBOX_RENDER_DATA pRenderData
+    //!           [in] pointer to VPHAL VEBOX render parameter
+    //! \param    PVPHAL_SURFACE pInSurface
+    //!           [in] Pointer to input surface
+    //! \param    PVPHAL_SURFACE pOutSurface
+    //!           [in] Pointer to output surface
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS AllocateSfc2ndTempSurfaces(
+      VphalRenderer                  *pRenderer,
+      PCVPHAL_RENDER_PARAMS           pcRenderParams,
+      PVPHAL_VEBOX_RENDER_DATA        pRenderData,
+      PVPHAL_SURFACE                  pInSurface,
+      PVPHAL_SURFACE                  pOutSurface);
+
     // External components
     PMHW_VEBOX_INTERFACE            m_pVeboxInterface;                            //!< Pointer to MHW Vebox Structure Interface
     PMHW_SFC_INTERFACE              m_pSfcInterface;                              //!< Pointer to SFC Structure Interface
     Kdll_State                      *m_pKernelDllState;                           //!< Kernel DLL state
     VpKernelID                      m_currKernelId;                               //!< Kernel ID
-
+    VPHAL_SURFACE                   m_BT2020CSCTempSurface;                       //!< BT2020 temp surface for Vebox Gen9+
     VphalSfcState                   *m_sfcPipeState;                              //!< SFC state
 
     // Execution state
@@ -997,8 +1032,9 @@ public:
 
     MOS_GPU_CONTEXT                  RenderGpuContext;                           //!< Render GPU context
 
-    VPHAL_SURFACE                    Vebox3DLookUpTables;
-    VPHAL_SURFACE                    SfcTempSurface;
+    VPHAL_SURFACE                    Vebox3DLookUpTables = {};
+    VPHAL_SURFACE                    SfcTempSurface = {};
+    VPHAL_SURFACE                    Sfc2ndTempSurface = {};
 
     VphalHVSDenoiser                 *m_hvsDenoiser;                             //!< Human Vision System Based Denoiser - Media Kernel to generate DN parameter
     uint8_t                          *m_hvsKernelBinary;                         //!< Human Vision System Based Denoiser - Pointer to HVS kernel Binary
@@ -1302,8 +1338,6 @@ protected:
     //!           reference to Cmd buffer control struct
     //! \param    [out] GenericPrologParams
     //!           Generic prolog params struct to be set
-    //! \param    [out] GpuStatusBuffer
-    //!           GpuStatusBuffer resource to be set
     //! \param    [out] iRemaining
     //!           integer showing initial cmd buffer usage
     //! \return   MOS_STATUS
@@ -1312,7 +1346,6 @@ protected:
     virtual MOS_STATUS VeboxSendVeboxCmd_Prepare(
         MOS_COMMAND_BUFFER                      &CmdBuffer,
         RENDERHAL_GENERIC_PROLOG_PARAMS         &GenericPrologParams,
-        MOS_RESOURCE                            &GpuStatusBuffer,
         int32_t                                 &iRemaining);
 
     //!
@@ -1325,8 +1358,9 @@ protected:
     //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
     //!
     virtual MOS_STATUS VeboxIsCmdParamsValid(
-        const MHW_VEBOX_STATE_CMD_PARAMS        &VeboxStateCmdParams,
-        const MHW_VEBOX_DI_IECP_CMD_PARAMS      &VeboxDiIecpCmdParams);
+        const MHW_VEBOX_STATE_CMD_PARAMS            &VeboxStateCmdParams,
+        const MHW_VEBOX_DI_IECP_CMD_PARAMS          &VeboxDiIecpCmdParams,
+        const VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS  &VeboxSurfaceStateCmdParams);
 
     //!
     //! \brief    Render the Vebox Cmd buffer for VeboxSendVeboxCmd
@@ -1846,6 +1880,13 @@ protected:
     //!
     bool IS_OUTPUT_PIPE_VEBOX_FEASIBLE(PVPHAL_VEBOX_STATE _pVeboxState, PCVPHAL_RENDER_PARAMS _pcRenderParams, PVPHAL_SURFACE _pSrcSurface);
 
+    //!
+    //! \brief    Check for DN only case
+    //! \details  Check for DN only case
+    //! \return   bool
+    //!           Return true if DN only case, otherwise not
+    //!
+    virtual bool            IsDNOnly() = 0;
 };
 
 //!

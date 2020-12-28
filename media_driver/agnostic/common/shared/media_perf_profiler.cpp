@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018, Intel Corporation
+* Copyright (c) 2018-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -115,26 +115,20 @@ MediaPerfProfiler::MediaPerfProfiler()
 
     m_profilerEnabled = 0;
 
-    MOS_USER_FEATURE_VALUE_DATA     userFeatureData;
-    // Check whether profiler is enabled
-    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-    MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_ENABLE_ID,
-        &userFeatureData);
-    m_profilerEnabled = userFeatureData.bData;
-
-    if (m_profilerEnabled == 0)
-    {
-        return;
-    }
-
     m_mutex = MOS_CreateMutex();
 
-    // m_mutex is destroyed after MemNinja report, this will cause fake memory leak,
-    // the following 2 lines is to circumvent Memninja counter validation and log parser
-    MOS_AtomicDecrement(&MosMemAllocCounter);
-    MOS_MEMNINJA_FREE_MESSAGE(m_mutex, __FUNCTION__, __FILE__, __LINE__);
+    if (m_mutex)
+    {
+        // m_mutex is destroyed after MemNinja report, this will cause fake memory leak,
+        // the following 2 lines is to circumvent Memninja counter validation and log parser
+        MOS_AtomicDecrement(&MosUtilities::m_mosMemAllocCounter);
+        MOS_MEMNINJA_FREE_MESSAGE(m_mutex, __FUNCTION__, __FILE__, __LINE__);
+    }
+    else
+    {
+        MOS_OS_ASSERTMESSAGE("Create Mutex failed!");
+    }
+
 }
 
 MediaPerfProfiler::~MediaPerfProfiler()
@@ -149,8 +143,16 @@ MediaPerfProfiler::~MediaPerfProfiler()
 MediaPerfProfiler* MediaPerfProfiler::Instance()
 {
     static MediaPerfProfiler instance;
+    if (!instance.m_mutex && instance.m_profilerEnabled)
+    {
+        MOS_OS_ASSERTMESSAGE("Create MediaPerfProfiler failed!");
+        return nullptr;
+    }
+    else
+    {
+        return &instance;
+    }
 
-    return &instance;
 }
 
 void MediaPerfProfiler::Destroy(MediaPerfProfiler* profiler, void* context, MOS_INTERFACE *osInterface)
@@ -173,12 +175,15 @@ void MediaPerfProfiler::Destroy(MediaPerfProfiler* profiler, void* context, MOS_
     {
         if (profiler->m_initialized == true)
         {
-            profiler->SavePerfData(osInterface);
-    
+            if(profiler->m_enableProfilerDump)
+            {
+                profiler->SavePerfData(osInterface);
+            }
+
             osInterface->pfnFreeResource(
                 osInterface,
                 &profiler->m_perfStoreBuffer);
-    
+
             profiler->m_initialized = false;
         }
 
@@ -193,14 +198,24 @@ void MediaPerfProfiler::Destroy(MediaPerfProfiler* profiler, void* context, MOS_
 MOS_STATUS MediaPerfProfiler::Initialize(void* context, MOS_INTERFACE *osInterface)
 {
     MOS_STATUS status = MOS_STATUS_SUCCESS;
+    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
+
+    CHK_NULL_RETURN(osInterface);
+    CHK_NULL_RETURN(m_mutex);
+
+    // Check whether profiler is enabled
+    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+    MOS_UserFeature_ReadValue_ID(
+        nullptr,
+        __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_ENABLE_ID,
+        &userFeatureData,
+        osInterface->pOsContext);
+    m_profilerEnabled = userFeatureData.bData;
 
     if (m_profilerEnabled == 0 || m_mutex == nullptr)
     {
         return MOS_STATUS_SUCCESS;
     }
-
-    CHK_NULL_RETURN(osInterface);
-    CHK_NULL_RETURN(m_mutex);
 
     MOS_LockMutex(m_mutex);
 
@@ -213,15 +228,22 @@ MOS_STATUS MediaPerfProfiler::Initialize(void* context, MOS_INTERFACE *osInterfa
         return status;
     }
 
-    MOS_USER_FEATURE_VALUE_DATA     userFeatureData;
+    m_enableProfilerDump = MosUtilities::MosIsProfilerDumpEnabled();
 
     // Read output file name
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
     userFeatureData.StringData.pStringData = m_outputFileName;
-    MOS_UserFeature_ReadValue_ID(
+    status = MOS_UserFeature_ReadValue_ID(
         NULL,
         __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_OUTPUT_FILE,
-        &userFeatureData);
+        &userFeatureData,
+        osInterface->pOsContext);
+
+    if (status != MOS_STATUS_SUCCESS)
+    {
+        MOS_UnlockMutex(m_mutex);
+        return status;
+    }
 
     if (userFeatureData.StringData.uSize == MOS_MAX_PATH_LENGTH + 1)
     {
@@ -239,7 +261,8 @@ MOS_STATUS MediaPerfProfiler::Initialize(void* context, MOS_INTERFACE *osInterfa
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_BUFFER_SIZE,
-        &userFeatureData);
+        &userFeatureData,
+        osInterface->pOsContext);
     m_bufferSize = userFeatureData.u32Data;
 
     m_timerBase = Mos_Specific_GetTsFrequency(osInterface);
@@ -249,7 +272,8 @@ MOS_STATUS MediaPerfProfiler::Initialize(void* context, MOS_INTERFACE *osInterfa
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_ENABLE_MULTI_PROCESS,
-        &userFeatureData);
+        &userFeatureData,
+        osInterface->pOsContext);
     m_multiprocess = userFeatureData.u32Data;
 
     // Read memory information register address
@@ -260,7 +284,8 @@ MOS_STATUS MediaPerfProfiler::Initialize(void* context, MOS_INTERFACE *osInterfa
         MOS_UserFeature_ReadValue_ID(                                   
             nullptr,                                                    
             __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_1 + regIndex,
-            &userFeatureData);                                          
+            &userFeatureData,
+            osInterface->pOsContext);                                          
         m_registers[regIndex] = userFeatureData.u32Data;
     }
 
@@ -342,6 +367,7 @@ MOS_STATUS MediaPerfProfiler::StoreData(
 }
 
 MOS_STATUS MediaPerfProfiler::StoreRegister(
+    MOS_INTERFACE *osInterface,
     MhwMiInterface *miInterface, 
     PMOS_COMMAND_BUFFER cmdBuffer,
     uint32_t offset,
@@ -353,6 +379,13 @@ MOS_STATUS MediaPerfProfiler::StoreRegister(
     storeRegMemParams.presStoreBuffer = &m_perfStoreBuffer;
     storeRegMemParams.dwOffset        = offset;
     storeRegMemParams.dwRegister      = reg;
+
+    MEDIA_FEATURE_TABLE* skuTable = osInterface->pfnGetSkuTable(osInterface);
+    if(skuTable && MEDIA_IS_SKU(skuTable, FtrMemoryRemapSupport))
+    {
+        storeRegMemParams.dwOption = CCS_HW_FRONT_END_MMIO_REMAP;
+    }
+
     return miInterface->AddMiStoreRegisterMemCmd(cmdBuffer, &storeRegMemParams);
 }
 
@@ -466,18 +499,18 @@ MOS_STATUS MediaPerfProfiler::AddPerfCollectStartCmd(void* context,
         if (m_registers[regIndex] != 0)
         {
             CHK_STATUS_RETURN(StoreRegister(
+                osInterface,
                 miInterface,
                 cmdBuffer, 
                 BASE_OF_NODE(perfDataIndex) + OFFSET_OF(PerfEntry, beginRegisterValue[regIndex]),
                 m_registers[regIndex]));
         }
     }
-    
-    double beginCPUTimestamp = MOS_GetTime();
 
+    uint64_t beginCPUTimestamp = MOS_GetCurTime();
     uint32_t timeStamp[2];
     MOS_SecureMemcpy(timeStamp, 2*sizeof(uint32_t), &beginCPUTimestamp, 2*sizeof(uint32_t));
-    
+
     for (int i = 0; i < 2; i++)
     {
         CHK_STATUS_RETURN(StoreData(
@@ -540,6 +573,7 @@ MOS_STATUS MediaPerfProfiler::AddPerfCollectEndCmd(void* context,
         if (m_registers[regIndex] != 0)
         {
             CHK_STATUS_RETURN(StoreRegister(
+                osInterface,
                 miInterface,
                 cmdBuffer, 
                 BASE_OF_NODE(perfDataIndex) + OFFSET_OF(PerfEntry, endRegisterValue[regIndex]),
@@ -598,7 +632,7 @@ MOS_STATUS MediaPerfProfiler::SavePerfData(MOS_INTERFACE *osInterface)
             char outputFileName[MOS_MAX_PATH_LENGTH + 1];
 
             MOS_SecureStringPrint(outputFileName, MOS_MAX_PATH_LENGTH + 1, MOS_MAX_PATH_LENGTH + 1, "%s-pid%d-%04d%02d%02d%02d%02d%02d.bin",
-                m_outputFileName, pid, localtime.tm_year, localtime.tm_mon, localtime.tm_mday, localtime.tm_hour, localtime.tm_min, localtime.tm_sec);
+                m_outputFileName, pid, localtime.tm_year + 1900, localtime.tm_mon + 1, localtime.tm_mday, localtime.tm_hour, localtime.tm_min, localtime.tm_sec);
 
             MOS_WriteFileFromPtr(outputFileName, pData, BASE_OF_NODE(m_perfDataIndex));
         }

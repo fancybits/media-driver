@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2018, Intel Corporation
+* Copyright (c) 2011-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -28,6 +28,7 @@
 #include "codechal_decoder.h"
 #include "codechal_decode_jpeg_g11.h"
 #include "mhw_vdbox_mfx_g11_X.h"
+#include "hal_oca_interface.h"
 
 CodechalDecodeJpegG11::~CodechalDecodeJpegG11()
 {
@@ -171,6 +172,9 @@ MOS_STATUS CodechalDecodeJpegG11::DecodeStateLevel()
         &cmdBuffer,
         0));
 
+    auto mmioRegisters = m_hwInterface->GetMfxInterface()->GetMmioRegisters(m_vdboxIndex);
+    HalOcaInterface::On1stLevelBBStart(cmdBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle, *m_miInterface, *mmioRegisters);
+
     CODECHAL_DECODE_CHK_STATUS_RETURN(SendPrologWithFrameTracking(
         &cmdBuffer, true));
 
@@ -305,7 +309,7 @@ MOS_STATUS CodechalDecodeJpegG11::DecodePrimitiveLevel()
     MHW_VDBOX_QM_PARAMS qmParams;
     MOS_ZeroMemory(&qmParams, sizeof(qmParams));
     qmParams.Standard = CODECHAL_JPEG;
-    qmParams.pJpegQuantMatrix = (CodecJpegQuantMatrix *)m_jpegQMatrix;
+    qmParams.pJpegQuantMatrix = m_jpegQMatrix;
 
     // Swapping QM(x,y) to QM(y,x) for 90/270 degree rotation
     if ((m_jpegPicParams->m_rotation == jpegRotation90) ||
@@ -505,6 +509,8 @@ MOS_STATUS CodechalDecodeJpegG11::DecodePrimitiveLevel()
     {
         CodecHalDecodeSinglePipeVE_PopulateHintParams(m_veState, &cmdBuffer, true);
     }
+
+    HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(
         m_osInterface,

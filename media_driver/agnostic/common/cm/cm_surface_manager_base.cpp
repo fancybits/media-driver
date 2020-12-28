@@ -482,7 +482,8 @@ int32_t CmSurfaceManagerBase::TouchSurfaceInPoolForDestroy()
     {
         return freeNum;
     }
-    while (!freeNum)
+
+    while (m_delayDestroyHead && !freeNum)
     {
         CSync *lock = m_device->GetQueueLock();
         lock->Acquire();
@@ -2570,6 +2571,11 @@ void CmSurfaceManagerBase::RemoveFromDelayDestroyList(CmSurface *surface)
     surface->DelayDestroyNext() = surface->DelayDestroyPrev() = nullptr;
     m_delayDestoryListSync.Release();
 }
+
+#if MDF_SURFACE_CONTENT_DUMP
+CM_HAL_STATE* CmSurfaceManagerBase::GetHalState() { return m_device->GetHalState(); }
+#endif  // #if MDF_SURFACE_CONTENT_DUMP
+
 
 //*-----------------------------------------------------------------------------
 //| Purpose:    Create surface 2d

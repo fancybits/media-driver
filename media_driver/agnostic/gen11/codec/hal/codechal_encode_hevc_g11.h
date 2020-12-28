@@ -1092,6 +1092,7 @@ public:
 
     static const uint32_t  HEVC_HISTORY_BUF_CONST_SIZE     = 64;
     static const uint32_t  HEVC_FRAMEBRC_BUF_CONST_SIZE    = 1024;
+    static const uint32_t  ENC_FRAME_LEVEL_DISTORTION_BUFFER = 64;
 
     struct MBENC_COMBINED_BUFFER2
     {
@@ -1149,7 +1150,7 @@ public:
     CODECHAL_ENCODE_BUFFER  m_encConstantTableForB;             //!< Enc constant table for B LCU32
     CODECHAL_ENCODE_BUFFER  m_mvAndDistortionSumSurface;        //!< Mv and Distortion summation surface
 
-    PMHW_VDBOX_HCP_TILE_CODING_PARAMS_G11 m_tileParams;         //!< Pointer to the Tile params
+    PMHW_VDBOX_HCP_TILE_CODING_PARAMS_G11 m_tileParams = nullptr;         //!< Pointer to the Tile params
 
     bool  m_enableTileStitchByHW = false;      //!< Enable HW to stitch commands in scalable mode
     bool  m_enableHWSemaphore = false;         //!< Enable HW semaphore
@@ -1165,6 +1166,7 @@ public:
     uint8_t       m_modeCostCre[16] = { 0 };   //!< CRE cost
     uint32_t      m_lambdaRD = 0;              //!< Lambda value to multiply the RD  costs
 
+    uint32_t                m_syntaxElementOnlyBitCnt  = 0;
     uint8_t                 m_numberEncKernelSubThread = m_hevcThreadTaskDataNum;
     uint32_t                m_numberConcurrentGroup = 4;    // GEN11 can dividie one picture into several groups
     uint32_t                m_numWavefrontInOneRegion = 0;
@@ -1179,6 +1181,8 @@ public:
     uint32_t                m_historyOutBufferOffset = 0;
     uint32_t                m_threadTaskBufferSize = 0;
     uint32_t                m_threadTaskBufferOffset = 0;
+    uint32_t                m_encFrameLevelDistortionBufferSize = 0;
+    uint32_t                m_encCtuLevelDistortionBufferSize   = 0;
     bool                    m_initEncConstTable = true;
     bool                    m_enableBrcLTR = 1;  //!< flag to enable long term reference BRC feature.
     bool                    m_isFrameLTR = 0;    //!<flag to check if current frame is set as long term reference
@@ -1196,9 +1200,9 @@ public:
     CODECHAL_ENCODE_BUFFER                m_resTileBasedStatisticsBuffer[CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC];
     CODECHAL_ENCODE_BUFFER                m_resHuCPakAggregatedFrameStatsBuffer;
     CODECHAL_ENCODE_BUFFER                m_tileRecordBuffer[CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC];
-    HEVC_TILE_STATS_INFO                  m_hevcTileStatsOffset;       //!< Page aligned offsets used to program HCP / VDEnc pipe and HuC PAK Integration kernel input
-    HEVC_TILE_STATS_INFO                  m_hevcFrameStatsOffset;      //!< Page aligned offsets used to program HuC PAK Integration kernel output, HuC BRC kernel input
-    HEVC_TILE_STATS_INFO                  m_hevcStatsSize;             //!< HEVC Statistics size
+    HEVC_TILE_STATS_INFO                  m_hevcTileStatsOffset = {};       //!< Page aligned offsets used to program HCP / VDEnc pipe and HuC PAK Integration kernel input
+    HEVC_TILE_STATS_INFO                  m_hevcFrameStatsOffset = {};      //!< Page aligned offsets used to program HuC PAK Integration kernel output, HuC BRC kernel input
+    HEVC_TILE_STATS_INFO                  m_hevcStatsSize = {};             //!< HEVC Statistics size
     bool                                  m_enableTestMediaReset = 0;  //!< enable media reset test. driver will send cmd to make hang happens
     bool                                  m_forceScalability = false;  //!< force scalability for resolution < 4K if other checking for scalability passed
 
@@ -1207,7 +1211,7 @@ public:
     MOS_RESOURCE                                m_resHucPakStitchDmemBuffer[CODECHAL_ENCODE_RECYCLED_BUFFER_NUM][CODECHAL_DP_MAX_NUM_BRC_PASSES];
     MOS_RESOURCE                                m_resBrcDataBuffer;                                           //!< Resource of bitrate control data buffer
     MOS_RESOURCE                                m_resHucStitchDataBuffer[CODECHAL_ENCODE_RECYCLED_BUFFER_NUM][CODECHAL_HEVC_MAX_NUM_BRC_PASSES];  // data buffer for huc input cmd generation
-    MHW_BATCH_BUFFER                            m_HucStitchCmdBatchBuffer;             //!< SLB for huc stitch cmd
+    MHW_BATCH_BUFFER                            m_HucStitchCmdBatchBuffer = {};             //!< SLB for huc stitch cmd
 
     // virtual engine
     bool                   m_useVirtualEngine = false;                                                                                                 //!< Virtual engine enable flag
@@ -1218,10 +1222,10 @@ public:
     CODECHAL_ENCODE_BUFFER m_resBrcSemaphoreMem[CODECHAL_HEVC_MAX_NUM_HCP_PIPE];                                                                       //!< BRC HW semaphore
     CODECHAL_ENCODE_BUFFER m_resBrcPakSemaphoreMem;                                                                                                    //!< BRC PAK HW semaphore
     MOS_RESOURCE           m_resPipeStartSemaMem;                                                                                                      //!< HW semaphore for scalability pipe start at the same time
-    MOS_RESOURCE           m_resPipeCompleteSemaMem;                                                                                                      //!< HW semaphore for scalability pipe start at the same time
+    MOS_RESOURCE           m_resPipeCompleteSemaMem;                                                                                                   //!< HW semaphore for scalability pipe start at the same time
     PCODECHAL_ENCODE_SCALABILITY_STATE  m_scalabilityState = nullptr;                                                                                  //!< Scalability state
-    MOS_RESOURCE           m_resDelayMinus;
-    uint32_t               m_numDelay;
+    MOS_RESOURCE           m_resDelayMinus = {};
+    uint32_t               m_numDelay = 0;
 
     // the following constant integers and tables are from the kernel for score board computation
     static uint32_t const m_ct = 3;
@@ -1422,7 +1426,8 @@ public:
 
     MOS_STATUS SendPrologWithFrameTracking(
         PMOS_COMMAND_BUFFER         cmdBuffer,
-        bool                        frameTrackingRequested);
+        bool                        frameTrackingRequested,
+        MHW_MI_MMIOREGISTERS       *mmioRegister = nullptr);
 
     MOS_STATUS SetSliceStructs();
 
@@ -1688,66 +1693,6 @@ public:
     MOS_STATUS GenerateLcuLevelData(MOS_SURFACE &lcuLevelInputDataSurfaceParam);
 
     //!
-    //! \brief    Convert from Y210 to Y210V format
-    //!
-    //! \param    [in]  source
-    //!           Source surface
-    //! \param    [out]  target
-    //!           Destination surface
-    //!
-    //! \return   MOS_STATUS
-    //!           MOS_STATUS_SUCCESS if success, else fail reason
-    //!
-    MOS_STATUS ConvertY210ToY210V(
-        PMOS_SURFACE    source,
-        PMOS_SURFACE    target);
-
-    //!
-    //! \brief    Convert from P010 to P010V format
-    //!
-    //! \param    [in]  source
-    //!           Source surface
-    //! \param    [out]  target
-    //!           Destination surface
-    //!
-    //! \return   MOS_STATUS
-    //!           MOS_STATUS_SUCCESS if success, else fail reason
-    //!
-    MOS_STATUS ConvertP010ToP010V(
-        PMOS_SURFACE    source,
-        PMOS_SURFACE    target);
-
-    //!
-    //! \brief    Convert from YUY2 to YUY2V format
-    //!
-    //! \param    [in]  source
-    //!           Source surface
-    //! \param    [out]  target
-    //!           Destination surface
-    //!
-    //! \return   MOS_STATUS
-    //!           MOS_STATUS_SUCCESS if success, else fail reason
-    //!
-    MOS_STATUS ConvertYUY2ToYUY2V(
-        PMOS_SURFACE    source,
-        PMOS_SURFACE    target);
-
-    //!
-    //! \brief    Downscale input by 2X
-    //!
-    //! \param    [in]  source
-    //!           Source surface
-    //! \param    [out]  target
-    //!           Destination surface
-    //!
-    //! \return   MOS_STATUS
-    //!           MOS_STATUS_SUCCESS if success, else fail reason
-    //!
-    MOS_STATUS DownScaling2X(
-        PMOS_SURFACE    source,
-        PMOS_SURFACE    target);
-
-    //!
     //! \brief    Load cost table
     //!
     //! \param    [in]  sliceType
@@ -1789,6 +1734,14 @@ public:
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS LoadPakCommandAndCuRecordFromFile();
+
+    //!
+    //! \brief    Resize buffers due to resoluton change.
+    //! \details  Resize buffers due to resoluton change.
+    //!
+    //! \return   void
+    //!
+    virtual void ResizeOnResChange();
 
     //!
     //! \brief   Re-calculate buffer size and offets during resolution reset

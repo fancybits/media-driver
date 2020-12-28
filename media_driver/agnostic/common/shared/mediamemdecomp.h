@@ -61,7 +61,7 @@ public:
 
     //!
     //! \brief    Media memory decompression
-    //! \details  Entry point to decompress media memory
+    //! \details  Entry point to decompress media memory and copy
     //! \param    [in] inputSurface
     //!            The source surface resource
     //! \param    [out] outputSurface
@@ -79,6 +79,75 @@ public:
         return MOS_STATUS_SUCCESS;
     }
 
+    //!
+    //! \brief    Media memory copy 2D
+    //! \details  Entry point to decompress media memory and copy with byte in unit
+    //! \param    [in] inputSurface
+    //!            The source surface resource
+    //! \param    [out] outputSurface
+    //!            The target surface resource will be copied to
+    //! \param    [in] copyWidth
+    //!            The 2D surface Width
+    //! \param    [in] copyHeight
+    //!            The 2D surface height
+    //! \param    [in] copyInputOffset
+    //!            The offset of copied surface from
+    //! \param    [in] copyOutputOffset
+    //!            The offset of copied to
+    //! \param    [in] bpp
+    //!            bit per pixel for copied surfaces
+    //! \param    [in] bOutputCompressed
+    //!            true means apply compression on output surface, else output uncompressed surface
+    //!
+    //! \return   MOS_STATUS_SUCCESS if succeeded, else error code.
+    //!
+    virtual MOS_STATUS MediaMemoryCopy2D(
+        PMOS_RESOURCE inputResource,
+        PMOS_RESOURCE outputResource,
+        uint32_t      copyWidth,
+        uint32_t      copyHeight,
+        uint32_t      copyInputOffset,
+        uint32_t      copyOutputOffset,
+        uint32_t      bpp,
+        bool          bOutputCompressed)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+
+    //!
+    //! \brief    Media memory tile convert
+    //! \details  Convert media between Tile/Linear with decompression
+    //! \param    [in] inputSurface
+    //!            The source surface resource
+    //! \param    [out] outputSurface
+    //!            The target surface resource will be copied to
+    //! \param    [in] copyWidth
+    //!            The 2D surface Width
+    //! \param    [in] copyHeight
+    //!            The 2D surface height
+    //! \param    [in] copyInputOffset
+    //!            The offset of copied surface from
+    //! \param    [in] copyOutputOffset
+    //!            The offset of copied to
+    //! \param    [in] isTileToLinear
+    //!            Convertion direction, true: tile->linear, false: linear->tile
+    //! \param    [in] outputCompressed
+    //!            true means apply compression on output surface, else output uncompressed surface
+    //!
+    //! \return   MOS_STATUS_SUCCESS if succeeded, else error code.
+    //!
+    virtual MOS_STATUS MediaMemoryTileConvert(
+        PMOS_RESOURCE inputResource,
+        PMOS_RESOURCE outputResource,
+        uint32_t      copyWidth,
+        uint32_t      copyHeight,
+        uint32_t      copyInputOffset,
+        uint32_t      copyOutputOffset,
+        bool          isTileToLinear,
+        bool          outputCompressed)
+    {
+        return MOS_STATUS_UNIMPLEMENTED;
+    }
 };
 
 #endif // __MEDIAMEMORYDECOMP_H__

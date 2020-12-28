@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2018, Intel Corporation
+* Copyright (c) 2017-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -29,6 +29,7 @@
 #include "codechal_decode_vp8.h"
 #include "codec_def_vp8_probs.h"
 #include "codechal_mmc_decode_vp8.h"
+#include "hal_oca_interface.h"
 #if USE_CODECHAL_DEBUG_TOOL
 #include <sstream>
 #include <fstream>
@@ -896,9 +897,9 @@ MOS_STATUS CodechalDecodeVp8::AllocateResourcesFixedSizes()
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnCreateSyncResource(m_osInterface, &m_resSyncObject));
 
-    CodecHalAllocateDataList(
+    CODECHAL_DECODE_CHK_STATUS_RETURN(CodecHalAllocateDataList(
         m_vp8RefList,
-        CODECHAL_NUM_UNCOMPRESSED_SURFACE_VP8);
+        CODECHAL_NUM_UNCOMPRESSED_SURFACE_VP8));
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnCreateSyncResource(
         m_osInterface,
@@ -1127,6 +1128,10 @@ MOS_STATUS CodechalDecodeVp8::SetFrameStates()
     m_dataSize          = m_decodeParams.m_dataSize;
     m_dataOffset        = m_decodeParams.m_dataOffset;
     m_destSurface       = *(m_decodeParams.m_destSurface);
+    m_presLastRefSurface    = m_decodeParams.m_presNoneRegLastRefFrame;
+    m_presAltRefSurface     = m_decodeParams.m_presNoneRegAltRefFrame;
+    m_presGoldenRefSurface  = m_decodeParams.m_presNoneRegGoldenRefFrame;
+
     m_resDataBuffer     = *(m_decodeParams.m_dataBuffer);
     m_vp8PicParams      = (PCODEC_VP8_PIC_PARAMS)m_decodeParams.m_picParams;
     m_vp8IqMatrixParams = (PCODEC_VP8_IQ_MATRIX_PARAMS)m_decodeParams.m_iqMatrixBuffer;
@@ -1234,13 +1239,37 @@ MOS_STATUS CodechalDecodeVp8::DecodeStateLevel()
     }
     else
     {
-        m_presLastRefSurface   = &(m_vp8RefList[m_vp8PicParams->ucLastRefPicIndex]->resRefPic);
-        m_presGoldenRefSurface = &(m_vp8RefList[m_vp8PicParams->ucGoldenRefPicIndex]->resRefPic);
-        m_presAltRefSurface    = &(m_vp8RefList[m_vp8PicParams->ucAltRefPicIndex]->resRefPic);
+        if((Mos_ResourceIsNull(&m_vp8RefList[m_vp8PicParams->ucLastRefPicIndex]->resRefPic)) && (m_presLastRefSurface))
+        {
+           m_vp8RefList[m_vp8PicParams->ucLastRefPicIndex]->resRefPic = *m_presLastRefSurface;
+        }
+        else
+        {
+           m_presLastRefSurface = &(m_vp8RefList[m_vp8PicParams->ucLastRefPicIndex]->resRefPic);
+        }
+        if((Mos_ResourceIsNull(&m_vp8RefList[m_vp8PicParams->ucGoldenRefPicIndex]->resRefPic)) && (m_presGoldenRefSurface))
+        {
+           m_vp8RefList[m_vp8PicParams->ucGoldenRefPicIndex]->resRefPic = *m_presGoldenRefSurface;
+        }
+        else
+        {
+           m_presGoldenRefSurface = &(m_vp8RefList[m_vp8PicParams->ucGoldenRefPicIndex]->resRefPic);
+        }
+        if((Mos_ResourceIsNull(&m_vp8RefList[m_vp8PicParams->ucAltRefPicIndex]->resRefPic)) && (m_presAltRefSurface))
+        {
+           m_vp8RefList[m_vp8PicParams->ucAltRefPicIndex]->resRefPic = *m_presAltRefSurface;
+        }
+        else
+        {
+           m_presAltRefSurface = &(m_vp8RefList[m_vp8PicParams->ucAltRefPicIndex]->resRefPic);
+        }
     }
 
     MOS_COMMAND_BUFFER cmdBuffer;
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnGetCommandBuffer(m_osInterface, &cmdBuffer, 0));
+
+    auto mmioRegisters = m_hwInterface->GetMfxInterface()->GetMmioRegisters(m_vdboxIndex);
+    HalOcaInterface::On1stLevelBBStart(cmdBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle, *m_miInterface, *mmioRegisters);
 
     MHW_VDBOX_PIPE_MODE_SELECT_PARAMS pipeModeSelectParams;
     pipeModeSelectParams.Mode               = m_mode;
@@ -1429,6 +1458,8 @@ MOS_STATUS CodechalDecodeVp8::DecodePrimitiveLevel()
 
         m_huCCopyInUse = false;
     }
+
+    HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &cmdBuffer, m_videoContextUsesNullHw));
 

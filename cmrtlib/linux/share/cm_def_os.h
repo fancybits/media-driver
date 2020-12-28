@@ -23,6 +23,7 @@
 #define CMRTLIB_LINUX_SHARE_CM_DEF_OS_H_
 
 #include "cm_include.h"
+#include "cm_common.h"
 
 #ifndef ANDROID
 #include "va/va.h"
@@ -33,6 +34,18 @@
 
 #include <cstring>
 #include "pthread.h"
+#include <malloc.h>
+
+
+////////////////////////////////////////////////////////////////////////////////////
+// MS-specific defines/typedefs, which are absent under Linux but still used
+////////////////////////////////////////////////////////////////////////////////////
+#define _aligned_malloc(size, alignment) memalign(alignment, size)
+#define _aligned_free(ptr) free(ptr)
+typedef uint8_t BOOLEAN, *PBOOLEAN;
+////////////////////////////////////////////////////////////////////////////////////
+// MS-specific defines/typedefs, which are absent under Linux but still used (End)
+////////////////////////////////////////////////////////////////////////////////////
 
 ////////////////////////////////////////////////////////////////////////////////////
 //      Platform dependent macros (Start)
@@ -84,6 +97,21 @@ typedef enum _VACMTEXTUREFILTERTYPE {
 ////////////////////////////////////////////////////////////////////////////////////
 
 #define VAExtModuleCMRT 2
+#define CM_MAX_SURFACE2D_FORMAT_COUNT 47
+
+inline void * CM_ALIGNED_MALLOC(size_t size, size_t alignment)
+{
+  return memalign(alignment, size);
+}
+
+inline void CM_ALIGNED_FREE(void * memory)
+{
+  free(memory);
+}
+
+// max resolution for surface 2D
+#define CM_MAX_2D_SURF_WIDTH  16384
+#define CM_MAX_2D_SURF_HEIGHT 16384
 
 typedef enum _VA_CM_FORMAT {
 
@@ -94,18 +122,31 @@ typedef enum _VA_CM_FORMAT {
     VA_CM_FMT_A8                   =  28,
     VA_CM_FMT_A2B10G10R10          =  31,
     VA_CM_FMT_A8B8G8R8             =  32,
+    VA_CM_FMT_R16G16UN             =  35,
     VA_CM_FMT_A16B16G16R16         =  36,
+    VA_CM_FMT_A8P8                 =  40,
     VA_CM_FMT_P8                   =  41,
+    VA_CM_FMT_R32U                 =  42,
+    VA_CM_FMT_R8G8UN               =  49,
     VA_CM_FMT_L8                   =  50,
     VA_CM_FMT_A8L8                 =  51,
+    VA_CM_FMT_R16UN                =  56,
     VA_CM_FMT_R16U                 =  57,
     VA_CM_FMT_V8U8                 =  60,
+    VA_CM_FMT_R8UN                 =  61,
     VA_CM_FMT_R8U                  =  62,
+    VA_CM_FMT_R32S                 =  71,
     VA_CM_FMT_D16                  =  80,
     VA_CM_FMT_L16                  =  81,
+    VA_CM_FMT_R16F                 = 111,
+    VA_CM_FMT_IA44                 = 112,
     VA_CM_FMT_A16B16G16R16F        = 113,
     VA_CM_FMT_R32F                 = 114,
     VA_CM_FMT_R32G32B32A32F        = 115,
+    VA_CM_FMT_I420                 = VA_FOURCC('I','4','2','0'),
+    VA_CM_FMT_P216                 = VA_FOURCC('P','2','1','6'),
+    VA_CM_FMT_400P                 = VA_FOURCC('4','0','0','P'),
+    VA_CM_FMT_Y8UN                 = VA_FOURCC('Y','8','U','N'),
     VA_CM_FMT_NV12                 = VA_FOURCC_NV12,
     VA_CM_FMT_UYVY                 = VA_FOURCC_UYVY,
     VA_CM_FMT_YUY2                 = VA_FOURCC_YUY2,
@@ -119,13 +160,21 @@ typedef enum _VA_CM_FORMAT {
     VA_CM_FMT_IMC3                 = VA_FOURCC_IMC3,
     VA_CM_FMT_YV12                 = VA_FOURCC_YV12,
     VA_CM_FMT_P010                 = VA_FOURCC_P010,
+    VA_CM_FMT_P012                 = VA_FOURCC_P012,
     VA_CM_FMT_P016                 = VA_FOURCC_P016,
     VA_CM_FMT_P208                 = VA_FOURCC_P208,
     VA_CM_FMT_AYUV                 = VA_FOURCC_AYUV,
     VA_CM_FMT_Y210                 = VA_FOURCC_Y210,
+#if VA_CHECK_VERSION(1, 9, 0)
+    VA_CM_FMT_Y212                 = VA_FOURCC_Y212,
+#endif
     VA_CM_FMT_Y410                 = VA_FOURCC_Y410,
+#if VA_CHECK_VERSION(1, 9, 0)
+    VA_CM_FMT_Y412                 = VA_FOURCC_Y412,
+#endif
     VA_CM_FMT_Y216                 = VA_FOURCC_Y216,
     VA_CM_FMT_Y416                 = VA_FOURCC_Y416,
+    VA_CM_FMT_AI44                 = VA_FOURCC_AI44,
 
     VA_CM_FMT_MAX                   = 0xFFFFFFFF
 
@@ -172,6 +221,21 @@ typedef enum _VA_CM_FORMAT {
 #define CM_SURFACE_FORMAT_Y216                  VA_CM_FMT_Y216
 #define CM_SURFACE_FORMAT_Y416                  VA_CM_FMT_Y416
 
+#define CM_SURFACE_FORMAT_IA44                  VA_CM_FMT_IA44
+#define CM_SURFACE_FORMAT_AI44                  VA_CM_FMT_AI44
+#define CM_SURFACE_FORMAT_I420                  VA_CM_FMT_I420
+#define CM_SURFACE_FORMAT_P216                  VA_CM_FMT_P216
+#define CM_SURFACE_FORMAT_400P                  VA_CM_FMT_400P
+#define CM_SURFACE_FORMAT_R16_FLOAT             VA_CM_FMT_R16F
+#define CM_SURFACE_FORMAT_Y8_UNORM              VA_CM_FMT_Y8UN
+#define CM_SURFACE_FORMAT_A8P8                  VA_CM_FMT_A8P8
+#define CM_SURFACE_FORMAT_R32_SINT              VA_CM_FMT_R32S
+#define CM_SURFACE_FORMAT_R32_UINT              VA_CM_FMT_R32U
+#define CM_SURFACE_FORMAT_R8G8_UNORM            VA_CM_FMT_R8G8UN
+#define CM_SURFACE_FORMAT_R8_UNORM              VA_CM_FMT_R8UN
+#define CM_SURFACE_FORMAT_R16G16_UNORM          VA_CM_FMT_R16G16UN
+#define CM_SURFACE_FORMAT_R16_UNORM             VA_CM_FMT_R16UN
+
 
 #define CM_TEXTURE_ADDRESS_TYPE                 VACMTEXTUREADDRESS
 #define CM_TEXTURE_ADDRESS_WRAP                 VACMTADDRESS_WRAP
@@ -193,6 +257,22 @@ typedef enum _VA_CM_FORMAT {
 ////////////////////////////////////////////////////////////////////////////////////
 //      Platform dependent definitions (End)
 ////////////////////////////////////////////////////////////////////////////////////
+
+typedef enum _AdapterInfoType
+{
+    Description,                    //    char Description[ 256 ];
+    VendorId,                       //    uint32_t VendorId;
+    DeviceId,                       //    uint32_t DeviceId;
+    SubSysId,                       //    uint32_t SubSysId;
+    Revision,                       //    uint32_t Revision;
+    DedicatedVideoMemory,           //    uint32_t DedicatedVideoMemory;
+    DedicatedSystemMemory,          //    uint32_t DedicatedSystemMemory;
+    SharedSystemMemory,             //    uint32_t SharedSystemMemory;
+    MaxThread,                      //    uint32_t hardware thread count
+    EuNumber,                       //    uint32_t EU count
+    TileNumber,                     //    uint32_t Tile count
+    Reserved                        //    uint32_t
+} AdapterInfoType;
 
 typedef enum _REGISTRATION_OP
 {
@@ -263,5 +343,7 @@ typedef VADisplay (*pfVAGetDisplayDRM) (int32_t fd);    //vaGetDisplayDRM from l
 #else
 #define CmAssert(expr)
 #endif
+
+typedef void *HMODULE;
 
 #endif  // #ifndef CMRTLIB_LINUX_SHARE_CM_DEF_OS_H_

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2012-2018, Intel Corporation
+* Copyright (c) 2012-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -33,6 +33,7 @@
 #include "mhw_vdbox_mfx_g11_X.h"
 #include "mhw_vdbox_g11_X.h"
 #include "codechal_hw_g11_X.h"
+#include "hal_oca_interface.h"
 
 //==<Functions>=======================================================
 MOS_STATUS CodechalDecodeHevcG11::AllocateResourcesVariableSizes ()
@@ -261,7 +262,7 @@ MOS_STATUS CodechalDecodeHevcG11::SetFrameStates ()
 
     m_cencBuf = m_decodeParams.m_cencBuf;
     
-    if (m_firstExecuteCall)    // For DRC Multiple Execution Call, no need to update every value in pHevcState except first execute
+    if (IsFirstExecuteCall())    // For DRC Multiple Execution Call, no need to update every value in pHevcState except first execute
     {
         m_dataSize   = m_decodeParams.m_dataSize;
         m_dataOffset = m_decodeParams.m_dataOffset;
@@ -447,10 +448,10 @@ MOS_STATUS CodechalDecodeHevcG11::SetFrameStates ()
 
 #ifdef _DECODE_PROCESSING_SUPPORTED
     // Check if SFC can be supported
-    CODECHAL_DECODE_CHK_STATUS_RETURN(m_sfcState->CheckAndInitialize((CODECHAL_DECODE_PROCESSING_PARAMS *)m_decodeParams.m_procParams, m_hevcPicParams));
+    CODECHAL_DECODE_CHK_STATUS_RETURN(m_sfcState->CheckAndInitialize((DecodeProcessingParams *)m_decodeParams.m_procParams, m_hevcPicParams));
 #endif
     CODECHAL_DEBUG_TOOL(
-        if (!m_incompletePicture && !m_firstExecuteCall) {
+        if (!m_incompletePicture && !IsFirstExecuteCall()) {
             CODECHAL_DECODE_CHK_STATUS_RETURN(m_debugInterface->DumpBuffer(
                 &m_resCopyDataBuffer,
                 CodechalDbgAttr::attrBitstream,
@@ -919,6 +920,7 @@ MOS_STATUS CodechalDecodeHevcG11::SendPictureLongFormat()
 
     PMOS_COMMAND_BUFFER cmdBufferInUse = &primCmdBuffer;
     MOS_COMMAND_BUFFER  scdryCmdBuffer;
+    auto                mmioRegisters = m_hwInterface->GetMfxInterface()->GetMmioRegisters(m_vdboxIndex);
 
     if (CodecHalDecodeScalabilityIsScalableMode(m_scalabilityState) && MOS_VE_SUPPORTED(m_osInterface))
     {
@@ -933,6 +935,12 @@ MOS_STATUS CodechalDecodeHevcG11::SendPictureLongFormat()
             //send prolog at the start of a secondary cmd buffer
             CODECHAL_DECODE_CHK_STATUS_RETURN(SendPrologWithFrameTracking(cmdBufferInUse, false));
         }
+
+        HalOcaInterface::On1stLevelBBStart(scdryCmdBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle, *m_miInterface, *mmioRegisters);
+    }
+    else
+    {
+        HalOcaInterface::On1stLevelBBStart(primCmdBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle, *m_miInterface, *mmioRegisters);
     }
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(InitPicLongFormatMhwParams());
@@ -1276,6 +1284,7 @@ MOS_STATUS CodechalDecodeHevcG11::DecodePrimitiveLevel()
             m_scalabilityState,
             &scdryCmdBuffer,
             &cmdBufferInUse));
+        CodecHalDecodeScalability_DecPhaseToSubmissionType(m_scalabilityState,cmdBufferInUse);
     }
 
     // store CS ENGINE ID register
@@ -1531,7 +1540,7 @@ MOS_STATUS CodechalDecodeHevcG11::DecodePrimitiveLevel()
             decodeStatusReport.m_currDecodedPicRes  = m_hevcRefList[m_hevcPicParams->CurrPic.FrameIdx]->resRefPic;
 #ifdef _DECODE_PROCESSING_SUPPORTED
             CODECHAL_DEBUG_TOOL(
-                if (m_downsampledSurfaces) {
+                if (m_downsampledSurfaces && m_sfcState && m_sfcState->m_sfcOutputSurface) {
                     m_downsampledSurfaces[m_hevcPicParams->CurrPic.FrameIdx].OsResource =
                         m_sfcState->m_sfcOutputSurface->OsResource;
                     decodeStatusReport.m_currSfcOutputPicRes =
@@ -1622,9 +1631,14 @@ MOS_STATUS CodechalDecodeHevcG11::DecodePrimitiveLevel()
     if (MOS_VE_SUPPORTED(m_osInterface) && CodecHalDecodeScalabilityIsScalableMode(m_scalabilityState))
     {
         submitCommand = CodecHalDecodeScalabilityIsToSubmitCmdBuffer(m_scalabilityState);
-    }
 
-    if (submitCommand || m_osInterface->phasedSubmission)
+        HalOcaInterface::On1stLevelBBEnd(scdryCmdBuffer, *m_osInterface);
+    }
+    else
+    {
+        HalOcaInterface::On1stLevelBBEnd(primCmdBuffer, *m_osInterface);
+    }
+    if (submitCommand)
     {
         //command buffer to submit is the primary cmd buffer.
         if (MOS_VE_SUPPORTED(m_osInterface))
@@ -1636,7 +1650,6 @@ MOS_STATUS CodechalDecodeHevcG11::DecodePrimitiveLevel()
            && MOS_VE_SUPPORTED(m_osInterface)
            && CodecHalDecodeScalabilityIsScalableMode(m_scalabilityState))
         {
-            CodecHalDecodeScalability_DecPhaseToSubmissionType(m_scalabilityState,cmdBufferInUse);
             CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, cmdBufferInUse, renderingFlags));
         }
         else
@@ -1735,7 +1748,8 @@ MOS_STATUS CodechalDecodeHevcG11::AllocateStandard (
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_HEVC_SF_2_DMA_SUBMITS_ENABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            m_osInterface->pOsContext);
         m_enableSf2DmaSubmits = userFeatureData.u32Data ? true : false;
     }
 
@@ -1790,6 +1804,14 @@ MOS_STATUS CodechalDecodeHevcG11::AllocateStandard (
     m_picMhwParams.QmParams             = MOS_New(MHW_VDBOX_QM_PARAMS);
     m_picMhwParams.HevcPicState         = MOS_New(MHW_VDBOX_HEVC_PIC_STATE_G11);
     m_picMhwParams.HevcTileState        = MOS_New(MHW_VDBOX_HEVC_TILE_STATE);
+
+    CODECHAL_DECODE_CHK_NULL_RETURN(m_picMhwParams.PipeModeSelectParams);
+    CODECHAL_DECODE_CHK_NULL_RETURN(m_picMhwParams.SurfaceParams);
+    CODECHAL_DECODE_CHK_NULL_RETURN(m_picMhwParams.PipeBufAddrParams);
+    CODECHAL_DECODE_CHK_NULL_RETURN(m_picMhwParams.IndObjBaseAddrParams);
+    CODECHAL_DECODE_CHK_NULL_RETURN(m_picMhwParams.QmParams);
+    CODECHAL_DECODE_CHK_NULL_RETURN(m_picMhwParams.HevcPicState);
+    CODECHAL_DECODE_CHK_NULL_RETURN(m_picMhwParams.HevcTileState);
 
     MOS_ZeroMemory(m_picMhwParams.SurfaceParams, sizeof(MHW_VDBOX_SURFACE_PARAMS));
     MOS_ZeroMemory(m_picMhwParams.IndObjBaseAddrParams, sizeof(MHW_VDBOX_IND_OBJ_BASE_ADDR_PARAMS));

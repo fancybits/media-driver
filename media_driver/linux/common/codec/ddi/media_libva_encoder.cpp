@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2018, Intel Corporation
+* Copyright (c) 2009-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -34,6 +34,7 @@
 #include "codechal_memdecomp.h"
 #include "media_interfaces_codechal.h"
 #include "media_interfaces_mmd.h"
+#include "cm_device_rt.h"
 
 typedef MediaDdiFactoryNoArg<DdiEncodeBase> DdiEncodeFactory;
 
@@ -283,11 +284,17 @@ VAStatus DdiEncode_CreateContext(
 
     mosCtx.ppMediaMemDecompState = &mediaDrvCtx->pMediaMemDecompState;
     mosCtx.pfnMemoryDecompress   = mediaDrvCtx->pfnMemoryDecompress;
-    mosCtx.pPerfData             = (PERF_DATA *)MOS_AllocAndZeroMemory(sizeof(PERF_DATA));
+    mosCtx.pfnMediaMemoryCopy    = mediaDrvCtx->pfnMediaMemoryCopy;
+    mosCtx.pfnMediaMemoryCopy2D  = mediaDrvCtx->pfnMediaMemoryCopy2D;
+    mosCtx.ppMediaCopyState      = &mediaDrvCtx->pMediaCopyState;
     mosCtx.gtSystemInfo          = *mediaDrvCtx->pGtSystemInfo;
     mosCtx.m_auxTableMgr         = mediaDrvCtx->m_auxTableMgr;
     mosCtx.pGmmClientContext     = mediaDrvCtx->pGmmClientContext;
 
+    mosCtx.m_osDeviceContext     = mediaDrvCtx->m_osDeviceContext;
+    mosCtx.m_apoMosEnabled       = mediaDrvCtx->m_apoMosEnabled;
+
+    mosCtx.pPerfData             = (PERF_DATA *)MOS_AllocAndZeroMemory(sizeof(PERF_DATA));
     if (nullptr == mosCtx.pPerfData)
     {
         vaStatus = VA_STATUS_ERROR_ALLOCATION_FAILED;
@@ -357,7 +364,7 @@ VAStatus DdiEncode_CreateContext(
     // Attach PMEDIDA_DRIVER_CONTEXT
     encCtx->pMediaCtx = mediaDrvCtx;
 
-    encCtx->pCpDdiInterface->SetHdcp2Enabled(flag);
+    encCtx->pCpDdiInterface->SetCpFlags(flag);
     encCtx->pCpDdiInterface->SetCpParams(CP_TYPE_NONE, encCtx->m_encode->m_codechalSettings);
 
     vaStatus = encCtx->m_encode->ContextInitialize(encCtx->m_encode->m_codechalSettings);
@@ -372,7 +379,8 @@ VAStatus DdiEncode_CreateContext(
 
 #ifdef _MMC_SUPPORTED
     PMOS_INTERFACE osInterface = pCodecHal->GetOsInterface();
-    if (osInterface != nullptr &&
+    if (osInterface != nullptr                                                       &&
+        !osInterface->apoMosEnabled                                                  &&
         MEDIA_IS_SKU(osInterface->pfnGetSkuTable(osInterface), FtrMemoryCompression) &&
         !mediaDrvCtx->pMediaMemDecompState)
     {
@@ -463,8 +471,11 @@ VAStatus DdiEncode_DestroyContext(VADriverContextP ctx, VAContextID context)
         }
     }
 
-    MOS_FreeMemory(codecHal->GetOsInterface()->pOsContext->pPerfData);
-    codecHal->GetOsInterface()->pOsContext->pPerfData = nullptr;
+    if (codecHal->GetOsInterface() && codecHal->GetOsInterface()->pOsContext)
+    {
+        MOS_FreeMemory(codecHal->GetOsInterface()->pOsContext->pPerfData);
+        codecHal->GetOsInterface()->pOsContext->pPerfData = nullptr;
+    }
 
     // destroy codechal
     codecHal->Destroy();
@@ -565,6 +576,12 @@ VAStatus DdiEncode_RenderPicture(
     VABufferID      *buffers,
     int32_t          num_buffers)
 {
+    VAStatus        vaStatus                  = VA_STATUS_SUCCESS;
+    int32_t         numOfBuffers              = num_buffers;
+    int32_t         priority                  = 0;
+    int32_t         priorityIndexInBuffers    = -1;
+    bool            updatePriority            = false;
+
     PERF_UTILITY_AUTO(__FUNCTION__, PERF_ENCODE, PERF_LEVEL_DDI);
 
     DDI_FUNCTION_ENTER();
@@ -576,7 +593,22 @@ VAStatus DdiEncode_RenderPicture(
     DDI_CHK_NULL(encCtx, "nullptr encCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
     DDI_CHK_NULL(encCtx->m_encode, "nullptr encCtx->m_encode", VA_STATUS_ERROR_INVALID_CONTEXT);
 
-    VAStatus vaStatus = encCtx->m_encode->RenderPicture(ctx, context, buffers, num_buffers);
+    priorityIndexInBuffers = DdiMedia_GetGpuPriority(ctx, buffers, numOfBuffers, &updatePriority, &priority);
+    if (priorityIndexInBuffers != -1)
+    {
+        if(updatePriority)
+        {
+            vaStatus = DdiEncode_SetGpuPriority(encCtx, priority);
+            if(vaStatus != VA_STATUS_SUCCESS)
+                return vaStatus;
+        }
+        MovePriorityBufferIdToEnd(buffers, priorityIndexInBuffers, numOfBuffers);
+        numOfBuffers--;
+    }
+    if (numOfBuffers == 0)
+        return vaStatus;
+
+    vaStatus = encCtx->m_encode->RenderPicture(ctx, context, buffers, numOfBuffers);
     DDI_FUNCTION_EXIT(vaStatus);
     return vaStatus;
 }
@@ -661,6 +693,8 @@ VAStatus DdiEncode_MfeSubmit(
     encodeMfeContext->mfeEncodeSharedState->vmeSurface     = vmeSurface;
     encodeMfeContext->mfeEncodeSharedState->commonSurface  = commonSurface;
 
+    encodeMfeContext->mfeEncodeSharedState->encoders.clear();
+
     // Call Enc functions for all the sub contexts
     MOS_STATUS status = MOS_STATUS_SUCCESS;
     for (int32_t i = 0; i < validContextNumber; i++)
@@ -676,6 +710,8 @@ VAStatus DdiEncode_MfeSubmit(
         }
 
         CodechalEncoderState *encoder = dynamic_cast<CodechalEncoderState *>(encodeContext->pCodecHal);
+
+        encodeMfeContext->mfeEncodeSharedState->encoders.push_back(encoder);
 
         status = encoder->Execute(&encodeContext->EncodeParams);
         if (MOS_STATUS_SUCCESS != status)
@@ -704,6 +740,38 @@ VAStatus DdiEncode_MfeSubmit(
         {
             DDI_ASSERTMESSAGE("DDI:Failed in Execute Pak!");
             return VA_STATUS_ERROR_ENCODING_ERROR;
+        }
+    }
+
+    return VA_STATUS_SUCCESS;
+}
+
+VAStatus DdiEncode_SetGpuPriority(
+    PDDI_ENCODE_CONTEXT encCtx,
+    int32_t             priority
+)
+{
+    DDI_CHK_NULL(encCtx, "nullptr encCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
+
+    if(encCtx->pCodecHal != nullptr)
+    {
+        PMOS_INTERFACE osInterface = encCtx->pCodecHal->GetOsInterface();
+        DDI_CHK_NULL(osInterface, "nullptr osInterface.", VA_STATUS_ERROR_ALLOCATION_FAILED);
+
+        //Set Gpu priority for encoder
+        osInterface->pfnSetGpuPriority(osInterface, priority);
+
+        //Get the CMRT osInterface of encode
+        CodechalEncoderState *encoder = dynamic_cast<CodechalEncoderState *>(encCtx->pCodecHal);
+        DDI_CHK_NULL(encoder, "nullptr encoder", VA_STATUS_ERROR_INVALID_CONTEXT);
+
+        if(encoder->m_cmDev != nullptr)
+        {
+            //Set Gpu priority for CMRT OsInterface
+            CmDeviceRTBase *cm_device = dynamic_cast<CmDeviceRTBase *>(encoder->m_cmDev);
+            PCM_HAL_STATE cm_hal_state = cm_device->GetHalState();
+            if(cm_hal_state->osInterface != nullptr)
+                cm_hal_state->osInterface->pfnSetGpuPriority(cm_hal_state->osInterface, priority);
         }
     }
 

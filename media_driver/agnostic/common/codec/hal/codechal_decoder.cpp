@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2018, Intel Corporation
+* Copyright (c) 2011-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -121,7 +121,7 @@ MOS_STATUS CodechalDecode::AllocateSurface(
     uint32_t        height,
     const char      *name,
     MOS_FORMAT      format,
-    bool            isCompressed)
+    bool            isCompressible)
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
@@ -139,7 +139,7 @@ MOS_STATUS CodechalDecode::AllocateSurface(
     allocParams.dwHeight    = height;
     allocParams.dwArraySize = 1;
     allocParams.pBufName    = name;
-    allocParams.bIsCompressed = isCompressed;
+    allocParams.bIsCompressible = isCompressible;
 
     CODECHAL_DECODE_CHK_STATUS_MESSAGE_RETURN(m_osInterface->pfnAllocateResource(
         m_osInterface,
@@ -285,7 +285,7 @@ MOS_STATUS CodechalDecode::CreateGpuContexts(
 
     m_videoGpuNode = (MOS_GPU_NODE)(gpuNodeLimit.dwGpuNodeToUse);
 
-    CODECHAL_UPDATE_VDBOX_USER_FEATURE(m_videoGpuNode);
+    CODECHAL_UPDATE_VDBOX_USER_FEATURE(m_videoGpuNode, m_osInterface->pOsContext);
     CodecHalDecodeMapGpuNodeToGpuContex(m_videoGpuNode, m_videoContext, false);
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(SetGpuCtxCreatOption(codecHalSettings));
@@ -307,7 +307,9 @@ MOS_STATUS CodechalDecode::CreateGpuContexts(
         CodecHalDecodeMapGpuNodeToGpuContex(MOS_GPU_NODE_VIDEO, m_videoContextForWa, true);
     }
 
-    MOS_GPUCTX_CREATOPTIONS createOption;
+    MOS_GPUCTX_CREATOPTIONS_ENHANCED createOption;
+    createOption.UsingSFC = codecHalSettings->sfcInUseHinted && codecHalSettings->downsamplingHinted
+                          && (MEDIA_IS_SKU(m_skuTable, FtrSFCPipe)) && !(MEDIA_IS_SKU(m_skuTable, FtrDisableVDBox2SFC));
     eStatus = (MOS_STATUS)m_osInterface->pfnCreateGpuContext(
         m_osInterface,
         m_videoContextForWa,
@@ -360,7 +362,8 @@ MOS_STATUS CodechalDecode::Allocate (CodechalSetting * codecHalSettings)
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_STATUS_REPORTING_ENABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            m_osInterface->pOsContext);
         m_statusQueryReportingEnabled = (userFeatureData.u32Data) ? true : false;
 
 #if (_DEBUG || _RELEASE_INTERNAL)
@@ -370,7 +373,8 @@ MOS_STATUS CodechalDecode::Allocate (CodechalSetting * codecHalSettings)
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_STREAM_OUT_ENABLE_ID,
-                &userFeatureData);
+                &userFeatureData,
+                m_osInterface->pOsContext);
             m_streamOutEnabled = (userFeatureData.u32Data) ? true : false;
 
         }
@@ -379,7 +383,8 @@ MOS_STATUS CodechalDecode::Allocate (CodechalSetting * codecHalSettings)
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_FE_BE_TIMING,
-            &userFeatureData);
+            &userFeatureData,
+            m_osInterface->pOsContext);
         m_perfFEBETimingEnabled = userFeatureData.bData;
 
 #endif // _DEBUG || _RELEASE_INTERNAL
@@ -520,13 +525,17 @@ MOS_STATUS CodechalDecode::Allocate (CodechalSetting * codecHalSettings)
     if (!m_mmc)
     {
         m_mmc = MOS_New(CodecHalMmcState, m_hwInterface);
+        CODECHAL_DECODE_CHK_NULL_RETURN(m_mmc);
     }
 
-    m_secureDecoder = Create_SecureDecodeInterface(codecHalSettings, m_hwInterface); 
+    if (codecHalSettings->secureMode)
+    {
+        m_secureDecoder = Create_SecureDecodeInterface(codecHalSettings, m_hwInterface);
+    }
 
 #ifdef _DECODE_PROCESSING_SUPPORTED
     m_downsamplingHinted = codecHalSettings->downsamplingHinted ? true : false;
-    if (CodecHalIsEnableFieldScaling(CODECHAL_FUNCTION_DECODE, m_standard, m_downsamplingHinted))
+    if (CodecHalIsEnableFieldScaling(codecHalSettings->codecFunction, m_standard, m_downsamplingHinted))
     {
         CODECHAL_DECODE_CHK_NULL_RETURN(m_fieldScalingInterface);
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_fieldScalingInterface->InitializeKernelState(
@@ -588,7 +597,7 @@ MOS_STATUS CodechalDecode::AllocateRefSurfaces(
             allocHeight,
             "DownsamplingRefSurface",
             format,
-            CodecHalMmcState::IsMmcEnabled());
+            m_mmc->IsMmcEnabled());
 
         if (eStatus != MOS_STATUS_SUCCESS)
         {
@@ -624,8 +633,8 @@ MOS_STATUS CodechalDecode::RefSurfacesResize(
         height,
         "DownsamplingRefSurface",
         format,
-        CodecHalMmcState::IsMmcEnabled());
-  
+        m_mmc->IsMmcEnabled());
+
     if (eStatus != MOS_STATUS_SUCCESS)
     {
         CODECHAL_DECODE_ASSERTMESSAGE("Failed to allocate decode downsampling reference surface.");
@@ -640,7 +649,7 @@ void CodechalDecode::DeallocateSpecificRefSurfaces(uint32_t frameIdx)
 {
     CODECHAL_DECODE_FUNCTION_ENTER;
 
-    if (m_refSurfaces != nullptr && frameIdx != 0)
+    if (m_refSurfaces != nullptr)
     {
         if (!Mos_ResourceIsNull(&m_refSurfaces[frameIdx].OsResource))
         {
@@ -868,15 +877,6 @@ MOS_STATUS CodechalDecode::VerifySpaceAvailable ()
     return eStatus;
 }
 
-MOS_STATUS CodechalDecode::BeginFrame ()
-{
-    CODECHAL_DECODE_FUNCTION_ENTER;
-
-    m_firstExecuteCall = true;
-
-    return MOS_STATUS_SUCCESS;
-}
-
 MOS_STATUS CodechalDecode::EndFrame ()
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
@@ -963,7 +963,8 @@ MOS_STATUS CodechalDecode::EndFrame ()
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_DECOMPRESS_DECODE_OUTPUT_ID,
-                &userFeatureData);
+                &userFeatureData,
+                m_osInterface->pOsContext);
             if (userFeatureData.u32Data)
             {
                 CODECHAL_DECODE_VERBOSEMESSAGE("force ve decompress decode output");
@@ -1022,7 +1023,8 @@ MOS_STATUS CodechalDecode::EndFrame ()
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_DECOMPRESS_DECODE_SFC_OUTPUT_ID,
-                &userFeatureData);
+                &userFeatureData,
+                m_osInterface->pOsContext);
             if (userFeatureData.u32Data)
             {
                 CODECHAL_DECODE_VERBOSEMESSAGE("force ve decompress sfc output");
@@ -1066,7 +1068,7 @@ MOS_STATUS CodechalDecode::EndFrame ()
                     {
                         CODECHAL_DECODE_ASSERT(csEngineIdValue.fields.ClassId == CODECHAL_CLASS_ID_VIDEO_ENGINE);
                         CODECHAL_DECODE_ASSERT(csEngineIdValue.fields.InstanceId < CODECHAL_CS_INSTANCE_ID_MAX);
-                        CODECHAL_UPDATE_USED_VDBOX_ID_USER_FEATURE(csEngineIdValue.fields.InstanceId);
+                        CODECHAL_UPDATE_USED_VDBOX_ID_USER_FEATURE(csEngineIdValue.fields.InstanceId, m_osInterface->pOsContext);
                     }
                 }
                 preIndex = index + 1;
@@ -1108,6 +1110,8 @@ MOS_STATUS CodechalDecode::Execute(void *params)
     CODECHAL_DECODE_CHK_STATUS_RETURN(Codechal::Execute(params));
 
     CodechalDecodeParams *decodeParams = (CodechalDecodeParams *)params;
+    m_executeCallIndex = decodeParams->m_executeCallIndex;
+
     // MSDK event handling
     Mos_Solo_SetGpuAppTaskEvent(m_osInterface, decodeParams->m_gpuAppTaskEvent);
 
@@ -1124,44 +1128,41 @@ MOS_STATUS CodechalDecode::Execute(void *params)
     {
         CODECHAL_DECODE_CHK_STATUS_RETURN(Mos_Solo_DisableAubcaptureOptimizations(
             m_osInterface,
-            m_firstExecuteCall));
+            IsFirstExecuteCall()));
     }
 
-    // For multiple execution call, this function will be entered by multple times,
-    // so clear bFirstExecuteCall flag when this function exit.
-    CodechalDecodeRestoreData<bool> FirstExecuteCallRestore(&(m_firstExecuteCall), false);
 #ifdef _DECODE_PROCESSING_SUPPORTED
     if (decodeParams->m_refFrameCnt != 0)
     {
-        PCODECHAL_DECODE_PROCESSING_PARAMS  procParams;
-        uint32_t                            allocWidth;
-        uint32_t                            allocHeight;
-        MOS_FORMAT                          format;
-        uint8_t                             frameIdx;
+        DecodeProcessingParams *procParams;
+        uint32_t                allocWidth;
+        uint32_t                allocHeight;
+        MOS_FORMAT              format;
+        uint8_t                 frameIdx;
 
         CODECHAL_DECODE_CHK_NULL_RETURN(decodeParams->m_picParams);
         CODECHAL_DECODE_CHK_NULL_RETURN(decodeParams->m_procParams);
 
-        procParams = (PCODECHAL_DECODE_PROCESSING_PARAMS)decodeParams->m_procParams;
+        procParams = (DecodeProcessingParams *)decodeParams->m_procParams;
         CODECHAL_DECODE_CHK_STATUS_RETURN(CodecHalGetResourceInfo(
             m_osInterface,
-            procParams->pOutputSurface));
+            procParams->m_outputSurface));
 
-        if (procParams->bIsSourceSurfAllocated)
+        if (procParams->m_isSourceSurfAllocated)
         {
-            procParams->rcOutputSurfaceRegion.Width = procParams->pOutputSurface->dwWidth;
-            procParams->rcOutputSurfaceRegion.Height = procParams->pOutputSurface->dwHeight;
+            procParams->m_outputSurfaceRegion.m_width = procParams->m_outputSurface->dwWidth;
+            procParams->m_outputSurfaceRegion.m_height = procParams->m_outputSurface->dwHeight;
             frameIdx = 0;
 
-            m_refSurfaces = procParams->pInputSurface;
+            m_refSurfaces = procParams->m_inputSurface;
             CODECHAL_DECODE_CHK_STATUS_RETURN(CodecHalGetResourceInfo(
                 m_osInterface,
                 m_refSurfaces));
 
-            procParams->rcInputSurfaceRegion.X      = 0;
-            procParams->rcInputSurfaceRegion.Y      = 0;
-            procParams->rcInputSurfaceRegion.Width  = m_refSurfaces->dwWidth;
-            procParams->rcInputSurfaceRegion.Height = m_refSurfaces->dwHeight;
+            procParams->m_inputSurfaceRegion.m_x      = 0;
+            procParams->m_inputSurfaceRegion.m_y      = 0;
+            procParams->m_inputSurfaceRegion.m_width  = m_refSurfaces->dwWidth;
+            procParams->m_inputSurfaceRegion.m_height = m_refSurfaces->dwHeight;
         }
         else
         {
@@ -1188,12 +1189,12 @@ MOS_STATUS CodechalDecode::Execute(void *params)
                 }
             }
 
-            procParams->rcInputSurfaceRegion.X = 0;
-            procParams->rcInputSurfaceRegion.Y = 0;
-            procParams->rcInputSurfaceRegion.Width = allocWidth;
-            procParams->rcInputSurfaceRegion.Height = allocHeight;
-          
-            procParams->pInputSurface = &m_refSurfaces[frameIdx];
+            procParams->m_inputSurfaceRegion.m_x = 0;
+            procParams->m_inputSurfaceRegion.m_y = 0;
+            procParams->m_inputSurfaceRegion.m_width = allocWidth;
+            procParams->m_inputSurfaceRegion.m_height = allocHeight;
+
+            procParams->m_inputSurface = &m_refSurfaces[frameIdx];
         }
         decodeParams->m_destSurface = &m_refSurfaces[frameIdx];
     }
@@ -1244,7 +1245,7 @@ MOS_STATUS CodechalDecode::Execute(void *params)
         if (decodeParams->m_dataBuffer &&
             (m_standard != CODECHAL_JPEG && m_cencBuf == nullptr) &&
             !(m_standard == CODECHAL_HEVC && m_isHybridDecoder) &&
-            !(m_standard == CODECHAL_HEVC && (m_incompletePicture || !m_firstExecuteCall)))
+            !(m_standard == CODECHAL_HEVC && (m_incompletePicture || !IsFirstExecuteCall())))
         {
             if (m_mode == CODECHAL_DECODE_MODE_MPEG2VLD ||
                 m_mode == CODECHAL_DECODE_MODE_VC1VLD   ||
@@ -1279,7 +1280,7 @@ MOS_STATUS CodechalDecode::Execute(void *params)
         if (decodeParams->m_procParams)
         {
             CODECHAL_DECODE_CHK_STATUS_RETURN(DumpProcessingParams(
-                (PCODECHAL_DECODE_PROCESSING_PARAMS)decodeParams->m_procParams));
+                (DecodeProcessingParams *)decodeParams->m_procParams));
         }
     )
 #endif
@@ -1383,6 +1384,7 @@ MOS_STATUS CodechalDecode::StartStatusReport(
         &params));
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_perfProfiler->AddPerfCollectStartCmd((void *)this, m_osInterface, m_miInterface, cmdBuffer));
+    CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StartPredicate(m_miInterface, cmdBuffer));
 
     return eStatus;
 }
@@ -1399,6 +1401,8 @@ MOS_STATUS CodechalDecode::EndStatusReport(
         "ERROR - vdbox index exceed the maximum");
     auto mmioRegistersMfx = m_hwInterface->SelectVdboxAndGetMmioRegister(m_vdboxIndex, cmdBuffer);
     auto mmioRegistersHcp = m_hcpInterface ? m_hcpInterface->GetMmioRegisters(m_vdboxIndex) : nullptr;
+
+    CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StopPredicate(m_miInterface, cmdBuffer));
 
     uint32_t currIndex = m_decodeStatusBuf.m_currIndex;
     //Error Status report
@@ -1745,21 +1749,19 @@ MOS_STATUS CodechalDecode::SendPrologWithFrameTracking(
         cmdBuffer->Attributes.bMediaPreemptionEnabled = MOS_RCS_ENGINE_USED(gpuContext) ?
             m_hwInterface->GetRenderInterface()->IsPreemptionEnabled() : 0;
         cmdBuffer->Attributes.bEnableMediaFrameTracking = true;
-        cmdBuffer->Attributes.resMediaFrameTrackingSurface = m_decodeStatusBuf.m_statusBuffer;
+        cmdBuffer->Attributes.resMediaFrameTrackingSurface = &m_decodeStatusBuf.m_statusBuffer;
         cmdBuffer->Attributes.dwMediaFrameTrackingTag = m_decodeStatusBuf.m_swStoreData;
         // Set media frame tracking address offset(the offset from the decoder status buffer page, refer to CodecHalDecode_Initialize)
         cmdBuffer->Attributes.dwMediaFrameTrackingAddrOffset = 0;
     }
 
-#ifdef _MMC_SUPPORTED
-    CODECHAL_DECODE_CHK_STATUS_RETURN(m_mmc->SendPrologCmd(m_miInterface, cmdBuffer, MOS_RCS_ENGINE_USED(gpuContext)));
-#endif
+    CODECHAL_DECODE_CHK_STATUS_RETURN(m_mmc->SendPrologCmd(m_miInterface, cmdBuffer, gpuContext));
 
     MHW_GENERIC_PROLOG_PARAMS genericPrologParams;
     MOS_ZeroMemory(&genericPrologParams, sizeof(genericPrologParams));
     genericPrologParams.pOsInterface                    = m_osInterface;
     genericPrologParams.pvMiInterface                   = m_miInterface;
-    genericPrologParams.bMmcEnabled                     = CodecHalMmcState::IsMmcEnabled();
+    genericPrologParams.bMmcEnabled                     = m_mmc->IsMmcEnabled();
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(Mhw_SendGenericPrologCmd(
         cmdBuffer,
@@ -1969,7 +1971,7 @@ MOS_STATUS CodechalDecode::SetCencBatchBuffer(
 
 #if USE_CODECHAL_DEBUG_TOOL
 #ifdef _DECODE_PROCESSING_SUPPORTED
-MOS_STATUS CodechalDecode::DumpProcessingParams(PCODECHAL_DECODE_PROCESSING_PARAMS decProcParams)
+MOS_STATUS CodechalDecode::DumpProcessingParams(DecodeProcessingParams *decProcParams)
 {
     CODECHAL_DEBUG_FUNCTION_ENTER;
 
@@ -1979,28 +1981,28 @@ MOS_STATUS CodechalDecode::DumpProcessingParams(PCODECHAL_DECODE_PROCESSING_PARA
     }
 
     CODECHAL_DEBUG_CHK_NULL(decProcParams);
-    CODECHAL_DEBUG_CHK_NULL(decProcParams->pInputSurface);
-    CODECHAL_DEBUG_CHK_NULL(decProcParams->pOutputSurface);
+    CODECHAL_DEBUG_CHK_NULL(decProcParams->m_inputSurface);
+    CODECHAL_DEBUG_CHK_NULL(decProcParams->m_outputSurface);
 
     std::ostringstream oss;
     oss.setf(std::ios::showbase | std::ios::uppercase);
 
     oss << "Input Surface Resolution: "
-        << +decProcParams->pInputSurface->dwWidth << " x " << +decProcParams->pInputSurface->dwHeight << std::endl;
+        << +decProcParams->m_inputSurface->dwWidth << " x " << +decProcParams->m_inputSurface->dwHeight << std::endl;
     oss << "Input Region Resolution: "
-        << +decProcParams->rcInputSurfaceRegion.Width << " x " << +decProcParams->rcInputSurfaceRegion.Height << std::endl;
+        << +decProcParams->m_inputSurfaceRegion.m_width << " x " << +decProcParams->m_inputSurfaceRegion.m_height << std::endl;
     oss << "Input Region Offset: ("
-        << +decProcParams->rcInputSurfaceRegion.X << "," << +decProcParams->rcInputSurfaceRegion.Y << ")" << std::endl;
+        << +decProcParams->m_inputSurfaceRegion.m_x << "," << +decProcParams->m_inputSurfaceRegion.m_y << ")" << std::endl;
     oss << "Input Surface Format: "
-        << (decProcParams->pInputSurface->Format == Format_NV12 ? "NV12" : "P010" )<< std::endl;
+        << (decProcParams->m_inputSurface->Format == Format_NV12 ? "NV12" : "P010" )<< std::endl;
     oss << "Output Surface Resolution: "
-        << +decProcParams->pOutputSurface->dwWidth << " x " << +decProcParams->pOutputSurface->dwHeight << std::endl;
+        << +decProcParams->m_outputSurface->dwWidth << " x " << +decProcParams->m_outputSurface->dwHeight << std::endl;
     oss << "Output Region Resolution: "
-        << +decProcParams->rcOutputSurfaceRegion.Width << " x " << +decProcParams->rcOutputSurfaceRegion.Height << std::endl;
+        << +decProcParams->m_outputSurfaceRegion.m_width << " x " << +decProcParams->m_outputSurfaceRegion.m_height << std::endl;
     oss << "Output Region Offset: ("
-        << +decProcParams->rcOutputSurfaceRegion.X << ", " << +decProcParams->rcOutputSurfaceRegion.Y << ")" << std::endl;
+        << +decProcParams->m_outputSurfaceRegion.m_x << ", " << +decProcParams->m_outputSurfaceRegion.m_y << ")" << std::endl;
     oss << "Output Surface Format: "
-        << (decProcParams->pOutputSurface->Format == Format_NV12 ? "NV12" : "YUY2" )<< std::endl;
+        << (decProcParams->m_outputSurface->Format == Format_NV12 ? "NV12" : "YUY2" )<< std::endl;
 
     const char* filePath = m_debugInterface->CreateFileName(
         "_DEC",

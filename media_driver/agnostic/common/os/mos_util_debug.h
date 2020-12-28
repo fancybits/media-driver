@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2013-2017, Intel Corporation
+* Copyright (c) 2013-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -32,7 +32,6 @@
 //!
 #ifndef __MOS_UTIL_DEBUG_H__
 #define __MOS_UTIL_DEBUG_H__
-
 #include "mos_defs.h"
 #include "mos_util_debug_specific.h"
 
@@ -130,7 +129,7 @@ typedef enum
     MOS_CP_SUBCOMP_MHW              = 12,            // CP MHW classes
     MOS_CP_SUBCOMP_PROTECTEDSESSION = 13,            // Protected session class
     MOS_CP_SUBCOMP_PROTECTED_RESOURCE_SESSION = 14,  // Protected Resource session class
-    MOS_CP_SUBCOMP_RTE_HAL          = 15,            // CP RTE HAL class
+    MOS_CP_SUBCOMP_TEE_HAL          = 15,            // CP TEE HAL class
     MOS_CP_SUBCOMP_CAPS             = 16,            // CP CAPS clas
     MOS_CP_SUBCOMP_CPLIB            = 17,            // CP CPLIB interacting
     MOS_CP_SUBCOMP_COUNT                             // Must be last in the list
@@ -176,13 +175,17 @@ typedef enum
 } MOS_MMC_SUBCOMP_ID;
 
 //!
-//! \brief Define BLT Sub-Component IDs
+//! \brief Define media copy Sub-Component IDs
 //!
 typedef enum
 {
-    MOS_BLT_SUBCOMP_SELF   = 0,
-    MOS_BLT_SUBCOMP_COUNT
-} MOS_BLT_SUBCOMP_ID;
+    MOS_MCPY_SUBCOMP_SELF   = 0,
+    MOS_MCPY_SUBCOMP_BLT,
+    MOS_MCPY_SUBCOMP_VEBOX,
+    MOS_MCPY_SUBCOMP_RENDER,
+    MOS_MCPY_SUBCOMP_COUNT
+} MOS_MCPY_SUBCOMP_ID;
+
 
 //!
 //! \brief MOS debug params structure, includes debug level and asserts enabled.
@@ -226,7 +229,7 @@ typedef struct _MOS_MESSAGE_PARAMS
 //!           to be called during device creation
 //! \return   void
 //!
-void MOS_MessageInit();
+void MOS_MessageInit(MOS_CONTEXT_HANDLE mosCtx);
 
 //!
 //! \brief    Frees the MOS message buffer and MOS message parameters structure
@@ -251,11 +254,13 @@ void MOS_HltpPreface(
 //! \brief    Form a string that will prefix MOS's log file name
 //! \param    char  *fileNamePrefix
 //!           [out] Pointer to the string where the prefix is returned
+//! \param    [in] mosCtx
+//!           os device ctx handle
 //! \return   MOS_STATUS
 //!           Returns one of the MOS_STATUS error codes if failed,
 //!           else MOS_STATUS_SUCCESS
 //!
-MOS_STATUS MOS_LogFileNamePrefix(char  *fileNamePrefix);
+MOS_STATUS MOS_LogFileNamePrefix(char *fileNamePrefix, MOS_CONTEXT_HANDLE mosCtx);
 
 //!
 //! \def MOS_FUNCTION_ENTER(_compID, _subCompID)
@@ -277,13 +282,6 @@ MOS_STATUS MOS_LogFileNamePrefix(char  *fileNamePrefix);
 //!
 #define MOS_FUNCTION_ENTER_VERBOSE(_compID, _subCompID)                                     \
     MOS_DEBUGMESSAGE(MOS_MESSAGE_LVL_FUNCTION_ENTRY_VERBOSE, _compID, _subCompID, "")
-
-//!
-//! \def MOS_FUNCTION_EXIT_VERBOSE(_compID, _subCompID)
-//!  Output VERBOSE EXIT message with \_a _compID and \_a _subCompID info
-//!
-#define MOS_FUNCTION_EXIT_VERBOSE(_compID, _subCompID)                                      \
-    MOS_DEBUGMESSAGE(MOS_MESSAGE_LVL_FUNCTION_EXIT_VERBOSE, _compID, _subCompID, "")
 
 //!
 //! \def MOS_ASSERTMESSAGE(_compID, _subCompID, _message, ...)
@@ -309,6 +307,13 @@ MOS_STATUS MOS_LogFileNamePrefix(char  *fileNamePrefix);
     MOS_DEBUGMESSAGE(MOS_MESSAGE_LVL_VERBOSE, _compID, _subCompID, _message, ##__VA_ARGS__)
 
 //!
+//! \def MOS_MEMNINJAMESSAGE(_compID, _subCompID, _message, ...)
+//!  Output DEBUG message \a _message with \_a _compID and \_a _subCompID info
+//!
+#define MOS_MEMNINJAMESSAGE(_compID, _subCompID, _message, ...)                             \
+    MOS_DEBUGMESSAGE(MOS_MESSAGE_LVL_MEMNINJA, _compID, _subCompID, _message, ##__VA_ARGS__)
+
+//!
 //! \def MOS_CRITICALMESSAGE(_compID, _subCompID, _message, ...)
 //!  Output DEBUG message \a _message with \_a _compID and \_a _subCompID info
 //!
@@ -330,7 +335,8 @@ MOS_STATUS MOS_LogFileNamePrefix(char  *fileNamePrefix);
 //! \def MOS_TraceEventExt
 //!  this is trace event interface extension, only for debug purpose.
 //!
-#define MOS_TraceEventExt  MOS_TraceEvent
+#define MOS_TraceEventExt MOS_TraceEvent
+#define MOS_TraceDumpExt MOS_TraceDataDump
 
 #else // !MOS_MESSAGES_ENABLED
 
@@ -339,16 +345,17 @@ MOS_STATUS MOS_LogFileNamePrefix(char  *fileNamePrefix);
 //!            but are called in release drivers too.
 //!
 #define MOS_TraceEventExt(usId, usType, pArg1, dwSize1, pArg2, dwSize2)
+#define MOS_TraceDumpExt(name, flags, pBuf, dwSize)
 
 #define MOS_FUNCTION_ENTER(_compID, _subCompID)
 #define MOS_FUNCTION_EXIT(_compID, _subCompID, hr)
 #define MOS_FUNCTION_ENTER_VERBOSE(_compID, _subCompID)
-#define MOS_FUNCTION_EXIT_VERBOSE(_compID, _subCompID)
 #define MOS_ASSERTMESSAGE(_compID, _subCompID, _message, ...)
 #define MOS_NORMALMESSAGE(_compID, _subCompID, _message, ...)
 #define MOS_VERBOSEMESSAGE(_compID, _subCompID, _message, ...)
 #define MOS_DEBUGMESSAGE_IF(_cond, _level, _compID, _subCompID, _message, ...)
 #define MOS_DEBUGMESSAGE(_compID, _subCompID, _message, ...)
+#define MOS_MEMNINJAMESSAGE(_compID, _subCompID, _message, ...)
 
 #endif // MOS_MESSAGES_ENABLED
 
@@ -444,6 +451,20 @@ void _MOS_Assert(
         return MOS_STATUS_NULL_POINTER;                                     \
     }                                                                       \
 }
+
+//!
+//! \def MOS_CHK_NULL_RETURN(_compID, _subCompID, _ptr)
+//!  Check if \a _ptr == nullptr, if so assert and return an error
+//!
+#define MOS_CHK_NULL_MESSAGE_RETURN(_compID, _subCompID, _ptr, _message, ...)       \
+    {                                                                               \
+        if ((_ptr) == nullptr)                                                      \
+        {                                                                           \
+            MOS_ASSERTMESSAGE(_compID, _subCompID, _message, ##__VA_ARGS__);        \
+            return MOS_STATUS_NULL_POINTER;                                         \
+        }                                                                           \
+    }
+
 
 //!
 //! \def MOS_CHK_STATUS(_compID, _subCompID, _stmt)
@@ -653,18 +674,18 @@ void _MOS_Assert(
     MOS_CHK_STATUS_MESSAGE(MOS_COMPONENT_OS, MOS_SUBCOMP_SELF, _ptr, _message, ##__VA_ARGS__)
 
 //!
-//! \def MOS_OS_CHK_STATUS_RETURN(_stmt)
-//!  MOS_CHK_STATUS \a _stmt with MOS utility comp/subcomp info
-//!
-#define MOS_OS_CHK_STATUS_RETURN(_stmt)                                                            \
-    MOS_CHK_STATUS_RETURN(MOS_COMPONENT_OS, MOS_SUBCOMP_SELF, _stmt)
-
-//!
 //! \def MOS_OS_CHK_NULL_RETURN(_ptr)
 //!  MOS_CHK_NULL \a _ptr with MOS utility comp/subcomp info
 //!
 #define MOS_OS_CHK_NULL_RETURN(_ptr)                                                               \
     MOS_CHK_NULL_RETURN(MOS_COMPONENT_OS, MOS_SUBCOMP_SELF, _ptr)
+
+//!
+//! \def MOS_OS_CHK_NULL_MESSAGE_RETURN(_ptr)
+//!  MOS_CHK_NULL \a _ptr with MOS utility comp/subcomp info
+//!
+#define MOS_OS_CHK_NULL_MESSAGE_RETURN(_ptr, _message, ...) \
+    MOS_CHK_NULL_MESSAGE_RETURN(MOS_COMPONENT_OS, MOS_SUBCOMP_SELF, _ptr, _message,  ##__VA_ARGS__)
 
 //!
 //! \def MOS_OS_CHK_HR(_ptr)
@@ -686,6 +707,13 @@ void _MOS_Assert(
 //!
 #define MOS_OS_CHK_NULL_WITH_HR(_ptr)                                                       \
     MOS_CHK_NULL_WITH_HR(MOS_COMPONENT_OS, MOS_SUBCOMP_SELF, _ptr)
+
+//!
+//! \def MOS_OS_CHK_NULL_WITH_HR_RETURN(_ptr)
+//!  MOS_CHK_NULL_WITH_HR \a _ptr with MOS utility comp/subcomp info
+//!
+#define MOS_OS_CHK_NULL_WITH_HR_RETURN(_ptr) \
+    MOS_CHK_NULL_WITH_HR_RETURN(MOS_COMPONENT_OS, MOS_SUBCOMP_SELF, _ptr)
 
 //!
 //! \def MOS_OS_CHECK_CONDITION(_condition, _str, _ret)
@@ -716,6 +744,13 @@ void _MOS_Assert(
     MOS_CHK_STATUS_RETURN(MOS_COMPONENT_OS, MOS_SUBCOMP_SELF, _stmt)
 
 //!
+//! \def MOS_OS_CHK_STATUS_MESSAGE_RETURN(_stmt, _message, ......)
+//!  MOS_CHK_STATUS \a _stmt with MOS utility comp/subcomp info
+//!
+#define MOS_OS_CHK_STATUS_MESSAGE_RETURN(_stmt, _message, ...)                                  \
+    MOS_CHK_STATUS_MESSAGE_RETURN(MOS_COMPONENT_OS, MOS_SUBCOMP_SELF, _stmt, _message, ##__VA_ARGS__)
+
+//!
 //! \def MOS_OS_ASSERTMESSAGE(_message, ...)
 //!  MOS_ASSERTMESSAGE \a _message with MOS Utility comp/subcomp info
 //!
@@ -742,6 +777,13 @@ void _MOS_Assert(
 //!
 #define MOS_OS_FUNCTION_ENTER                                                               \
     MOS_FUNCTION_ENTER(MOS_COMPONENT_OS, MOS_SUBCOMP_SELF)
+
+//!
+//! \def MOS_OS_MEMNINJAMESSAGE(_message, ...)
+//!  MOS_MEMNINJAMESSAGE \a _message with MOS Utility comp/subcomp info
+//!
+#define MOS_OS_MEMNINJAMESSAGE(_message, ...)                                              \
+    MOS_MEMNINJAMESSAGE(MOS_COMPONENT_OS, MOS_SUBCOMP_SELF, _message, ##__VA_ARGS__)
 
 #ifdef __cplusplus
 }

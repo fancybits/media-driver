@@ -48,6 +48,7 @@ int32_t CmEventRT::Create(uint32_t index, CmQueueRT *queue, CmTaskInternal *task
     event = new (std::nothrow) CmEventRT( index, queue, task, taskDriverId, device, isVisible );
     if( event )
     {
+        event->m_device->m_memObjectCount.eventCount++;
         if(isVisible)
         {   // Increase the refcount when the Event is visiable
             event->Acquire();
@@ -72,14 +73,16 @@ int32_t CmEventRT::Create(uint32_t index, CmQueueRT *queue, CmTaskInternal *task
 //*-----------------------------------------------------------------------------
 int32_t CmEventRT::Destroy( CmEventRT* &event )
 {
+    CM_OBJECT_COUNT* memObjectCount = &event->m_device->m_memObjectCount;
     long refCount = event->SafeRelease();
-    if( refCount == 0 )
+    if (refCount == 0)
     {
+        memObjectCount->eventCount--;
         event = nullptr;
     }
-
     return CM_SUCCESS;
 }
+
 
 //*-----------------------------------------------------------------------------
 //| Purpose:    Constructor of Cm Event
@@ -100,7 +103,8 @@ CmEventRT::CmEventRT(uint32_t index, CmQueueRT *queue, CmTaskInternal *task, int
     m_isVisible(isVisible),
     m_task(task),
     m_callbackFunction(nullptr),
-    m_callbackUserData(nullptr)
+    m_callbackUserData(nullptr),
+    m_osSignalTriggered(false)
 {
     m_globalSubmitTimeCpu.QuadPart = 0;
     m_submitTimeGpu.QuadPart = 0;
@@ -202,30 +206,6 @@ int32_t CmEventRT::Initialize(void)
     return CM_SUCCESS;
 }
 
-//*-----------------------------------------------------------------------------
-//! Query the status of the task associated with the event
-//! An event is generated when a task ( one kernel or multiples kernels running concurrently )
-//! is enqueued.
-//! This is a non-blocking call.
-//! INPUT:
-//!     The reference to status. For now only two status, CM_STATUS_QUEUED and CM_STATUS_FINISHED, are supported
-//! OUTPUT:
-//!     CM_SUCCESS if the status is successfully returned;
-//!     CM_FAILURE if not.
-//*-----------------------------------------------------------------------------
-CM_RT_API int32_t CmEventRT::GetStatus( CM_STATUS& status)
-{
-    if( ( m_status == CM_STATUS_FLUSHED ) || ( m_status == CM_STATUS_STARTED ) )
-    {
-        Query();
-    }
-
-    m_queue->FlushTaskWithoutSync();
-
-    status = m_status;
-    return CM_SUCCESS;
-}
-
 int32_t CmEventRT::GetStatusNoFlush(CM_STATUS& status)
 {
     if ((m_status == CM_STATUS_FLUSHED) || (m_status == CM_STATUS_STARTED))
@@ -249,6 +229,16 @@ int32_t CmEventRT::GetStatusNoFlush(CM_STATUS& status)
     }
 
     status = m_status;
+    return CM_SUCCESS;
+}
+
+int32_t CmEventRT::ModifyStatus(CM_STATUS status, uint64_t elapsedTime)
+{
+    if (m_ticks == 0)
+    {
+        m_time = elapsedTime;
+    }
+    m_status = status;
     return CM_SUCCESS;
 }
 
@@ -846,6 +836,8 @@ std::string CmEventRT::Log(const char *callerFuncName)
 
     return oss.str();
 }
-#endif
 
-}
+CM_HAL_STATE* CmEventRT::GetHalState() { return m_device->GetHalState(); }
+
+#endif  // #if CM_LOG_ON
+}  // namespace

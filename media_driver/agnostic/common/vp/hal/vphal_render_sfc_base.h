@@ -560,6 +560,9 @@ private:
     //!
     MOS_STATUS SetAvsStateParams();
 
+public:
+    bool                            m_bSFC2Pass = false;
+
 protected:
     bool                            disableSFC    = false;                      //!< Disable SFC for validation purposes
     bool                            enableSfcMMC  = false;                      //!< Memory compression enbale flag - read from User feature keys
@@ -588,6 +591,7 @@ protected:
                                                                                 // Surfaces used by SFC
     VPHAL_SURFACE                   m_AVSLineBufferSurface = {};                //!< AVS Line Buffer Surface for SFC
     VPHAL_SURFACE                   m_IEFLineBufferSurface = {};                //!< IEF Line Buffer Surface for SFC
+    VPHAL_SURFACE                   m_SFDLineBufferSurface = {};                //!< SFD Line Buffer Surface for SFC
 
                                                                                 // Stereo state.
     uint32_t                        m_currentChannel = 0;                       //!< 0=StereoLeft or nonStereo, 1=StereoRight. N/A in nonStereo

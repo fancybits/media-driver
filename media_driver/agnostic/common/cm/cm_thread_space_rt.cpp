@@ -114,6 +114,8 @@ int32_t CmThreadSpaceRT::Create( CmDeviceRT* device, uint32_t indexTsArray, uint
     threadSpace = new (std::nothrow) CmThreadSpaceRT( device, indexTsArray, width, height );
     if( threadSpace )
     {
+        device->m_memObjectCount.threadSpaceCount++;
+
         result = threadSpace->Initialize( );
         if( result != CM_SUCCESS )
         {
@@ -136,6 +138,7 @@ int32_t CmThreadSpaceRT::Destroy( CmThreadSpaceRT* &threadSpace )
 {
     if( threadSpace )
     {
+        threadSpace->m_device->m_memObjectCount.threadSpaceCount--;
         delete threadSpace;
         threadSpace = nullptr;
     }
@@ -272,7 +275,7 @@ CM_RT_API int32_t CmThreadSpaceRT::AssociateThread( uint32_t x, uint32_t y, CmKe
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmThreadSpaceRT::AssociateThreadWithMask( uint32_t x, uint32_t y, CmKernel* kernel , uint32_t threadId, uint8_t dependencyMask )
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
     if((x >= m_width) || (y >= m_height) || (kernel == nullptr))
     {
@@ -350,7 +353,7 @@ CM_RT_API int32_t CmThreadSpaceRT::AssociateThreadWithMask( uint32_t x, uint32_t
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmThreadSpaceRT::SetThreadDependencyPattern( uint32_t count, int32_t *deltaX, int32_t *deltaY )
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
     if( count > CM_MAX_DEPENDENCY_COUNT )
     {
@@ -377,7 +380,7 @@ CM_RT_API int32_t CmThreadSpaceRT::SetThreadDependencyPattern( uint32_t count, i
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmThreadSpaceRT::SelectThreadDependencyPattern (CM_DEPENDENCY_PATTERN pattern )
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
     int32_t hr = CM_SUCCESS;
 
@@ -542,7 +545,7 @@ finish:
 
 CM_RT_API int32_t CmThreadSpaceRT::SelectMediaWalkingPattern( CM_WALKING_PATTERN pattern )
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
     int result = CM_SUCCESS;
 
@@ -584,7 +587,7 @@ CM_RT_API int32_t CmThreadSpaceRT::SelectMediaWalkingPattern( CM_WALKING_PATTERN
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmThreadSpaceRT::SelectMediaWalkingParameters(CM_WALKING_PARAMETERS parameters)
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
     // [0..11] of parameters maps to DWORD5 through DWORD16
     // No error checking here
@@ -610,7 +613,7 @@ CM_RT_API int32_t CmThreadSpaceRT::SelectMediaWalkingParameters(CM_WALKING_PARAM
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmThreadSpaceRT::SetThreadSpaceOrder(uint32_t threadCount, const CM_THREAD_PARAM* threadSpaceOrder)
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
     if (threadCount != m_width*m_height || threadSpaceOrder == nullptr)
     {
@@ -657,7 +660,7 @@ CM_RT_API int32_t CmThreadSpaceRT::SetThreadSpaceOrder(uint32_t threadCount, con
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmThreadSpaceRT::SelectThreadDependencyVectors(CM_DEPENDENCY dependencyVectors)
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
     if( CmSafeMemCompare(&m_dependencyVectors, &dependencyVectors, sizeof(m_dependencyVectors)) != 0 )
     {
@@ -677,7 +680,7 @@ CM_RT_API int32_t CmThreadSpaceRT::SelectThreadDependencyVectors(CM_DEPENDENCY d
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmThreadSpaceRT::SetThreadSpaceColorCount(uint32_t colorCount)
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
     int32_t result = CM_SUCCESS;
 
@@ -701,7 +704,7 @@ CM_RT_API int32_t CmThreadSpaceRT::SetThreadSpaceColorCount(uint32_t colorCount)
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmThreadSpaceRT::Set26ZIDispatchPattern( CM_26ZI_DISPATCH_PATTERN pattern )
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
      int result = CM_SUCCESS;
 
@@ -738,7 +741,7 @@ CM_RT_API int32_t CmThreadSpaceRT::Set26ZIDispatchPattern( CM_26ZI_DISPATCH_PATT
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmThreadSpaceRT::Set26ZIMacroBlockSize( uint32_t width, uint32_t height )
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
     int32_t hr = CM_SUCCESS;
     m_26ZIBlockWidth = width;
     m_26ZIBlockHeight = height;
@@ -2165,10 +2168,13 @@ std::string CmThreadSpaceRT::Log()
 
     return oss.str();
 }
-#endif
+
+CM_HAL_STATE* CmThreadSpaceRT::GetHalState() { return m_device->GetHalState(); }
+
+#endif  // #if CM_LOG_ON
 
 CmThreadGroupSpace *CmThreadSpaceRT::GetThreadGroupSpace() const
 {
     return m_threadGroupSpace;
 }
-}
+}  // namespace

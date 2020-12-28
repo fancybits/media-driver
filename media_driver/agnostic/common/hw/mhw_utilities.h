@@ -372,7 +372,9 @@ enum MHW_MEDIASTATE_SURFACEFORMAT
     MHW_MEDIASTATE_SURFACEFORMAT_B8G8R8A8_UNORM     = 14,   // sample_8x8 only
     MHW_MEDIASTATE_SURFACEFORMAT_R16G16B16A16       = 15,   // Sample_8x8 only
     MHW_MEDIASTATE_SURFACEFORMAT_PLANAR_420_16      = 23,   // Sample_8x8 only
-    MHW_MEDIASTATE_SURFACEFORMAT_R16B16_UNORM       = 24    // Sample_8x8 only
+    MHW_MEDIASTATE_SURFACEFORMAT_R16B16_UNORM       = 24,   // Sample_8x8 only
+    MHW_MEDIASTATE_SURFACEFORMAT_R16_UNORM          = 25,   // Sample_8x8 only
+    MHW_MEDIASTATE_SURFACEFORMAT_Y16_UNORM          = 26    // Sample_8x8 only
 };
 
 enum GFX3DSTATE_SURFACETYPE
@@ -640,7 +642,8 @@ MOS_STATUS Mhw_SurfaceFormatToType(
 
 MOS_STATUS Mhw_SendGenericPrologCmd(
     PMOS_COMMAND_BUFFER         pCmdBuffer,
-    PMHW_GENERIC_PROLOG_PARAMS  pParams);
+    PMHW_GENERIC_PROLOG_PARAMS  pParams,
+    MHW_MI_MMIOREGISTERS       *pMmioReg = nullptr);
 
 MOS_STATUS Mhw_SetNearestModeTable(
     int32_t         *iCoefs,
@@ -654,7 +657,8 @@ MOS_STATUS Mhw_CalcPolyphaseTablesY(
     MOS_FORMAT      srcFmt,
     float           fHPStrength,
     bool            bUse8x8Filter,
-    uint32_t        dwHwPhase);
+    uint32_t        dwHwPhase,
+    float           fLanczosT);
 
 MOS_STATUS Mhw_CalcPolyphaseTablesUV(
     int32_t  *piCoefs,
@@ -698,7 +702,7 @@ uint32_t Mhw_ConvertToTRMode(
 //*-----------------------------------------------------------------------------
 static __inline MOS_STATUS Mhw_AddCommandBB(
     PMHW_BATCH_BUFFER           pBatchBuffer,   // [in] Pointer to Batch Buffer
-    void                        *pCmd,           // [in] Command Pointer
+    const void                  *pCmd,          // [in] Command Pointer
     uint32_t                    dwCmdSize)      // [in] Size of command in bytes
 {
     uint8_t     *pbBatchPtr;
@@ -744,16 +748,21 @@ finish:
 static __inline MOS_STATUS Mhw_AddCommandCmdOrBB(
     void       *pCmdBuffer,     // [in] Pointer to Command Buffer
     void       *pBatchBuffer,   // [in] Pointer to Batch Buffer
-    void       *pCmd,           // [in] Command Pointer
-    uint32_t   dwCmdSize)      // [in] Size of command in bytes
+    const void *pCmd,           // [in] Command Pointer
+    uint32_t   dwCmdSize)       // [in] Size of command in bytes
 {
     if (pCmdBuffer)
     {
         return ((MOS_STATUS)Mos_AddCommand((PMOS_COMMAND_BUFFER)pCmdBuffer, pCmd, dwCmdSize));
     }
-    else
+    else if (pBatchBuffer)
     {
         return (Mhw_AddCommandBB((PMHW_BATCH_BUFFER)pBatchBuffer, pCmd, dwCmdSize));
+    }
+    else
+    {
+        MHW_ASSERTMESSAGE("There is no valid command buffer or batch buffer.");
+        return MOS_STATUS_NULL_POINTER;
     }
 }
 

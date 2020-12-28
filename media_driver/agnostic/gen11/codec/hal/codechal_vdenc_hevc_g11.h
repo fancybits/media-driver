@@ -172,7 +172,11 @@ struct CODECHAL_VDENC_HEVC_HUC_BRC_UPDATE_DMEM_G11
     uint32_t    SkipFrameSize;
     uint32_t    SliceHeaderSize;
     int8_t      EnableMotionAdaptive;
-    uint8_t     RSVD[15];  // 64-byte alignment
+    uint8_t     FrameSizeBoostForSceneChange;// UPD_TCBRC_SCENARIO_U8
+    uint8_t     ROMCurrent;                  // ROM average of current frame
+    uint8_t     ROMZero;                     // ROM zero percentage
+    uint32_t    TargetFrameSize;             // TR_BRC
+    uint8_t     RSVD[8];                     // 64-byte alignment
 };
 C_ASSERT(192 == sizeof(CODECHAL_VDENC_HEVC_HUC_BRC_UPDATE_DMEM_G11));
 
@@ -252,6 +256,7 @@ struct CODECHAL_VDENC_HEVC_HUC_BRC_CONSTANT_DATA_G11
     // motion adaptive
     uint8_t    QPAdaptiveWeight[52];
     uint8_t    boostTable[52];
+    uint8_t    PenaltyForIntraNonDC32x32PredMode[52];
 };
 
 using PCODECHAL_VDENC_HEVC_HUC_BRC_CONSTANT_DATA_G11 = CODECHAL_VDENC_HEVC_HUC_BRC_CONSTANT_DATA_G11*;
@@ -362,13 +367,14 @@ public:
         };
     };
 
-    PMHW_VDBOX_HCP_TILE_CODING_PARAMS_G11       m_tileParams;       //!< Pointer to the Tile params
+    PMHW_VDBOX_HCP_TILE_CODING_PARAMS_G11       m_tileParams = nullptr;       //!< Pointer to the Tile params
 
     bool                        m_enableTileStitchByHW = false;          //!< Enable HW to stitch commands in scalable mode
     bool                        m_enableHWSemaphore = false;             //!< Enable HW semaphore
     bool                        m_enableVdBoxHWSemaphore = false;        //!< Enable VDBOX HW semaphore
     // scalability
     unsigned char                         m_numPipe            = 1;         //!< Number of pipes
+    unsigned char                         m_numPipePre         = 1;         //!< Number of pipes of previous frame
     unsigned char                         m_numPassesInOnePipe = 1;         //!< Number of PAK passes in one pipe
     CODECHAL_ENCODE_BUFFER                m_resPakSliceLevelStreamoutData;  //!< Surface for slice level stream out data from PAK
     CODECHAL_HEVC_VIRTUAL_ENGINE_OVERRIDE m_kmdVeOveride;                   //!< KMD override virtual engine index
@@ -378,9 +384,9 @@ public:
     CODECHAL_ENCODE_BUFFER                m_resTileBasedStatisticsBuffer[CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC];
     CODECHAL_ENCODE_BUFFER                m_tileRecordBuffer[CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC];
     CODECHAL_ENCODE_BUFFER                m_resHuCPakAggregatedFrameStatsBuffer;
-    HEVC_TILE_STATS_INFO                  m_hevcTileStatsOffset;       //!< Page aligned offsets used to program HCP / VDEnc pipe and HuC PAK Integration kernel input
-    HEVC_TILE_STATS_INFO                  m_hevcFrameStatsOffset;      //!< Page aligned offsets used to program HuC PAK Integration kernel output, HuC BRC kernel input
-    HEVC_TILE_STATS_INFO                  m_hevcStatsSize;             //!< HEVC Statistics size
+    HEVC_TILE_STATS_INFO                  m_hevcTileStatsOffset = {};       //!< Page aligned offsets used to program HCP / VDEnc pipe and HuC PAK Integration kernel input
+    HEVC_TILE_STATS_INFO                  m_hevcFrameStatsOffset = {};      //!< Page aligned offsets used to program HuC PAK Integration kernel output, HuC BRC kernel input
+    HEVC_TILE_STATS_INFO                  m_hevcStatsSize = {};             //!< HEVC Statistics size
     bool                                  m_enableTestMediaReset = 0;  //!< enable media reset test. driver will send cmd to make hang happens
 
     // HuC PAK stitch kernel
@@ -393,7 +399,6 @@ public:
     MOS_COMMAND_BUFFER     m_veBatchBuffer[CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC][CODECHAL_HEVC_MAX_NUM_HCP_PIPE][CODECHAL_HEVC_MAX_NUM_BRC_PASSES];  //!< Virtual engine batch buffers
     MOS_COMMAND_BUFFER     m_realCmdBuffer;                                                                                                            //!< Virtual engine command buffer
     uint32_t               m_sizeOfVeBatchBuffer  = 0;                                                                                                 //!< Virtual engine batch buffer size
-    unsigned char          m_virtualEngineBbIndex = 0;                                                                                                 //!< Virtual engine batch buffer index
     CODECHAL_ENCODE_BUFFER m_resBrcSemaphoreMem[CODECHAL_HEVC_MAX_NUM_HCP_PIPE];                                                                       //!< BRC HW semaphore
     CODECHAL_ENCODE_BUFFER m_resVdBoxSemaphoreMem[CODECHAL_HEVC_MAX_NUM_HCP_PIPE];                                                                     //!< VDBox HW semaphore
     CODECHAL_ENCODE_BUFFER m_resBrcPakSemaphoreMem;                                                                                                    //!< BRC PAK HW semaphore
@@ -560,7 +565,8 @@ public:
 
     MOS_STATUS SendPrologWithFrameTracking(
         PMOS_COMMAND_BUFFER         cmdBuffer,
-        bool                        frameTrackingRequested);
+        bool                        frameTrackingRequested,
+        MHW_MI_MMIOREGISTERS       *mmioRegister = nullptr);
 
     MOS_STATUS SetSliceStructs();
 
@@ -573,6 +579,10 @@ public:
     MOS_STATUS ReadSseStatistics(PMOS_COMMAND_BUFFER cmdBuffer);
 
     MOS_STATUS HuCBrcInitReset();
+
+    MOS_STATUS HuCLookaheadInit();
+
+    MOS_STATUS HuCLookaheadUpdate();
 
     void SetVdencPipeBufAddrParams(
         MHW_VDBOX_PIPE_BUF_ADDR_PARAMS& pipeBufAddrParams);
@@ -818,11 +828,18 @@ protected:
 
     PCODECHAL_ENCODE_SCALABILITY_STATE              m_scalabilityState;   //!< Scalability state
 
+    //!
+    //! \brief    Lookahead analysis
+    //!
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS AnalyzeLookaheadStats();
+
 #if USE_CODECHAL_DEBUG_TOOL
     virtual MOS_STATUS DumpHucPakIntegrate();
     virtual MOS_STATUS DumpVdencOutputs();
     virtual MOS_STATUS DumpHucCqp();
-    virtual MOS_STATUS DumpHucBrcUpdate(bool isInput);
 #endif
 
 };

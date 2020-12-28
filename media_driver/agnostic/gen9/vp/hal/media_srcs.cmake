@@ -31,6 +31,7 @@ set(TMP_2_SOURCES_
     ${CMAKE_CURRENT_LIST_DIR}/vphal_render_sfc_g9_base.cpp
     ${CMAKE_CURRENT_LIST_DIR}/vphal_render_vebox_g9_base.cpp
     ${CMAKE_CURRENT_LIST_DIR}/vphal_renderer_g9.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/vphal_render_hdr_g9_base.cpp
 )
 
 set(TMP_2_HEADERS_
@@ -38,6 +39,7 @@ set(TMP_2_HEADERS_
     ${CMAKE_CURRENT_LIST_DIR}/vphal_render_sfc_g9_base.h
     ${CMAKE_CURRENT_LIST_DIR}/vphal_render_vebox_g9_base.h
     ${CMAKE_CURRENT_LIST_DIR}/vphal_renderer_g9.h
+    ${CMAKE_CURRENT_LIST_DIR}/vphal_render_hdr_g9_base.h
 )
 
 set(SOURCES_
@@ -48,6 +50,18 @@ set(SOURCES_
 
 set(HEADERS_
     ${HEADERS_}
+    ${TMP_1_HEADERS_}
+    ${TMP_2_HEADERS_}
+)
+
+set(COMMON_SOURCES_
+    ${COMMON_SOURCES_}
+    ${TMP_1_SOURCES_}
+    ${TMP_2_SOURCES_}
+)
+
+set(COMMON_HEADERS_
+    ${COMMON_HEADERS_}
     ${TMP_1_HEADERS_}
     ${TMP_2_HEADERS_}
 )

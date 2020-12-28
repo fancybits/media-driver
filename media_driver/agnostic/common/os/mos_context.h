@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017, Intel Corporation
+* Copyright (c) 2017-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -90,7 +90,7 @@ public:
     //! \return   MOS_STATUS
     //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
     //!
-    MOS_STATUS CommandBufferDumpInit();
+    MOS_STATUS CommandBufferDumpInit(PMOS_CONTEXT mosCtx);
 #endif
 
     //!
@@ -149,6 +149,12 @@ public:
     //!         context, output the ruling slice count shared by all contexts.
     //!
     virtual void SetSliceCount(uint32_t *pSliceCount) { MOS_UNUSED(pSliceCount); };
+
+    //! \brief   Flag to indicate if implicit tile setting is needed
+    bool m_implicitTileNeeded = false;
+
+    //! \brief   Flag to indicate if NoGfxMemory needed
+    bool m_noGfxMemoryNeeded  = false;
 
 protected:
     //! \brief  Platform string including product family, chipset family, etc
@@ -210,9 +216,6 @@ protected:
 
     //! \brief   Component info
     MOS_COMPONENT                   m_component = COMPONENT_UNKNOWN;
-
-    //! \brief   Flag to indicate if HAS is enabled
-    bool                            m_simIsActive = false;
 
 #if MOS_COMMAND_BUFFER_DUMP_SUPPORTED
     //! \brief   Command buffer dump.

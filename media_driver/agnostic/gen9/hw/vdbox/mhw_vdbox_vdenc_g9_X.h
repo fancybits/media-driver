@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2018, Intel Corporation
+* Copyright (c) 2017-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -75,7 +75,8 @@ protected:
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_ROWSTORE_CACHE_DISABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            this->m_osInterface->pOsContext);
 #endif // _DEBUG || _RELEASE_INTERNAL
         this->m_rowstoreCachingSupported = userFeatureData.i32Data ? false : true;
 
@@ -86,7 +87,8 @@ protected:
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_VDENCROWSTORECACHE_DISABLE_ID,
-                &userFeatureData);
+                &userFeatureData,
+                this->m_osInterface->pOsContext);
 #endif // _DEBUG || _RELEASE_INTERNAL
             this->m_vdencRowStoreCache.bSupported = userFeatureData.i32Data ? false : true;
         }
@@ -171,6 +173,51 @@ protected:
         *patchListSize = patchListMaxSize;
 
         return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS GetVdencPrimitiveCommandsDataSize(
+        uint32_t                        mode,
+        uint32_t                        *commandsSize,
+        uint32_t                        *patchListSize)
+    {
+        MHW_FUNCTION_ENTER;
+
+        uint32_t            maxSize = 0;
+        uint32_t            patchListMaxSize = 0;
+        uint32_t            standard = CodecHal_GetStandardFromMode(mode);
+
+        if (standard == CODECHAL_AVC)
+        {
+            maxSize =
+                TVdencCmds::VDENC_WALKER_STATE_CMD::byteSize +
+                TVdencCmds::VD_PIPELINE_FLUSH_CMD::byteSize;
+
+            patchListMaxSize = VDENC_PIPE_BUF_ADDR_STATE_CMD_NUMBER_OF_ADDRESSES;
+        }
+        else
+        {
+            MHW_ASSERTMESSAGE("Unsupported encode mode.");
+            *commandsSize  = 0;
+            *patchListSize = 0;
+            return MOS_STATUS_UNKNOWN;
+        }
+
+        *commandsSize  = maxSize;
+        *patchListSize = patchListMaxSize;
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+    PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS CreateMhwVdboxPipeModeSelectParams()
+    {
+        auto pipeModeSelectParams = MOS_New(MHW_VDBOX_PIPE_MODE_SELECT_PARAMS);
+
+        return pipeModeSelectParams;
+    }
+
+    void ReleaseMhwVdboxPipeModeSelectParams(PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS pipeModeSelectParams)
+    {
+        MOS_Delete(pipeModeSelectParams);
     }
 
     MOS_STATUS AddVdencPipeModeSelectCmd(

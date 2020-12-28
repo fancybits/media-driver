@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2018, Intel Corporation
+* Copyright (c) 2017-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -96,6 +96,11 @@ public:
         PCODECHAL_ENCODE_AVC_TQ_INPUT_PARAMS params,
         PCODECHAL_ENCODE_AVC_TQ_PARAMS trellisQuantParams) override;
 
+    virtual MOS_STATUS AddHucOutputRegistersHandling(
+        MmioRegistersHuc*   mmioRegisters,
+        PMOS_COMMAND_BUFFER cmdBuffer,
+        bool                addToEncodeStatus) override;
+
     MOS_STATUS HuCBrcDummyStreamObject(PMOS_COMMAND_BUFFER cmdBuffer) override { return MOS_STATUS_SUCCESS; }
 
     MOS_STATUS SetDmemHuCBrcInitReset() override;
@@ -117,7 +122,8 @@ public:
 
     MOS_STATUS SendPrologWithFrameTracking(
         PMOS_COMMAND_BUFFER         cmdBuffer,
-        bool                        frameTracking) override;
+        bool                        frameTracking,
+        MHW_MI_MMIOREGISTERS       *mmioRegister = nullptr) override;
 
     //!
     //! \brief    Create MHW_VDBOX_STATE_CMDSIZE_PARAMS
@@ -125,13 +131,6 @@ public:
     //! \return   PMHW_VDBOX_STATE_CMDSIZE_PARAMS
     //!
     PMHW_VDBOX_STATE_CMDSIZE_PARAMS CreateMhwVdboxStateCmdsizeParams() override;
-
-    //!
-    //! \brief    Create PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS.
-    //!
-    //! \return   PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS
-    //!
-    PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS CreateMhwVdboxPipeModeSelectParams() override;
 
     //!
     //! \brief    Create PMHW_VDBOX_VDENC_WALKER_STATE_PARAMS.
@@ -186,7 +185,7 @@ public:
 
 protected:
 
-    MOS_STATUS CalculateVdencPictureStateCommandSize() override;
+    MOS_STATUS CalculateVdencCommandsSize() override;
 
 private:
     static const uint32_t m_mvCostSkipBiasQPel[3][8];
@@ -201,18 +200,18 @@ private:
 #if USE_CODECHAL_DEBUG_TOOL
 protected:
     virtual MOS_STATUS PopulateBrcInitParam(
-        void *cmd);
+        void *cmd) override;
 
     virtual MOS_STATUS PopulateBrcUpdateParam(
-        void *cmd);
+        void *cmd) override;
 
     virtual MOS_STATUS PopulateEncParam(
         uint8_t meMethod,
-        void    *cmd);
+        void    *cmd) override;
 
     virtual MOS_STATUS PopulatePakParam(
         PMOS_COMMAND_BUFFER cmdBuffer,
-        PMHW_BATCH_BUFFER   secondLevelBatchBuffer);
+        PMHW_BATCH_BUFFER   secondLevelBatchBuffer) override;
 #endif
 };
 

@@ -88,8 +88,8 @@ struct HucInputCmd1G11
     uint32_t Intra32X32ModeMask;
 
     // VP9
-    uint16_t SrcFrameWidthMinus1;
-    uint16_t SrcFrameHeightMinus1;
+    uint16_t SrcFrameWidth;
+    uint16_t SrcFrameHeight;
 
     uint8_t  SegmentationEnabled;
     uint8_t  PrevFrameSegEnabled;
@@ -142,13 +142,13 @@ struct HucInputCmd3G11
 //! \struct HucCopyParams
 //! \brief  The struct of params used for huc copy
 //!
-typedef struct
+struct HucCopyParams
 {
     PMOS_RESOURCE presSrc       = nullptr;
     PMOS_RESOURCE presDst       = nullptr;
     uint32_t      size          = 0;
     uint16_t      lengthOfTable = 0;
-} HucCopyParams;
+};
 
 //!
 //! \class  CodechalCmdInitializer

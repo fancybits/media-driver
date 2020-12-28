@@ -237,15 +237,15 @@
 //!
 //! \brief User feature keys for component BLT:
 //!
-#define __MOS_USER_FEATURE_KEY_MESSAGE_BLT_TAG              "BLT Message Tags"
-#define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_BLT         "BLT Tags By Sub Component"
+#define __MOS_USER_FEATURE_KEY_MESSAGE_MCPY_TAG             "MCPY Message Tags"
+#define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_MCPY        "MCPY Tags By Sub Component"
 //!
 //! \brief 63____________________________________________________________________________3__________0
 //!         |                                                                            |   Self   |
-//!         |                    Reserved (can create BLT subcomponents)                 |Asrt|level|
+//!         |                    Reserved (can create MCPY subcomponents)                |Asrt|level|
 //!         |____________________________________________________________________________|__________|
 //!
-#define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_BLT_TAG        "BLT Sub Components Tags"
+#define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_MCPY_TAG       "MCPY Sub Components Tags"
 
 #endif // MOS_MESSAGES_ENABLED
 
@@ -253,6 +253,7 @@
 #define __MEDIA_USER_FEATURE_VALUE_MDF_ETW_ENABLE                           "MDF ETW Enable"
 #define __MEDIA_USER_FEATURE_VALUE_MDF_LOG_LEVEL                            "MDF LOG Level"
 #define __MEDIA_USER_FEATURE_VALUE_MDF_UMD_ULT_ENABLE                       "MDF UMD ULT Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MDF_CMD_DUMP_ENABLE                      "MDF Command Buffer Dump Enable"
 #define __MEDIA_USER_FEATURE_VALUE_MDF_CURBE_DUMP_ENABLE                    "MDF Curbe Dump Enable"
 #define __MEDIA_USER_FEATURE_VALUE_MDF_SURFACE_DUMP_ENABLE                  "MDF Surface Dump Enable"
 #define __MEDIA_USER_FEATURE_VALUE_MDF_SURFACE_STATE_DUMP_ENABLE            "MDF Surface State Dump Enable"
@@ -263,6 +264,8 @@
 #define __MEDIA_USER_FEATURE_VALUE_MDF_INTERFACE_DESCRIPTOR_DATA_COUNTER    "MDF Interface Descriptor Dump Counter"
 #define __MEDIA_USER_FEATURE_VALUE_MDF_DUMPPATH_USER                        "MDF Dump Path Specified by User"
 #define __MEDIA_USER_FEATURE_VALUE_MDF_FORCE_EXECUTION_PATH                 "MDF Execution Path Forced by User"
+#define __MEDIA_USER_FEATURE_VALUE_MDF_MAX_THREAD_NUM                       "CmMaxThreads"
+#define __MEDIA_USER_FEATURE_VALUE_MDF_FORCE_COHERENT_STATELESSBTI          "ForceCoherentStatelessBTI"
 
 //User feature key for VP
 #define __MEDIA_USER_FEATURE_VALUE_VP_3P_DUMP_UFKEY_LOCATION                "Software\\Intel\\VPPDPI"
@@ -276,6 +279,10 @@
 #define __MEDIA_USER_FEATURE_VALUE_ALLOC_MEMORY_FAIL_SIMULATE_MODE    "Alloc Memory Fail Simulate Mode"
 #define __MEDIA_USER_FEATURE_VALUE_ALLOC_MEMORY_FAIL_SIMULATE_FREQ    "Alloc Memory Fail Simulate Freq"
 #define __MEDIA_USER_FEATURE_VALUE_ALLOC_MEMORY_FAIL_SIMULATE_HINT    "Alloc Memory Fail Simulate Hint"
+#define __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_TYPE          "OS API Fail Simulate Type"
+#define __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_MODE          "OS API Fail Simulate Mode"
+#define __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_FREQ          "OS API Fail Simulate Freq"
+#define __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_HINT          "OS API Fail Simulate Hint"
 #endif //(_DEBUG || _RELEASE_INTERNAL)
 
 //User feature key for UMD_OCA
@@ -290,5 +297,6 @@
 
 //User feature key for enable Perf Utility Tool
 #define __MEDIA_USER_FEATURE_VALUE_PERF_UTILITY_TOOL_ENABLE          "Perf Utility Tool Enable"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_OUTPUT_DIRECTORY             "Perf Output Directory"
 
 #endif // __MOS_UTIL_USER_FEATURE_KEYS_H__

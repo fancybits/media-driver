@@ -167,6 +167,19 @@ public:
         m_GpuContextHandle[GpuContext] = gpuContextHandle;
     }
 
+    GPU_CONTEXT_HANDLE GetGpuContextHandleByIndex(uint32_t index)
+    {
+        return (index < MOS_GPU_CONTEXT_MAX) ? m_GpuContextHandle[index] : MOS_GPU_CONTEXT_INVALID_HANDLE;
+    }
+
+    void SetGpuContextHandleByIndex(uint32_t index, GPU_CONTEXT_HANDLE gpuContextHandle)
+    {
+        if (index < MOS_GPU_CONTEXT_MAX)
+        {
+            m_GpuContextHandle[index] = gpuContextHandle;
+        }
+    }
+
     GpuContextMgr *GetGpuContextMgr() { return m_gpuContextMgr; }
 
     CmdBufMgr* GetCmdBufMgr(){return m_cmdBufMgr;}
@@ -189,6 +202,19 @@ public:
     void SetSliceCount(uint32_t *pSliceCount);
 
 #endif
+    //!
+    //! \brief  Get the context priority from KMD
+    //! \param  [in, out] pPriority
+    //!         Pointer to the priority of current gpu context.
+    //!
+    void GetGpuPriority(int32_t *pPriority);
+
+    //!
+    //! \brief  Get the context priority from KMD
+    //! \param  [in] priority
+    //!         the priority set to  current gpu context.
+    //!
+    void SetGpuPriority(int32_t priority); 
 
 private:
 #ifndef ANDROID
@@ -365,6 +391,29 @@ private:
         PMOS_RESOURCE               pOsResource) = nullptr;
 
     //!
+    //! \brief  the function ptr for surface copy function
+    //!
+    void  (* m_mediaMemCopy )(
+        PMOS_CONTEXT       pOsContext,
+        PMOS_RESOURCE      pInputResource,
+        PMOS_RESOURCE      pOutputResource,
+        bool               bOutputCompressed) = nullptr;
+
+    //!
+    //! \brief  the function ptr for Media Memory 2D copy function
+    //!
+    void (* m_mediaMemCopy2D)(
+        PMOS_CONTEXT       pOsContext,
+        PMOS_RESOURCE      pInputResource,
+        PMOS_RESOURCE      pOutputResource,
+        uint32_t           copyWidth,
+        uint32_t           copyHeight,
+        uint32_t           copyInputOffset,
+        uint32_t           copyOutputOffset,
+        uint32_t           bpp,
+        bool               bOutputCompressed) = nullptr;
+
+    //!
     //! \brief  ptr to ptr of memory decompression state
     //!
     void*               *m_mediaMemDecompState = nullptr;
@@ -410,5 +459,6 @@ private:
 
     GpuContextMgr      *m_gpuContextMgr = nullptr;
     CmdBufMgr          *m_cmdBufMgr = nullptr;
+    bool                m_apoMosEnabled = false;
 };
 #endif // #ifndef __MOS_CONTEXT_SPECIFIC_H__

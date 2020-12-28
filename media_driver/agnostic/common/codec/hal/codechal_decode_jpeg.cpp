@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2018, Intel Corporation
+* Copyright (c) 2011-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -27,6 +27,7 @@
 
 #include "codechal_decode_jpeg.h"
 #include "codechal_mmc_decode_jpeg.h"
+#include "hal_oca_interface.h"
 #if USE_CODECHAL_DEBUG_TOOL
 #include <sstream>
 #include "codechal_debug.h"
@@ -292,7 +293,7 @@ MOS_STATUS CodechalDecodeJpeg::CheckAndCopyIncompleteBitStream()
             m_preNumScans     = m_jpegScanParams->NumScans;
 
             // judge whether the bitstream is complete in the first execute() call
-            if (m_firstExecuteCall &&
+            if (IsFirstExecuteCall() &&
                 m_dataSize <= m_jpegScanParams->ScanHeader[0].DataOffset + m_jpegScanParams->ScanHeader[0].DataLength)
             {
                 CODECHAL_DECODE_CHK_COND_RETURN(
@@ -438,7 +439,7 @@ MOS_STATUS CodechalDecodeJpeg::SetFrameStates()
 
     m_hwInterface->GetCpInterface()->SetCpSecurityType();
 
-    if (m_firstExecuteCall)
+    if (IsFirstExecuteCall())
     {
         CODECHAL_DECODE_CHK_STATUS_RETURN(InitializeBeginFrame());
     }
@@ -652,6 +653,9 @@ MOS_STATUS CodechalDecodeJpeg::DecodeStateLevel()
         &cmdBuffer,
         0));
 
+    auto mmioRegisters = m_hwInterface->GetMfxInterface()->GetMmioRegisters(m_vdboxIndex);
+    HalOcaInterface::On1stLevelBBStart(cmdBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle, *m_miInterface, *mmioRegisters);
+
     CODECHAL_DECODE_CHK_STATUS_RETURN(SendPrologWithFrameTracking(
         &cmdBuffer, true));
 
@@ -779,7 +783,7 @@ MOS_STATUS CodechalDecodeJpeg::DecodePrimitiveLevel()
     MHW_VDBOX_QM_PARAMS qmParams;
     MOS_ZeroMemory(&qmParams, sizeof(qmParams));
     qmParams.Standard = CODECHAL_JPEG;
-    qmParams.pJpegQuantMatrix = (CodecJpegQuantMatrix *)m_jpegQMatrix;
+    qmParams.pJpegQuantMatrix = m_jpegQMatrix;
 
     // Swapping QM(x,y) to QM(y,x) for 90/270 degree rotation
     if ((m_jpegPicParams->m_rotation == jpegRotation90) ||
@@ -975,6 +979,8 @@ MOS_STATUS CodechalDecodeJpeg::DecodePrimitiveLevel()
             &syncParams));
     }
 
+    HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
+
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(
         m_osInterface,
         &cmdBuffer,
@@ -1007,8 +1013,10 @@ MOS_STATUS CodechalDecodeJpeg::DecodePrimitiveLevel()
 
 MOS_STATUS CodechalDecodeJpeg::InitMmcState()
 {
+#ifdef _MMC_SUPPORTED
     m_mmc = MOS_New(CodechalMmcDecodeJpeg, m_hwInterface, this);
     CODECHAL_DECODE_CHK_NULL_RETURN(m_mmc);
+#endif
 
     return MOS_STATUS_SUCCESS;
 }

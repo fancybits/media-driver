@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2015-2018, Intel Corporation
+* Copyright (c) 2015-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -545,8 +545,20 @@ VAStatus DdiDecodeHEVCG11::InitResourceBuffer()
     bufMgr->pSliceData               = nullptr;
 
     bufMgr->ui64BitstreamOrder = 0;
-    bufMgr->dwMaxBsSize        = m_width *
-                          m_height * 3 / 2;
+
+    if(m_width * m_height < CODEC_720P_MAX_PIC_WIDTH * CODEC_720P_MAX_PIC_HEIGHT)
+    {
+        bufMgr->dwMaxBsSize = m_width * m_height * 3 / 2;
+    }
+    else if(m_width * m_height < CODEC_4K_MAX_PIC_WIDTH * CODEC_4K_MAX_PIC_HEIGHT)
+    {
+        bufMgr->dwMaxBsSize = m_width * m_height * 3 / 8;
+    }
+    else
+    {
+        bufMgr->dwMaxBsSize = m_width * m_height * 3 / 16;
+    }
+
     // minimal 10k bytes for some special case. Will refractor this later
     if (bufMgr->dwMaxBsSize < DDI_CODEC_MIN_VALUE_OF_MAX_BS_SIZE)
     {
@@ -693,10 +705,16 @@ VAStatus DdiDecodeHEVCG11::AllocSliceControlBuffer(
     bufMgr     = &(m_ddiDecodeCtx->BufMgr);
     availSize = m_sliceCtrlBufNum - bufMgr->dwNumSliceControl;
 
+    if(buf->uiNumElements < 1 || buf->iSize < 1)
+        return VA_STATUS_ERROR_ALLOCATION_FAILED;
+
     if(m_ddiDecodeCtx->bShortFormatInUse)
     {
         if(availSize < buf->uiNumElements)
         {
+            if (buf->iSize / buf->uiNumElements != sizeof(VASliceParameterBufferBase))
+                return VA_STATUS_ERROR_ALLOCATION_FAILED;
+
             newSize   = sizeof(VASliceParameterBufferBase) * (m_sliceCtrlBufNum - availSize + buf->uiNumElements);
             bufMgr->Codec_Param.Codec_Param_HEVC.pVASliceParaBufBaseHEVC = (VASliceParameterBufferBase *)realloc(bufMgr->Codec_Param.Codec_Param_HEVC.pVASliceParaBufBaseHEVC, newSize);
             if(bufMgr->Codec_Param.Codec_Param_HEVC.pVASliceParaBufBaseHEVC == nullptr)
@@ -715,6 +733,9 @@ VAStatus DdiDecodeHEVCG11::AllocSliceControlBuffer(
         {
             if(availSize < buf->uiNumElements)
             {
+                if (buf->iSize / buf->uiNumElements != sizeof(VASliceParameterBufferHEVC))
+                    return VA_STATUS_ERROR_ALLOCATION_FAILED;
+
                 newSize   = sizeof(VASliceParameterBufferHEVC) * (m_sliceCtrlBufNum - availSize + buf->uiNumElements);
                 bufMgr->Codec_Param.Codec_Param_HEVC.pVASliceParaBufHEVC = (VASliceParameterBufferHEVC *)realloc(bufMgr->Codec_Param.Codec_Param_HEVC.pVASliceParaBufHEVC, newSize);
                 if(bufMgr->Codec_Param.Codec_Param_HEVC.pVASliceParaBufHEVC == nullptr)
@@ -731,6 +752,9 @@ VAStatus DdiDecodeHEVCG11::AllocSliceControlBuffer(
         {
             if(availSize < buf->uiNumElements)
             {
+                if (buf->iSize / buf->uiNumElements != sizeof(VASliceParameterBufferHEVCExtension))
+                    return VA_STATUS_ERROR_ALLOCATION_FAILED;
+
                 newSize   = sizeof(VASliceParameterBufferHEVCExtension) * (m_sliceCtrlBufNum - availSize + buf->uiNumElements);
                 bufMgr->Codec_Param.Codec_Param_HEVC.pVASliceParaBufHEVCRext= (VASliceParameterBufferHEVCExtension*)realloc(bufMgr->Codec_Param.Codec_Param_HEVC.pVASliceParaBufHEVCRext, newSize);
                 if(bufMgr->Codec_Param.Codec_Param_HEVC.pVASliceParaBufHEVCRext== nullptr)
@@ -840,11 +864,11 @@ VAStatus DdiDecodeHEVCG11::CodecHalInit(
 #ifdef _DECODE_PROCESSING_SUPPORTED
     if (m_decProcessingType == VA_DEC_PROCESSING)
     {
-        PCODECHAL_DECODE_PROCESSING_PARAMS procParams = nullptr;
+        DecodeProcessingParams *procParams = nullptr;
         
         m_codechalSettings->downsamplingHinted = true;
         
-        procParams = (PCODECHAL_DECODE_PROCESSING_PARAMS)MOS_AllocAndZeroMemory(sizeof(CODECHAL_DECODE_PROCESSING_PARAMS));
+        procParams = (DecodeProcessingParams *)MOS_AllocAndZeroMemory(sizeof(DecodeProcessingParams));
         if (procParams == nullptr)
         {
             vaStatus = VA_STATUS_ERROR_ALLOCATION_FAILED;
@@ -852,8 +876,8 @@ VAStatus DdiDecodeHEVCG11::CodecHalInit(
         }
         
         m_ddiDecodeCtx->DecodeParams.m_procParams = procParams;
-        procParams->pOutputSurface = (PMOS_SURFACE)MOS_AllocAndZeroMemory(sizeof(MOS_SURFACE));
-        if (procParams->pOutputSurface == nullptr)
+        procParams->m_outputSurface = (PMOS_SURFACE)MOS_AllocAndZeroMemory(sizeof(MOS_SURFACE));
+        if (procParams->m_outputSurface == nullptr)
         {
             vaStatus = VA_STATUS_ERROR_ALLOCATION_FAILED;
             goto CleanUpandReturn;
@@ -901,8 +925,8 @@ CleanUpandReturn:
     if (m_ddiDecodeCtx->DecodeParams.m_procParams)
     {
         auto procParams =
-            (PCODECHAL_DECODE_PROCESSING_PARAMS)m_ddiDecodeCtx->DecodeParams.m_procParams;
-        MOS_FreeMemory(procParams->pOutputSurface);
+            (DecodeProcessingParams *)m_ddiDecodeCtx->DecodeParams.m_procParams;
+        MOS_FreeMemory(procParams->m_outputSurface);
         
         MOS_FreeMemory(m_ddiDecodeCtx->DecodeParams.m_procParams);
         m_ddiDecodeCtx->DecodeParams.m_procParams = nullptr;

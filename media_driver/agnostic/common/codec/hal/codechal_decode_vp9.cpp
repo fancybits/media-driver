@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2012-2018, Intel Corporation
+* Copyright (c) 2012-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -29,6 +29,7 @@
 #include "codechal_secure_decode_interface.h"
 #include "codechal_decode_vp9.h"
 #include "codechal_mmc_decode_vp9.h"
+#include "hal_oca_interface.h"
 #if USE_CODECHAL_DEBUG_TOOL
 #include <sstream>
 #include <fstream>
@@ -590,9 +591,9 @@ MOS_STATUS CodechalDecodeVp9 :: AllocateResourcesFixedSizes()
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnCreateSyncResource(
         m_osInterface, &m_resSyncObjectVideoContextInUse));
 
-    CodecHalAllocateDataList(
+    CODECHAL_DECODE_CHK_STATUS_RETURN(CodecHalAllocateDataList(
         m_vp9RefList,
-        CODECHAL_NUM_UNCOMPRESSED_SURFACE_VP9);
+        CODECHAL_NUM_UNCOMPRESSED_SURFACE_VP9));
 
     // VP9 Probability buffer
     for (uint8_t i = 0; i < CODEC_VP9_NUM_CONTEXTS + 1; i++)
@@ -1073,7 +1074,7 @@ MOS_STATUS CodechalDecodeVp9 :: CheckAndCopyBitStream()
             (m_vp9PicParams->FrameWidthMinus1 + 1) * (m_vp9PicParams->FrameHeightMinus1 + 1) * 6;
     }
 
-    if (m_firstExecuteCall) // first exec call
+    if (IsFirstExecuteCall()) // first exec call
     {
         if (m_dataSize < m_vp9PicParams->BSBytesInBuffer)  // Current bitstream buffer is not big enough
         {
@@ -1164,7 +1165,7 @@ MOS_STATUS CodechalDecodeVp9::SetFrameStates ()
         m_resCoefProbBuffer = *(m_decodeParams.m_coefProbBuffer);
     }
 
-    if (m_firstExecuteCall)
+    if (IsFirstExecuteCall())
     {
         CODECHAL_DECODE_CHK_STATUS_RETURN(InitializeBeginFrame());
     }
@@ -1723,6 +1724,9 @@ MOS_STATUS CodechalDecodeVp9 :: DecodeStateLevel()
         &cmdBuffer,
         0));
 
+    auto mmioRegisters = m_hwInterface->GetMfxInterface()->GetMmioRegisters(m_vdboxIndex);
+    HalOcaInterface::On1stLevelBBStart(cmdBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle, *m_miInterface, *mmioRegisters);
+
     //Frame tracking functionality is called at the start of a command buffer.
     //Called at FE decode phase, since BE decode phase will only construct BE batch buffers.
     CODECHAL_DECODE_CHK_STATUS_RETURN(SendPrologWithFrameTracking(
@@ -1889,6 +1893,8 @@ MOS_STATUS CodechalDecodeVp9 :: DecodePrimitiveLevel()
     }
 
     uint32_t renderingFlags = m_videoContextUsesNullHw;
+
+    HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
 
     //submit command buffer
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(
@@ -2505,60 +2511,4 @@ MOS_STATUS CodechalDecodeVp9::ContextBufferInit(
     {
         return MOS_STATUS_SUCCESS;
     }
-}
-
-MOS_STATUS CodechalDecodeVp9::SetCencBatchBuffer(
-    PMOS_COMMAND_BUFFER cmdBuffer)
-{
-    CODECHAL_DECODE_CHK_NULL_RETURN(cmdBuffer);
-
-    MHW_BATCH_BUFFER        batchBuffer;
-    MOS_ZeroMemory(&batchBuffer, sizeof(MHW_BATCH_BUFFER));
-    MOS_RESOURCE *resHeap = nullptr;
-    CODECHAL_DECODE_CHK_NULL_RETURN(resHeap = m_cencBuf->secondLvlBbBlock->GetResource());
-    batchBuffer.OsResource   = *resHeap;
-    batchBuffer.dwOffset     = m_cencBuf->secondLvlBbBlock->GetOffset() + VP9_CENC_PRIMITIVE_CMD_OFFSET_IN_DW * 4;
-    batchBuffer.iSize        = m_cencBuf->secondLvlBbBlock->GetSize() - VP9_CENC_PRIMITIVE_CMD_OFFSET_IN_DW * 4;
-    batchBuffer.bSecondLevel = true;
-#if (_DEBUG || _RELEASE_INTERNAL)
-    batchBuffer.iLastCurrent = batchBuffer.iSize;
-#endif  // (_DEBUG || _RELEASE_INTERNAL)
-
-    CODECHAL_DECODE_CHK_STATUS_RETURN(m_miInterface->AddMiBatchBufferStartCmd(
-        cmdBuffer,
-        &batchBuffer));
-
-    CODECHAL_DEBUG_TOOL(
-        CODECHAL_DECODE_CHK_STATUS_RETURN(m_debugInterface->Dump2ndLvlBatch(
-            &batchBuffer,
-            CODECHAL_NUM_MEDIA_STATES,
-            "_2ndLvlBatch_Pic_Cmd"));)
-
-    batchBuffer.dwOffset     = m_cencBuf->secondLvlBbBlock->GetOffset();
-    batchBuffer.iSize        = VP9_CENC_PRIMITIVE_CMD_OFFSET_IN_DW * 4;
-    batchBuffer.bSecondLevel = true;
-#if (_DEBUG || _RELEASE_INTERNAL)
-    batchBuffer.iLastCurrent = batchBuffer.iSize;
-#endif  // (_DEBUG || _RELEASE_INTERNAL)
-
-    CODECHAL_DECODE_CHK_STATUS_RETURN(m_miInterface->AddMiBatchBufferStartCmd(
-        cmdBuffer,
-        &batchBuffer));
-
-    CODECHAL_DEBUG_TOOL(
-        CODECHAL_DECODE_CHK_STATUS_RETURN(m_debugInterface->Dump2ndLvlBatch(
-            &batchBuffer,
-            CODECHAL_NUM_MEDIA_STATES,
-            "_2ndLvlBatch_Primitive_Cmd"));)
-
-    // Update GlobalCmdBufId
-    MHW_MI_STORE_DATA_PARAMS miStoreDataParams;
-    MOS_ZeroMemory(&miStoreDataParams, sizeof(miStoreDataParams));
-    miStoreDataParams.pOsResource = m_cencBuf->resTracker;
-    miStoreDataParams.dwValue     = m_cencBuf->trackerId;
-    CODECHAL_DECODE_VERBOSEMESSAGE("dwCmdBufId = %d", miStoreDataParams.dwValue);
-    CODECHAL_DECODE_CHK_STATUS_RETURN(m_miInterface->AddMiStoreDataImmCmd(
-        cmdBuffer,
-        &miStoreDataParams));
-    return MOS_STATUS_SUCCESS;
 }

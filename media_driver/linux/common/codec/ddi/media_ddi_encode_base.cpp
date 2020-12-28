@@ -176,19 +176,17 @@ VAStatus DdiEncodeBase::StatusReport(
     // Get encoded frame information from status buffer queue.
     while (VA_STATUS_SUCCESS == (eStatus = GetSizeFromStatusReportBuffer(mediaBuf, &size, &status, &index)))
     {
-        if ((index >= 0) && (size != 0))  //Get the matched encoded buffer information
+        if ((index >= 0) && ((size != 0) || (status & VA_CODED_BUF_STATUS_BAD_BITSTREAM))) //Get the matched encoded buffer information
         {
             // the first segment in the single-link list: pointer for the coded bitstream and the size
             m_encodeCtx->BufMgr.pCodedBufferSegment->buf    = DdiMediaUtil_LockBuffer(mediaBuf, MOS_LOCKFLAG_READONLY);
             m_encodeCtx->BufMgr.pCodedBufferSegment->size   = size;
             m_encodeCtx->BufMgr.pCodedBufferSegment->status = status;
-            break;
-        }
-        else if ((index >= 0) && (size == 0) && (status & VA_CODED_BUF_STATUS_BAD_BITSTREAM))
-        {
-            m_encodeCtx->BufMgr.pCodedBufferSegment->buf    = DdiMediaUtil_LockBuffer(mediaBuf, MOS_LOCKFLAG_READONLY);
-            m_encodeCtx->BufMgr.pCodedBufferSegment->size   = size;
-            m_encodeCtx->BufMgr.pCodedBufferSegment->status = status;
+
+            if (status & VA_CODED_BUF_STATUS_BAD_BITSTREAM)
+            {
+                return VA_STATUS_ERROR_ENCODING_ERROR;
+            }
             break;
         }
 
@@ -235,7 +233,7 @@ VAStatus DdiEncodeBase::StatusReport(
                 m_encodeCtx->BufMgr.pCodedBufferSegment->size = 0;
                 m_encodeCtx->BufMgr.pCodedBufferSegment->status |= VA_CODED_BUF_STATUS_BAD_BITSTREAM;
                 m_encodeCtx->statusReportBuf.ulUpdatePosition = (m_encodeCtx->statusReportBuf.ulUpdatePosition + 1) % DDI_ENCODE_MAX_STATUS_REPORT_BUFFER;
-                break;
+                return VA_STATUS_ERROR_ENCODING_ERROR;
             }
 
             // Report extra status for completed coded buffer
@@ -252,8 +250,7 @@ VAStatus DdiEncodeBase::StatusReport(
         {
             bool inlineEncodeStatusUpdate;
             CodechalEncoderState *encoder = dynamic_cast<CodechalEncoderState *>(m_encodeCtx->pCodecHal);
-            DDI_CHK_NULL(encoder, "Null codechal encoder", VA_STATUS_ERROR_INVALID_CONTEXT);
-            inlineEncodeStatusUpdate = encoder->m_inlineEncodeStatusUpdate;
+            inlineEncodeStatusUpdate = encoder == nullptr ? false : encoder->m_inlineEncodeStatusUpdate;
 
             if (inlineEncodeStatusUpdate)
             {
@@ -282,7 +279,7 @@ VAStatus DdiEncodeBase::StatusReport(
                 m_encodeCtx->BufMgr.pCodedBufferSegment->status |= VA_CODED_BUF_STATUS_BAD_BITSTREAM;
                 UpdateStatusReportBuffer(encodeStatusReport[0].bitstreamSize, m_encodeCtx->BufMgr.pCodedBufferSegment->status);
                 DDI_ASSERTMESSAGE("Something unexpected happened in HW, return error to application");
-                break;
+                return VA_STATUS_ERROR_ENCODING_ERROR;
             }
         }
         else if (CODECHAL_STATUS_ERROR == encodeStatusReport[0].CodecStatus)
@@ -292,7 +289,7 @@ VAStatus DdiEncodeBase::StatusReport(
             m_encodeCtx->BufMgr.pCodedBufferSegment->size = 0;
             m_encodeCtx->BufMgr.pCodedBufferSegment->status |= VA_CODED_BUF_STATUS_BAD_BITSTREAM;
             UpdateStatusReportBuffer(encodeStatusReport[0].bitstreamSize, m_encodeCtx->BufMgr.pCodedBufferSegment->status);
-            break;
+            return VA_STATUS_ERROR_ENCODING_ERROR;
         }
         else
         {
@@ -1245,6 +1242,19 @@ VAStatus DdiEncodeBase::CreateBuffer(
         }
         break;
     }
+#if VA_CHECK_VERSION(1, 10, 0)
+    case VAContextParameterUpdateBufferType:
+    {
+        bufSize       = size;
+        if (bufSize < sizeof(VAContextParameterUpdateBuffer))
+        {
+            va = VA_STATUS_ERROR_INVALID_PARAMETER;
+            CleanUpBufferandReturn(buf);
+            return va;
+        }
+        break;
+    }
+#endif
     default:
     {
         bufSize = size * elementsNum;
@@ -1256,7 +1266,14 @@ VAStatus DdiEncodeBase::CreateBuffer(
             return va;
         }
 
-        DDI_ASSERTMESSAGE("DDI: non supported buffer type = %d, size = %d, num = %d", type, size, elementsNum);
+        va = m_encodeCtx->pCpDdiInterface->CreateBuffer(type, buf, size, elementsNum);
+        if (va  == VA_STATUS_ERROR_UNSUPPORTED_BUFFERTYPE)
+        {
+            MOS_FreeMemory(buf);
+            DDI_ASSERTMESSAGE("DDI: non supported buffer type = %d, size = %d, num = %d", type, size, elementsNum);
+            return va;
+        }
+
         break;
     }
     }
@@ -1311,7 +1328,20 @@ VAStatus DdiEncodeBase::CreateBuffer(
 
     DdiMediaUtil_LockBuffer(buf, MOS_LOCKFLAG_WRITEONLY | MOS_LOCKFLAG_READONLY);
 
-    MOS_STATUS eStatus = MOS_SecureMemcpy((void*)(buf->pData + buf->uiOffset), bufSize, (void*)data, bufSize);
+    // HW may use bigger than 64 pitch alignment for 2D. In such a case linear copying spoils the data
+    // and has to be executed line by line. 'size' is in fact input data pitch.
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+    if (elementsNum > 1 && buf->format == Media_Format_2DBuffer && size < buf->uiPitch)
+    {
+        uint8_t *pDst = buf->pData + buf->uiOffset;
+        uint8_t *pSrc = (uint8_t *) data;
+        for (int32_t i = 0; i < elementsNum && eStatus == MOS_STATUS_SUCCESS; i++)
+            eStatus = MOS_SecureMemcpy(pDst + i*buf->uiPitch, size, pSrc + i*size, size);
+    }
+    else
+    {
+        eStatus = MOS_SecureMemcpy((void*)(buf->pData + buf->uiOffset), bufSize, (void*)data, bufSize);
+    }
 
     DdiMediaUtil_UnlockBuffer(buf);
 

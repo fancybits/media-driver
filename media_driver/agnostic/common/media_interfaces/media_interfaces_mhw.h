@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2013-2017, Intel Corporation
+* Copyright (c) 2013-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -77,7 +77,8 @@ public:
                 uint32_t m_huc : 1;
                 uint32_t m_vdenc : 1;
                 uint32_t m_blt : 1;
-                uint32_t m_reserved : 22;
+                uint32_t m_avp : 1;
+                uint32_t m_reserved : 21;
             };
             uint32_t m_value;
         } Flags;
@@ -130,7 +131,16 @@ public:
     //! \brief    Destroys all created MHW interfaces
     //! \details  If the HAL creation fails, this is used for cleanup
     //!
-    void Destroy();
+    virtual void Destroy();
+
+    //!
+    //! \brief    Set Interfaces Destroy State
+    //! \details  If the interfaces has destroyed, set this state value on
+    //!
+    void SetDestroyState(bool destorystate) { m_isDestroyed = destorystate; };
+
+private:
+    bool m_isDestroyed = false;
 };
 
 extern template class MediaInterfacesFactory<MhwInterfaces>;

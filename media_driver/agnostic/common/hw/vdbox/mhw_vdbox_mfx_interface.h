@@ -581,16 +581,6 @@ protected:
         mfxDecoderModeIt    = 1
     };
 
-    //!
-    //! \struct   VDEncFrameDeltaTable
-    //! \brief    VD encode frame delta table
-    //!
-    struct VDEncFrameDeltaTable
-    {
-        uint32_t PFrameDelta;
-        uint32_t IFrameDelta;
-    };
-
     static const uint16_t m_mpeg2DefaultIntraQuantizerMatrix[64]; //!< MPEG2 default quantization matrix for intra macroblock
     static const uint16_t m_mpeg2DefaultNonIntraQuantizerMatrix[64]; //!< MPEG2 default quantization matrix for inter macroblock
     static const uint32_t m_mpeg2SliceDeltaQPMax[4]; //! MPEG2 slice delta QP max value
@@ -606,9 +596,6 @@ protected:
 
     static const uint32_t m_mfxErrorFlagsMask = 0xFBFF; //!< Mfx error flags mask
                                                         //!< Bit 10 of MFD_ERROR_STATUS register is set to a random value during RC6, so it is not used
-
-    static const VDEncFrameDeltaTable m_vdEncFrameDelta100PercentTab[CODEC_AVC_NUM_QP];
-    static const VDEncFrameDeltaTable m_vdEncFrameDelta90PercentTab[CODEC_AVC_NUM_QP];
 
     static const uint32_t m_log2WeightDenomDefault = 5; //!< Default value of luma/chroma_log2_weight_denoms
     static const uint32_t m_mpeg2WeightScaleSize = 16; //!< Size of MPEG2 weight scale
@@ -1001,6 +988,36 @@ public:
             MHW_ASSERT("index is out of range!");
             return &m_mmioRegisters[MHW_VDBOX_NODE_1];
         }
+    }
+
+    //!
+    //! \brief    Convert from Mfx mmio registers to MI mmio register
+    //!
+    //! \param    [in] index
+    //!           mmio registers index.
+    //! \param    [in] mmioRegister
+    //!           reference to MHW_MI_MMIOREGISTERS.
+    //!
+    //! \return   [out] bool
+    //!           return true if mmio register if found, otherwise return false
+    //!
+    inline bool ConvertToMiRegister(MHW_VDBOX_NODE_IND index, MHW_MI_MMIOREGISTERS &mmioRegister)
+    {
+        MmioRegistersMfx* mfxMmioReg = GetMmioRegisters(index);
+        if (mfxMmioReg)
+        {
+            mmioRegister.generalPurposeRegister0LoOffset = mfxMmioReg->generalPurposeRegister0LoOffset;
+            mmioRegister.generalPurposeRegister0HiOffset = mfxMmioReg->generalPurposeRegister0HiOffset;
+            mmioRegister.generalPurposeRegister4LoOffset = mfxMmioReg->generalPurposeRegister4LoOffset;
+            mmioRegister.generalPurposeRegister4HiOffset = mfxMmioReg->generalPurposeRegister4HiOffset;
+            mmioRegister.generalPurposeRegister11LoOffset = mfxMmioReg->generalPurposeRegister11LoOffset;
+            mmioRegister.generalPurposeRegister11HiOffset = mfxMmioReg->generalPurposeRegister11HiOffset;
+            mmioRegister.generalPurposeRegister12LoOffset = mfxMmioReg->generalPurposeRegister12LoOffset;
+            mmioRegister.generalPurposeRegister12HiOffset = mfxMmioReg->generalPurposeRegister12HiOffset;
+            return true;
+        }
+        else
+            return false;
     }
 
     //!

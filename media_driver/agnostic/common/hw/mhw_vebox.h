@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2014-2019, Intel Corporation
+* Copyright (c) 2014-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -21,7 +21,7 @@
 */
 //!
 //! \file     mhw_vebox.h
-//! \brief    MHW interface for constructing commands for the VEBOX 
+//! \brief    MHW interface for constructing commands for the VEBOX
 //! \details  Impelements the functionalities common across all platforms for MHW_VEBOX
 //!
 
@@ -31,7 +31,7 @@
 #include "mos_os.h"
 #include "mhw_utilities.h"
 #include "mhw_cp_interface.h"
-
+#include "mhw_mi.h"
 #include <math.h>
 
 #define MHW_FORWARD_GAMMA_SEGMENT_COUNT       1024    //!< Forward Gamma Correction MAX Control Points
@@ -86,6 +86,8 @@
 #define MHW_VEBOX_WATCHDOG_DISABLE_COUNTER                0xFFFFFFFF
 #define MHW_VEBOX_TIMEOUT_MS                              60
 
+typedef MhwMiInterface *PMHW_MI_INTERFACE;
+
 //!
 //! \brief Color Spaces enum
 //!
@@ -126,9 +128,10 @@ typedef enum _MHW_GAMUT_MODE
 {
     MHW_GAMUT_MODE_NONE,
     MHW_GAMUT_MODE_BASIC,
-    MHW_GAMUT_MODE_ADVANCED
+    MHW_GAMUT_MODE_ADVANCED,
+    MHW_GAMUT_MODE_CUSTOMIZED
 } MHW_GAMUT_MODE;
-C_ASSERT(MHW_GAMUT_MODE_ADVANCED == 2);
+C_ASSERT(MHW_GAMUT_MODE_CUSTOMIZED == 3);
 
 //!
 //! \brief Gamma Values configuration enum
@@ -168,7 +171,8 @@ typedef struct _MHW_VEBOX_MODE
     uint32_t    ForwardGammaCorrectionEnable        : 1;  // Gen9+
     uint32_t    Hdr1DLutEnable                      : 1;
     uint32_t    Fp16ModeEnable                      : 1;
-    uint32_t                                        : 8; // Reserved
+    uint32_t    Hdr1K1DLut                          : 1;
+    uint32_t                                        : 7; // Reserved
 } MHW_VEBOX_MODE, *PMHW_VEBOX_MODE;
 
 typedef enum _MHW_VEBOX_ADDRESS_SHIFT
@@ -288,6 +292,12 @@ typedef struct _MHW_VEBOX_DNDI_PARAMS
     uint32_t  dwLPFWtLUT5;
     uint32_t  dwLPFWtLUT6;
     uint32_t  dwLPFWtLUT7;
+
+    //for SlimIPUDenoise
+    void *    pSystemMem = nullptr;
+    uint32_t  MemSizeInBytes;
+    bool      bEnableSlimIPUDenoise;
+
 } MHW_VEBOX_DNDI_PARAMS, *PMHW_VEBOX_DNDI_PARAMS;
 
 //!
@@ -340,6 +350,7 @@ typedef struct _MHW_COLORPIPE_PARAMS
     bool                bEnableTCC;
     bool                bAceLevelChanged;
     uint32_t            dwAceLevel;
+    uint32_t            dwAceStrength;
     bool                bEnableLACE;
     MHW_STE_PARAMS      SteParams;
     MHW_TCC_PARAMS      TccParams;
@@ -543,7 +554,7 @@ typedef struct _MHW_CAPPIPE_PARAMS
 } MHW_CAPPIPE_PARAMS, *PMHW_CAPPIPE_PARAMS;
 
 //!
-//! Structure MHW_3DLUT_PARAMS 
+//! Structure MHW_3DLUT_PARAMS
 //! \details No pre-si version for MHW_VEBOX_IECP_PARAMS, just leave it now and handle it later
 //!
 typedef struct _MHW_3DLUT_PARAMS
@@ -554,16 +565,16 @@ typedef struct _MHW_3DLUT_PARAMS
     uint8_t *pLUT;                       //!< Pointer to the LUT value
 } MHW_3DLUT_PARAMS, *PMHW_3DLUT_PARAMS;
 
-//! 
+//!
 //! \brief  VEBOX HDR PARAMS
 //! \details For CCM settings, move 1DLut to here later
 typedef struct _MHW_1DLUT_PARAMS
 {
     uint32_t bActive;
-    uint32_t *p1DLUT;
-    uint32_t *LUTSize;
+    void     *p1DLUT;
+    uint32_t LUTSize;
     int32_t *pCCM;
-    uint32_t *CCMSize;
+    uint32_t CCMSize;
 } MHW_1DLUT_PARAMS, *PMHW_1DLUT_PARAMS;
 
 //!
@@ -648,6 +659,14 @@ typedef struct _MHW_VEBOX_GAMUT_PARAMS
 
     // GExp
     MHW_GAMUT_MODE                      GExpMode;
+    uint32_t                            *pFwdGammaBias;
+    uint32_t                            *pInvGammaBias;
+    float                               *pfCscCoeff;         // [3x3] CSC Coeff matrix
+    float                               *pfCscInOffset;      // [3x1] CSC Input Offset matrix
+    float                               *pfCscOutOffset;     // [3x1] CSC Output Offset matrix
+    float                               *pfFeCscCoeff;       // [3x3] Front-end CSC Coeff matrix
+    float                               *pfFeCscInOffset;    // [3x1] Front-end CSC Input Offset matrix
+    float                               *pfFeCscOutOffset;   // [3x1] Front-end CSC Output Offset matrix
     int32_t                             Matrix[3][3];
 
     // Gamma correction
@@ -667,6 +686,8 @@ typedef struct _MHW_VEBOX_DI_IECP_CMD_PARAMS
 {
     uint32_t                            dwEndingX;
     uint32_t                            dwStartingX;
+    uint32_t                            dwEndingY;
+    uint32_t                            dwStartingY;
     uint32_t                            dwCurrInputSurfOffset;
     uint32_t                            dwPrevInputSurfOffset;
     uint32_t                            dwCurrOutputSurfOffset;
@@ -708,6 +729,7 @@ typedef struct _MHW_VEBOX_SURFACE_PARAMS
     uint32_t                    bActive;
     bool                        bIsCompressed;
     MOS_FORMAT                  Format;              //!<  Surface format
+    MOS_RESOURCE_MMC_MODE       CompressionMode;     //!<  Surface Compression Mode
     uint32_t                    dwCompressionFormat; //!<  Surface Compression Format
     uint32_t                    dwWidth;             //!<  Surface width
     uint32_t                    dwHeight;            //!<  Surface height
@@ -716,8 +738,13 @@ typedef struct _MHW_VEBOX_SURFACE_PARAMS
     uint32_t                    dwStreamID;          //!<  Surface StreamID
     uint32_t                    dwYoffset;           //!<  Surface Yoffset in Vertical
     uint32_t                    dwUYoffset;          //!<  Surface Uoffset in Vertical
+    uint32_t                    dwOffset;            //!<  Surface Offset from Start Point
     MOS_TILE_TYPE               TileType;            //!<  Tile Type
+    MOS_TILE_MODE_GMM           TileModeGMM;         //!<  Tile Mode from GMM Definition
+    bool                        bGMMTileEnabled;     //!<  GMM defined tile mode flag
+    RECT                        rcSrc = {0, 0, 0, 0};  //!< Source rectangle
     RECT                        rcMaxSrc;            //!< Max source rectangle
+    bool                        bVEBOXCroppingUsed = false;  //!<Vebox crop case need use rcSrc as vebox input.
     PMOS_RESOURCE               pOsResource;         //!<  Surface resource
 } MHW_VEBOX_SURFACE_PARAMS, *PMHW_VEBOX_SURFACE_PARAMS;
 
@@ -767,8 +794,7 @@ typedef struct _MHW_VEBOX_HEAP
     uint32_t                uiVertexTableOffset;                                // Vertex Table offset
     uint32_t                uiCapturePipeStateOffset;                           // Capture Pipe state offset
     uint32_t                uiGammaCorrectionStateOffset;                       // Gamma Correction state offset
-    uint32_t                ui3DLUTStateOffset;                                 // 3D LUT state offset
-    uint32_t                ui1DLUTStateOffset;                                 // Hdr State offset
+    uint32_t                uiHdrStateOffset;                                   // Hdr State offset
     uint32_t                uiInstanceSize;                                     // Size of single instance of VEBOX states
     uint32_t                uiStateHeapSize;                                    // Total size of VEBOX States heap
     PMHW_VEBOX_HEAP_STATE   pStates;                                            // Array of VEBOX Heap States
@@ -795,8 +821,7 @@ typedef struct
     uint32_t            uiVertexTableSize;                                      // Vertex Table Size
     uint32_t            uiCapturePipeStateSize;                                 // Capture Pipe State Size (Gen8+)
     uint32_t            uiGammaCorrectionStateSize;                             // Gamma Correction State Size (Gen9+)
-    uint32_t            ui3DLUTStateSize;                                       // 3D LUT State Size (Gen10+)
-    uint32_t            ui1DLUTStateSize;                                       // VEBOX Hdr 1DLUT State Size
+    uint32_t            uiHdrStateSize;                                         // HDR State Size
 } MHW_VEBOX_SETTINGS, *PMHW_VEBOX_SETTINGS;
 typedef const MHW_VEBOX_SETTINGS CMHW_VEBOX_SETTINGS, *PCMHW_VEBOX_SETTINGS;
 
@@ -959,6 +984,22 @@ public:
         uint32_t                                *pSurfCtrlBits) = 0;
 
     //!
+    //! \brief    Add Vebox Tiling Convert Control Bits
+    //! \details  Add Vebox Tiling Convert Control Bits
+    //! \param    [in] cmdBuffer
+    //!           Pointers to the HW Cmd buffer
+    //! \param    [in] inSurParams
+    //!           Pointer to input vebox surface params
+    //! \param    [in] outSurParams
+    //!           Pointer to output vebox surface params
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    virtual MOS_STATUS AddVeboxTilingConvert(
+        PMOS_COMMAND_BUFFER cmdBuffer,
+        PMHW_VEBOX_SURFACE_PARAMS        inSurParams,
+        PMHW_VEBOX_SURFACE_PARAMS        outSurParams) = 0;
+
+    //!
     //! \brief    Decide Which GPU Node to use for Vebox
     //! \details  Client facing function to create gpu context used by Vebox
     //! \param    [out] pVEGpuNodeLimit
@@ -1012,8 +1053,27 @@ public:
         return eStatus;
     }
 
+    virtual MOS_STATUS setVeboxPrologCmd(
+        PMHW_MI_INTERFACE   mhwMiInterface,
+        PMOS_COMMAND_BUFFER cmdBuffer) = 0;
+
 protected:
     MhwVeboxInterface(PMOS_INTERFACE pOsInterface);
+
+    //!
+    //! \brief    Trace indirect state info by OCA
+    //! \details  Trace which resource being used to store indirect state by OCA.
+    //! \param    [in] cmdBuffer
+    //!           Command buffer of current vebox workload.
+    //! \param    [in] mosContext
+    //!           mos context
+    //! \param    [in] isCmBuffer
+    //!           true if CM buffer being used for indirect state, otherwise, vebox heap is used.
+    //! \param    [in] useVeboxHeapKernelResource
+    //!           true if kernel copy needed for indirect state.
+    //! \return   void
+    //!
+    void TraceIndirectStateInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, bool isCmBuffer, bool useVeboxHeapKernelResource);
 
 public:
     //!
@@ -1048,7 +1108,7 @@ public:
     //!
     //!      GPU (Driver Resource)      GPU (Kernel Resource)        VEBOX State (in Graphics Memory)
     //!      -------------------         -------------------        ---------------------
-    //!     | VEBOX State 0     |       | VEBOX State 0     |       | DNDI State         | 
+    //!     | VEBOX State 0     |       | VEBOX State 0     |       | DNDI State         |
     //!      -------------------         -------------------         --------------------
     //!     | VEBOX State 1     |       | VEBOX State 1     |       | IECP State         |
     //!      -------------------         -------------------         --------------------
@@ -1057,10 +1117,10 @@ public:
     //!     | VEBOX Sync Data   |       | VEBOX Sync Data   |       | Vertex State       |
     //!      -------------------                                     --------------------
     //!                                                             | CapturePipe State  |
-    //!                                                              -------------------- 
+    //!                                                              --------------------
     //!                                                             | Gamma Correction State |
     //!                                                              ------------------------
-    //!                                                             | 3D LUT State           |
+    //!                                                             | HDR State              |
     //!                                                              ------------------------
     //! \return   MOS_STATUS
     //!

@@ -41,6 +41,22 @@ struct CodechalEncodeSeiData
     uint8_t*   pSEIBuffer;
 };
 
+struct MetaDataOffset
+{
+    uint32_t dwEncodeErrorFlags                         = 0;
+    uint32_t dwReferencePicturesMotionResultsBitMask    = 0;
+    uint32_t dwEncodedBitstreamWrittenBytesCount        = 0;
+    uint32_t dwReconstructedPictureWrittenBytesCount    = 0;
+    uint32_t dwWrittenSubregionsCount                   = 0;
+
+    uint32_t dwbSize        = 0;
+    uint32_t dwbStartOffset = 0;
+    uint32_t dwbHeaderSize  = 0;
+
+    uint32_t dwMetaDataSize             = 0;
+    uint32_t dwMetaDataSubRegionSize    = 0;
+};
+
 //!
 //! \struct EncoderParams
 //! \brief  Encoder parameters
@@ -52,6 +68,7 @@ struct EncoderParams
     PMOS_SURFACE                    psRawSurface;               //!< Raw surface
     PMOS_SURFACE                    psReconSurface;             //!< reconstructed surface
     PMOS_RESOURCE                   presBitstreamBuffer;        //!< Output buffer for bitstream data.
+    PMOS_RESOURCE                   presMetadataBuffer;         //!< Output buffer for meta data.
     PMOS_RESOURCE                   presMbCodeSurface;          //!< PAK objects provided by framework.
     PMOS_SURFACE                    psMbSegmentMapSurface;      //!< [VP9]
     /* \brief [AVC & MPEG2] MB QP data provided by framework.
@@ -63,7 +80,6 @@ struct EncoderParams
     PMOS_SURFACE                    psMbDisableSkipMapSurface;  //!< [AVC] MB disable skip map provided by framework
     PMOS_SURFACE                    psCoeffSurface;             //!< [VP9]
     PMOS_RESOURCE                   presCoeffProbabilityBuffer; //!< [VP9] Coefficient probabilities provided by framework.
-    PMOS_RESOURCE                   psLaDataBuffer;             //!< Lookahead data buffer
     bool                            bNewSeq;                    //!< Indicates the start of a new sequence.
     bool                            bPicQuant;                  //!< Indicates whether the scaling list is for SPS (0) or PPS (1).
     bool                            bNewQmatrixData;            //!< Indicates that new QM data was provided by framework.
@@ -91,7 +107,6 @@ struct EncoderParams
     bool                            newSeqHeader;               //!< [AVC] Flag for new Sequence Header.
     bool                            newPpsHeader;               //!< [AVC] Flag for new PPS Header.
     bool                            arbitraryNumMbsInSlice;     //!< [AVC] Flag to indicate if the sliceMapSurface needs to be programmed or not.
-    bool                            bLaDataEnabled;             //!< [AVC & HEVC] Indicates that psLaDataSurface is present.
 
     void                            *pSeqParams;                 //!< Sequence parameter set structure defined per standard.
     void                            *pPicParams;                 //!< Picture parameter set structure defined per standard.
@@ -130,8 +145,25 @@ struct EncoderParams
     MOS_SURFACE                     mbQpSurface;
     MOS_SURFACE                     disableSkipMapSurface;          //!< [AVC] MB disable skip map provided by framework
     HANDLE                          gpuAppTaskEvent;                // MSDK event handling
+    //Call back to application. This informs the application  all ENC kernel workload is submitted(in case of HEVC VME)
+    //such that Application can make use of render engine when encoder is working on PAK. this helps in efficient utilisation of
+    //Render engine for improving the performance as the render engine will be idle when encoder is working on PAK.
+    void *                          plastEncKernelSubmissionCompleteCallback;
 
+
+    bool                            bStreamOutEnable;
+    PMOS_RESOURCE                   pStreamOutBuffer; // StreamOut buffer
+    bool                            bCoeffRoundTag;
+    uint32_t                        uiRoundIntra;
+    uint32_t                        uiRoundInter;
+
+    PMOS_RESOURCE                   presMbInlineData;
+    PMOS_RESOURCE                   presMbConstSurface;
+    PMOS_RESOURCE                   presVMEOutSurface;
+    uint32_t                        uiMVoffset; // App provides PAK objects and MV data in the same surface. This is offset to MV Data.
     bool                            fullHeaderInAppData;         //!< [JPEG]
+    uint32_t                        uiOverallNALPayload;
+    MetaDataOffset                  metaDataOffset;
 };
 
 #endif // !__CODEC_DEF_ENCODE_H__

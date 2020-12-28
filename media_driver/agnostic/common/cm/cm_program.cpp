@@ -66,8 +66,10 @@ int32_t CmProgramRT::Create( CmDeviceRT* device, void* cisaCode, const uint32_t 
     pProgram = new (std::nothrow) CmProgramRT( device, programId );
     if( pProgram )
     {
+
         pProgram->Acquire();
         result = pProgram->Initialize( cisaCode, cisaCodeSize, options );
+        device->m_memObjectCount.programCount++;
         if( result != CM_SUCCESS )
         {
             CmProgramRT::Destroy( pProgram);
@@ -114,6 +116,7 @@ int32_t CmProgramRT::SafeRelease( void )
     --m_refCount;
     if( m_refCount == 0 )
     {
+        m_device->m_memObjectCount.programCount--;
         delete this;
         return 0;
     }
@@ -166,33 +169,6 @@ CmProgramRT::~CmProgramRT( void )
     CmSafeDelete(m_isaFile);
 }
 
-#if (_RELEASE_INTERNAL)
-int32_t CmProgramRT::ReadUserFeatureValue(const char *pcMessageKey, uint32_t &value)
-{
-    MOS_USER_FEATURE        userFeature;
-    MOS_USER_FEATURE_VALUE  userFeatureValue = __NULL_USER_FEATURE_VALUE__;
-    CM_RETURN_CODE          hr = CM_SUCCESS;
-
-    // Set the component's message level and asserts:
-    userFeatureValue.u32Data    = __MOS_USER_FEATURE_KEY_MESSAGE_DEFAULT_VALUE;
-    userFeature.Type            = MOS_USER_FEATURE_TYPE_USER;
-    userFeature.pPath           = __MEDIA_USER_FEATURE_SUBKEY_INTERNAL;
-    userFeature.pValues         = &userFeatureValue;
-    userFeature.uiNumValues     = 1;
-
-    CM_CHK_MOSSTATUS_GOTOFINISH_CMERROR(MOS_UserFeature_ReadValue(
-                                  nullptr,
-                                  &userFeature,
-                                  pcMessageKey,
-                                  MOS_USER_FEATURE_VALUE_TYPE_UINT32));
-
-    value = userFeature.pValues->u32Data;
-
-finish:
-    return hr;
-}
-#endif
-
 //*-----------------------------------------------------------------------------
 //| Purpose:    Initialize Cm Program
 //| Returns:    Result of the operation.
@@ -204,6 +180,8 @@ int32_t CmProgramRT::Initialize( void* cisaCode, const uint32_t cisaCodeSize, co
     int32_t hr     = CM_FAILURE;
 
     m_isJitterEnabled = true; //by default jitter is ON
+    //get first kernel starting slot index
+    m_kernelIndex = m_device->GetKernelSlot();
 
     int numJitFlags = 0;
     const char *jitFlags[CM_RT_JITTER_MAX_NUM_FLAGS];
@@ -311,16 +289,20 @@ int32_t CmProgramRT::Initialize( void* cisaCode, const uint32_t cisaCodeSize, co
 
     if( m_isJitterEnabled )
     {
-    //reg control for svm IA/GT cache coherence
-#if (_RELEASE_INTERNAL)
-        uint32_t value = 0;
-        if (ReadUserFeatureValue(CM_RT_USER_FEATURE_FORCE_COHERENT_STATELESSBTI, value) == CM_SUCCESS && value == 1)
+#if (_DEBUG || _RELEASE_INTERNAL)
+        //reg control for svm IA/GT cache coherence
+        MOS_USER_FEATURE_VALUE_DATA userFeatureData;
+        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+        CM_HAL_STATE *hal_state = m_device->GetHalState();
+        MOS_UserFeature_ReadValue_ID(
+            nullptr, __MEDIA_USER_FEATURE_VALUE_MDF_FORCE_COHERENT_STATELESSBTI_ID,
+            &userFeatureData, hal_state->osInterface->pOsContext);
+        if (userFeatureData.i32Data == 1)
         {
             jitFlags[numJitFlags] = CM_RT_JITTER_NCSTATELESS_FLAG;
             numJitFlags++;
         }
-
-#endif // (_RELEASE_INTERNAL)
+#endif // (_DEBUG || _RELEASE_INTERNAL)
 
         //Load jitter library and add function pointers to program
         // Get hmodule from CmDevice_RT or CmDevice_Sim, which is casted from CmDevice
@@ -414,11 +396,18 @@ int32_t CmProgramRT::Initialize( void* cisaCode, const uint32_t cisaCodeSize, co
         CmSafeMemSet(kernInfo, 0, sizeof(CM_KERNEL_INFO));
 
         vISA::Kernel *kernel = nullptr;
-        uint8_t nameLen = 0;
+        uint16_t nameLen = 0;
         if (useVisaApi)
         {
             kernel = header->getKernelInfo()[i];
-            nameLen = kernel->getNameLen();
+            if (getVersionAsInt(m_cisaMajorVersion, m_cisaMinorVersion) < getVersionAsInt(3, 7))
+            {
+                nameLen = (uint16_t) kernel->getNameLen_Ver306();
+            }
+            else
+            {
+                nameLen = kernel->getNameLen();
+            }
             CmSafeMemCopy(kernInfo->kernelName, kernel->getName(), nameLen);
         }
         else
@@ -687,6 +676,7 @@ int32_t CmProgramRT::Initialize( void* cisaCode, const uint32_t cisaCodeSize, co
     for (uint32_t i = 0; i < m_kernelCount; i++)
     {
         CM_KERNEL_INFO *kernelInfo = (CM_KERNEL_INFO *)m_kernelInfo.GetElement(i);
+        CM_CHK_NULL_GOTOFINISH_CMERROR(kernelInfo);
         // higher 32bit is the order of kernel in LoadProgram in the device
         // lower 32bit is the hash value of kernel info
         kernelInfo->hashValue = GetKernelInfoHash(kernelInfo) | ((uint64_t)m_device->KernelsLoaded() << 32);

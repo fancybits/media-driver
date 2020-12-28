@@ -65,7 +65,7 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateForCurrFrame()
     }
 
     // allocate MV temporal buffer
-    AllocateMvTemporalBuffer();
+    AllocateMvTemporalBuffer(m_trackedBufCurrIdx);
 
     // allocate VDEnc downscaled recon surface
     if (m_encoder->m_vdencEnabled)
@@ -108,6 +108,8 @@ void CodechalEncodeTrackedBuffer::Resize()
             ReleaseDsRecon(i);
             if (m_encoder->m_cscDsState)
                 ReleaseSurfaceDS(i);
+            if (m_encoder->m_vdencEnabled)
+                m_allocator->ReleaseResource(m_standard, mvTemporalBuffer, i);
 
             // this slot can now be re-used
             m_tracker[i].ucSurfIndex7bits = PICTURE_MAX_7BITS;
@@ -309,6 +311,9 @@ void CodechalEncodeTrackedBuffer::DeferredDeallocateOnResChange()
         {
             ReleaseSurfaceDS(m_trackedBufAnteIdx);
         }
+        if (m_encoder->m_vdencEnabled)
+            m_allocator->ReleaseResource(m_standard, mvTemporalBuffer, m_trackedBufAnteIdx);
+
         m_tracker[m_trackedBufAnteIdx].ucSurfIndex7bits = PICTURE_MAX_7BITS;
         CODECHAL_ENCODE_NORMALMESSAGE("Tracked buffer = %d re-allocated", m_trackedBufAnteIdx);
     }
@@ -328,6 +333,9 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateMbCodeResources(uint8_t bufIndex
         bufIndex >= CODEC_NUM_TRACKED_BUFFERS,
         "No MbCode buffer is available!");
 
+    MEDIA_WA_TABLE *waTable = m_osInterface->pfnGetWaTable(m_osInterface);
+    uint32_t        memType = (MEDIA_IS_WA(waTable, WaForceAllocateLML4) && m_standard == CODECHAL_AVC) ? MOS_MEMPOOL_DEVICEMEMORY : 0;
+
     // early exit if already allocated
     if ((m_trackedBufCurrMbCode = (MOS_RESOURCE*)m_allocator->GetResource(m_standard, mbCodeBuffer, bufIndex)))
     {
@@ -335,8 +343,8 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateMbCodeResources(uint8_t bufIndex
     }
 
     // Must reserve at least 8 cachelines after MI_BATCH_BUFFER_END_CMD since HW prefetch max 8 cachelines from BB everytime
-    CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBufCurrMbCode = (MOS_RESOURCE*)m_allocator->AllocateResource(
-        m_standard, m_encoder->m_mbCodeSize + 8 * CODECHAL_CACHELINE_SIZE, 1, mbCodeBuffer, "mbCodeBuffer", bufIndex, true));
+    CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBufCurrMbCode = (MOS_RESOURCE *)m_allocator->AllocateResource(
+        m_standard, m_encoder->m_mbCodeSize + 8 * CODECHAL_CACHELINE_SIZE, 1, mbCodeBuffer, "mbCodeBuffer", bufIndex, true, Format_Buffer, MOS_TILE_LINEAR, memType));
 
     return MOS_STATUS_SUCCESS;
 }
@@ -345,6 +353,9 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateMvDataResources(uint8_t bufIndex
 {
     CODECHAL_ENCODE_FUNCTION_ENTER;
 
+    MEDIA_WA_TABLE *waTable = m_osInterface->pfnGetWaTable(m_osInterface);
+    uint32_t        memType = (MEDIA_IS_WA(waTable, WaForceAllocateLML4) && m_standard == CODECHAL_AVC) ? MOS_MEMPOOL_DEVICEMEMORY : 0;
+
     // early exit if already allocated
     if ((m_trackedBufCurrMvData = (MOS_RESOURCE*)m_allocator->GetResource(m_standard, mvDataBuffer, bufIndex)))
     {
@@ -352,7 +363,7 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateMvDataResources(uint8_t bufIndex
     }
 
     CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBufCurrMvData = (MOS_RESOURCE*)m_allocator->AllocateResource(
-        m_standard, m_encoder->m_mvDataSize, 1, mvDataBuffer, "mvDataBuffer", bufIndex, true));
+        m_standard, m_encoder->m_mvDataSize, 1, mvDataBuffer, "mvDataBuffer", bufIndex, true, Format_Buffer, MOS_TILE_LINEAR, memType));
 
     return MOS_STATUS_SUCCESS;
 }
@@ -397,7 +408,7 @@ MOS_STATUS CodechalEncodeTrackedBuffer::ResizeSurfaceDS() {
     m_trackedBufCurrDs4x = (MOS_SURFACE*)m_allocator->GetResource(m_standard, ds4xSurface, m_trackedBufCurrIdx);
 
     CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBufCurrDs4x);
-    
+
     if (m_encoder->m_16xMeSupported)
     {
         m_trackedBufCurrDs16x = (MOS_SURFACE*)m_allocator->GetResource(m_standard, ds16xSurface, m_trackedBufCurrIdx);
@@ -442,7 +453,7 @@ MOS_STATUS CodechalEncodeTrackedBuffer::ResizeSurfaceDS() {
         downscaledSurfaceHeight32x = ((m_encoder->m_downscaledHeight32x / CODECHAL_MACROBLOCK_HEIGHT + 1) >> 1) * CODECHAL_MACROBLOCK_HEIGHT;
         downscaledSurfaceHeight32x = MOS_ALIGN_CEIL(downscaledSurfaceHeight32x, MOS_YTILE_H_ALIGNMENT) << 1;
     }
-    
+
     bool dsCurr4xAvailable = true;
     bool dsCurr16xAvailable = true;
     bool dsCurr32xAvailable = true;
@@ -510,6 +521,9 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateSurfaceDS()
 {
     CODECHAL_ENCODE_FUNCTION_ENTER;
 
+    MEDIA_WA_TABLE* waTable = m_osInterface->pfnGetWaTable(m_osInterface);
+    uint32_t memType = (MEDIA_IS_WA(waTable, WaForceAllocateLML4)) ? MOS_MEMPOOL_DEVICEMEMORY : 0;
+
     // early exit if already allocated
     if ((m_trackedBufCurrDs4x = (MOS_SURFACE*)m_allocator->GetResource(m_standard, ds4xSurface, m_trackedBufCurrIdx)))
     {
@@ -557,7 +571,7 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateSurfaceDS()
 
     // allocating 4x DS surface
     CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBufCurrDs4x = (MOS_SURFACE*)m_allocator->AllocateResource(
-        m_standard, downscaledSurfaceWidth4x, downscaledSurfaceHeight4x, ds4xSurface, "ds4xSurface", m_trackedBufCurrIdx, false, Format_NV12, MOS_TILE_Y));
+                                        m_standard, downscaledSurfaceWidth4x, downscaledSurfaceHeight4x, ds4xSurface, "ds4xSurface", m_trackedBufCurrIdx, false, Format_NV12, MOS_TILE_Y, memType));
 
     CODECHAL_ENCODE_CHK_STATUS_RETURN(CodecHalGetResourceInfo(m_osInterface, m_trackedBufCurrDs4x));
 
@@ -565,7 +579,7 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateSurfaceDS()
     if (m_encoder->m_16xMeSupported)
     {
         CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBufCurrDs16x = (MOS_SURFACE*)m_allocator->AllocateResource(
-            m_standard, downscaledSurfaceWidth16x, downscaledSurfaceHeight16x, ds16xSurface, "ds16xSurface", m_trackedBufCurrIdx, false, Format_NV12, MOS_TILE_Y));
+                                            m_standard, downscaledSurfaceWidth16x, downscaledSurfaceHeight16x, ds16xSurface, "ds16xSurface", m_trackedBufCurrIdx, false, Format_NV12, MOS_TILE_Y, memType));
 
         CODECHAL_ENCODE_CHK_STATUS_RETURN(CodecHalGetResourceInfo(m_osInterface, m_trackedBufCurrDs16x));
     }
@@ -574,7 +588,7 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateSurfaceDS()
     if (m_encoder->m_32xMeSupported)
     {
         CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBufCurrDs32x = (MOS_SURFACE*)m_allocator->AllocateResource(
-            m_standard, downscaledSurfaceWidth32x, downscaledSurfaceHeight32x, ds32xSurface, "ds32xSurface", m_trackedBufCurrIdx, false, Format_NV12, MOS_TILE_Y));
+                                            m_standard, downscaledSurfaceWidth32x, downscaledSurfaceHeight32x, ds32xSurface, "ds32xSurface", m_trackedBufCurrIdx, false, Format_NV12, MOS_TILE_Y, memType));
 
         CODECHAL_ENCODE_CHK_STATUS_RETURN(CodecHalGetResourceInfo(m_osInterface, m_trackedBufCurrDs32x));
     }
@@ -616,6 +630,9 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateSurface2xDS()
 {
     CODECHAL_ENCODE_FUNCTION_ENTER;
 
+    MEDIA_WA_TABLE* waTable = m_osInterface->pfnGetWaTable(m_osInterface);
+    uint32_t memType = (MEDIA_IS_WA(waTable, WaForceAllocateLML4)) ? MOS_MEMPOOL_DEVICEMEMORY : 0;
+
     // early exit if already allocated
     if ((m_trackedBufCurrDs2x = (MOS_SURFACE*)m_allocator->GetResource(m_standard, ds2xSurface, m_trackedBufCurrIdx)))
     {
@@ -644,7 +661,7 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateSurface2xDS()
 
     // allocate 2x DS surface
     CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBufCurrDs2x = (MOS_SURFACE*)m_allocator->AllocateResource(
-        m_standard, surfaceWidth, surfaceHeight, ds2xSurface, "ds2xSurface", m_trackedBufCurrIdx, false, format, MOS_TILE_Y));
+                                        m_standard, surfaceWidth, surfaceHeight, ds2xSurface, "ds2xSurface", m_trackedBufCurrIdx, false, format, MOS_TILE_Y, memType));
 
     CODECHAL_ENCODE_CHK_STATUS_RETURN(CodecHalGetResourceInfo(m_osInterface, m_trackedBufCurrDs2x));
 
@@ -747,6 +764,28 @@ MOS_STATUS CodechalEncodeTrackedBuffer::AllocateDsReconSurfacesVdenc()
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS CodechalEncodeTrackedBuffer::AllocateMvTemporalBuffer(uint8_t bufIndex)
+{
+    CODECHAL_ENCODE_FUNCTION_ENTER;
+
+    if (m_encoder->m_vdencEnabled && m_encoder->m_vdencMvTemporalBufferSize)
+    {
+        // Allocate/fetch buffer if current frame can be used for reference or it's a special buffer for pre-generated I frame MV streamout surface
+        if((m_encoder->m_currRefList && m_encoder->m_currRefList->bUsedAsRef) || bufIndex == CODEC_NUM_REF_BUFFERS)
+        {
+            if ((m_trackedBufCurrMvTemporal = (MOS_RESOURCE*)m_allocator->GetResource(m_standard, mvTemporalBuffer, bufIndex)))
+            {
+                return MOS_STATUS_SUCCESS;
+            }
+
+            CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBufCurrMvTemporal = (MOS_RESOURCE*)m_allocator->AllocateResource(
+                m_standard, m_encoder->m_vdencMvTemporalBufferSize, 1, mvTemporalBuffer, "mvTemporalBuffer", bufIndex, false));
+        }
+    }
+
+    return MOS_STATUS_SUCCESS;
+}
+
 void CodechalEncodeTrackedBuffer::ReleaseMbCode(uint8_t bufIndex)
 {
     CODECHAL_ENCODE_FUNCTION_ENTER;
@@ -763,6 +802,8 @@ void CodechalEncodeTrackedBuffer::ReleaseMvData(uint8_t bufIndex)
 
 void CodechalEncodeTrackedBuffer::ReleaseSurfaceCsc(uint8_t bufIndex)
 {
+    CODECHAL_ENCODE_FUNCTION_ENTER;
+
     m_allocator->ReleaseResource(m_standard, cscSurface, bufIndex);
 }
 

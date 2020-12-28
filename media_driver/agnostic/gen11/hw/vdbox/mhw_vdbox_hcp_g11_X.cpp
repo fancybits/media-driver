@@ -244,8 +244,7 @@ void MhwVdboxHcpInterfaceG11::InitRowstoreUserFeatureSettings()
     MOS_USER_FEATURE_VALUE_DATA userFeatureData;
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
 
-    /* It will be better to remove this code when it is upstreamed */
-    if (MEDIA_IS_SKU(m_skuTable, FtrSimulationMode))
+    if (m_osInterface->bSimIsActive)
     {
         // Disable RowStore Cache on simulation by default
         userFeatureData.u32Data = 1;
@@ -260,7 +259,8 @@ void MhwVdboxHcpInterfaceG11::InitRowstoreUserFeatureSettings()
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_ROWSTORE_CACHE_DISABLE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
 #endif // _DEBUG || _RELEASE_INTERNAL
     m_rowstoreCachingSupported = userFeatureData.i32Data ? false : true;
 
@@ -271,7 +271,8 @@ void MhwVdboxHcpInterfaceG11::InitRowstoreUserFeatureSettings()
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_HEVCDATROWSTORECACHE_DISABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            m_osInterface->pOsContext);
 #endif // _DEBUG || _RELEASE_INTERNAL
         m_hevcDatRowStoreCache.bSupported = userFeatureData.i32Data ? false : true;
 
@@ -280,7 +281,8 @@ void MhwVdboxHcpInterfaceG11::InitRowstoreUserFeatureSettings()
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_HEVCDFROWSTORECACHE_DISABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            m_osInterface->pOsContext);
 #endif // _DEBUG || _RELEASE_INTERNAL
         m_hevcDfRowStoreCache.bSupported = userFeatureData.i32Data ? false : true;
 
@@ -289,7 +291,8 @@ void MhwVdboxHcpInterfaceG11::InitRowstoreUserFeatureSettings()
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_HEVCSAOROWSTORECACHE_DISABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            m_osInterface->pOsContext);
 #endif // _DEBUG || _RELEASE_INTERNAL
         m_hevcSaoRowStoreCache.bSupported = userFeatureData.i32Data ? false : true;
 
@@ -298,7 +301,8 @@ void MhwVdboxHcpInterfaceG11::InitRowstoreUserFeatureSettings()
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_VP9_HVDROWSTORECACHE_DISABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            m_osInterface->pOsContext);
 #endif // _DEBUG || _RELEASE_INTERNAL
         m_vp9HvdRowStoreCache.bSupported = userFeatureData.i32Data ? false : true;
 
@@ -307,7 +311,8 @@ void MhwVdboxHcpInterfaceG11::InitRowstoreUserFeatureSettings()
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_VP9_DATROWSTORECACHE_DISABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            m_osInterface->pOsContext);
 #endif // _DEBUG || _RELEASE_INTERNAL
         m_vp9DatRowStoreCache.bSupported = userFeatureData.i32Data ? false : true;
 
@@ -316,7 +321,8 @@ void MhwVdboxHcpInterfaceG11::InitRowstoreUserFeatureSettings()
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_VP9_DFROWSTORECACHE_DISABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            m_osInterface->pOsContext);
 #endif // _DEBUG || _RELEASE_INTERNAL
         m_vp9DfRowStoreCache.bSupported = userFeatureData.i32Data ? false : true;
     }
@@ -1295,7 +1301,10 @@ MOS_STATUS MhwVdboxHcpInterfaceG11::AddHcpDecodeSurfaceStateCmd(
         }
     }
 
-    cmd->DW3.DefaultAlphaValue = 0; // needs to be programmable
+    if ((params->ucBitDepthLumaMinus8 == 4) || (params->ucBitDepthChromaMinus8 == 4)) // 12 bit
+        cmd->DW3.DefaultAlphaValue = 0xfff0;
+    else
+        cmd->DW3.DefaultAlphaValue = 0xffff;
 
     return eStatus;
 }
@@ -1418,6 +1427,21 @@ MOS_STATUS MhwVdboxHcpInterfaceG11::AddHcpPipeBufAddrCmd(
     MHW_RESOURCE_PARAMS resourceParams;
     MOS_SURFACE details;
     mhw_vdbox_hcp_g11_X::HCP_PIPE_BUF_ADDR_STATE_CMD cmd;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    MOS_USER_FEATURE_VALUE_WRITE_DATA UserFeatureWriteData = __NULL_USER_FEATURE_VALUE_WRITE_DATA__;
+    UserFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_IS_CODEC_ROW_STORE_CACHE_ENABLED_ID;
+    if (m_hevcDatRowStoreCache.bEnabled ||
+        m_hevcDfRowStoreCache.bEnabled  ||
+        m_hevcSaoRowStoreCache.bEnabled ||
+        m_vp9HvdRowStoreCache.bEnabled  ||
+        m_vp9DatRowStoreCache.bEnabled  ||
+        m_vp9DfRowStoreCache.bEnabled)
+    {
+        UserFeatureWriteData.Value.i32Data = 1;
+    }
+    MOS_UserFeature_WriteValues_ID(nullptr, &UserFeatureWriteData, 1, m_osInterface->pOsContext);
+#endif
 
     MOS_ZeroMemory(&resourceParams, sizeof(resourceParams));
 
@@ -2275,15 +2299,22 @@ MOS_STATUS MhwVdboxHcpInterfaceG11::AddHcpDecodePicStateCmd(
     MHW_MI_CHK_NULL(params);
     MHW_MI_CHK_NULL(params->pHevcPicParams);
 
-    mhw_vdbox_hcp_g11_X::HCP_PIC_STATE_CMD  *cmd =
-        (mhw_vdbox_hcp_g11_X::HCP_PIC_STATE_CMD*)cmdBuffer->pCmdPtr;
-
-    MHW_MI_CHK_STATUS(MhwVdboxHcpInterfaceGeneric<mhw_vdbox_hcp_g11_X>::AddHcpDecodePicStateCmd(cmdBuffer, params));
-
     auto paramsG11 = dynamic_cast<PMHW_VDBOX_HEVC_PIC_STATE_G11>(params);
     MHW_MI_CHK_NULL(paramsG11);
     auto hevcPicParams = paramsG11->pHevcPicParams;
     auto hevcExtPicParams = paramsG11->pHevcExtPicParams;
+
+    if (hevcExtPicParams && hevcExtPicParams->PicRangeExtensionFlags.fields.cabac_bypass_alignment_enabled_flag == 1)
+    {
+        MHW_ASSERTMESSAGE("HW decoder doesn't support HEVC High Throughput profile so far.");
+        MHW_ASSERTMESSAGE("So cabac_bypass_alignment_enabled_flag cannot equal to 1.");
+        return MOS_STATUS_INVALID_PARAMETER;
+    }
+
+    mhw_vdbox_hcp_g11_X::HCP_PIC_STATE_CMD  *cmd =
+        (mhw_vdbox_hcp_g11_X::HCP_PIC_STATE_CMD*)cmdBuffer->pCmdPtr;
+
+    MHW_MI_CHK_STATUS(MhwVdboxHcpInterfaceGeneric<mhw_vdbox_hcp_g11_X>::AddHcpDecodePicStateCmd(cmdBuffer, params));
 
     // RExt fields
     cmd->DW2.ChromaSubsampling           = hevcPicParams->chroma_format_idc;
@@ -3107,6 +3138,7 @@ MOS_STATUS MhwVdboxHcpInterfaceG11::AddHcpVp9PicStateCmd(
 
     uint32_t curFrameWidth                      = vp9PicParams->FrameWidthMinus1 + 1;
     uint32_t curFrameHeight                     = vp9PicParams->FrameHeightMinus1 + 1;
+    bool isScaling                              = (curFrameWidth == params->dwPrevFrmWidth) && (curFrameHeight == params->dwPrevFrmHeight) ? false : true;
 
     cmd.DW1.FrameWidthInPixelsMinus1            = MOS_ALIGN_CEIL(curFrameWidth, CODEC_VP9_MIN_BLOCK_WIDTH) - 1;
     cmd.DW1.FrameHeightInPixelsMinus1           = MOS_ALIGN_CEIL(curFrameHeight, CODEC_VP9_MIN_BLOCK_WIDTH) - 1;
@@ -3123,6 +3155,27 @@ MOS_STATUS MhwVdboxHcpInterfaceG11::AddHcpVp9PicStateCmd(
     cmd.DW2.SegmentationUpdateMap               = cmd.DW2.SegmentationEnabled && vp9PicParams->PicFlags.fields.segmentation_update_map;
     cmd.DW2.LosslessMode                        = vp9PicParams->PicFlags.fields.LosslessFlag;
     cmd.DW2.SegmentIdStreamoutEnable            = cmd.DW2.SegmentationUpdateMap;
+
+    uint8_t segmentIDStreaminEnable = 0;
+    if (vp9PicParams->PicFlags.fields.intra_only ||
+        (vp9PicParams->PicFlags.fields.frame_type == CODEC_VP9_KEY_FRAME)) {
+        segmentIDStreaminEnable = 1;
+    } else if (vp9PicParams->PicFlags.fields.segmentation_enabled) {
+        if (!vp9PicParams->PicFlags.fields.segmentation_update_map)
+            segmentIDStreaminEnable = 1;
+        else if (vp9PicParams->PicFlags.fields.segmentation_temporal_update)
+            segmentIDStreaminEnable = 1;
+    }
+    if (vp9PicParams->PicFlags.fields.error_resilient_mode) {
+            segmentIDStreaminEnable = 1;
+    }
+    // Resolution change will reset the segment ID buffer
+    if (isScaling)
+    {
+        segmentIDStreaminEnable = 1;
+    }
+
+    cmd.DW2.SegmentIdStreaminEnable       = segmentIDStreaminEnable;
 
     cmd.DW3.Log2TileRow                    = vp9PicParams->log2_tile_rows;        // No need to minus 1 here.
     cmd.DW3.Log2TileColumn                 = vp9PicParams->log2_tile_columns;     // No need to minus 1 here.
@@ -3163,9 +3216,6 @@ MOS_STATUS MhwVdboxHcpInterfaceG11::AddHcpVp9PicStateCmd(
         uint32_t altRefFrameWidth     = vp9RefList[altRefPicIndex]->dwFrameWidth;
         uint32_t altRefFrameHeight    = vp9RefList[altRefPicIndex]->dwFrameHeight;
 
-        bool isScaling                = (curFrameWidth == params->dwPrevFrmWidth) && (curFrameHeight == params->dwPrevFrmHeight) ?
-                                                    false : true;
-
         cmd.DW2.AllowHiPrecisionMv              = vp9PicParams->PicFlags.fields.allow_high_precision_mv;
         cmd.DW2.McompFilterType                 = vp9PicParams->PicFlags.fields.mcomp_filter_type;
         cmd.DW2.SegmentationTemporalUpdate      = cmd.DW2.SegmentationUpdateMap && vp9PicParams->PicFlags.fields.segmentation_temporal_update;
@@ -3176,15 +3226,18 @@ MOS_STATUS MhwVdboxHcpInterfaceG11::AddHcpVp9PicStateCmd(
 
         cmd.DW2.LastFrameType                   = !params->PrevFrameParams.fields.KeyFrame;
 
-        cmd.DW2.UsePrevInFindMvReferences       = vp9PicParams->PicFlags.fields.error_resilient_mode    ||
-                                                    params->PrevFrameParams.fields.KeyFrame             ||
-                                                    params->PrevFrameParams.fields.IntraOnly            ||
-                                                    !params->PrevFrameParams.fields.Display             ||
-                                                    isScaling ? false : true;
-
-        cmd.DW2.SegmentIdStreaminEnable         = vp9PicParams->PicFlags.fields.error_resilient_mode    ||
-                                                    !cmd.DW2.SegmentationEnabled ||
-                                                    isScaling ? false : true;
+        // Reset UsePrevInFindMvReferences to zero if last picture has a different size,
+        // Current picture is error-resilient mode, Last picture was intra_only or keyframe,
+        // Last picture was not a displayed picture.
+        cmd.DW2.UsePrevInFindMvReferences       =
+                 !(vp9PicParams->PicFlags.fields.error_resilient_mode ||
+                 params->PrevFrameParams.fields.KeyFrame ||
+                 params->PrevFrameParams.fields.IntraOnly ||
+                 !params->PrevFrameParams.fields.Display);
+        // Reset UsePrevInFindMvReferences in case of resolution change on inter frames
+        if (isScaling) {
+            cmd.DW2.UsePrevInFindMvReferences   = 0;
+        }
 
         cmd.DW4.HorizontalScaleFactorForLast    = (lastRefFrameWidth * m_vp9ScalingFactor) / curFrameWidth;
         cmd.DW4.VerticalScaleFactorForLast      = (lastRefFrameHeight * m_vp9ScalingFactor) / curFrameHeight;
@@ -3230,8 +3283,8 @@ MOS_STATUS MhwVdboxHcpInterfaceG11::AddHcpVp9PicStateEncCmd(
     auto vp9RefList = params->ppVp9RefList;
     auto vp9SeqParams = params->pVp9SeqParams;
 
-    cmd.DW1.FrameWidthInPixelsMinus1    = MOS_ALIGN_CEIL(vp9PicParams->SrcFrameWidthMinus1, CODEC_VP9_MIN_BLOCK_WIDTH) - 1;
-    cmd.DW1.FrameHeightInPixelsMinus1   = MOS_ALIGN_CEIL(vp9PicParams->SrcFrameHeightMinus1, CODEC_VP9_MIN_BLOCK_WIDTH) - 1;
+    cmd.DW1.FrameWidthInPixelsMinus1    = MOS_ALIGN_CEIL(vp9PicParams->SrcFrameWidthMinus1 + 1, CODEC_VP9_MIN_BLOCK_WIDTH) - 1;
+    cmd.DW1.FrameHeightInPixelsMinus1   = MOS_ALIGN_CEIL(vp9PicParams->SrcFrameHeightMinus1 + 1, CODEC_VP9_MIN_BLOCK_WIDTH) - 1;
 
     cmd.DW2.FrameType                   = vp9PicParams->PicFlags.fields.frame_type;
     cmd.DW2.AdaptProbabilitiesFlag      = !vp9PicParams->PicFlags.fields.error_resilient_mode && !vp9PicParams->PicFlags.fields.frame_parallel_decoding_mode;

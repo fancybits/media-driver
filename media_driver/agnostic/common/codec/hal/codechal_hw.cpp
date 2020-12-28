@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2018, Intel Corporation
+* Copyright (c) 2011-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -25,6 +25,7 @@
 //!
 #include "codechal_hw.h"
 #include "codechal_setting.h"
+#include "mhw_cmd_reader.h"
 
 #define VDBOX_HUC_VDENC_BRC_INIT_KERNEL_DESCRIPTOR 4
 
@@ -44,7 +45,8 @@ const MOS_SYNC_PARAMS     g_cInitSyncParams =
 CodechalHwInterface::CodechalHwInterface(
     PMOS_INTERFACE    osInterface,
     CODECHAL_FUNCTION codecFunction,
-    MhwInterfaces     *mhwInterfaces)
+    MhwInterfaces     *mhwInterfaces,
+    bool              disableScalability)
 {
     CODECHAL_HW_FUNCTION_ENTER;
 
@@ -71,6 +73,7 @@ CodechalHwInterface::CodechalHwInterface(
     m_renderInterface = mhwInterfaces->m_renderInterface;
 
     m_stateHeapSettings = MHW_STATE_HEAP_SETTINGS();
+    m_disableScalability = disableScalability;
 
     MOS_ZeroMemory(&m_hucDmemDummy, sizeof(m_hucDmemDummy));
     MOS_ZeroMemory(&m_dummyStreamIn, sizeof(m_dummyStreamIn));
@@ -345,6 +348,126 @@ MOS_STATUS CodechalHwInterface::GetHxxPrimitiveCommandSize(
     return eStatus;
 }
 
+MOS_STATUS CodechalHwInterface::GetHcpStateCommandSize(
+    uint32_t                        mode,
+    uint32_t *                      commandsSize,
+    uint32_t *                      patchListSize,
+    PMHW_VDBOX_STATE_CMDSIZE_PARAMS params)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    CODECHAL_HW_FUNCTION_ENTER;
+
+    uint32_t standard = CodecHal_GetStandardFromMode(mode);
+
+    uint32_t hcpCommandsSize  = 0;
+    uint32_t hcpPatchListSize = 0;
+    uint32_t cpCmdsize        = 0;
+    uint32_t cpPatchListSize  = 0;
+
+    if (m_hcpInterface && (standard == CODECHAL_HEVC || standard == CODECHAL_VP9))
+    {
+        CODECHAL_HW_CHK_STATUS_RETURN(m_hcpInterface->GetHcpStateCommandSize(
+            mode, &hcpCommandsSize, &hcpPatchListSize, params));
+
+        m_cpInterface->GetCpStateLevelCmdSize(cpCmdsize, cpPatchListSize);
+    }
+
+    *commandsSize  = hcpCommandsSize + cpCmdsize;
+    *patchListSize = hcpPatchListSize + cpPatchListSize;
+
+    return eStatus;
+}
+
+MOS_STATUS CodechalHwInterface::GetHcpPrimitiveCommandSize(
+    uint32_t                        mode,
+    uint32_t                       *commandsSize,
+    uint32_t                       *patchListSize,
+    bool                            modeSpecific)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    CODECHAL_HW_FUNCTION_ENTER;
+
+    uint32_t standard = CodecHal_GetStandardFromMode(mode);
+
+    uint32_t hcpCommandsSize  = 0;
+    uint32_t hcpPatchListSize = 0;
+    uint32_t cpCmdsize        = 0;
+    uint32_t cpPatchListSize  = 0;
+
+    if (m_hcpInterface && (standard == CODECHAL_HEVC || standard == CODECHAL_VP9))
+    {
+        CODECHAL_HW_CHK_STATUS_RETURN(m_hcpInterface->GetHcpPrimitiveCommandSize(
+            mode, &hcpCommandsSize, &hcpPatchListSize, modeSpecific ? true : false));
+
+        m_cpInterface->GetCpSliceLevelCmdSize(cpCmdsize, cpPatchListSize);
+    }
+
+    *commandsSize  = hcpCommandsSize + cpCmdsize;
+    *patchListSize = hcpPatchListSize + cpPatchListSize;
+
+    return eStatus;
+}
+
+MOS_STATUS CodechalHwInterface::GetHucStateCommandSize(
+    uint32_t                        mode,
+    uint32_t *                      commandsSize,
+    uint32_t *                      patchListSize,
+    PMHW_VDBOX_STATE_CMDSIZE_PARAMS params)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    CODECHAL_HW_FUNCTION_ENTER;
+
+    uint32_t standard         = CodecHal_GetStandardFromMode(mode);
+    uint32_t hucCommandsSize  = 0;
+    uint32_t hucPatchListSize = 0;
+    uint32_t cpCmdsize        = 0;
+    uint32_t cpPatchListSize  = 0;
+
+    if (m_hucInterface && (standard == CODECHAL_HEVC || standard == CODECHAL_CENC || standard == CODECHAL_VP9 || standard == CODECHAL_AVC))
+    {
+        CODECHAL_HW_CHK_STATUS_RETURN(m_hucInterface->GetHucStateCommandSize(
+            mode, &hucCommandsSize, &hucPatchListSize, params));
+
+        m_cpInterface->GetCpStateLevelCmdSize(cpCmdsize, cpPatchListSize);
+    }
+
+    *commandsSize  = hucCommandsSize + cpCmdsize;
+    *patchListSize = hucPatchListSize + cpPatchListSize;
+
+    return eStatus;
+}
+
+MOS_STATUS CodechalHwInterface::GetHucPrimitiveCommandSize(
+    uint32_t                        mode,
+    uint32_t                       *commandsSize,
+    uint32_t                       *patchListSize)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    CODECHAL_HW_FUNCTION_ENTER;
+
+    uint32_t standard         = CodecHal_GetStandardFromMode(mode);
+    uint32_t hucCommandsSize  = 0;
+    uint32_t hucPatchListSize = 0;
+    uint32_t cpCmdsize        = 0;
+    uint32_t cpPatchListSize  = 0;
+
+    if (m_hucInterface && (standard == CODECHAL_HEVC || standard == CODECHAL_CENC || standard == CODECHAL_VP9))
+    {
+        CODECHAL_HW_CHK_STATUS_RETURN(m_hucInterface->GetHucPrimitiveCommandSize(
+            mode, &hucCommandsSize, &hucPatchListSize));
+        m_cpInterface->GetCpSliceLevelCmdSize(cpCmdsize, cpPatchListSize);
+    }
+
+    *commandsSize  = hucCommandsSize + cpCmdsize;
+    *patchListSize = hucPatchListSize + cpPatchListSize;
+
+    return eStatus;
+}
+
 MOS_STATUS CodechalHwInterface::GetVdencStateCommandsDataSize(
     uint32_t                    mode,
     uint32_t                   *commandsSize,
@@ -392,6 +515,31 @@ MOS_STATUS CodechalHwInterface::GetVdencStateCommandsDataSize(
         MHW_ASSERTMESSAGE("Unsupported encode mode.");
         return MOS_STATUS_UNKNOWN;
     }
+
+    *commandsSize = commands;
+    *patchListSize = patchList;
+
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS CodechalHwInterface::GetVdencPrimitiveCommandsDataSize(
+    uint32_t                    mode,
+    uint32_t                   *commandsSize,
+    uint32_t                   *patchListSize)
+{
+    CODECHAL_HW_FUNCTION_ENTER;
+
+    MHW_MI_CHK_NULL(m_miInterface);
+    MHW_MI_CHK_NULL(m_hcpInterface);
+    MHW_MI_CHK_NULL(m_vdencInterface);
+
+    uint32_t commands = 0;
+    uint32_t patchList = 0;
+
+    MHW_MI_CHK_STATUS(m_vdencInterface->GetVdencPrimitiveCommandsDataSize(
+        mode,
+        &commands,
+        &patchList));
 
     *commandsSize = commands;
     *patchListSize = patchList;
@@ -459,7 +607,7 @@ MOS_STATUS CodechalHwInterface::Initialize(
 
     CODECHAL_HW_FUNCTION_ENTER;
 
-    if (CodecHalUsesRenderEngine(settings->codecFunction, settings->standard) ||
+    if (UsesRenderEngine(settings->codecFunction, settings->standard) ||
         CodecHalIsEnableFieldScaling(settings->codecFunction, settings->standard, settings->downsamplingHinted))
     {
         CODECHAL_HW_CHK_NULL_RETURN(m_renderInterface);
@@ -479,6 +627,25 @@ MOS_STATUS CodechalHwInterface::Initialize(
                 m_stateHeapSettings));
         }
     }
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
+    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+    MOS_UserFeature_ReadValue_ID(
+        nullptr,
+        __MEDIA_USER_FEATURE_VALUE_SSEU_SETTING_OVERRIDE_ID,
+        &userFeatureData,
+        m_osInterface->pOsContext);
+    if (userFeatureData.i32Data != 0xDEADC0DE)
+    {
+        m_numRequestedEuSlicesOverride = userFeatureData.i32Data & 0xFF;              // Bits 0-7
+        m_numRequestedSubSlicesOverride = (userFeatureData.i32Data >> 8) & 0xFF;      // Bits 8-15
+        m_numRequestedEusOverride = (userFeatureData.i32Data >> 16) & 0xFFFF;         // Bits 16-31
+        m_numRequestedOverride = true;
+    }
+#endif
+
+    m_enableCodecMmc = !MEDIA_IS_WA(GetWaTable(), WaDisableCodecMmc);
 
     return eStatus;
 }
@@ -545,6 +712,8 @@ MOS_STATUS CodechalHwInterface::AddVdencBrcImgBuffer(
 
     // Add batch buffer end insertion flag
     m_miInterface->AddBatchBufferEndInsertionFlag(constructedCmdBuf);
+
+    OVERRIDE_CMD_DATA(constructedCmdBuf.pCmdBase, constructedCmdBuf.iOffset);
 
     if (data)
     {
@@ -671,18 +840,19 @@ MOS_STATUS CodechalHwInterface::WriteSyncTagToResource(
     MOS_UNUSED(syncParams);
 
     MHW_MI_STORE_DATA_PARAMS        params;
-    MOS_RESOURCE                    globalGpuContextSyncTagBuffer;
+    PMOS_RESOURCE                   globalGpuContextSyncTagBuffer = nullptr;
     uint32_t                        offset = 0;
     uint32_t                        value = 0;
 
     CODECHAL_HW_CHK_STATUS_RETURN(m_osInterface->pfnGetGpuStatusBufferResource(
         m_osInterface,
-        &globalGpuContextSyncTagBuffer));
+        globalGpuContextSyncTagBuffer));
+    CODECHAL_HW_CHK_NULL_RETURN(globalGpuContextSyncTagBuffer);
 
     offset = m_osInterface->pfnGetGpuStatusTagOffset(m_osInterface, m_osInterface->CurrentGpuContextOrdinal);
     value = m_osInterface->pfnGetGpuStatusTag(m_osInterface, m_osInterface->CurrentGpuContextOrdinal);
 
-    params.pOsResource = &globalGpuContextSyncTagBuffer;
+    params.pOsResource = globalGpuContextSyncTagBuffer;
     params.dwResourceOffset = offset;
     params.dwValue = value;
 
@@ -953,10 +1123,20 @@ MOS_STATUS CodechalHwInterface::GetDefaultSSEuSetting(
         return eStatus;
     }
 
-    if (mediaStateType >= CODECHAL_NUM_MEDIA_STATES)
+    if (mediaStateType >= m_numMediaStates)
     {
         return MOS_STATUS_INVALID_PARAMETER;
     }
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    if (m_numRequestedOverride)
+    {
+        m_numRequestedEuSlices = m_numRequestedEuSlicesOverride;
+        m_numRequestedSubSlices = m_numRequestedSubSlicesOverride;
+        m_numRequestedEus = m_numRequestedEusOverride;
+        return eStatus;
+    }
+#endif
 
     CODECHAL_SSEU_SETTING const *ssEutable = m_ssEuTable + mediaStateType;
 
@@ -981,21 +1161,6 @@ MOS_STATUS CodechalHwInterface::GetDefaultSSEuSetting(
             m_numRequestedEus = ssEutable->ui8NumEUs;
         }
     }
-
-#if (_DEBUG || _RELEASE_INTERNAL)
-    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-    MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_SSEU_SETTING_OVERRIDE_ID,
-        &userFeatureData);
-    if (userFeatureData.i32Data != 0xDEADC0DE)
-    {
-        m_numRequestedEuSlices = userFeatureData.i32Data & 0xFF;              // Bits 0-7
-        m_numRequestedSubSlices = (userFeatureData.i32Data >> 8) & 0xFF;       // Bits 8-15
-        m_numRequestedEus = (userFeatureData.i32Data >> 16) & 0xFFFF;    // Bits 16-31
-    }
-#endif
 
     return eStatus;
 }
@@ -1063,7 +1228,8 @@ MOS_STATUS CodechalHwInterface::InitL3ControlUserFeatureSettings(
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_ENCODE_L3_CACHE_CNTLREG_OVERRIDE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     l3Overrides->dwCntlReg = (uint32_t)userFeatureData.i32Data;
 
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -1072,7 +1238,8 @@ MOS_STATUS CodechalHwInterface::InitL3ControlUserFeatureSettings(
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_ENCODE_L3_CACHE_CNTLREG2_OVERRIDE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     l3Overrides->dwCntlReg2 = (uint32_t)userFeatureData.i32Data;
 
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -1081,7 +1248,8 @@ MOS_STATUS CodechalHwInterface::InitL3ControlUserFeatureSettings(
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_ENCODE_L3_CACHE_CNTLREG3_OVERRIDE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     l3Overrides->dwCntlReg3 = (uint32_t)userFeatureData.i32Data;
 
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -1090,7 +1258,8 @@ MOS_STATUS CodechalHwInterface::InitL3ControlUserFeatureSettings(
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_ENCODE_L3_CACHE_SQCREG1_OVERRIDE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     l3Overrides->dwSqcReg1 = (uint32_t)userFeatureData.i32Data;
 
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -1099,7 +1268,8 @@ MOS_STATUS CodechalHwInterface::InitL3ControlUserFeatureSettings(
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_ENCODE_L3_CACHE_SQCREG4_OVERRIDE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     l3Overrides->dwSqcReg4 = (uint32_t)userFeatureData.i32Data;
 
     if (l3CacheConfig->bL3LRA1Reset)
@@ -1110,7 +1280,8 @@ MOS_STATUS CodechalHwInterface::InitL3ControlUserFeatureSettings(
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_ENCODE_L3_LRA_1_REG1_OVERRIDE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            m_osInterface->pOsContext);
         l3Overrides->dwLra1Reg = (uint32_t)userFeatureData.i32Data;
     }
 
@@ -1715,4 +1886,31 @@ MOS_STATUS CodechalHwInterface::SetStatusTagByMiCommand(
         &storeDataParams);
 
     return result;
+}
+
+bool CodechalHwInterface::UsesRenderEngine(CODECHAL_FUNCTION codecFunction, uint32_t standard)
+{
+    if(codecFunction == CODECHAL_FUNCTION_ENC ||
+        (codecFunction == CODECHAL_FUNCTION_ENC_PAK) ||
+        codecFunction == CODECHAL_FUNCTION_HYBRIDPAK ||
+        ((codecFunction == CODECHAL_FUNCTION_DECODE) && (standard == CODECHAL_VC1)) ||
+        codecFunction == CODECHAL_FUNCTION_ENC_VDENC_PAK ||
+        codecFunction == CODECHAL_FUNCTION_FEI_PRE_ENC ||
+        codecFunction == CODECHAL_FUNCTION_FEI_ENC   ||
+        codecFunction == CODECHAL_FUNCTION_FEI_ENC_PAK)
+     {
+        return true;
+     }
+
+     return false;
+}
+
+MOS_STATUS CodechalHwInterface::GetFilmGrainKernelInfo(
+    uint8_t*& kernelBase,
+    uint32_t& kernelSize)
+{
+    kernelBase = nullptr;
+    kernelSize = 0;
+
+    return MOS_STATUS_SUCCESS;
 }

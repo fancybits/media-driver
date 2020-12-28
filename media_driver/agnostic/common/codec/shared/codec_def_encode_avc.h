@@ -40,8 +40,9 @@
 #define CODEC_AVC_WP_OUTPUT_L0_START        0
 #define CODEC_AVC_WP_OUTPUT_L1_START        6
 
-#define ENCODE_VDENC_AVC_MAX_ROI_NUMBER_G9            3        // Max 4 regions including non-ROI - used from DDI
+#define ENCODE_VDENC_AVC_MAX_ROI_NUMBER_G9            3        // Max 4  regions including non-ROI - used from DDI
 #define ENCODE_VDENC_AVC_MAX_ROI_NUMBER_ADV          16        // Max 16 regions including non-ROI - used from DDI
+#define ENCODE_VDENC_AVC_MAX_BRC_ROI_NUMBER_ADV       7        // Max 8  regions including non-ROI - used from DDI
 #define ENCODE_VDENC_AVC_MIN_ROI_DELTA_QP_G9         -8        // Min delta QP for VDEnc ROI
 #define ENCODE_VDENC_AVC_MAX_ROI_DELTA_QP_G9          7        // Max delta QP for VDEnc ROI
 
@@ -205,6 +206,13 @@ enum
     SLICE_SP = 3,
     SLICE_SI = 4
 };
+typedef enum
+{
+    CODECHAL_ENCODE_AVC_SINGLE_PASS = 0,
+    CODECHAL_ENCODE_AVC_ICHAT       = 1,
+    CODECHAL_ENCODE_AVC_CAPTURE     = 4,
+    CODECHAL_ENCODE_AVC_APM         = 20
+} CODECHAL_ENCODE_AVC_ENCODER_USAGE;
 
 const uint8_t Slice_Type[10] = { SLICE_P, SLICE_B, SLICE_I, SLICE_SP, SLICE_SI, SLICE_P, SLICE_B, SLICE_I, SLICE_SP, SLICE_SI };
 
@@ -407,7 +415,7 @@ typedef struct _CODEC_AVC_ENCODE_SEQUENCE_PARAMS
             uint32_t           MBBRC                        : 4;
             /*! \brief Indicates trellis control.
             *
-            *    The Trellis_I, Trellis_P and Trellis_B settings may be combined using bitwise OR like “Trellis_I | Trellis_P” to enable Trellis for I & P.  If Trellis_Disabled is set with any combination, Trellis will be disabled.
+            *    The Trellis_I, Trellis_P and Trellis_B settings may be combined using bitwise OR like "Trellis_I | Trellis_P" to enable Trellis for I & P.  If Trellis_Disabled is set with any combination, Trellis will be disabled.
             *        \n - 0: Trellis_Default – Trellis decided internally.
             *        \n - 1: Trellis_Disabled – Trellis disabled for all frames/fields.
             *        \n - 2: Trellis_I – Trellis enabled for I frames/fields.
@@ -452,7 +460,28 @@ typedef struct _CODEC_AVC_ENCODE_SEQUENCE_PARAMS
             *        \n - 1 : streaming buffer by DDR is enabled.
             */
             uint32_t           EnableStreamingBufferDDR     : 1;
-            uint32_t           Reserved1                    : 5;
+            /*! \brief Indicates whether or not the encoding is in hierarchical GOP structure, for both RA B and LD B frame types
+            *
+            *        \n - 0 : BRC would treat it as flat structure.
+            *        \n - 1 : hierarchical structure.
+            *    \n In another word, this flag is equivalent to Qp Modulation enabling flag. If HierarchicalFlag == 1, app would enable Qp modulation for either random access or low delay hierarchical structure.
+            */
+            uint32_t           HierarchicalFlag             : 1;
+            /*! \brief Indicates whether or not the encoding is in low delay mode.
+            *
+            *        \n - 0 : the non-base temporal layers should be coded as random access B frames.
+            *        \n - 1 : no random access B will be coded. And the coding type could be only I or P.
+            *    \n Note: this flag only indicates the frame coding type, and is not related to BRC low delay mode.
+            */
+            uint32_t           LowDelayMode                 : 1;
+            /*! \brief Indicates if current encodin gis lookahead pass.
+            *
+            *        \n - 0 : the current encoding is in the actual encoding pass, and one of the BRC modes (CBR, VBR, etc.) should be selected.
+            *        \n - 1 : the current encoding is in the lookahead pass.
+            *    \n Valid only when LookAheadAnalysisSupport in CAP is on and LookAheadDepth > 0.
+            */
+            uint32_t           bLookAheadPhase              : 1;
+            uint32_t           Reserved1                    : 2;
         };
         uint32_t            sFlags;
     };
@@ -502,22 +531,22 @@ typedef struct _CODEC_AVC_ENCODE_SEQUENCE_PARAMS
 
     /*! \brief Indicates BRC Sliding window size in terms of number of frames.
     *
-    *   Defined for CBR and VBR. For other BRC modes or CQP, values are ignored. 
+    *   Defined for CBR and VBR. For other BRC modes or CQP, values are ignored.
     */
     uint16_t  SlidingWindowSize;
 
-    /*! \brief Indicates maximun bit rate Kbit per second within the sliding window during. 
+    /*! \brief Indicates maximun bit rate Kbit per second within the sliding window during.
     *
-    *  Defined for CBR and VBR. For other BRC modes or CQP, values are ignored. 
+    *  Defined for CBR and VBR. For other BRC modes or CQP, values are ignored.
     */
     uint32_t  MaxBitRatePerSlidingWindow;
 
-    /*! \brief Indicates minimun bit rate Kbit per second within the sliding window during. 
+    /*! \brief Indicates minimun bit rate Kbit per second within the sliding window during.
     *
-    *  Defined for CBR and VBR. For other BRC modes or CQP, values are ignored. 
+    *  Defined for CBR and VBR. For other BRC modes or CQP, values are ignored.
     */
     uint32_t  MinBitRatePerSlidingWindow;
-    
+
     /*! \brief Indicates number of frames to lookahead.
     *
     *    Range is [0~127]. Default is 0 which means lookahead disabled. Valid only when LookaheadBRCSupport is 1. When not 0, application should send LOOKAHEADDATA buffer to driver.
@@ -575,7 +604,7 @@ typedef struct _CODEC_AVC_ENCODE_USER_FLAGS
 
             /*! \brief Specifies if Slice Level Reporitng may be requested for this frame
             *
-            *    If this flag is set, then slice level parameter reporting will be set up for this frame.  Only valid if SliceLevelReportSupport is reported in ENCODE_CAPS, else this flag is ignored.  
+            *    If this flag is set, then slice level parameter reporting will be set up for this frame.  Only valid if SliceLevelReportSupport is reported in ENCODE_CAPS, else this flag is ignored.
             *
             */
             uint32_t    bEnableSliceLevelReport                 : 1;
@@ -596,9 +625,9 @@ typedef struct _CODEC_AVC_ENCODE_USER_FLAGS
             */
             uint32_t    bDisableRollingIntraRefreshOverlap      : 1;
 
-            /*! \brief Specifies whether extra partition decision refinement is done after the initial partition decision candidate is determined.  
+            /*! \brief Specifies whether extra partition decision refinement is done after the initial partition decision candidate is determined.
             *
-            *    It has performance tradeoff for better quality.  
+            *    It has performance tradeoff for better quality.
             *    \n - 0 : DEFAULT - Follow driver default settings.
             *    \n - 1 : FORCE_ENABLE - Enable this feature totally for all cases.
             *    \n - 2 : FORCE_DISABLE - Disable this feature totally for all cases.
@@ -609,6 +638,16 @@ typedef struct _CODEC_AVC_ENCODE_USER_FLAGS
         uint32_t        Value;
     };
 } CODEC_AVC_ENCODE_USER_FLAGS, *PCODEC_AVC_ENCODE_USER_FLAGS;
+
+typedef struct _CODEC_AVC_ENCODE_FORCE_SKIP_PARAMS
+{
+    uint32_t    Enable;
+    uint32_t    Xpos;
+    uint32_t    Ypos;
+    uint32_t    Width;
+    uint32_t    Height;
+
+} CODEC_AVC_ENCODE_FORCE_SKIP_PARAMS, *PCODEC_AVC_ENCODE_FORCE_SKIP_PARAMS;
 
 /*! \brief Provides the picture-level parameters of a compressed picture for AVC encoding.
 */
@@ -696,6 +735,10 @@ typedef struct _CODEC_AVC_ENCODE_PIC_PARAMS
     bool            bLastPicInStream;               //!< Indicate whether to insert stream closing NAL unit.
 
     CODEC_AVC_ENCODE_USER_FLAGS     UserFlags;
+    CODEC_AVC_ENCODE_FORCE_SKIP_PARAMS  ForceSkip;
+    bool                                bStreamOutEnbleSinglePassvdenc;
+    bool                                bHMEActiveCtrlFrmApp;
+    bool                                bHMEActive;
 
     /*! \brief Arbitrary number set by the host decoder to use as a tag in the status report feedback data.
     *
@@ -769,6 +812,7 @@ typedef struct _CODEC_AVC_ENCODE_PIC_PARAMS
     */
     uint8_t         NumROI;
     uint8_t         NumDirtyROI;                        //!< Number of dirty ROIs [0...4]
+    uint8_t         NumDeltaQpForNonRectROI;            //!< Number of DeltaQP for non-rectangular ROIs [0...16]
     /*! \brief Dictates the value of delta QP for any ROI should be within [MinDeltaQp..MaxDeltaQp]
     *
     *    Applies only to BRC case.
@@ -779,6 +823,13 @@ typedef struct _CODEC_AVC_ENCODE_PIC_PARAMS
     *    Applies only to BRC case.
     */
     char            MinDeltaQp;
+    /*! \brief Determine possible DeltaQP values for NonRectROI. For BRC case values should be within [MinDeltaQp..MaxDeltaQp]
+    *
+    *    QP value for the MB is represented by NonRectROIDeltaQpList[QpData - 1],
+    *    where QpData - UCHAR in ENCODE_MBQPDATA structure.
+    *    if QpData == 0, the block is in the background, and slice QP (QpY + slice_qp_delta) is applied on this MB.
+    */
+    char            NonRectROIDeltaQpList[16];
     /*! \brief Defines ROI settings.
     *
     *    Value entries are ROI[0] up to ROI[NumROI – 1], inclusively, if NumROI > 0. And it can be ignored otherwise.
@@ -887,24 +938,24 @@ typedef struct _CODEC_AVC_ENCODE_PIC_PARAMS
 
     /*! \brief Maximum frame size for all frame types in bytes.
     *
-    *    Applicable for CQP and multi PAK. If dwMaxFrameSize > 0, driver will do multiple PAK and adjust QP 
-    *    (frame level QP + slice_qp_delta) to make the compressed frame size to be less than this value. 
+    *    Applicable for CQP and multi PAK. If dwMaxFrameSize > 0, driver will do multiple PAK and adjust QP
+    *    (frame level QP + slice_qp_delta) to make the compressed frame size to be less than this value.
     *    If dwMaxFrameSize equals 0, driver will not do multiple PAK and do not adjust QP.
     */
     uint32_t        dwMaxFrameSize;
 
     /*! \brief Total pass number for multiple PAK.
     *
-    *    Valid range is 0 - 4. If dwNumPasses is set to 0, driver will not do multiple PAK and do not adjust 
-    *    QP (frame level QP + slice_qp_delta), otherwise, driver will do multiple times PAK and in each time 
+    *    Valid range is 0 - 4. If dwNumPasses is set to 0, driver will not do multiple PAK and do not adjust
+    *    QP (frame level QP + slice_qp_delta), otherwise, driver will do multiple times PAK and in each time
     *    the QP will be adjust according deltaQp parameters.
     */
     uint32_t        dwNumPasses;
 
     /*! \brief Delta QP array for each PAK pass.
     *
-    *    This pointer points to an array of deltaQp, the max array size for AVC encoder is 4. The valid range 
-    *    for each deltaQp is 0 - 51. If the value is out of this valid range, driver will return error. 
+    *    This pointer points to an array of deltaQp, the max array size for AVC encoder is 4. The valid range
+    *    for each deltaQp is 0 - 51. If the value is out of this valid range, driver will return error.
     *    Otherwise, driver will adjust QP (frame level QP + slice_qp_delta) by adding this value in each PAK pass.
     */
     uint8_t        *pDeltaQp;
@@ -917,36 +968,59 @@ typedef struct _CODEC_AVC_ENCODE_PIC_PARAMS
     */
     uint32_t        TargetFrameSize;
 
-    /*! \brief Indicates if GPU polling based sync is enabled. 
+    /*! \brief Indicates if GPU polling based sync is enabled.
     *
-    *  Applicaiton sets to 1 to enable GPU polling based sync in driver. 
+    *  Applicaiton sets to 1 to enable GPU polling based sync in driver.
     */
     bool            bEnableSync;
 
-    /*! \brief Indicates if the current frame is repeat frame. 
+    /*! \brief Indicates if the current frame is repeat frame.
     *
-    *  Applicaiton sets to 1 if current frame is repeat frame. 
+    *  Applicaiton sets to 1 if current frame is repeat frame.
     */
     bool            bRepeatFrame;
 
-    /*! \brief Indicates marker coordinates in raw surface for GPU polling based sync. 
+    /*! \brief Indicates if enable QP adjustment for current frame.
+    *
+    *  Applicaiton sets to 1 to enable QP adjustment for current frame in CQP mode.
+    *  When QP adjustment is enabled, driver calls MBBRC kernel to adjust per MB QP for perceptual quality in CQP mode.
+    */
+    bool            bEnableQpAdjustment;
+
+    /*! \brief Indicates marker coordinates in raw surface for GPU polling based sync.
     *
     *  In unite of bytes. Valid for encoders which report SyncSupport capability as true.
     */
     uint16_t        SyncMarkerX;
     uint16_t        SyncMarkerY;
 
-    /*! \brief Point to marker value for GPU polling based sync. 
+    /*! \brief Point to marker value for GPU polling based sync.
     *
     *  Valid for encoders which report SyncSupport capability as true.
     */
     uint8_t         *pSyncMarkerValue;
-    
-    /*! \brief Indicates marker value for GPU polling based sync. 
+
+    /*! \brief Indicates marker value for GPU polling based sync.
     *
     *  In unit of bytes. Should be larger than or equal to 4. Valid for encoders which report SyncSupport capability as true.
     */
     uint32_t        SyncMarkerSize;
+
+    /*! \brief hierarchical level plus one for pyramid encoding.
+    *
+    *  When HierarchLevelPlus1 > 0, HierarchLevelPlus1 – 1 indicates the current frame’s hierarchical level.
+    *  And it is for both random access and low delay hierarchical structure.
+    *  HierarchLevelPlus1 == 0 can be treated as meaningless. It is defined as a legacy reason for HEVC.
+    */
+    uint8_t         HierarchLevelPlus1;
+
+    /*! \brief QP modulation strength for BRC
+    *
+    *  Suggestion of the strength of applying Qp delta for the frame specified when Qp modulation is enabled (HierarchicalFlag == 1).
+    *  This is a relative number. BRC could use it to infer final delta Qp values for hierarchical frames in mini Gop structure.
+    *  Default value 0 means no suggestion for Qp modulation
+    */
+    uint8_t         QpModulationStrength;
 
 } CODEC_AVC_ENCODE_PIC_PARAMS, *PCODEC_AVC_ENCODE_PIC_PARAMS;
 

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2018, Intel Corporation
+* Copyright (c) 2017-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -107,9 +107,9 @@ VAStatus DdiMediaDecode::ParseProcessingBuffer(
             MOS_SecureMemcpy(m_procBuf, sizeof(VAProcPipelineParameterBuffer), procBuf, sizeof(VAProcPipelineParameterBuffer));
         }
         auto decProcessingParams =
-            (PCODECHAL_DECODE_PROCESSING_PARAMS)m_ddiDecodeCtx->DecodeParams.m_procParams;
+            (DecodeProcessingParams *)m_ddiDecodeCtx->DecodeParams.m_procParams;
 
-        auto decProcessingSurface = decProcessingParams->pOutputSurface;
+        auto decProcessingSurface = decProcessingParams->m_outputSurface;
 
         memset(decProcessingSurface, 0, sizeof(MOS_SURFACE));
 
@@ -126,43 +126,43 @@ VAStatus DdiMediaDecode::ParseProcessingBuffer(
         decProcessingSurface->TileType = decProcessingSurface->OsResource.TileType;
         decProcessingSurface->Format   = decProcessingSurface->OsResource.Format;
 
-        decProcessingParams->rcInputSurfaceRegion.X      = procBuf->surface_region->x;
-        decProcessingParams->rcInputSurfaceRegion.Y      = procBuf->surface_region->y;
-        decProcessingParams->rcInputSurfaceRegion.Width  = procBuf->surface_region->width;
-        decProcessingParams->rcInputSurfaceRegion.Height = procBuf->surface_region->height;
+        decProcessingParams->m_inputSurfaceRegion.m_x      = procBuf->surface_region->x;
+        decProcessingParams->m_inputSurfaceRegion.m_y      = procBuf->surface_region->y;
+        decProcessingParams->m_inputSurfaceRegion.m_width  = procBuf->surface_region->width;
+        decProcessingParams->m_inputSurfaceRegion.m_height = procBuf->surface_region->height;
 
-        decProcessingParams->pOutputSurface               = decProcessingSurface;
-        decProcessingParams->rcOutputSurfaceRegion.X      = procBuf->output_region->x;
-        decProcessingParams->rcOutputSurfaceRegion.Y      = procBuf->output_region->y;
-        decProcessingParams->rcOutputSurfaceRegion.Width  = procBuf->output_region->width;
-        decProcessingParams->rcOutputSurfaceRegion.Height = procBuf->output_region->height;
+        decProcessingParams->m_outputSurface                = decProcessingSurface;
+        decProcessingParams->m_outputSurfaceRegion.m_x      = procBuf->output_region->x;
+        decProcessingParams->m_outputSurfaceRegion.m_y      = procBuf->output_region->y;
+        decProcessingParams->m_outputSurfaceRegion.m_width  = procBuf->output_region->width;
+        decProcessingParams->m_outputSurfaceRegion.m_height = procBuf->output_region->height;
 
         // Chroma siting
         // Set the vertical chroma siting info
         uint32_t chromaSitingFlags;
         chromaSitingFlags                       = procBuf->input_color_properties.chroma_sample_location & 0x3;
-        decProcessingParams->uiChromaSitingType = CODECHAL_CHROMA_SITING_NONE;
-        decProcessingParams->uiRotationState    = 0;
-        decProcessingParams->uiBlendState       = 0;
-        decProcessingParams->uiMirrorState      = 0;
+        decProcessingParams->m_chromaSitingType = CODECHAL_CHROMA_SITING_NONE;
+        decProcessingParams->m_rotationState    = 0;
+        decProcessingParams->m_blendState       = 0;
+        decProcessingParams->m_mirrorState      = 0;
 
         switch (chromaSitingFlags)
         {
         case VA_CHROMA_SITING_VERTICAL_TOP:
-            decProcessingParams->uiChromaSitingType = CODECHAL_CHROMA_SITING_VERT_TOP;
+            decProcessingParams->m_chromaSitingType = CODECHAL_CHROMA_SITING_VERT_TOP;
             break;
         case VA_CHROMA_SITING_VERTICAL_CENTER:
-            decProcessingParams->uiChromaSitingType = CODECHAL_CHROMA_SITING_VERT_CENTER;
+            decProcessingParams->m_chromaSitingType = CODECHAL_CHROMA_SITING_VERT_CENTER;
             break;
         case VA_CHROMA_SITING_VERTICAL_BOTTOM:
-            decProcessingParams->uiChromaSitingType = CODECHAL_CHROMA_SITING_VERT_BOTTOM;
+            decProcessingParams->m_chromaSitingType = CODECHAL_CHROMA_SITING_VERT_BOTTOM;
             break;
         default:
-            decProcessingParams->uiChromaSitingType = CODECHAL_CHROMA_SITING_NONE;
+            decProcessingParams->m_chromaSitingType = CODECHAL_CHROMA_SITING_NONE;
             break;
         }
 
-        if (decProcessingParams->uiChromaSitingType != CODECHAL_CHROMA_SITING_NONE)
+        if (decProcessingParams->m_chromaSitingType != CODECHAL_CHROMA_SITING_NONE)
         {
             // Set the horizontal chroma siting info
             chromaSitingFlags = procBuf->input_color_properties.chroma_sample_location & 0xc;
@@ -170,13 +170,13 @@ VAStatus DdiMediaDecode::ParseProcessingBuffer(
             switch (chromaSitingFlags)
             {
             case VA_CHROMA_SITING_HORIZONTAL_LEFT:
-                decProcessingParams->uiChromaSitingType |= CODECHAL_CHROMA_SITING_HORZ_LEFT;
+                decProcessingParams->m_chromaSitingType |= CODECHAL_CHROMA_SITING_HORZ_LEFT;
                 break;
             case VA_CHROMA_SITING_HORIZONTAL_CENTER:
-                decProcessingParams->uiChromaSitingType |= CODECHAL_CHROMA_SITING_HORZ_CENTER;
+                decProcessingParams->m_chromaSitingType |= CODECHAL_CHROMA_SITING_HORZ_CENTER;
                 break;
             default:
-                decProcessingParams->uiChromaSitingType = CODECHAL_CHROMA_SITING_NONE;
+                decProcessingParams->m_chromaSitingType = CODECHAL_CHROMA_SITING_NONE;
                 break;
             }
         }
@@ -221,6 +221,7 @@ VAStatus DdiMediaDecode::BeginPicture(
     m_ddiDecodeCtx->DecodeParams.m_numSlices       = 0;
     m_ddiDecodeCtx->DecodeParams.m_dataSize        = 0;
     m_ddiDecodeCtx->DecodeParams.m_deblockDataSize = 0;
+    m_ddiDecodeCtx->DecodeParams.m_executeCallIndex = 0;
     m_groupIndex                                   = 0;
 
     // register render targets
@@ -344,8 +345,11 @@ void DdiMediaDecode::DestroyContext(VADriverContextP ctx)
 
     if (codecHal != nullptr)
     {
-        MOS_FreeMemory(codecHal->GetOsInterface()->pOsContext->pPerfData);
-        codecHal->GetOsInterface()->pOsContext->pPerfData = nullptr;
+        if (codecHal->GetOsInterface() && codecHal->GetOsInterface()->pOsContext)
+        {
+            MOS_FreeMemory(codecHal->GetOsInterface()->pOsContext->pPerfData);
+            codecHal->GetOsInterface()->pOsContext->pPerfData = nullptr;
+        }
 
         // destroy codechal
         codecHal->Destroy();
@@ -398,9 +402,9 @@ void DdiMediaDecode::DestroyContext(VADriverContextP ctx)
     if (m_ddiDecodeCtx->DecodeParams.m_procParams != nullptr)
     {
         auto procParams =
-            (PCODECHAL_DECODE_PROCESSING_PARAMS)m_ddiDecodeCtx->DecodeParams.m_procParams;
-        MOS_FreeMemory(procParams->pOutputSurface);
-        procParams->pOutputSurface = nullptr;
+            (DecodeProcessingParams *)m_ddiDecodeCtx->DecodeParams.m_procParams;
+        MOS_FreeMemory(procParams->m_outputSurface);
+        procParams->m_outputSurface = nullptr;
 
         MOS_FreeMemory(m_ddiDecodeCtx->DecodeParams.m_procParams);
         m_ddiDecodeCtx->DecodeParams.m_procParams = nullptr;
@@ -674,10 +678,23 @@ VAStatus DdiMediaDecode::ExtraDownScaling(
     PDDI_MEDIA_CONTEXT mediaCtx = DdiMedia_GetMediaContext(ctx);
     DDI_CHK_NULL(mediaCtx, "nullptr ctx", VA_STATUS_ERROR_INVALID_CONTEXT);
     DDI_CHK_NULL(m_ddiDecodeCtx, "nullptr ctx", VA_STATUS_ERROR_INVALID_CONTEXT);
-    CodechalDecode *decoder = dynamic_cast<CodechalDecode *>(m_ddiDecodeCtx->pCodecHal);
-    DDI_CHK_NULL(decoder, "nullptr decoder", VA_STATUS_ERROR_INVALID_PARAMETER);
-    if(m_ddiDecodeCtx->DecodeParams.m_procParams &&
-        !decoder->IsVdSfcSupported())
+
+    bool isDecodeDownScalingSupported = false;
+    if (m_ddiDecodeCtx->pCodecHal->IsApogeiosEnabled())
+    {
+        DecodePipelineAdapter *decoder = dynamic_cast<DecodePipelineAdapter *>(m_ddiDecodeCtx->pCodecHal);
+        DDI_CHK_NULL(decoder, "nullptr decoder", VA_STATUS_ERROR_INVALID_PARAMETER);
+        isDecodeDownScalingSupported = decoder->IsDownSamplingSupported();
+    }
+    else
+    {
+        CodechalDecode *decoder = dynamic_cast<CodechalDecode *>(m_ddiDecodeCtx->pCodecHal);
+        DDI_CHK_NULL(decoder, "nullptr decoder", VA_STATUS_ERROR_INVALID_PARAMETER);
+        isDecodeDownScalingSupported = decoder->IsVdSfcSupported();
+    }
+
+    if(m_ddiDecodeCtx->DecodeParams.m_procParams != nullptr &&
+       !isDecodeDownScalingSupported)
     {
         //check vp context
         VAContextID vpCtxID = VA_INVALID_ID;
@@ -714,6 +731,116 @@ VAStatus DdiMediaDecode::ExtraDownScaling(
     return MOS_STATUS_SUCCESS;
 }
 
+VAStatus DdiMediaDecode::InitDummyReference(CodechalDecode& decoder)
+{
+    PMOS_SURFACE dummyReference = decoder.GetDummyReference();
+
+    // If dummy reference is from decode output surface, need to update frame by frame
+    if (decoder.GetDummyReferenceStatus() == CODECHAL_DUMMY_REFERENCE_DEST_SURFACE)
+    {
+        MOS_ZeroMemory(dummyReference, sizeof(MOS_SURFACE));
+        decoder.SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_INVALID);
+    }
+
+    if (!Mos_ResourceIsNull(&dummyReference->OsResource))
+    {
+        Mos_Specific_GetResourceInfo(decoder.GetOsInterface(), &dummyReference->OsResource, dummyReference);
+
+        // Check if need to re-get dummy reference from DPB or re-allocated
+        if (dummyReference->dwWidth < m_ddiDecodeCtx->DecodeParams.m_destSurface->dwWidth ||
+            dummyReference->dwHeight < m_ddiDecodeCtx->DecodeParams.m_destSurface->dwHeight)
+        {
+            // Check if the dummy reference needs to be re-allocated
+            if (decoder.GetDummyReferenceStatus() == CODECHAL_DUMMY_REFERENCE_ALLOCATED)
+            {
+                decoder.GetOsInterface()->pfnFreeResource(decoder.GetOsInterface(), &dummyReference->OsResource);
+            }
+
+            // Reset dummy reference
+            MOS_ZeroMemory(dummyReference, sizeof(MOS_SURFACE));
+            decoder.SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_INVALID);
+
+            // Considering potential risk, disable the dummy reference from DPB path temporarily
+            //GetDummyReferenceFromDPB(m_ddiDecodeCtx);
+
+            //if (!Mos_ResourceIsNull(&dummyReference->OsResource))
+            //{
+            //    decoder->SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_DPB);
+            //}
+        }
+    }
+    else
+    {
+        // Init dummy reference
+        MOS_ZeroMemory(dummyReference, sizeof(MOS_SURFACE));
+        decoder.SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_INVALID);
+
+        // Considering potential risk, disable the dummy reference from DPB path temporarily
+        //GetDummyReferenceFromDPB(m_ddiDecodeCtx);
+        //if (!Mos_ResourceIsNull(&dummyReference->OsResource))
+        //{
+        //    decoder->SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_DPB);
+        //}
+    }
+
+    return VA_STATUS_SUCCESS;
+}
+
+VAStatus DdiMediaDecode::InitDummyReference(DecodePipelineAdapter& decoder)
+{
+    PMOS_SURFACE dummyReference = decoder.GetDummyReference();
+
+    // If dummy reference is from decode output surface, need to update frame by frame
+    if (decoder.GetDummyReferenceStatus() == CODECHAL_DUMMY_REFERENCE_DEST_SURFACE)
+    {
+        MOS_ZeroMemory(dummyReference, sizeof(MOS_SURFACE));
+        decoder.SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_INVALID);
+    }
+
+    if (!Mos_ResourceIsNull(&dummyReference->OsResource))
+    {
+        Mos_Specific_GetResourceInfo(decoder.GetOsInterface(), &dummyReference->OsResource, dummyReference);
+
+        // Check if need to re-get dummy reference from DPB or re-allocated
+        if (dummyReference->dwWidth < m_ddiDecodeCtx->DecodeParams.m_destSurface->dwWidth ||
+            dummyReference->dwHeight < m_ddiDecodeCtx->DecodeParams.m_destSurface->dwHeight)
+        {
+            // Check if the dummy reference needs to be re-allocated
+            if (decoder.GetDummyReferenceStatus() == CODECHAL_DUMMY_REFERENCE_ALLOCATED)
+            {
+                decoder.GetOsInterface()->pfnFreeResource(decoder.GetOsInterface(), &dummyReference->OsResource);
+            }
+
+            // Reset dummy reference
+            MOS_ZeroMemory(dummyReference, sizeof(MOS_SURFACE));
+            decoder.SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_INVALID);
+
+            // Considering potential risk, disable the dummy reference from DPB path temporarily
+            //GetDummyReferenceFromDPB(m_ddiDecodeCtx);
+
+            //if (!Mos_ResourceIsNull(&dummyReference->OsResource))
+            //{
+            //    decoder->SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_DPB);
+            //}
+        }
+    }
+    else
+    {
+        // Init dummy reference
+        MOS_ZeroMemory(dummyReference, sizeof(MOS_SURFACE));
+        decoder.SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_INVALID);
+
+        // Considering potential risk, disable the dummy reference from DPB path temporarily
+        //GetDummyReferenceFromDPB(m_ddiDecodeCtx);
+        //if (!Mos_ResourceIsNull(&dummyReference->OsResource))
+        //{
+        //    decoder->SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_DPB);
+        //}
+    }
+
+    return VA_STATUS_SUCCESS;
+}
+
 VAStatus DdiMediaDecode::EndPicture(
     VADriverContextP ctx,
     VAContextID      context)
@@ -737,60 +864,22 @@ VAStatus DdiMediaDecode::EndPicture(
 
     if (MEDIA_IS_WA(&m_ddiDecodeCtx->pMediaCtx->WaTable, WaDummyReference))
     {
-        CodechalDecode *decoder = dynamic_cast<CodechalDecode *>(m_ddiDecodeCtx->pCodecHal);
-        PMOS_SURFACE dummyReference = decoder->GetDummyReference();
-
-        // If dummy reference is from decode output surface, need to update frame by frame
-        if (decoder->GetDummyReferenceStatus() == CODECHAL_DUMMY_REFERENCE_DEST_SURFACE)
-        {
-            MOS_ZeroMemory(dummyReference, sizeof(MOS_SURFACE));
-            decoder->SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_INVALID);
-        }
-
         Mos_Specific_GetResourceInfo(
             m_ddiDecodeCtx->pCodecHal->GetOsInterface(), 
             &m_ddiDecodeCtx->DecodeParams.m_destSurface->OsResource,
             m_ddiDecodeCtx->DecodeParams.m_destSurface);
 
-        if (!Mos_ResourceIsNull(&dummyReference->OsResource))
+        if(m_ddiDecodeCtx->pCodecHal->IsApogeiosEnabled())
         {
-            Mos_Specific_GetResourceInfo(decoder->GetOsInterface(), &dummyReference->OsResource, dummyReference);
-
-            // Check if need to re-get dummy reference from DPB or re-allocated
-            if (dummyReference->dwWidth < m_ddiDecodeCtx->DecodeParams.m_destSurface->dwWidth ||
-                dummyReference->dwHeight < m_ddiDecodeCtx->DecodeParams.m_destSurface->dwHeight)
-            {
-                // Check if the dummy reference needs to be re-allocated
-                if (decoder->GetDummyReferenceStatus() == CODECHAL_DUMMY_REFERENCE_ALLOCATED)
-                {
-                    decoder->GetOsInterface()->pfnFreeResource(decoder->GetOsInterface(), &dummyReference->OsResource);
-                }
-
-                // Reset dummy reference
-                MOS_ZeroMemory(dummyReference, sizeof(MOS_SURFACE));
-                decoder->SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_INVALID);
-
-                // Considering potential risk, disable the dummy reference from DPB path temporarily
-                //GetDummyReferenceFromDPB(m_ddiDecodeCtx);
-
-                //if (!Mos_ResourceIsNull(&dummyReference->OsResource))
-                //{
-                //    decoder->SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_DPB);
-                //}
-            }
+            DecodePipelineAdapter *decoder = dynamic_cast<DecodePipelineAdapter *>(m_ddiDecodeCtx->pCodecHal);
+            DDI_CHK_NULL(decoder, "Null decoder", VA_STATUS_ERROR_INVALID_PARAMETER);
+            DDI_CHK_RET(InitDummyReference(*decoder), "InitDummyReference failed!");
         }
         else
         {
-            // Init dummy reference
-            MOS_ZeroMemory(dummyReference, sizeof(MOS_SURFACE));
-            decoder->SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_INVALID);
-                
-            // Considering potential risk, disable the dummy reference from DPB path temporarily
-            //GetDummyReferenceFromDPB(m_ddiDecodeCtx);
-            //if (!Mos_ResourceIsNull(&dummyReference->OsResource))
-            //{
-            //    decoder->SetDummyReferenceStatus(CODECHAL_DUMMY_REFERENCE_DPB);
-            //}
+            CodechalDecode *decoder = dynamic_cast<CodechalDecode *>(m_ddiDecodeCtx->pCodecHal);
+            DDI_CHK_NULL(decoder, "Null decoder", VA_STATUS_ERROR_INVALID_PARAMETER);
+            DDI_CHK_RET(InitDummyReference(*decoder), "InitDummyReference failed!");
         }
     }
 
@@ -800,6 +889,8 @@ VAStatus DdiMediaDecode::EndPicture(
         DDI_ASSERTMESSAGE("DDI:DdiDecode_DecodeInCodecHal return failure.");
         return VA_STATUS_ERROR_DECODING_ERROR;
     }
+
+    m_ddiDecodeCtx->DecodeParams.m_executeCallIndex++;
 
     (&(m_ddiDecodeCtx->RTtbl))->pCurrentRT = nullptr;
 
@@ -932,8 +1023,13 @@ VAStatus DdiMediaDecode::CreateBuffer(
             va = m_ddiDecodeCtx->pCpDdiInterface->CreateBuffer(type, buf, size, numElements);
             if (va  == VA_STATUS_ERROR_UNSUPPORTED_BUFFERTYPE)
             {
-                MOS_FreeMemory(buf);
-                return va;
+                DDI_ASSERTMESSAGE("DDI:Decode CreateBuffer unsuppoted buffer type.");
+                buf->pData      = (uint8_t*)MOS_AllocAndZeroMemory(size * numElements);
+                buf->format     = Media_Format_CPU;
+                if(buf->pData != NULL)
+                {
+                    va = VA_STATUS_SUCCESS;
+                }
             }
             break;
     }
@@ -1032,14 +1128,43 @@ VAStatus DdiMediaDecode::CreateCodecHal(
         mosCtx,
         standardInfo,
         m_codechalSettings);
-    CodechalDecode *decoder = dynamic_cast<CodechalDecode *>(codecHal);
-    if (nullptr == codecHal || nullptr == decoder)
+
+    if (nullptr == codecHal)
     {
         DDI_ASSERTMESSAGE("Failure in CodecHal create.\n");
         vaStatus = VA_STATUS_ERROR_ALLOCATION_FAILED;
         return vaStatus;
     }
+
+    if (codecHal->IsApogeiosEnabled())
+    {
+        DecodePipelineAdapter *decoder = dynamic_cast<DecodePipelineAdapter *>(codecHal);
+        if (nullptr == decoder)
+        {
+            DDI_ASSERTMESSAGE("Failure in CodecHal create.\n");
+            vaStatus = VA_STATUS_ERROR_ALLOCATION_FAILED;
+            return vaStatus;
+        }
+    }
+    else
+    {
+        CodechalDecode *decoder = dynamic_cast<CodechalDecode *>(codecHal);
+        if (nullptr == decoder)
+        {
+            DDI_ASSERTMESSAGE("Failure in CodecHal create.\n");
+            vaStatus = VA_STATUS_ERROR_ALLOCATION_FAILED;
+            return vaStatus;
+        }
+    }
+
     m_ddiDecodeCtx->pCodecHal = codecHal;
+
+    m_codechalSettings->sfcInUseHinted = true;
+
+    if (m_ddiDecodeAttr && m_ddiDecodeAttr->uiEncryptionType)
+    {
+        m_codechalSettings->secureMode = true;
+    }
 
     if (codecHal->Allocate(m_codechalSettings) != MOS_STATUS_SUCCESS)
     {
@@ -1057,7 +1182,8 @@ VAStatus DdiMediaDecode::CreateCodecHal(
     }
 
 #ifdef _MMC_SUPPORTED
-    if (MEDIA_IS_SKU(osInterface->pfnGetSkuTable(osInterface), FtrMemoryCompression) &&
+    if (!osInterface->apoMosEnabled                                                  &&
+        MEDIA_IS_SKU(osInterface->pfnGetSkuTable(osInterface), FtrMemoryCompression) &&
         !mediaCtx->pMediaMemDecompState)
     {
         mediaCtx->pMediaMemDecompState =
@@ -1065,7 +1191,7 @@ VAStatus DdiMediaDecode::CreateCodecHal(
     }
 #endif
 
-    m_ddiDecodeCtx->pCpDdiInterface->CreateCencDecode(decoder->GetDebugInterface(), mosCtx, m_codechalSettings);
+    m_ddiDecodeCtx->pCpDdiInterface->CreateCencDecode(codecHal->GetDebugInterface(), mosCtx, m_codechalSettings);
 
     return vaStatus;
 }
@@ -1119,8 +1245,26 @@ void DdiMediaDecode::GetDummyReferenceFromDPB(
 
     if (i < DDI_MEDIA_MAX_SURFACE_NUMBER_CONTEXT)
     {
-        CodechalDecode *decoder = dynamic_cast<CodechalDecode *>(decodeCtx->pCodecHal);
-        decoder->GetDummyReference()->OsResource = dummyReference.OsResource;
+        if (decodeCtx->pCodecHal->IsApogeiosEnabled())
+        {
+            DecodePipelineAdapter *decoder = dynamic_cast<DecodePipelineAdapter *>(decodeCtx->pCodecHal);
+            if (decoder == nullptr)
+            {
+                DDI_ASSERTMESSAGE("Codechal decode context is NULL.\n");
+                return;
+            }
+            decoder->GetDummyReference()->OsResource = dummyReference.OsResource;
+        }
+        else
+        {
+            CodechalDecode *decoder = dynamic_cast<CodechalDecode *>(decodeCtx->pCodecHal);
+            if (decoder == nullptr)
+            {
+                DDI_ASSERTMESSAGE("Codechal decode context is NULL.\n");
+                return;
+            }
+            decoder->GetDummyReference()->OsResource = dummyReference.OsResource;
+        }
     }
 }
 
@@ -1135,32 +1279,32 @@ void DdiMediaDecode::ReportDecodeMode(
         case CODECHAL_DECODE_MODE_MPEG2IDCT:
         case CODECHAL_DECODE_MODE_MPEG2VLD:
             userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_DECODE_MPEG2_MODE_ID;
-            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, nullptr);
             break;
         case CODECHAL_DECODE_MODE_VC1IT:
         case CODECHAL_DECODE_MODE_VC1VLD:
             userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_DECODE_VC1_MODE_ID;
-            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, nullptr);
             break;
         case CODECHAL_DECODE_MODE_AVCVLD:
             userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_DECODE_AVC_MODE_ID;
-            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, nullptr);
             break;
         case CODECHAL_DECODE_MODE_JPEG:
             userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_DECODE_JPEG_MODE_ID;
-            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, nullptr);
             break;
         case CODECHAL_DECODE_MODE_VP8VLD:
             userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_DECODE_VP8_MODE_ID;
-            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, nullptr);
             break;
         case CODECHAL_DECODE_MODE_HEVCVLD:
             userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_DECODE_HEVC_MODE_ID;
-            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, nullptr);
             break;
         case CODECHAL_DECODE_MODE_VP9VLD:
             userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_DECODE_VP9_MODE_ID;
-            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1);
+            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, nullptr);
             break;
         default:
             break;

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2015-2017, Intel Corporation
+* Copyright (c) 2015-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -1943,7 +1943,7 @@ PRENDERHAL_MEDIA_STATE RenderHal_DSH_AssignDynamicState(
         if (pParams->iMaxSamplerIndexAVS > 0)
         {
             uint32_t dwAlign = GFX_IS_GEN_9_OR_LATER(pRenderHal->Platform) ? MHW_SAMPLER_STATE_AVS_ALIGN_G9 : MHW_SAMPLER_STATE_AVS_ALIGN;
-            uint32_t dwInc   = GFX_IS_GEN_9_OR_LATER(pRenderHal->Platform) ? MHW_SAMPLER_STATE_AVS_INC_G9   : MHW_SAMPLER_STATE_AVS_INC_G8;
+            uint32_t dwInc   = pRenderHal->pMhwRenderInterface->GetSamplerStateAVSIncUnit();
 
             dwSamplerStateAlign = MOS_MAX(dwMediaStateAlign, dwAlign);
             pDynamicState->SamplerAVS.iCount = pParams->iMaxSamplerIndexAVS;
@@ -1954,7 +1954,7 @@ PRENDERHAL_MEDIA_STATE RenderHal_DSH_AssignDynamicState(
         if (pParams->iMaxSamplerIndexConv > 0)
         {
             uint32_t dwAlign = GFX_IS_GEN_9_OR_LATER(pRenderHal->Platform) ? MHW_SAMPLER_STATE_AVS_ALIGN_G9 : MHW_SAMPLER_STATE_AVS_ALIGN;
-            uint32_t dwInc   = GFX_IS_GEN_9_OR_LATER(pRenderHal->Platform) ? MHW_SAMPLER_STATE_CONV_INC_G9  : MHW_SAMPLER_STATE_CONV_INC_G8;
+            uint32_t dwInc   = pRenderHal->pMhwRenderInterface->GetSamplerStateConvIncUnit();
 
             dwSamplerStateAlign = MOS_MAX(dwMediaStateAlign, dwAlign);
             pDynamicState->SamplerConv.iCount = pParams->iMaxSamplerIndexConv;
@@ -2050,13 +2050,6 @@ PRENDERHAL_MEDIA_STATE RenderHal_DSH_AssignDynamicState(
         pRenderHal->dgsheapManager,
         &pDynamicState->memoryBlock,
         dwSizeMediaState)); 
-
-    // Register the DGSH block
-     MHW_RENDERHAL_CHK_STATUS(pRenderHal->pOsInterface->pfnRegisterResource(
-        pRenderHal->pOsInterface,
-        pDynamicState->memoryBlock.GetResource(),
-        false,
-        false));
 
     if (pParams->iMaxSpillSize > 0 && currentExtendSize > 0)
     {
@@ -2240,7 +2233,10 @@ int32_t RenderHal_DSH_LoadCurbeData(
     int32_t                  iOffset;
     int32_t                  iCurbeSize;
     PRENDERHAL_DYNAMIC_STATE pDynamicState;
-    iOffset    = -1;
+    uint8_t*                 pRemainingCurbe;
+
+    iOffset         = -1;
+    pRemainingCurbe =  nullptr;
 
     if (pRenderHal == nullptr || pMediaState == nullptr || pData == nullptr)
     {
@@ -2267,7 +2263,7 @@ int32_t RenderHal_DSH_LoadCurbeData(
             if (pData)
             {
                 MHW_RENDERHAL_CHK_STATUS(pDynamicState->memoryBlock.AddData(
-                    pData, 
+                    pData,
                     pDynamicState->Curbe.dwOffset + iOffset,
                     iSize));
 
@@ -2275,18 +2271,22 @@ int32_t RenderHal_DSH_LoadCurbeData(
                 iCurbeSize -= iSize;
                 if (iCurbeSize > 0)
                 {
-                    uint8_t* remainingCurbe = (uint8_t*)MOS_AllocAndZeroMemory(sizeof(uint8_t)*iCurbeSize);
+                    pRemainingCurbe = (uint8_t*)MOS_AllocAndZeroMemory(sizeof(uint8_t)*iCurbeSize);
                     MHW_RENDERHAL_CHK_STATUS(pDynamicState->memoryBlock.AddData(
-                        remainingCurbe,
+                        pRemainingCurbe,
                         pDynamicState->Curbe.dwOffset + iOffset + iSize,
                         iCurbeSize));
-                    MOS_SafeFreeMemory(remainingCurbe);
                 }
             }
         }
     }
 
 finish:
+    if(pRemainingCurbe)
+    {
+        MOS_SafeFreeMemory(pRemainingCurbe);
+    }
+
     if (eStatus != MOS_STATUS_SUCCESS)
     {
         iOffset = -1;

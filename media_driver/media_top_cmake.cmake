@@ -62,6 +62,7 @@ set(SOURCES_ "")
 # add source
 media_include_subdirectory(agnostic)
 media_include_subdirectory(linux)
+media_include_subdirectory(media_interface)
 media_include_subdirectory(${MEDIA_EXT}/media_driver_next)
 include(${MEDIA_EXT}/media_srcs_ext.cmake OPTIONAL)
 
@@ -93,10 +94,6 @@ set_target_properties(${LIB_NAME}        PROPERTIES PREFIX "")
 set_target_properties(${LIB_NAME_STATIC} PROPERTIES PREFIX "")
 
 MediaAddCommonTargetDefines(${LIB_NAME_OBJ})
-
-pkg_check_modules (PKG_PCIACCESS REQUIRED pciaccess)
-include_directories (BEFORE ${PKG_PCIACCESS_INCLUDE_DIRS})
-link_directories (${PKG_PCIACCESS_LIBRARY_DIRS})
 
 bs_ufo_link_libraries_noBsymbolic(
     ${LIB_NAME}
@@ -130,7 +127,7 @@ endif(NOT DEFINED INCLUDED_LIBS OR "${INCLUDED_LIBS}" STREQUAL "")
 # post target attributes
 bs_set_post_target()
 
-if(MEDIA_RUN_TEST_SUITE AND ENABLE_KERNELS)
+if(MEDIA_RUN_TEST_SUITE AND ENABLE_KERNELS AND ENABLE_NONFREE_KERNELS)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/linux/ult)
     include(${MEDIA_EXT}/media_driver_next/ult/ult_top_cmake.cmake OPTIONAL)
-endif(MEDIA_RUN_TEST_SUITE AND ENABLE_KERNELS)
+endif()

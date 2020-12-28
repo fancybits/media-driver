@@ -36,7 +36,6 @@
 #include <errno.h>
 #include <drm.h>
 #include <i915_drm.h>
-#include <pciaccess.h>
 #include "libdrm_macros.h"
 #include "mos_bufmgr.h"
 #include "mos_bufmgr_priv.h"
@@ -49,23 +48,30 @@
 
 struct mos_linux_bo *
 mos_bo_alloc(struct mos_bufmgr *bufmgr, const char *name,
-           unsigned long size, unsigned int alignment)
+           unsigned long size, unsigned int alignment, int mem_type)
 {
-    return bufmgr->bo_alloc(bufmgr, name, size, alignment);
+    return bufmgr->bo_alloc(bufmgr, name, size, alignment, mem_type);
 }
 
 void
-mos_bo_set_exec_object_async(struct mos_linux_bo *bo)
+mos_bo_set_object_async(struct mos_linux_bo *bo)
+{
+    if(bo->bufmgr->set_object_async)
+        bo->bufmgr->set_object_async(bo);
+}
+
+void
+mos_bo_set_exec_object_async(struct mos_linux_bo *bo, struct mos_linux_bo *target_bo)
 {
     if(bo->bufmgr->set_exec_object_async)
-        bo->bufmgr->set_exec_object_async(bo);
+        bo->bufmgr->set_exec_object_async(bo, target_bo);
 }
 
 struct mos_linux_bo *
 mos_bo_alloc_for_render(struct mos_bufmgr *bufmgr, const char *name,
-                  unsigned long size, unsigned int alignment)
+                  unsigned long size, unsigned int alignment, int mem_type)
 {
-    return bufmgr->bo_alloc_for_render(bufmgr, name, size, alignment);
+    return bufmgr->bo_alloc_for_render(bufmgr, name, size, alignment, mem_type);
 }
 
 struct mos_linux_bo *
@@ -85,10 +91,11 @@ mos_bo_alloc_userptr(struct mos_bufmgr *bufmgr,
 struct mos_linux_bo *
 mos_bo_alloc_tiled(struct mos_bufmgr *bufmgr, const char *name,
                         int x, int y, int cpp, uint32_t *tiling_mode,
-                        unsigned long *pitch, unsigned long flags)
+                        unsigned long *pitch, unsigned long flags,
+                        int mem_type)
 {
     return bufmgr->bo_alloc_tiled(bufmgr, name, x, y, cpp,
-                      tiling_mode, pitch, flags);
+                      tiling_mode, pitch, flags, mem_type);
 }
 
 void
@@ -283,10 +290,19 @@ mos_bo_get_tiling(struct mos_linux_bo *bo, uint32_t * tiling_mode,
 }
 
 int
-mos_bo_set_softpin_offset(struct mos_linux_bo *bo, uint64_t offset)
+mos_bo_set_softpin(struct mos_linux_bo *bo)
 {
-    if (bo->bufmgr->bo_set_softpin_offset)
-        return bo->bufmgr->bo_set_softpin_offset(bo, offset);
+    if (bo->bufmgr->bo_set_softpin)
+        return bo->bufmgr->bo_set_softpin(bo);
+
+    return -ENODEV;
+}
+
+int
+mos_bo_add_softpin_target(struct mos_linux_bo *bo, struct mos_linux_bo *target_bo, bool write_flag)
+{
+    if (bo->bufmgr->bo_add_softpin_target)
+        return bo->bufmgr->bo_add_softpin_target(bo, target_bo, write_flag);
 
     return -ENODEV;
 }
@@ -354,49 +370,3 @@ mos_get_pipe_from_crtc_id(struct mos_bufmgr *bufmgr, int crtc_id)
     return -1;
 }
 
-static size_t
-mos_probe_agp_aperture_size(int fd)
-{
-    struct pci_device *pci_dev;
-    size_t size = 0;
-    int ret;
-
-    ret = pci_system_init();
-    if (ret)
-        goto err;
-
-    /* XXX handle multiple adaptors? */
-    pci_dev = pci_device_find_by_slot(0, 0, 2, 0);
-    if (pci_dev == nullptr)
-        goto err;
-
-    ret = pci_device_probe(pci_dev);
-    if (ret)
-        goto err;
-
-    size = pci_dev->regions[2].size;
-err:
-    pci_system_cleanup ();
-    return size;
-}
-
-int
-mos_get_aperture_sizes(int fd, size_t *mappable, size_t *total)
-{
-
-    struct drm_i915_gem_get_aperture aperture;
-    int ret;
-
-    ret = drmIoctl(fd, DRM_IOCTL_I915_GEM_GET_APERTURE, &aperture);
-    if (ret)
-        return ret;
-
-    *mappable = 0;
-    /* XXX add a query for the kernel value? */
-    if (*mappable == 0)
-        *mappable = mos_probe_agp_aperture_size(fd);
-    if (*mappable == 0)
-        *mappable = 64 * 1024 * 1024; /* minimum possible value */
-    *total = aperture.aper_size;
-    return 0;
-}

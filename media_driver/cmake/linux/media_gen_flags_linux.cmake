@@ -42,6 +42,9 @@ cmake_dependent_option(GEN9_SKL
 cmake_dependent_option(GEN9_CML
     "Enabled CML support (Gen9)" ON
     "GEN9" OFF)
+cmake_dependent_option(GEN9_CMPV
+    "Enabled CMPV support (Gen9)" ON
+    "GEN9" OFF)
 
 option(GEN10 "Enable Gen10 support" ON)
 cmake_dependent_option(GEN10_CNL
@@ -52,6 +55,23 @@ option(GEN11 "Enable Gen11 support" ON)
 cmake_dependent_option(GEN11_ICLLP
     "Enabled ICLLP support (Gen11)" ON
     "GEN11" OFF)
+
+cmake_dependent_option(GEN11_JSL
+    "Enabled JSL support (Gen11)" ON
+    "GEN11" OFF)
+
+option(GEN12 "Enable Gen12 support" ON)
+cmake_dependent_option(GEN12_TGLLP
+    "Enabled TGLLP support (Gen12)" ON
+    "GEN12" OFF)
+
+cmake_dependent_option(GEN12_DG1
+    "Enabled DG1 support (Gen12)" ON
+    "GEN12;ENABLE_PRODUCTION_KMD" OFF)
+
+cmake_dependent_option(GEN12_RKL
+    "Enabled RKL support (Gen12)" ON
+    "GEN12_TGLLP" OFF)
 
 if(GEN8)
     add_definitions(-DIGFX_GEN8_SUPPORTED)
@@ -89,6 +109,10 @@ if(GEN9_CML)
     add_definitions(-DIGFX_GEN9_CML_SUPPORTED)
 endif()
 
+if(GEN9_CMPV)
+    add_definitions(-DIGFX_GEN9_CMPV_SUPPORTED)
+endif()
+
 if(GEN10)
     add_definitions(-DIGFX_GEN10_SUPPORTED)
 endif()
@@ -103,6 +127,29 @@ endif()
 
 if(GEN11_ICLLP)
     add_definitions(-DIGFX_GEN11_ICLLP_SUPPORTED)
+endif()
+
+if(GEN11_JSL)
+    add_definitions(-DIGFX_GEN11_JSL_SUPPORTED)
+endif()
+
+if(GEN12)
+    add_definitions(-DIGFX_GEN12_SUPPORTED)
+endif()
+
+if(GEN12_TGLLP)
+    add_definitions(-DIGFX_GEN12_TGLLP_SUPPORTED)
+    add_definitions(-DIGFX_GEN12_TGLLP_SWSB_SUPPORTED)
+    add_definitions(-DIGFX_GEN12_TGLLP_CMFC_SUPPORTED)
+    add_definitions(-DIGFX_GEN12_TGLLP_CMFCPATCH_SUPPORTED)
+endif()
+
+if(GEN12_DG1)
+    add_definitions(-DIGFX_GEN12_DG1_SUPPORTED)
+endif()
+
+if(GEN12_RKL)
+    add_definitions(-DIGFX_GEN12_RKL_SUPPORTED)
 endif()
 
 include(${MEDIA_EXT_CMAKE}/ext/linux/media_gen_flags_linux_ext.cmake OPTIONAL)

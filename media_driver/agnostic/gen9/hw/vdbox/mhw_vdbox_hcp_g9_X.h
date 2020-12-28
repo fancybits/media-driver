@@ -160,7 +160,7 @@ protected:
 
     }
 
-    void InitRowstoreUserFeatureSettings()
+    void InitRowstoreUserFeatureSettings(MOS_CONTEXT_HANDLE mosCtx)
     {
         MOS_USER_FEATURE_VALUE_DATA userFeatureData;
         MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -172,7 +172,8 @@ protected:
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_ROWSTORE_CACHE_DISABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            mosCtx);
 #endif // _DEBUG || _RELEASE_INTERNAL
         this->m_rowstoreCachingSupported = userFeatureData.i32Data ? false : true;
 
@@ -183,7 +184,8 @@ protected:
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_HEVCDATROWSTORECACHE_DISABLE_ID,
-                &userFeatureData);
+                &userFeatureData,
+                mosCtx);
 #endif // _DEBUG || _RELEASE_INTERNAL
             this->m_hevcDatRowStoreCache.bSupported = userFeatureData.i32Data ? false : true;
 
@@ -192,7 +194,8 @@ protected:
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_HEVCDFROWSTORECACHE_DISABLE_ID,
-                &userFeatureData);
+                &userFeatureData,
+                mosCtx);
 #endif // _DEBUG || _RELEASE_INTERNAL
             this->m_hevcDfRowStoreCache.bSupported = userFeatureData.i32Data ? false : true;
 
@@ -201,7 +204,8 @@ protected:
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_HEVCSAOROWSTORECACHE_DISABLE_ID,
-                &userFeatureData);
+                &userFeatureData,
+                mosCtx);
 #endif // _DEBUG || _RELEASE_INTERNAL
             this->m_hevcSaoRowStoreCache.bSupported = userFeatureData.i32Data ? false : true;
         }
@@ -697,6 +701,20 @@ protected:
         MHW_RESOURCE_PARAMS                            resourceParams;
         typename THcpCmds::HCP_PIPE_BUF_ADDR_STATE_CMD cmd;
         bool                                           firstRefPic = true;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+        MOS_USER_FEATURE_VALUE_WRITE_DATA UserFeatureWriteData = __NULL_USER_FEATURE_VALUE_WRITE_DATA__;
+        UserFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_IS_CODEC_ROW_STORE_CACHE_ENABLED_ID;
+        if (this->m_hevcDatRowStoreCache.bEnabled     ||
+            this->m_hevcDfRowStoreCache.bEnabled      ||
+            this->m_hevcSaoRowStoreCache.bEnabled     ||
+            this->m_vp9HvdRowStoreCache.bEnabled      ||
+            this->m_vp9DfRowStoreCache.bEnabled)
+        {
+            UserFeatureWriteData.Value.i32Data = 1;
+        }
+        MOS_UserFeature_WriteValues_ID(nullptr, &UserFeatureWriteData, 1, this->m_osInterface->pOsContext);
+#endif
 
         MOS_ZeroMemory(&resourceParams, sizeof(resourceParams));
         resourceParams.dwLsbNum = MHW_VDBOX_HCP_DECODED_BUFFER_SHIFT;

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2017, Intel Corporation
+* Copyright (c) 2009-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -88,6 +88,34 @@ static __inline PDDI_DECODE_CONTEXT DdiDecode_GetDecContextFromPVOID (void *decC
 {
     return (PDDI_DECODE_CONTEXT)decCtx;
 }
+
+//!
+//! \brief  Status report
+//!
+//! \param  [in] decoder
+//!     CodechalDecode decoder
+//!
+//! \return VAStatus
+//!     VA_STATUS_SUCCESS if success, else fail reason
+//!
+VAStatus DdiDecode_StatusReport(
+    PDDI_MEDIA_CONTEXT mediaCtx,
+    CodechalDecode *decoder,
+    DDI_MEDIA_SURFACE *surface);
+
+//!
+//! \brief  Status report
+//!
+//! \param  [in] decoder
+//!     DecodePipelineAdapter decoder
+//!
+//! \return VAStatus
+//!     VA_STATUS_SUCCESS if success, else fail reason
+//!
+VAStatus DdiDecode_StatusReport(
+    PDDI_MEDIA_CONTEXT mediaCtx,
+    DecodePipelineAdapter *decoder,
+    DDI_MEDIA_SURFACE *surface);
 
 //!
 //! \brief  Create buffer
@@ -227,4 +255,20 @@ VAStatus DdiDecode_DestroyContext (
     VAContextID         context
 );
 
+//!
+//! \brief  Set Decode Gpu priority
+//!
+//! \param  [in] ctx
+//!     Pointer to VA driver context
+//! \param  [in] decode context
+//!     Pointer to decode context
+//! \param  [in] priority
+//!     priority
+//! \return VAStatus
+//!
+VAStatus DdiDecode_SetGpuPriority(
+    VADriverContextP     ctx,
+    PDDI_DECODE_CONTEXT  decCtx,
+    int32_t              priority
+);
 #endif

@@ -1795,7 +1795,7 @@ MOS_STATUS CodechalEncodeMpeg2G11::UserFeatureKeyReport()
 #if (_DEBUG || _RELEASE_INTERNAL)
 
     // VE2.0 Reporting
-    CodecHalEncode_WriteKey(__MEDIA_USER_FEATURE_VALUE_ENABLE_ENCODE_VE_CTXSCHEDULING_ID, MOS_VE_CTXBASEDSCHEDULING_SUPPORTED(m_osInterface));
+    CodecHalEncode_WriteKey(__MEDIA_USER_FEATURE_VALUE_ENABLE_ENCODE_VE_CTXSCHEDULING_ID, MOS_VE_CTXBASEDSCHEDULING_SUPPORTED(m_osInterface), m_osInterface->pOsContext);
 
 #endif // _DEBUG || _RELEASE_INTERNAL
 
@@ -1881,7 +1881,8 @@ MOS_STATUS CodechalEncodeMpeg2G11::SendMbEncSurfaces(
 
 MOS_STATUS CodechalEncodeMpeg2G11::SendPrologWithFrameTracking(
     PMOS_COMMAND_BUFFER         cmdBuffer,
-    bool                        frameTracking)
+    bool                        frameTracking,
+    MHW_MI_MMIOREGISTERS       *mmioRegister)
 {
     if (MOS_VE_SUPPORTED(m_osInterface))
     {
@@ -1894,7 +1895,7 @@ MOS_STATUS CodechalEncodeMpeg2G11::SendPrologWithFrameTracking(
         }
     }
 
-    return CodechalEncoderState::SendPrologWithFrameTracking(cmdBuffer, frameTracking);
+    return CodechalEncoderState::SendPrologWithFrameTracking(cmdBuffer, frameTracking, mmioRegister);
 }
 
 MOS_STATUS CodechalEncodeMpeg2G11::ExecuteKernelFunctions()
@@ -2080,7 +2081,7 @@ MOS_STATUS CodechalEncodeMpeg2G11::ExecuteKernelFunctions()
                 CODECHAL_MEDIA_STATE_ENC_QUALITY));
         }
         CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpBuffer(
-            &m_brcBuffers.resBrcImageStatesReadBuffer[m_currRecycledBufIdx],
+            &m_brcBuffers.resBrcImageStatesWriteBuffer,
             CodechalDbgAttr::attrOutput,
             "ImgStateWrite",
             BRC_IMG_STATE_SIZE_PER_PASS * m_hwInterface->GetMfxInterface()->GetBrcNumPakPasses(),
@@ -2094,20 +2095,10 @@ MOS_STATUS CodechalEncodeMpeg2G11::ExecuteKernelFunctions()
             m_brcHistoryBufferSize,
             0,
             CODECHAL_MEDIA_STATE_BRC_UPDATE));
-        if (!Mos_ResourceIsNull(&m_brcBuffers.sBrcMbQpBuffer.OsResource))
-        {
-            CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpBuffer(
-                &m_brcBuffers.resBrcPakStatisticBuffer[m_brcPakStatisticsSize],
-                CodechalDbgAttr::attrOutput,
-                "MbQp",
-                m_brcBuffers.sBrcMbQpBuffer.dwPitch*m_brcBuffers.sBrcMbQpBuffer.dwHeight,
-                m_brcBuffers.dwBrcMbQpBottomFieldOffset,
-                CODECHAL_MEDIA_STATE_BRC_UPDATE));
-        }
         if (m_brcBuffers.pMbEncKernelStateInUse)
         {
             CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpCurbe(
-                CODECHAL_MEDIA_STATE_BRC_UPDATE,
+                CODECHAL_MEDIA_STATE_ENC_NORMAL,
                 m_brcBuffers.pMbEncKernelStateInUse));
         }
         if (m_mbencBrcBufferSize>0)
@@ -2161,7 +2152,7 @@ MOS_STATUS CodechalEncodeMpeg2G11::UpdateCmdBufAttribute(
 
     // should not be there. Will remove it in the next change
     CODECHAL_ENCODE_FUNCTION_ENTER;
-    if (MOS_VE_SUPPORTED(m_osInterface))
+    if (MOS_VE_SUPPORTED(m_osInterface) && cmdBuffer->Attributes.pAttriVe)
     {
         PMOS_CMD_BUF_ATTRI_VE attriExt =
             (PMOS_CMD_BUF_ATTRI_VE)(cmdBuffer->Attributes.pAttriVe);

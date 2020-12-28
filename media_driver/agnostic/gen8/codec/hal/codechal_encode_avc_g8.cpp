@@ -3591,7 +3591,8 @@ MOS_STATUS CodechalEncodeAvcEncG8::InitializeState()
      regReadStatus = MOS_UserFeature_ReadValue_ID(
       nullptr,
       __MEDIA_USER_FEATURE_VALUE_AVC_ENCODE_INTRA_REFRESH_QP_THRESHOLD_ID,
-      &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     dwIntraRefreshQpThreshold = (MOS_STATUS_SUCCESS == regReadStatus) ? userFeatureData.i32Data : (CODEC_AVC_NUM_QP - 1);
 
     bWeightedPredictionSupported = false;
@@ -6189,17 +6190,23 @@ MOS_STATUS CodechalEncodeAvcEncG8::SendMeSurfaces (
         uint8_t scaledIdx = params->ppRefList[refPicIdx]->ucScalingIdx;
         if (params->b32xMeInUse)
         {
-            refScaledSurface.OsResource = m_trackedBuf->Get32xDsSurface(scaledIdx)->OsResource;
+            PMOS_SURFACE surface = nullptr;
+            CODECHAL_ENCODE_CHK_NULL_RETURN(surface = m_trackedBuf->Get32xDsSurface(scaledIdx));
+            refScaledSurface.OsResource = surface->OsResource;
             refScaledBottomFieldOffset = refBottomField ? currScaledBottomFieldOffset : 0;
         }
         else if (params->b16xMeInUse)
         {
-            refScaledSurface.OsResource = m_trackedBuf->Get16xDsSurface(scaledIdx)->OsResource;
+            PMOS_SURFACE surface = nullptr;
+            CODECHAL_ENCODE_CHK_NULL_RETURN(surface = m_trackedBuf->Get16xDsSurface(scaledIdx));
+            refScaledSurface.OsResource = surface->OsResource;
             refScaledBottomFieldOffset = refBottomField ? currScaledBottomFieldOffset : 0;
         }
         else
         {
-            refScaledSurface.OsResource = m_trackedBuf->Get4xDsSurface(scaledIdx)->OsResource;
+            PMOS_SURFACE surface = nullptr;
+            CODECHAL_ENCODE_CHK_NULL_RETURN(surface = m_trackedBuf->Get4xDsSurface(scaledIdx));
+            refScaledSurface.OsResource = surface->OsResource;
             refScaledBottomFieldOffset = refBottomField ? currScaledBottomFieldOffset : 0;
         }
 
@@ -6251,17 +6258,23 @@ MOS_STATUS CodechalEncodeAvcEncG8::SendMeSurfaces (
         uint8_t scaledIdx = params->ppRefList[refPicIdx]->ucScalingIdx;
         if (params->b32xMeInUse)
         {
-            refScaledSurface.OsResource = m_trackedBuf->Get32xDsSurface(scaledIdx)->OsResource;
+            PMOS_SURFACE surface = nullptr;
+            CODECHAL_ENCODE_CHK_NULL_RETURN(surface = m_trackedBuf->Get32xDsSurface(scaledIdx));
+            refScaledSurface.OsResource = surface->OsResource;
             refScaledBottomFieldOffset = refBottomField ? currScaledBottomFieldOffset : 0;
         }
         else if (params->b16xMeInUse)
         {
-            refScaledSurface.OsResource = m_trackedBuf->Get16xDsSurface(scaledIdx)->OsResource;
+            PMOS_SURFACE surface = nullptr;
+            CODECHAL_ENCODE_CHK_NULL_RETURN(surface = m_trackedBuf->Get16xDsSurface(scaledIdx));
+            refScaledSurface.OsResource = surface->OsResource;
             refScaledBottomFieldOffset = refBottomField ? currScaledBottomFieldOffset : 0;
         }
         else
         {
-            refScaledSurface.OsResource = m_trackedBuf->Get4xDsSurface(scaledIdx)->OsResource;
+            PMOS_SURFACE surface = nullptr;
+            CODECHAL_ENCODE_CHK_NULL_RETURN(surface = m_trackedBuf->Get4xDsSurface(scaledIdx));
+            refScaledSurface.OsResource = surface->OsResource;
             refScaledBottomFieldOffset = refBottomField ? currScaledBottomFieldOffset : 0;
         }
 

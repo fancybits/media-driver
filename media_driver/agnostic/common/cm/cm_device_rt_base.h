@@ -66,6 +66,19 @@ class CmSurface3D;
 class CmSampler8x8;
 class CmSampler8x8State_RT;
 
+//! \brief    CmDevice memory object count
+struct CM_OBJECT_COUNT
+{
+    int32_t kernelCount;
+    int32_t programCount;
+    int32_t taskCount;
+    int32_t threadSpaceCount;
+    int32_t threadGroupSpaceCount;
+    int32_t veboxCount;
+    int32_t eventCount;
+};
+
+
 //! \brief    Class CmDeviceRTBase definitions
 class CmDeviceRTBase: public CmDevice
 {
@@ -339,6 +352,14 @@ public:
 
     int32_t LoadPredefinedInitKernel(CmProgram*& pProgram);
 
+    int32_t GetKernelSlot()
+    {
+        return m_kernelArray.GetFirstFreeIndex();
+    }
+
+    int32_t PrepareGPUinitSurface();
+
+    int32_t GPUinitSurface(CmSurface2D* surf2D, const uint32_t initValue, CmEvent*& event);
     bool CheckGTPinEnabled();
 
 #if USE_EXTENSION_CODE
@@ -396,6 +417,7 @@ public:
 #if CM_LOG_ON
     std::string Log();
 #endif
+    CM_HAL_STATE* GetHalState();
 
     int32_t DestroyVmeSurface(SurfaceIndex *& pVmeIndex);
 
@@ -424,10 +446,13 @@ public:
 
     virtual HANDLE QueryRegHandleInternal(PCM_HAL_STATE pCmHalState) = 0;
 
-    static CSync m_globalCriticalSectionSurf2DUserDataLock;
+    CM_OBJECT_COUNT m_memObjectCount;
+
+    int32_t CheckObjectCount();
 
 protected:
     int32_t Initialize(MOS_CONTEXT *pUmdContext);
+
     int32_t DestroyQueue(CmQueueRT* & pQueue);
 
     int32_t RegisterSamplerState(const CM_SAMPLER_STATE& sampleState,
@@ -529,6 +554,16 @@ protected:
 
     CmProgram* m_surfInitKernelProgram;
 
+    CmQueue* m_InitCmQueue;
+
+    CmKernel* m_kernel0;
+
+    CmKernel* m_kernel1;
+
+    CmTask* m_gpuInitTask0;
+
+    CmTask* m_gpuInitTask1;
+
 #if USE_EXTENSION_CODE
     CmGTPin *m_gtpin;
 #endif
@@ -594,6 +629,9 @@ protected:
 
     uint32_t       m_kernelsLoaded;
 
+    bool           m_preloadKernelEnabled;
+
+    static const uint32_t m_maxPrintBuffer;
 private:
     CmDeviceRTBase(const CmDeviceRTBase& other);
 

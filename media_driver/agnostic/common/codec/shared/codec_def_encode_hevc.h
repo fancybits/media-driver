@@ -50,13 +50,14 @@
 #define ENCODE_VDENC_HEVC_MIN_ROI_DELTA_QP_G10  -8
 #define ENCODE_VDENC_HEVC_MAX_ROI_DELTA_QP_G10  7        // Max delta QP for VDEnc ROI
 #define ENCODE_VDENC_HEVC_PADDING_DW_SIZE       8
+#define CODECHAL_ENCODE_HEVC_MAX_NUM_DIRTYRECT 16
 
 // HEVC DP
 #define ENCODE_DP_HEVC_NUM_MAX_VME_L0_REF_G9  3
 #define ENCODE_DP_HEVC_NUM_MAX_VME_L1_REF_G9  1
 #define ENCODE_DP_HEVC_MAX_NUM_ROI            16
 #define ENCODE_DP_HEVC_ROI_BLOCK_SIZE         1     //From DDI, 0:8x8, 1:16x16, 2:32x32, 3:64x64
-#define ENCODE_DP_HEVC_ROI_BLOCK_Width        16    
+#define ENCODE_DP_HEVC_ROI_BLOCK_Width        16
 #define ENCODE_DP_HEVC_ROI_BLOCK_HEIGHT       16
 
 typedef enum
@@ -307,7 +308,7 @@ typedef struct _CODEC_HEVC_ENCODE_SEQUENCE_PARAMS
             *        \n - 1 : tile based encoding enabled.
             */
             uint32_t        EnableTileBasedEncode    : 1;
-            /*! \brief Indicates if BRC can use larger P/B frame size than UserMaxPBFrameSize 
+            /*! \brief Indicates if BRC can use larger P/B frame size than UserMaxPBFrameSize
             *
             *        \n - 0 : BRC can not use larger P/B frame size  than UserMaxPBFrameSize.
             *        \n - 1 : BRC can use larger P/B frame size  than UserMaxPBFrameSize.
@@ -347,7 +348,22 @@ typedef struct _CODEC_HEVC_ENCODE_SEQUENCE_PARAMS
             */
             uint32_t        HierarchicalFlag         : 1;
 
-            uint32_t        ReservedBits             : 3;
+            /*! \brief Indicates if TCBRC is enabled.
+            *
+            *        \n - 0 : no TCBRC.
+            *        \n - 1 : enable TCBRC if TCBRCSupport in CAP is 1.
+            */
+            uint32_t        TCBRCEnable              : 1;
+
+            /*! \brief Indicates if current encodin gis lookahead pass.
+            *
+            *        \n - 0 : the current encoding is in the actual encoding pass, and one of the BRC modes (CBR, VBR, etc.) should be selected.
+            *        \n - 1 : the current encoding is in the lookahead pass.
+            *    \n Valid only when LookAheadAnalysisSupport in CAP is on and LookAheadDepth > 0.
+            */
+            uint32_t        bLookAheadPhase          : 1;
+
+            uint32_t        ReservedBits             : 1;
         };
         uint32_t    SeqFlags;
     };
@@ -367,6 +383,23 @@ typedef struct _CODEC_HEVC_ENCODE_SEQUENCE_PARAMS
     *    The range is from 1 – 51, with 1 being the best quality.
     */
     uint8_t   ICQQualityFactor;
+
+        /*! \brief Specigy session that IPU and GPU communicate on.
+    *
+    *    It is for streaming buffer.
+    */
+    uint8_t StreamBufferSessionID;
+
+    uint8_t Reserved16b;
+
+    /*! \brief Number of B frames per level in BGOP (between each two consecutive anchor frames).
+    *
+    *   \n NumOfBInGop[0] – regular B, or no reference to other B frames.
+    *   \n NumOfBInGop[1] – B1, reference to only I, P or regular B frames.
+    *   \n NumOfBInGop[2] – B2, references include B1.
+    *   \n Invalid when ParallelBRC is disabled (value 0).
+    */
+    uint32_t NumOfBInGop[3];  // depricated
 
     union
     {
@@ -394,7 +427,11 @@ typedef struct _CODEC_HEVC_ENCODE_SEQUENCE_PARAMS
             uint32_t    reserved                            : 1;
             uint32_t    chroma_format_idc                   : 2;    //!< Same as HEVC syntax element
             uint32_t    separate_colour_plane_flag          : 1;    //!< Same as HEVC syntax element
-            uint32_t                                        : 21;
+            uint32_t    palette_mode_enabled_flag           : 1;
+            uint32_t    RGBEncodingEnable                   : 1;
+            uint32_t    PrimaryChannelForRGBEncoding        : 2;
+            uint32_t    SecondaryChannelForRGBEncoding      : 2;
+            uint32_t                                        : 15;  // [0]
         };
         uint32_t    EncodeTools;
     };
@@ -447,14 +484,6 @@ typedef struct _CODEC_HEVC_ENCODE_SEQUENCE_PARAMS
     uint8_t    bit_depth_chroma_minus8;               //!< Same as HEVC syntax element
     uint8_t    pcm_sample_bit_depth_luma_minus1;      //!< Same as HEVC syntax element
     uint8_t    pcm_sample_bit_depth_chroma_minus1;    //!< Same as HEVC syntax element
-    /*! \brief Number of B frames per level in BGOP (between each two consecutive anchor frames).
-    *
-    *   \n NumOfBInGop[0] – regular B, or no reference to other B frames.
-    *   \n NumOfBInGop[1] – B1, reference to only I, P or regular B frames.
-    *   \n NumOfBInGop[2] – B2, references include B1.
-    *   \n Invalid when ParallelBRC is disabled (value 0).
-    */
-    uint32_t   NumOfBInGop[3];
 
     uint8_t    bVideoSurveillance;
 
@@ -476,19 +505,32 @@ typedef struct _CODEC_HEVC_ENCODE_SEQUENCE_PARAMS
     */
     ENCODE_SCENARIO             ScenarioInfo;
 
+    ENCODE_CONTENT              contentInfo;
+
     /*! \brief Indicates the tolerance the application has to variations in the frame size.
     *
     *   It affects the BRC algorithm used, but may or may not have an effect based on the combination of other BRC parameters.  Only valid when the driver reports support for FrameSizeToleranceSupport.
     */
     ENCODE_FRAMESIZE_TOLERANCE  FrameSizeTolerance;
 
+
+    uint16_t                   SlidingWindowSize;
+    uint32_t                   MaxBitRatePerSlidingWindow;
+    uint32_t                   MinBitRatePerSlidingWindow;
+
     /*! \brief Indicates number of frames to lookahead.
     *
     *    Range is [0~127]. Default is 0 which means lookahead disabled. Valid only when LookaheadBRCSupport is 1. When not 0, application should send LOOKAHEADDATA to driver.
     */
-    uint8_t     LookaheadDepth;
+    uint8_t                   LookaheadDepth;
 
-    uint32_t palette_mode_enabled_flag;
+    /*! \brief Indicates minimal and maximal IDR distances used for adaptive GOP decision.
+    *
+    *    Applicable for LookAhead phase only.
+    */
+    uint16_t                  MinAdaptiveGopPicSize;
+    uint16_t                  MaxAdaptiveGopPicSize;
+
     uint32_t motion_vector_resolution_control_idc;
     uint32_t intra_boundary_filtering_disabled_flag;
     uint8_t     palette_max_size;
@@ -540,7 +582,14 @@ typedef struct _CODEC_HEVC_ENCODE_PICTURE_PARAMS
     *    \n For B1 and B2 explanation refer to NumOfBInGop[]
     */
     uint8_t                 CodingType;
-    uint8_t                 FrameLevel;
+
+    /*! \brief Specifies picture coding type.
+    *
+    *   Store pic coding type specified through DDI to retain pyramid level information. CodingType is updated to I/P/B when parsing slice-level parameters
+    */
+    uint8_t                 ppsCodingType;
+
+    uint8_t                 HierarchLevelPlus1;
     uint16_t                NumSlices;
 
     union
@@ -617,8 +666,12 @@ typedef struct _CODEC_HEVC_ENCODE_PICTURE_PARAMS
             *        \n - AYUV, 0, AYUV
             *        \n - AYUV, 1, YUXV
             */
-            uint32_t            bDisplayFormatSwizzle               : 1;
-            uint32_t            reservedbits                        : 7;
+            uint32_t            bDisplayFormatSwizzle                   : 1;
+            uint32_t            deblocking_filter_override_enabled_flag : 1;
+            uint32_t            pps_deblocking_filter_disabled_flag     : 1;
+            uint32_t            bEnableCTULevelReport                   : 1;  // [0..1]
+            uint32_t            bEnablePartialFrameUpdate               : 1;
+            uint32_t            reservedbits                            : 3;
         };
         uint32_t                PicFlags;
     };
@@ -700,12 +753,12 @@ typedef struct _CODEC_HEVC_ENCODE_PICTURE_PARAMS
     *
     *    Value entries are ROI[0] up to ROI[NumROI – 1], inclusively, if NumROI > 0. And it can be ignored otherwise.
     */
-    CODEC_ROI               ROI[16];
+    CODEC_ROI               ROI[CODECHAL_ENCODE_HEVC_MAX_NUM_ROI];
     /*! \brief Distinct delta QP values assigned to the ROI
     *
     *    Value entries are distinct and within [MinDeltaQp..MaxDeltaQp].
     */
-    int8_t                  ROIDistinctDeltaQp[8];
+    int8_t                  ROIDistinctDeltaQp[CODECHAL_ENCODE_HEVC_MAX_NUM_ROI];
     uint32_t                RollingIntraReferenceLocation[16];
     /*! \brief Dictates the value of delta QP for any ROI should be within [MinDeltaQp..MaxDeltaQp]
     *
@@ -717,7 +770,7 @@ typedef struct _CODEC_HEVC_ENCODE_PICTURE_PARAMS
     *    Applies only to BRC case.
     */
     char                    MinDeltaQp;
-    
+
     union
     {
         struct
@@ -728,7 +781,7 @@ typedef struct _CODEC_HEVC_ENCODE_PICTURE_PARAMS
             uint32_t        RoundingOffsetInter : 7;
             uint32_t        reservedbits : 16;
         } fields;
-        
+
         uint32_t            value;
     } CustomRoundingOffsetsParams;
 
@@ -803,6 +856,9 @@ typedef struct _CODEC_HEVC_ENCODE_PICTURE_PARAMS
     */
     uint32_t                bScreenContent;
 
+    uint16_t                LcuMaxBitsizeAllowedHigh16b;
+    uint32_t                TargetFrameSize;
+
     /*! \brief Picture parameter, Same as syntax element.
     *
     */
@@ -814,6 +870,24 @@ typedef struct _CODEC_HEVC_ENCODE_PICTURE_PARAMS
     char                    pps_act_y_qp_offset_plus5;
     char                    pps_act_cb_qp_offset_plus5;
     char                    pps_act_cr_qp_offset_plus3;
+
+    /*! \brief Source down scaling ratio for look ahead pass.
+    *
+    *    when bLookAheadPhase == 1, this parameter indicates the source down scaling ratio for look ahead pass. Otherwise, the parameter should be ignored.
+    *    (X16Minus1_X + 1) is the numerator of the horizontal downscaling ratio over 16.
+    *    (X16Minus1_Y + 1) is the numerator of the vertical downscaling ratio over 16.
+    */
+    union
+    {
+        struct
+        {
+            uint8_t X16Minus1_X : 4;
+            uint8_t X16Minus1_Y : 4;
+        } fields;
+        uint8_t value;
+    } DownScaleRatio;
+
+    uint8_t QpModulationStrength;
 } CODEC_HEVC_ENCODE_PICTURE_PARAMS, *PCODEC_HEVC_ENCODE_PICTURE_PARAMS;
 
 /*! \brief Slice-level parameters of a compressed picture for HEVC encoding.

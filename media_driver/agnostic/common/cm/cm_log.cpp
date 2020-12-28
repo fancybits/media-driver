@@ -33,7 +33,6 @@
 #if CM_LOG_ON
 
 // Definition (and initialization) of static attributes
-CmLogger *      CmLogger::m_globalCmLogger = nullptr;
 CMRT_UMD::CSync globalCmLogLock;
 
 /**
@@ -44,10 +43,10 @@ CMRT_UMD::CSync globalCmLogLock;
  * It only initializes the initial time. All configuration is done inside the
  * configure() method.
  */
-CmLogger::CmLogger()
+CmLogger::CmLogger(CM_HAL_STATE *halState)
 {
     //Get Verbosity Level
-    GetVerbosityLevel();
+    GetVerbosityLevel(halState);
 
     if (m_verbosityLevel == CM_LOG_LEVEL_NONE)
     {  // if it is not set, no file will be generated.
@@ -65,7 +64,7 @@ CmLogger::CmLogger()
                << "_" << systime.wDay << "_" << systime.wHour
                << "_" << systime.wMinute << "_" << systime.wSecond << ".log";
     m_logFile = OutPutFile.str();
-    GetLogFileLocation(OutPutFile.str().c_str(), fileNamePrefix);
+    GetLogFileLocation(OutPutFile.str().c_str(), fileNamePrefix, halState->osInterface->pOsContext);
 
     // Open file
     m_streamOut.open(fileNamePrefix, std::ios::app);
@@ -83,45 +82,22 @@ CmLogger::~CmLogger()
     }
 }
 
-/**
- * Method to get a reference to the object (i.e., Singleton)
- * It is a static method.
- * @return Reference to the object.
- */
-CmLogger &CmLogger::GetInstance()
-{
-    CmLogger::Lock();
-
-    if (m_globalCmLogger == nullptr)
-    {
-        m_globalCmLogger = new CmLogger();
-    }
-
-    CmLogger::Unlock();
-    return *m_globalCmLogger;
-}
-
-void CmLogger::GetVerbosityLevel()
+void CmLogger::GetVerbosityLevel(CM_HAL_STATE *halState)
 {
     // Read VerbosityLevel from RegisterKey
-    MOS_USER_FEATURE_VALUE userFeatureValue;
-    MOS_USER_FEATURE       userFeature;
+    MOS_USER_FEATURE_VALUE_DATA userFeatureValueData;
     // User feature key reads
-    MOS_ZeroMemory(&userFeatureValue, sizeof(MOS_USER_FEATURE_VALUE));
-    userFeature.Type        = MOS_USER_FEATURE_TYPE_USER;
-    userFeature.pPath       = __MEDIA_USER_FEATURE_SUBKEY_INTERNAL;
-    userFeature.pValues     = &userFeatureValue;
-    userFeature.uiNumValues = 1;
+    MOS_ZeroMemory(&userFeatureValueData, sizeof(userFeatureValueData));
 
-    userFeatureValue.u32Data = CM_LOG_LEVEL_NONE;  // default value
-
-    MOS_UserFeature_ReadValue(
+    userFeatureValueData.u32Data = CM_LOG_LEVEL_NONE;  // default value
+    userFeatureValueData.i32DataFlag = MOS_USER_FEATURE_VALUE_DATA_FLAG_CUSTOM_DEFAULT_VALUE_TYPE;
+    MOS_UserFeature_ReadValue_ID(
         nullptr,
-        &userFeature,
-        __MEDIA_USER_FEATURE_VALUE_MDF_LOG_LEVEL,
-        MOS_USER_FEATURE_VALUE_TYPE_UINT32);
+        __MEDIA_USER_FEATURE_VALUE_MDF_LOG_LEVEL_ID,
+        &userFeatureValueData,
+        halState->osInterface->pOsContext);
 
-    m_verbosityLevel = userFeatureValue.u32Data;
+    m_verbosityLevel = userFeatureValueData.u32Data;
 }
 
 /**
@@ -135,9 +111,9 @@ void CmLogger::GetVerbosityLevel()
  * @param Message
  */
 void CmLogger::Print(const unsigned int verbosityLevel,
-    const std::string &                 file,
-    const int                           line,
-    const std::string &                 message)
+                     const std::string &file,
+                     const int line,
+                     const std::string &message)
 {
     CmLogger::Lock();
 
@@ -195,17 +171,12 @@ void CmLogger::Unlock()
     globalCmLogLock.Release();
 }
 
-CmLogTimer::CmLogTimer(const std::string str) :
-    m_string(str),
-    m_timer(str)
-{
-}
-
 CmLogTimer::~CmLogTimer()
 {
     m_timer.Stop();
     m_string = m_timer.ToString();
-    CM_INFO(m_string);
+    _CM_LOG(CM_LOG_LEVEL_INFO, m_string, m_halState);
+    return;
 }
 
 void CmLogTimer::Stop()
@@ -213,4 +184,4 @@ void CmLogTimer::Stop()
     m_timer.Stop();
 }
 
-#endif
+#endif  // #if CM_LOG_ON

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017, Intel Corporation
+* Copyright (c) 2017-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -26,6 +26,7 @@
 
 #include "codechal_encoder_base.h"
 #include "codechal_encode_wp.h"
+#include "hal_oca_interface.h"
 
 MOS_STATUS CodechalEncodeWP::AllocateResources()
 {
@@ -383,6 +384,7 @@ MOS_STATUS CodechalEncodeWP::Execute(KernelParams *params)
 
     if (!m_singleTaskPhaseSupported || m_lastTaskInPhase)
     {
+        HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
         m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &cmdBuffer, m_renderContextUsesNullHw);
         m_lastTaskInPhase = false;
     }

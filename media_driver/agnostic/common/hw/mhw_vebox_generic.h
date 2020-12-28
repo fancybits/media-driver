@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017, Intel Corporation
+* Copyright (c) 2017-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -113,6 +113,7 @@ public:
             false,
             pVeboxSurfaceStateCmdParams->bDIEnable);
         Mos_AddCommand(pCmdBuffer, &cmd1, cmd1.byteSize);
+        MHW_NORMALMESSAGE("Vebox input Height: %d, Width: %d;", cmd1.DW2.Height, cmd1.DW2.Width);
 
         // Setup Surface State for Output surface
         if (bOutputValid)
@@ -132,10 +133,37 @@ public:
             }
 
             Mos_AddCommand(pCmdBuffer, &cmd2, cmd2.byteSize);
+            MHW_NORMALMESSAGE("Vebox output Height: %d, Width: %d;", cmd2.DW2.Height, cmd2.DW2.Width);
         }
 
     finish:
         return eStatus;
+    }
+
+        //!
+    //! \brief    Add Vebox Tiling Convert Control Bits
+    //! \details  Add Vebox Tiling Convert Control Bits
+    //! \param    [in] cmdBuffer
+    //!           Pointers to the HW Cmd buffer
+    //! \param    [in] inSurParams
+    //!           Pointer to input vebox surface params
+    //! \param    [in] outSurParams
+    //!           Pointer to output vebox surface params
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    virtual MOS_STATUS AddVeboxTilingConvert(
+        PMOS_COMMAND_BUFFER cmdBuffer,
+        PMHW_VEBOX_SURFACE_PARAMS        inSurParams,
+        PMHW_VEBOX_SURFACE_PARAMS        outSurParams)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+
+    virtual MOS_STATUS setVeboxPrologCmd(
+        PMHW_MI_INTERFACE   mhwMiInterface,
+        PMOS_COMMAND_BUFFER cmdBuffer)
+    {
+        return MOS_STATUS_SUCCESS;
     }
 
 protected:

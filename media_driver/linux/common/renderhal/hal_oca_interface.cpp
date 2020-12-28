@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019, Intel Corporation
+* Copyright (c) 2019-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -62,16 +62,43 @@ void HalOcaInterface::On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTE
 }
 
 //!
-//! \brief  Oca operation which should be called before adding batch buffer end command for 1st
-//!         level batch buffer.
+//! \brief  Oca operation which should be called at the beginning of 1st level batch buffer start.
 //! \param  [in/out] cmdBuffer
 //!         Command buffer for current BB. hOcaBuf in cmdBuffer will be updated.
 //! \param  [in] mosContext
 //!         Reference to MOS_CONTEXT.
+//! \param  [in] gpuContextHandle
+//!         Gpu context handle
+//! \param  [in] mhwMiInterface
+//!         Reference to MhwMiInterface.
+//! \param  [in] mmioRegisters
+//!         mmio registers for current engine.
+//! \param  [in] offsetOf1stLevelBB
+//!         Offset for current BB in cmdBuffer.
+//! \param  [in] bUseSizeOfCmdBuf
+//!         If true, use size of cmdBuffer for batch buffer, else use sizeOf1stLevelBB.
+//! \param  [in] sizeOf1stLevelBB
+//!         Size of BB. Ignore if bUseSizeOfResource == true.
 //! \return void
 //!         No return value. Handle all exception inside the function.
 //!
-void HalOcaInterface::On1stLevelBBEnd(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext)
+void HalOcaInterface::On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext,
+        uint32_t gpuContextHandle, MhwMiInterface &mhwMiInterface, MmioRegistersMfx &mmioRegisters,
+        uint32_t offsetOf1stLevelBB, bool bUseSizeOfCmdBuf, uint32_t sizeOf1stLevelBB)
+{
+}
+
+//!
+//! \brief  Oca operation which should be called before adding batch buffer end command for 1st
+//!         level batch buffer.
+//! \param  [in/out] cmdBuffer
+//!         Command buffer for current BB. hOcaBuf in cmdBuffer will be updated.
+//! \param  [in] osInterface
+//!         Reference to MOS_INTERFACE.
+//! \return void
+//!         No return value. Handle all exception inside the function.
+//!
+void HalOcaInterface::On1stLevelBBEnd(MOS_COMMAND_BUFFER &cmdBuffer, MOS_INTERFACE &osInterface)
 {
 }
 
@@ -173,8 +200,6 @@ void HalOcaInterface::DumpVpKernelInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEX
 
 //!
 //! \brief  Add vphal parameters to oca log section.
-//! \param  [in] cmdBuffer
-//!         Command buffer for current BB.
 //! \param  [in] mosContext
 //!         Reference to MOS_CONTEXT.
 //! \param  [in] pVphalDumper
@@ -186,7 +211,11 @@ void HalOcaInterface::DumpVphalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT 
 {
 }
 
-void HalOcaInterface::OnOcaError(MOS_STATUS status, const char *functionName, uint32_t lineNumber)
+void HalOcaInterface::DumpCpParam(MosOcaInterface &ocaInterface, MOS_OCA_BUFFER_HANDLE &hOcaBuf, PMOS_CONTEXT mosCtx, void *pCpDumper)
+{
+}
+
+void HalOcaInterface::OnOcaError(PMOS_CONTEXT mosContext, MOS_STATUS status, const char *functionName, uint32_t lineNumber)
 {
 }
 

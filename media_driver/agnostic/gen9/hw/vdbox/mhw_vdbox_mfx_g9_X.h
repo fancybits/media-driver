@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2018, Intel Corporation
+* Copyright (c) 2017-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -95,7 +95,7 @@ protected:
     {
         MHW_FUNCTION_ENTER;
 
-        InitRowstoreUserFeatureSettings();
+        InitRowstoreUserFeatureSettings(osInterface->pOsContext);
         InitMmioRegisters();
     }
 
@@ -175,7 +175,7 @@ protected:
         mmioRegisters->mfxLra2RegOffset                           = MFX_LRA2_REG_OFFSET_NODE_2_INIT_G9;
     }
 
-    void InitRowstoreUserFeatureSettings()
+    void InitRowstoreUserFeatureSettings(MOS_CONTEXT_HANDLE mosCtx)
     {
         MOS_USER_FEATURE_VALUE_DATA userFeatureData;
         MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -187,7 +187,8 @@ protected:
         MOS_UserFeature_ReadValue_ID(
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_ROWSTORE_CACHE_DISABLE_ID,
-            &userFeatureData);
+            &userFeatureData,
+            mosCtx);
 #endif // _DEBUG || _RELEASE_INTERNAL
         this->m_rowstoreCachingSupported = userFeatureData.i32Data ? false : true;
 
@@ -198,7 +199,8 @@ protected:
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_INTRAROWSTORECACHE_DISABLE_ID,
-                &userFeatureData);
+                &userFeatureData,
+                mosCtx);
 #endif // _DEBUG || _RELEASE_INTERNAL
             this->m_intraRowstoreCache.bSupported = userFeatureData.i32Data ? false : true;
 
@@ -207,7 +209,8 @@ protected:
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_DEBLOCKINGFILTERROWSTORECACHE_DISABLE_ID,
-                &userFeatureData);
+                &userFeatureData,
+                mosCtx);
 #endif // _DEBUG || _RELEASE_INTERNAL
             this->m_deblockingFilterRowstoreCache.bSupported = userFeatureData.i32Data ? false : true;
 
@@ -216,7 +219,8 @@ protected:
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_BSDMPCROWSTORECACHE_DISABLE_ID,
-                &userFeatureData);
+                &userFeatureData,
+                mosCtx);
 #endif // _DEBUG || _RELEASE_INTERNAL
             this->m_bsdMpcRowstoreCache.bSupported = userFeatureData.i32Data ? false : true;
 
@@ -225,7 +229,8 @@ protected:
             MOS_UserFeature_ReadValue_ID(
                 nullptr,
                 __MEDIA_USER_FEATURE_VALUE_MPRROWSTORECACHE_DISABLE_ID,
-                &userFeatureData);
+                &userFeatureData,
+                mosCtx);
 #endif // _DEBUG || _RELEASE_INTERNAL
             this->m_mprRowstoreCache.bSupported = userFeatureData.i32Data ? false : true;
         }
@@ -425,18 +430,20 @@ protected:
             {
                 maxSize+=
                     mhw_mi_g9_X::MI_CONDITIONAL_BATCH_BUFFER_END_CMD::byteSize +
-                    mhw_mi_g9_X::MI_FLUSH_DW_CMD::byteSize * 3 +   // 3 extra MI_FLUSH_DWs for encode
-                    TMfxCmds::MFX_FQM_STATE_CMD::byteSize * 4 +   // FQM_State sent 4 times
-                    mhw_mi_g9_X::MI_STORE_REGISTER_MEM_CMD::byteSize * 8 +   // 5 extra register queries for encode, 3 extra slice level commands for BrcPakStatistics
-                    mhw_mi_g9_X::MI_STORE_DATA_IMM_CMD::byteSize * 3 +   // slice level commands for StatusReport, BrcPakStatistics
-                    MHW_VDBOX_PAK_BITSTREAM_OVERFLOW_SIZE;                         // accounting for the max DW payload for PAK_INSERT_OBJECT, for frame header payload
+                    mhw_mi_g9_X::MI_FLUSH_DW_CMD::byteSize * 3 +           // 3 extra MI_FLUSH_DWs for encode
+                    TMfxCmds::MFX_FQM_STATE_CMD::byteSize * 4 +            // FQM_State sent 4 times
+                    mhw_mi_g9_X::MI_STORE_REGISTER_MEM_CMD::byteSize * 8 + // 5 extra register queries for encode, 3 extra slice level commands for BrcPakStatistics
+                    mhw_mi_g9_X::MI_STORE_DATA_IMM_CMD::byteSize * 3 +     // slice level commands for StatusReport, BrcPakStatistics
+                    MHW_VDBOX_PAK_BITSTREAM_OVERFLOW_SIZE +                // accounting for the max DW payload for PAK_INSERT_OBJECT, for frame header payload
+                    TMfxCmds::MFX_PAK_INSERT_OBJECT_CMD::byteSize * 4;     // for inserting AU, SPS, PSP, SEI headers before first slice header
 
                 patchListMaxSize +=
                     PATCH_LIST_COMMAND(MI_CONDITIONAL_BATCH_BUFFER_END_CMD) +
-                    PATCH_LIST_COMMAND(MI_FLUSH_DW_CMD) * 3 +   // 3 extra MI_FLUSH_DWs for encode
-                    PATCH_LIST_COMMAND(MFX_FQM_STATE_CMD) * 4 +   // FQM_State sent 4 times
-                    PATCH_LIST_COMMAND(MI_STORE_REGISTER_MEM_CMD) * 8 +   // extra register queries for encode, 3 extra slice level commands for BrcPakStatistics
-                    PATCH_LIST_COMMAND(MI_STORE_DATA_IMM_CMD) * 3;// slice level commands for StatusReport, BrcPakStatistics
+                    PATCH_LIST_COMMAND(MI_FLUSH_DW_CMD) * 3 +              // 3 extra MI_FLUSH_DWs for encode
+                    PATCH_LIST_COMMAND(MFX_FQM_STATE_CMD) * 4 +            // FQM_State sent 4 times
+                    PATCH_LIST_COMMAND(MI_STORE_REGISTER_MEM_CMD) * 8 +    // extra register queries for encode, 3 extra slice level commands for BrcPakStatistics
+                    PATCH_LIST_COMMAND(MI_STORE_DATA_IMM_CMD) * 3 +        // slice level commands for StatusReport, BrcPakStatistics
+                    PATCH_LIST_COMMAND(MFC_AVC_PAK_INSERT_OBJECT_CMD) * 4; // for inserting AU, SPS, PSP, SEI headers before first slice header
             }
         }
         else if (standard == CODECHAL_VC1)
@@ -579,26 +586,33 @@ protected:
             else // CODECHAL_ENCODE_MODE_AVC
             {
                 // 1 PAK_INSERT_OBJECT inserted for every end of frame/stream with 1 DW payload
-                maxSize = TMfxCmds::MFX_PAK_INSERT_OBJECT_CMD::byteSize + sizeof(uint32_t) +
-                        TMfxCmds::MFX_AVC_SLICE_STATE_CMD::byteSize +
-                        (2 * TMfxCmds::MFX_AVC_REF_IDX_STATE_CMD::byteSize) +
-                        (2 * TMfxCmds::MFX_AVC_WEIGHTOFFSET_STATE_CMD::byteSize) +
-                        TMfxCmds::MFX_PAK_INSERT_OBJECT_CMD::byteSize +
-                        MHW_VDBOX_PAK_BITSTREAM_OVERFLOW_SIZE + // slice header payload
-                        mhw_mi_g9_X::MI_BATCH_BUFFER_START_CMD::byteSize;
-
-                patchListMaxSize = PATCH_LIST_COMMAND(MFC_AVC_PAK_INSERT_OBJECT_CMD) +
-                        PATCH_LIST_COMMAND(MFX_AVC_SLICE_STATE_CMD) +
-                        (2 * PATCH_LIST_COMMAND(MFX_AVC_REF_IDX_STATE_CMD)) +
-                        (2 * PATCH_LIST_COMMAND(MFX_AVC_WEIGHTOFFSET_STATE_CMD)) +
-                        PATCH_LIST_COMMAND(MFC_AVC_PAK_INSERT_OBJECT_CMD) +
-                        PATCH_LIST_COMMAND(MI_BATCH_BUFFER_START_CMD);
+                maxSize = TMfxCmds::MFX_PAK_INSERT_OBJECT_CMD::byteSize + sizeof(uint32_t);
+                patchListMaxSize = PATCH_LIST_COMMAND(MFC_AVC_PAK_INSERT_OBJECT_CMD);
 
                 if (isModeSpecific)
                 {
                     // isModeSpecific = bSingleTaskPhaseSupported for AVC encode
-                    maxSize += mhw_mi_g9_X::MI_BATCH_BUFFER_START_CMD::byteSize;
-                    patchListMaxSize += PATCH_LIST_COMMAND(MI_BATCH_BUFFER_START_CMD);
+                    maxSize += (2 * mhw_mi_g9_X::MI_BATCH_BUFFER_START_CMD::byteSize);
+                    patchListMaxSize += (2 * PATCH_LIST_COMMAND(MI_BATCH_BUFFER_START_CMD));
+                }
+                else
+                {
+                    maxSize +=
+                        (2 * TMfxCmds::MFX_AVC_REF_IDX_STATE_CMD::byteSize) +
+                        (2 * TMfxCmds::MFX_AVC_WEIGHTOFFSET_STATE_CMD::byteSize) +
+                        TMfxCmds::MFX_AVC_SLICE_STATE_CMD::byteSize +
+                        MHW_VDBOX_PAK_SLICE_HEADER_OVERFLOW_SIZE + // slice header payload
+                        (2 * TMfxCmds::MFX_PAK_INSERT_OBJECT_CMD::byteSize) +
+                        mhw_mi_g9_X::MI_BATCH_BUFFER_START_CMD::byteSize +
+                        mhw_mi_g9_X::MI_FLUSH_DW_CMD::byteSize;
+
+                    patchListMaxSize +=
+                        (2 * PATCH_LIST_COMMAND(MFX_AVC_REF_IDX_STATE_CMD)) +
+                        (2 * PATCH_LIST_COMMAND(MFX_AVC_WEIGHTOFFSET_STATE_CMD)) +
+                        PATCH_LIST_COMMAND(MFX_AVC_SLICE_STATE_CMD) +
+                        (2 * PATCH_LIST_COMMAND(MFC_AVC_PAK_INSERT_OBJECT_CMD)) +
+                        PATCH_LIST_COMMAND(MI_BATCH_BUFFER_START_CMD) +
+                        PATCH_LIST_COMMAND(MI_FLUSH_DW_CMD);
                 }
             }
         }
@@ -1143,7 +1157,7 @@ protected:
 
         cmd.DW4.Loadslicepointerflag = 0;
         cmd.DW4.Mbstatenabled = 0; // Disable for the first pass
-        if ((params->dwMaxFrameSize > 0) && params->ucCurrPass && params->pDeltaQp)
+        if ((params->dwMaxFrameSize > 0) && params->currPass && params->pDeltaQp)
         {
             cmd.DW4.Mbstatenabled = 1;
         }
@@ -1158,7 +1172,7 @@ protected:
         cmd.DW5.Nonfirstpassflag = 0;
         cmd.DW5.TrellisQuantizationChromaDisableTqchromadisable = true;
 
-        if (params->dwMaxFrameSize && params->ucCurrPass)
+        if (params->dwMaxFrameSize && params->currPass)
         {
             cmd.DW5.Nonfirstpassflag = 1;
         }
@@ -1211,7 +1225,7 @@ protected:
             cmd.DW8.Slicedeltaqppmax0 =
                 cmd.DW8.Slicedeltaqpmax1 =
                 cmd.DW8.Slicedeltaqpmax2 =
-                cmd.DW8.Slicedeltaqpmax3 = params->pDeltaQp[params->ucCurrPass];
+                cmd.DW8.Slicedeltaqpmax3 = params->pDeltaQp[params->currPass];
             cmd.DW10.Framebitratemaxunit = 0;
             cmd.DW10.Framebitratemaxunitmode = 0;
             //when FrameBitrateMaxUnit & FrameBitrateMaxUnitMode both are 0, the frame size unit is 128bytes.
@@ -1241,28 +1255,7 @@ protected:
 
         if (avcSeqParams->EnableSliceLevelRateCtrl)
         {
-            uint8_t qpY = avcPicParams->QpY;
-            if (params->dwSliceThresholdTable == NO_SLICE_THRESHOLD_TABLE) // Do not use any Slice Threshold Table
-            {
-                cmd.DW19.ThresholdSizeInBytes = (avcPicParams->SliceSizeInBytes > params->dwVdencSliceMinusBytes) ?
-                    (avcPicParams->SliceSizeInBytes - params->dwVdencSliceMinusBytes) : 0;
-            }
-            else if (params->dwSliceThresholdTable == USE_SLICE_THRESHOLD_TABLE_100_PERCENT) // Use 100 Percent Slice Threshold Table
-            {
-                cmd.DW19.ThresholdSizeInBytes = avcPicParams->SliceSizeInBytes -
-                    MOS_MIN(avcPicParams->SliceSizeInBytes,
-                        ((avcPicParams->CodingType == I_TYPE) ?
-                        MhwVdboxMfxInterface::m_vdEncFrameDelta100PercentTab[qpY].IFrameDelta :
-                        MhwVdboxMfxInterface::m_vdEncFrameDelta100PercentTab[qpY].PFrameDelta));
-            }
-            else if (params->dwSliceThresholdTable == USE_SLICE_THRESHOLD_TABLE_90_PERCENT) // Use 90 Percent Slice Threshold Table
-            {
-                cmd.DW19.ThresholdSizeInBytes = avcPicParams->SliceSizeInBytes -
-                    MOS_MIN(avcPicParams->SliceSizeInBytes,
-                        ((avcPicParams->CodingType == I_TYPE) ?
-                        MhwVdboxMfxInterface::m_vdEncFrameDelta90PercentTab[qpY].IFrameDelta :
-                        MhwVdboxMfxInterface::m_vdEncFrameDelta90PercentTab[qpY].PFrameDelta));
-            }
+            cmd.DW19.ThresholdSizeInBytes = avcPicParams->SliceSizeInBytes - MOS_MIN(avcPicParams->SliceSizeInBytes, params->dwVdencSliceMinusBytes);
             cmd.DW20.TargetSliceSizeInBytes = avcPicParams->SliceSizeInBytes;
         }
 

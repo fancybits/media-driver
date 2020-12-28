@@ -192,11 +192,15 @@ int32_t CmKernelRT::Create(CmDeviceRT *device,
     }
     else
     {
-        return CM_FAILURE;
+        kernel = new (std::nothrow) CmKernelRT(device, program, kernelIndex, kernelSeqNum);
     }
     
     if( kernel )
     {
+        if (device)
+        {
+            device->m_memObjectCount.kernelCount++;
+        }
         kernel->Acquire();
         result = kernel->Initialize( kernelName, options );
         if( result != CM_SUCCESS )
@@ -268,6 +272,7 @@ int32_t CmKernelRT::SafeRelease( void)
     --m_refcount;
     if (m_refcount == 0)
     {
+        m_device->m_memObjectCount.kernelCount--;
         PCM_CONTEXT_DATA cmData = (PCM_CONTEXT_DATA)m_device->GetAccelData();
         PCM_HAL_STATE state = cmData->cmHalState;
         if (state->dshEnabled)
@@ -806,6 +811,10 @@ int32_t CmKernelRT::Initialize( const char* kernelName, const char* options )
                 }
             }
         }
+        if (m_kernelInfo->blNoBarrier && m_options && strstr(m_options, "-hasBarrier"))
+        {
+            m_kernelInfo->blNoBarrier = false;
+        }
     }
 
     if(argSize > m_halMaxValues->maxArgByteSizePerKernel)
@@ -873,7 +882,7 @@ int32_t CmKernelRT::Initialize( const char* kernelName, const char* options )
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmKernelRT::SetThreadCount(uint32_t count )
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
     // Check per kernel, per task check will be at enqueue time
     if ((int)count <= 0)
         return CM_INVALID_ARG_VALUE;
@@ -2151,7 +2160,7 @@ finish:
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmKernelRT::SetKernelArg(uint32_t index, size_t size, const void * value )
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
     //It should be mutual exclusive with Indirect Data
     if(m_kernelPayloadData)
     {
@@ -2189,7 +2198,7 @@ CM_RT_API int32_t CmKernelRT::SetKernelArg(uint32_t index, size_t size, const vo
 
 CM_RT_API int32_t CmKernelRT::SetKernelArgPointer(uint32_t index, size_t size, const void *value)
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
     //It should be mutual exclusive with Indirect Data
     if (m_kernelPayloadData)
@@ -2272,7 +2281,7 @@ CM_RT_API int32_t CmKernelRT::SetKernelArgPointer(uint32_t index, size_t size, c
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmKernelRT::SetStaticBuffer(uint32_t index, const void * value )
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
     if(index >= CM_GLOBAL_SURFACE_NUMBER)
     {
         CM_ASSERTMESSAGE("Error: Surface Index exceeds max global surface number.");
@@ -2349,7 +2358,7 @@ CM_RT_API int32_t CmKernelRT::SetStaticBuffer(uint32_t index, const void * value
 //*-----------------------------------------------------------------------------
 CM_RT_API int32_t CmKernelRT::SetThreadArg(uint32_t threadId, uint32_t index, size_t size, const void * value )
 {
-    INSERT_API_CALL_LOG();
+    INSERT_API_CALL_LOG(GetHalState());
 
     //It should be mutual exclusive with Indirect Data
     if(m_kernelPayloadData)
@@ -4739,9 +4748,17 @@ int32_t CmKernelRT::UpdateKernelData(
                     {
                         for(uint32_t kk=0;  kk< numSurfaces ; kk++)
                         {
-                            CM_ASSERT(halKernelParam->argParams[argIndex + kk].firstValue != nullptr);
+                            CM_ASSERT(halKernelParam->argParams[argIndex + kk].firstValue
+                                      != nullptr);
                             CmSafeMemCopy(halKernelParam->argParams[argIndex + kk].firstValue,
-                            m_args[ orgArgIndex ].value + kk*sizeof(uint32_t), sizeof(uint32_t));
+                                          m_args[ orgArgIndex ].value + kk*sizeof(uint32_t),
+                                          sizeof(uint32_t));
+                            halKernelParam->argParams[argIndex + kk].aliasIndex
+                                    = m_args[orgArgIndex].aliasIndex;
+                            halKernelParam->argParams[argIndex + kk].aliasCreated
+                                    = m_args[orgArgIndex].aliasCreated;
+                            halKernelParam->argParams[argIndex + kk].isNull
+                                    = m_args[orgArgIndex].isNull;
 
                             if (!m_args[orgArgIndex].surfIndex[kk])
                             {
@@ -4760,8 +4777,11 @@ int32_t CmKernelRT::UpdateKernelData(
                     {
                         CM_ASSERT(halKernelParam->argParams[argIndex].firstValue != nullptr);
                         halKernelParam->argParams[argIndex].kind
-                                = (CM_HAL_KERNEL_ARG_KIND)
-                                m_args[orgArgIndex].unitKind;
+                                = (CM_HAL_KERNEL_ARG_KIND)m_args[orgArgIndex].unitKind;
+                        halKernelParam->argParams[argIndex].aliasIndex
+                                = m_args[orgArgIndex].aliasIndex;
+                        halKernelParam->argParams[argIndex].aliasCreated
+                                = m_args[orgArgIndex].aliasCreated;
                         halKernelParam->argParams[argIndex].isNull
                                 = m_args[orgArgIndex].isNull;
                         if (halKernelParam->argParams[argIndex].isNull)
@@ -5224,8 +5244,9 @@ CM_RT_API int32_t CmKernelRT::DeAssociateThreadSpace(CmThreadSpace * &threadSpac
 CM_RT_API int32_t CmKernelRT::QuerySpillSize(uint32_t &spillMemorySize)
 {
     CM_KERNEL_INFO  *kernelInfo = nullptr;
+    int32_t kernelStartIndex = m_program->GetKernelStartIndex();
 
-    int32_t hr = m_program->GetKernelInfo(m_kernelIndex, kernelInfo);
+    int32_t hr = m_program->GetKernelInfo(m_kernelIndexInProgram, kernelInfo);
     if (hr != CM_SUCCESS || kernelInfo == nullptr)
         return hr;
 
@@ -5842,7 +5863,10 @@ void CmKernelRT::ArgLog(std::ostringstream &oss, uint32_t index, CM_ARG arg)
         }
     }
 }
-#endif
+
+CM_HAL_STATE* CmKernelRT::GetHalState() { return m_device->GetHalState(); }
+
+#endif  // #if CM_LOG_ON
 
 void CmKernelRT::SurfaceDump(uint32_t kernelNumber, int32_t taskId)
 {

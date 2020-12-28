@@ -71,6 +71,9 @@
 #define ENCODE_HEVC_8K_PIC_WIDTH     7680
 #define ENCODE_HEVC_8K_PIC_HEIGHT    4320
 
+#define ENCODE_HEVC_16K_PIC_WIDTH    16384
+#define ENCODE_HEVC_16K_PIC_HEIGHT   4096
+
 // Max supported resolution for HEVC encode is 4K X 2K
 #define ENCODE_HEVC_MAX_4K_PIC_WIDTH     4096
 #define ENCODE_HEVC_MAX_4K_PIC_HEIGHT    2176
@@ -80,6 +83,9 @@
 
 #define ENCODE_HEVC_MAX_16K_PIC_WIDTH    16384
 #define ENCODE_HEVC_MAX_16K_PIC_HEIGHT   16384
+
+#define ENCODE_HEVC_MIN_DSS_PIC_WIDTH    480
+#define ENCODE_HEVC_MIN_DSS_PIC_HEIGHT   320
 
 // HEVC has only 3 target usage modes
 #define CODECHAL_ENCODE_HEVC_TARGET_USAGE_MODE_PERFORMANCE  0
@@ -132,6 +138,11 @@
 #define CODECHAL_VDENC_HEVC_BRC_HISTORY_BUF_SIZE             964
 #define CODECHAL_VDENC_HEVC_BRC_DEBUG_BUF_SIZE               0x1000 // 0x1000 = 4096
 #define CODECHAL_VDENC_HEVC_BRC_HUC_STATUS_REENCODE_MASK     (1<<31)
+#define CODECHAL_VDENC_HEVC_BRC_HUC_STATUS_ERROR_MASK        (1<<30)
+#define CODECHAL_VDENC_HEVC_BRC_HUC_STATUS_ARITHMETIC_OVERFLOW_ERROR_MASK   (1<<29)
+#define CODECHAL_VDENC_HEVC_BRC_HUC_STATUS_MEMORY_ACCESS_ERROR_MASK         (1<<28)
+#define CODECHAL_VDENC_HEVC_BRC_HUC_STATUS_HISTORY_BUFFER_ERROR_MASK        (1<<27)
+#define CODECHAL_VDENC_HEVC_BRC_HUC_STATUS_DMEM_ERROR_MASK                  (1<<26)
 
 #define CODECHAL_VDENC_HEVC_BRC_PAK_STATS_BUF_SIZE                  464     // 116 DWORDs HEVC Frame Statistics
 #define CODECHAL_HEVC_VDENC_STATS_SIZE                              1216    // VDEnc Statistic: 48DWs (3CLs) of HMDC Frame Stats + 256 DWs (16CLs) of Histogram Stats = 1216 bytes
@@ -244,13 +255,13 @@ struct EncodeHevcPar
     uint32_t CuRC;
     uint32_t LookAheadFrames;
     uint32_t VideoTestData;
-    uint32_t AvbrAccuracy;  //for AVBR 
-    uint32_t AvbrConvergence;  //for AVBR 
-    uint32_t usePrevQP;  //for fast mode 
+    uint32_t AvbrAccuracy;  //for AVBR
+    uint32_t AvbrConvergence;  //for AVBR
+    uint32_t usePrevQP;  //for fast mode
     uint32_t RateControl; //obsolete
 
     uint32_t BitRate;
-    uint32_t MaxBitRate; // for VBR support  
+    uint32_t MaxBitRate; // for VBR support
     uint32_t VbvSzInBit;
     uint32_t InitVbvFullnessInBit;
     uint32_t UserMaxIFrame; //user defined frame rate
@@ -281,7 +292,7 @@ struct EncodeHevcPar
     int16_t new_gopi;
     uint32_t new_frM; //frame rate multipier (nominator)
     uint32_t new_frD; //frame rate divider (denominator)
-    uint32_t new_userMaxFrame; //user defined frame rate 
+    uint32_t new_userMaxFrame; //user defined frame rate
                           //end reset test
 
     MultiPassConfig MultiPassParam;
@@ -1192,7 +1203,9 @@ enum HEVC_BRC_FRAME_TYPE
     HEVC_BRC_FRAME_TYPE_B = 1,
     HEVC_BRC_FRAME_TYPE_I = 2,
     HEVC_BRC_FRAME_TYPE_B1 = 3,
-    HEVC_BRC_FRAME_TYPE_B2 = 4
+    HEVC_BRC_FRAME_TYPE_B2 = 4,
+    HEVC_BRC_FRAME_TYPE_INVALID
+
 };
 
 //!
@@ -1434,12 +1447,13 @@ public:
     bool          m_isMaxLcu64                            = false;                        //!< Flag to specify if max LCU size is 64
     uint32_t      m_sizeOfMvTemporalBuffer                = 0;                            //!< MV temporal buffer size
     bool          m_encode4KSequence                      = false;                        //!< Flag to specify if input sequence is 4k size
+    bool          m_encode16KSequence                     = false;                        //!< Flag to specify if input sequence is 16k size
     bool          m_hevcRdoqEnabled                       = false;                        //!< RDOQ enable flag
     uint32_t      m_rdoqIntraTuThreshold                  = 0;                            //!< RDOQ intra threshold
     bool          m_hevcIFrameRdoqEnabled                 = true;                        //!< Control intra frame RDOQ enable/disable
 #if (_DEBUG || _RELEASE_INTERNAL)
     bool          m_rdoqIntraTuOverride                   = false;                        //!< Override RDOQ intra TU or not
-    bool          m_rdoqIntraTuDisableOverride            = false;                        //!< Override RDOQ intra TU disable 
+    bool          m_rdoqIntraTuDisableOverride            = false;                        //!< Override RDOQ intra TU disable
     uint16_t      m_rdoqIntraTuThresholdOverride          = 0;                            //!< Override RDOQ intra TU threshold
 #endif
     bool          m_is10BitHevc                           = false;                        //!< 10bit encoding flag
@@ -1516,7 +1530,7 @@ public:
     //! \param    [in] rc
     //!           Rate control method
     //!
-    //! \return   True if using BRC , else return false 
+    //! \return   True if using BRC , else return false
     //!
     bool IsRateControlBrc(uint8_t rc)
     {
@@ -1641,7 +1655,8 @@ public:
     //!
     virtual MOS_STATUS SendPrologWithFrameTracking(
         PMOS_COMMAND_BUFFER cmdBuffer,
-        bool frameTrackingRequested);
+        bool frameTrackingRequested,
+        MHW_MI_MMIOREGISTERS *mmioRegister = nullptr);
 
     //!
     //! \brief    Wait for dependent VDBOX to get ready
@@ -1713,7 +1728,7 @@ public:
 
     //!
     //! \brief    Allocate resources for encoder instance
-    //! \details  It is invoked when initializing encoder instance and it would call #AllocateEncResources(), #AllocateBrcResources(), 
+    //! \details  It is invoked when initializing encoder instance and it would call #AllocateEncResources(), #AllocateBrcResources(),
     //!           #AllocatePakResources() and #InitSurfaceInfoTable()
     //!
     //! \return   MOS_STATUS
@@ -1746,7 +1761,8 @@ public:
     MOS_STATUS AllocateBuffer(
         PCODECHAL_ENCODE_BUFFER buffer,
         uint32_t size,
-        const char* name);
+        const char* name,
+        int32_t dwMemType = 0);
 
     //!
     //! \brief    Help function to allocate a generic 2D surface
@@ -1770,7 +1786,8 @@ public:
         uint32_t width,
         uint32_t height,
         const char* name,
-        MOS_TILE_TYPE tileType = MOS_TILE_LINEAR);
+        MOS_TILE_TYPE tileType = MOS_TILE_LINEAR,
+        int32_t dwMemType = 0);
 
     //!
     //! \brief    Help function to allocate a NV12 TILE_Y surface
@@ -1791,10 +1808,11 @@ public:
         PMOS_SURFACE surface,
         uint32_t width,
         uint32_t height,
-        const char* name);
+        const char* name,
+        int32_t dwMemType = 0);
 
     //!
-    //! \brief    Help function to allocate PAK slice level batch buffers 
+    //! \brief    Help function to allocate PAK slice level batch buffers
     //!
     //! \param    [in] numSlices
     //!           Number of slices
@@ -1808,7 +1826,7 @@ public:
         uint32_t numSlices,
         unsigned char numPakPasses);
 
-    //! \brief    Calculates the PSNR values for luma/ chroma 
+    //! \brief    Calculates the PSNR values for luma/ chroma
     //!
     //! \param    [in, out] encodeStatus
     //!           Pointer to encoder status
@@ -1822,7 +1840,7 @@ public:
         EncodeStatus        *encodeStatus,
         EncodeStatusReport  *encodeStatusReport);
 
-    //! \brief    Copy sum square error for luma/ chroma channel from 
+    //! \brief    Copy sum square error for luma/ chroma channel from
     //!           frame statistics report into encodeStatus buffer
     //!
     //! \param    [in, out] cmdBuffer
@@ -1834,7 +1852,7 @@ public:
     virtual MOS_STATUS ReadSseStatistics(PMOS_COMMAND_BUFFER cmdBuffer);
 
     //!
-    //! \brief    Help function to release PAK slice level batch buffers 
+    //! \brief    Help function to release PAK slice level batch buffers
     //!
     //! \param    [in] index
     //!           Index of batch buffer to be released
@@ -1861,7 +1879,7 @@ public:
     //!
     //! \brief    Help function to calcuate max frame size corresponding to the input profile/level
     //!
-    //! \return   Max frame size in bytes 
+    //! \return   Max frame size in bytes
     //!
     uint32_t GetProfileLevelMaxFrameSize();
 
@@ -1891,7 +1909,7 @@ public:
     MOS_STATUS ValidateLowDelayBFrame(PCODEC_HEVC_ENCODE_SLICE_PARAMS slcParams);
 
     //!
-    //! \brief    Validate if reference list L0 and L1 are same 
+    //! \brief    Validate if reference list L0 and L1 are same
     //!
     //! \param    [in] slcParams
     //!           Pointer to slice parameter
@@ -2226,7 +2244,7 @@ public:
 
     //!
     //! \brief    Add HCP_PAK_INSERT_OBJECT commands for NALUs to command buffer or batch buffer
-    //! \details  This function would add multiple HCP_PAK_INSERT_OBJECT, one of each NALU 
+    //! \details  This function would add multiple HCP_PAK_INSERT_OBJECT, one of each NALU
     //!
     //! \param    [in, out] cmdBuffer
     //!           Pointer to the command buffer
@@ -2292,7 +2310,7 @@ public:
     virtual MOS_STATUS FreePakResources();
 
     //!
-    //! \brief    Allocate resources for ENC 
+    //! \brief    Allocate resources for ENC
     //!
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
@@ -2612,7 +2630,7 @@ public:
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    virtual MOS_STATUS PopulateBrcUpdateParam(void *cmd) 
+    virtual MOS_STATUS PopulateBrcUpdateParam(void *cmd)
     {
         return MOS_STATUS_SUCCESS;
     }
@@ -2630,7 +2648,7 @@ public:
     //!
     virtual MOS_STATUS PopulateEncParam(
         uint8_t meMethod,
-        void    *cmd) 
+        void    *cmd)
     {
         return MOS_STATUS_SUCCESS;
     }

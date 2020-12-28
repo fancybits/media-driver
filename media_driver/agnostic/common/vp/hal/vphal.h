@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2018, Intel Corporation
+* Copyright (c) 2009-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -50,10 +50,15 @@
 #define RGB_RANGE_16_235                1
 #define RGB_RANGE_0_255                 0
 
+// Media Features width
+#define VPHAL_RNDR_8K_WIDTH (7680)
+
 // Media Features height
 #define VPHAL_RNDR_2K_HEIGHT  1080
 // The reason that the definition is not (VPHAL_RNDR_2K_HEIGHT*2) is because some 4K clips have 1200 height.
 #define VPHAL_RNDR_4K_HEIGHT  1200
+#define VPHAL_RNDR_4K_MAX_HEIGHT  3112
+#define VPHAL_RNDR_4K_MAX_WIDTH  4096
 #define VPHAL_RNDR_6K_HEIGHT  (VPHAL_RNDR_2K_HEIGHT*3)
 #define VPHAL_RNDR_8K_HEIGHT  (VPHAL_RNDR_2K_HEIGHT*4)
 #define VPHAL_RNDR_10K_HEIGHT (VPHAL_RNDR_2K_HEIGHT*5)
@@ -200,6 +205,12 @@
 
 #define VPHAL_RENDER_CHK_NULL_NO_STATUS(_ptr)                                        \
     MOS_CHK_NULL_NO_STATUS(MOS_COMPONENT_VP, MOS_VP_SUBCOMP_RENDER, _ptr)
+//!
+//! \def VPHAL_RENDER_CHK_NULL_NO_STATUS_RETURN(_ptr)
+//!  MOS_ASSERTMESSAGE \a _ptr with MOS utility comp/subcomp info without returning a status
+//!
+#define VPHAL_RENDER_CHK_NULL_NO_STATUS_RETURN(_ptr)                                 \
+    MOS_CHK_NULL_NO_STATUS_RETURN(MOS_COMPONENT_VP, MOS_VP_SUBCOMP_RENDER, _ptr)
 
 //------------------------------------------------------------------------------
 // Macros specific to MOS_VP_SUBCOMP_DDI sub-comp
@@ -254,6 +265,13 @@ enum VpKernelID
     // Fast 1toN
     kernelFast1toN,
 
+    // HDR
+    kernelHdrMandatory,
+    kernelHdrPreprocess,
+
+    // mediacopy-render copy
+    kernelRenderCopy,
+
     baseKernelMaxNumID
 };
 
@@ -290,6 +308,7 @@ struct VphalSettings
         sameSampleThreshold(0),
         disableDnDi(0),
         kernelUpdate(0),
+        disableHdr(0),
         veboxParallelExecution(0)
     {
     };
@@ -299,6 +318,7 @@ struct VphalSettings
     int32_t                sameSampleThreshold;
     uint32_t               disableDnDi;                                          //!< For validation purpose
     uint32_t               kernelUpdate;                                         //!< For VEBox Copy and Update kernels
+    uint32_t               disableHdr;                                           //!< Disable Hdr
     uint32_t               veboxParallelExecution;                               //!< Control VEBox parallel execution with render engine
 };
 
@@ -350,6 +370,7 @@ struct VphalFeatureReport
     VPHAL_COMPOSITION_REPORT_MODE   CompositionMode;    //!< Inplace/Legacy Compostion flag
     bool                            VEFeatureInUse;     //!< If any VEBOX feature is in use, excluding pure bypass for SFC
     bool                            DiScdMode;          //!< Scene change detection
+    VPHAL_HDR_MODE                  HDRMode;            //!< HDR mode
 };
 
 #pragma pack(pop)
@@ -458,20 +479,55 @@ public:
     MOS_STATUS GetStatusReportEntryLength(
         uint32_t                         *puiLength);
 
-    MEDIA_FEATURE_TABLE*          GetSkuTable()
+    PLATFORM &GetPlatform()
+    {
+        return m_platform;
+    }
+
+    MEDIA_FEATURE_TABLE* GetSkuTable()
     {
         return m_skuTable;
-    };
+    }
 
-    PMOS_INTERFACE              GetOsInterface()
+    MEDIA_WA_TABLE* GetWaTable()
+    {
+        return m_waTable;
+    }
+
+    PMOS_INTERFACE GetOsInterface()
     {
         return m_osInterface;
-    };
+    }
 
-    VphalRenderer*             GetRenderer()
+    PRENDERHAL_INTERFACE GetRenderHal()
+    {
+        return m_renderHal;
+    }
+
+    PMHW_VEBOX_INTERFACE GetVeboxInterface()
+    {
+        return m_veboxInterface;
+    }
+
+    MhwCpInterface* GetCpInterface()
+    {
+        return m_cpInterface;
+    }
+
+    PMHW_SFC_INTERFACE GetSfcInterface()
+    {
+        return m_sfcInterface;
+    }
+
+    VphalRenderer* GetRenderer()
     {
         return m_renderer;
-    };
+    }
+
+    VPHAL_STATUS_TABLE& GetStatusTable()
+    {
+        return m_statusTable;
+    }
 
     void SetMhwVeboxInterface(MhwVeboxInterface* veboxInterface)
     {

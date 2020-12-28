@@ -1177,7 +1177,8 @@ CodechalEncodeMpeg2::CodechalEncodeMpeg2(
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_SINGLE_TASK_PHASE_ENABLE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     m_singleTaskPhaseSupported = (userFeatureData.i32Data) ? true : false;
 
     m_hwInterface->GetStateHeapSettings()->dwNumSyncTags = m_numSyncTags;
@@ -1219,14 +1220,16 @@ MOS_STATUS CodechalEncodeMpeg2::Initialize(CodechalSetting * codecHalSettings)
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_MPEG2_ENCODE_BRC_DISTORTION_BUFFER_ENABLE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     m_brcDistortionBufferSupported = (userFeatureData.i32Data) ? true : false;
 
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_MPEG2_SLICE_STATE_ENABLE_ID,
-        &userFeatureData);
+        &userFeatureData,
+        m_osInterface->pOsContext);
     m_sliceStateEnable = (userFeatureData.i32Data) ? true : false;
 
 #endif
@@ -4015,12 +4018,6 @@ MOS_STATUS CodechalEncodeMpeg2::EncodeBrcUpdateKernel()
             m_brcHistoryBufferSize,
             0,
             CODECHAL_MEDIA_STATE_BRC_UPDATE));
-        if (m_brcBuffers.pMbEncKernelStateInUse)
-        {
-            CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpCurbe(
-                CODECHAL_MEDIA_STATE_BRC_UPDATE,
-                m_brcBuffers.pMbEncKernelStateInUse));
-        }
         CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpBuffer(
             &m_resMbStatsBuffer,
             CodechalDbgAttr::attrInput,
@@ -4221,7 +4218,7 @@ MOS_STATUS CodechalEncodeMpeg2::ExecuteKernelFunctions()
     if (m_brcEnabled)
     {
         CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpBuffer(
-            &m_brcBuffers.resBrcImageStatesReadBuffer[m_currRecycledBufIdx],
+            &m_brcBuffers.resBrcImageStatesWriteBuffer,
             CodechalDbgAttr::attrOutput,
             "ImgStateWrite",
             BRC_IMG_STATE_SIZE_PER_PASS * m_hwInterface->GetMfxInterface()->GetBrcNumPakPasses(),
@@ -4235,17 +4232,6 @@ MOS_STATUS CodechalEncodeMpeg2::ExecuteKernelFunctions()
             m_brcHistoryBufferSize,
             0,
             CODECHAL_MEDIA_STATE_BRC_UPDATE));
-        if (!Mos_ResourceIsNull(&m_brcBuffers.sBrcMbQpBuffer.OsResource))
-        {
-            CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpBuffer(
-                &m_brcBuffers.resBrcPakStatisticBuffer[m_brcPakStatisticsSize],
-                CodechalDbgAttr::attrOutput,
-                "MbQp",
-                m_brcBuffers.sBrcMbQpBuffer.dwPitch*m_brcBuffers.sBrcMbQpBuffer.dwHeight,
-                m_brcBuffers.dwBrcMbQpBottomFieldOffset,
-                CODECHAL_MEDIA_STATE_BRC_UPDATE));
-        }
-
         if (m_brcBuffers.pMbEncKernelStateInUse)
         {
             CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpCurbe(
@@ -4451,14 +4437,15 @@ MOS_STATUS CodechalEncodeMpeg2::ExecutePictureLevel()
         // which may be skipped in multi-pass PAK enabled case. The idea here is to insert the previous frame's tag at the beginning
         // of the BB and keep the current frame's tag at the end of the BB. There will be a delay for tag update but it should be fine
         // as long as Dec/VP/Enc won't depend on this PAK so soon.
-        MOS_RESOURCE globalGpuContextSyncTagBuffer;
+        PMOS_RESOURCE globalGpuContextSyncTagBuffer = nullptr;
         CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnGetGpuStatusBufferResource(
             m_osInterface,
-            &globalGpuContextSyncTagBuffer));
+            globalGpuContextSyncTagBuffer));
+        CODECHAL_ENCODE_CHK_NULL_RETURN(globalGpuContextSyncTagBuffer);
 
         uint32_t statusTag = m_osInterface->pfnGetGpuStatusTag(m_osInterface, m_osInterface->CurrentGpuContextOrdinal);
         MHW_MI_STORE_DATA_PARAMS params;
-        params.pOsResource      = &globalGpuContextSyncTagBuffer;
+        params.pOsResource      = globalGpuContextSyncTagBuffer;
         params.dwResourceOffset = m_osInterface->pfnGetGpuStatusTagOffset(m_osInterface, m_osInterface->CurrentGpuContextOrdinal);
         params.dwValue          = (statusTag > 0)? (statusTag - 1) : 0;
         CODECHAL_ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMiStoreDataImmCmd(&cmdBuffer, &params));
@@ -5160,9 +5147,10 @@ MOS_STATUS CodechalEncodeMpeg2::SendMbEncSurfaces(
 
 MOS_STATUS CodechalEncodeMpeg2::SendPrologWithFrameTracking(
     PMOS_COMMAND_BUFFER         cmdBuffer,
-    bool                        frameTracking)
+    bool                        frameTracking,
+    MHW_MI_MMIOREGISTERS       *mmioRegister)
 {
-    return CodechalEncoderState::SendPrologWithFrameTracking(cmdBuffer, frameTracking);
+    return CodechalEncoderState::SendPrologWithFrameTracking(cmdBuffer, frameTracking, mmioRegister);
 }
 
 void CodechalEncodeMpeg2::UpdateSSDSliceCount()
