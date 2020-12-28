@@ -168,6 +168,13 @@ protected:
     virtual MOS_STATUS ExecuteVpPipeline();
 
     //!
+    //! \brief  updated Execute Vp Pipeline status
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS UpdateExecuteStatus();
+
+    //!
     //! \brief  Create SwFilterPipe
     //! \param  [in] params
     //!         Pointer to the input parameters
@@ -176,7 +183,7 @@ protected:
     //! \return MOS_STATUS
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    virtual MOS_STATUS CreateSwFilterPipe(VP_PARAMS &params, SwFilterPipe *&swFilterPipe);
+    virtual MOS_STATUS CreateSwFilterPipe(VP_PARAMS &params, std::vector<SwFilterPipe*> &swFilterPipe);
 
     //!
     //! \brief  Get System Vebox Number
@@ -229,6 +236,16 @@ protected:
     virtual MOS_STATUS SetPredicationParams(PVP_PIPELINE_PARAMS params)
     {
         return MOS_STATUS_SUCCESS;
+    }
+
+    //!
+    //! \brief  Judge if it is gt test environment
+    //! \return bool
+    //!         true if success, else false
+    //!
+    virtual bool IsGtEnv()
+    {
+        return false;
     }
 
 protected:

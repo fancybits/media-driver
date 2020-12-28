@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2019, Intel Corporation
+* Copyright (c) 2009-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -381,6 +381,27 @@ float VpHal_Lanczos(float x, uint32_t dwNumEntries, float fLanczosT)
     return VpHal_Sinc(x) * VpHal_Sinc(x / fLanczosT);
 }
 
+bool isSyncFreeNeededForMMCSurface(PVPHAL_SURFACE pSurface, PMOS_INTERFACE pOsInterface)
+{
+    if (nullptr == pSurface || nullptr == pOsInterface)
+    {
+        return false;
+    }
+
+    //Compressed surface aux table update is after resource dealloction, aux table update need wait the WLs complete
+    //the sync deallocation flag will make sure deallocation API return after all surface related WL been completed and resource been destroyed by OS
+    auto *pSkuTable = pOsInterface->pfnGetSkuTable(pOsInterface);
+    if (pSkuTable &&
+        MEDIA_IS_SKU(pSkuTable, FtrE2ECompression) &&                                      //Compression enabled platform
+        !MEDIA_IS_SKU(pSkuTable, FtrFlatPhysCCS) &&                                        //NOT DGPU compression
+        ((pSurface->bCompressible) && (pSurface->CompressionMode != MOS_MMC_DISABLED)))    //Compressed enabled surface
+    {
+        return true;
+    }
+
+    return false;
+}
+
 //!
 //! \brief    Allocates the Surface
 //! \details  Allocates the Surface
@@ -408,6 +429,8 @@ float VpHal_Lanczos(float x, uint32_t dwNumEntries, float fLanczosT)
 //!           Compression Mode
 //! \param    [out] pbAllocated
 //!           true if allocated, false for not
+//! \param    [in] resUsageType
+//!           resource usage type for caching
 //! \return   MOS_STATUS
 //!           MOS_STATUS_SUCCESS if success. Error code otherwise
 //!
@@ -423,11 +446,13 @@ MOS_STATUS VpHal_ReAllocateSurface(
     bool                    bCompressible,
     MOS_RESOURCE_MMC_MODE   CompressionMode,
     bool*                   pbAllocated,
-    MOS_HW_RESOURCE_DEF     resUsageType)
+    MOS_HW_RESOURCE_DEF     resUsageType,
+    MOS_TILE_MODE_GMM       tileModeByForce)
 {
     MOS_STATUS              eStatus;
     VPHAL_GET_SURFACE_INFO  Info;
     MOS_ALLOC_GFXRES_PARAMS AllocParams;
+    MOS_GFXRES_FREE_FLAGS   resFreeFlags = {0};
 
     //---------------------------------
     VPHAL_PUBLIC_ASSERT(pOsInterface);
@@ -462,9 +487,16 @@ MOS_STATUS VpHal_ReAllocateSurface(
     AllocParams.pBufName        = pSurfaceName;
     AllocParams.dwArraySize     = 1;
     AllocParams.ResUsageType    = resUsageType;
+    AllocParams.m_tileModeByForce = tileModeByForce;
 
     // Delete resource if already allocated
-    pOsInterface->pfnFreeResource(pOsInterface, &(pSurface->OsResource));
+    //if free the compressed surface, need set the sync dealloc flag as 1 for sync dealloc for aux table update
+    if (isSyncFreeNeededForMMCSurface(pSurface, pOsInterface))
+    {
+        resFreeFlags.SynchronousDestroy = 1;
+        VPHAL_PUBLIC_NORMALMESSAGE("Set SynchronousDestroy flag for compressed resource %s", pSurfaceName);
+    }
+    pOsInterface->pfnFreeResourceWithFlag(pOsInterface, &(pSurface->OsResource), resFreeFlags.Value);
 
     // Allocate surface
     VPHAL_PUBLIC_CHK_STATUS(pOsInterface->pfnAllocateResource(
@@ -933,10 +965,10 @@ void VpHal_GetScalingRatio(
     {
         // VPHAL_ROTATION_90 || VPHAL_ROTATION_270 ||
         // VPHAL_ROTATE_90_MIRROR_HORIZONTAL || VPHAL_ROTATE_90_MIRROR_VERTICAL
-        fScaleX = (float)(pSource->rcDst.right - pSource->rcDst.left) /
-                  (float)(pSource->rcSrc.bottom - pSource->rcSrc.top);
-        fScaleY = (float)(pSource->rcDst.bottom - pSource->rcDst.top) /
+        fScaleX = (float)(pSource->rcDst.bottom - pSource->rcDst.top) /
                   (float)(pSource->rcSrc.right - pSource->rcSrc.left);
+        fScaleY = (float)(pSource->rcDst.right - pSource->rcDst.left) /
+                  (float)(pSource->rcSrc.bottom - pSource->rcSrc.top);
     }
 
     *pfScaleX = fScaleX;

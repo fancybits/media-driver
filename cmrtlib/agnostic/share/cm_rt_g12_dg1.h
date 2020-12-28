@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018, Intel Corporation
+* Copyright (c) 2019, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -19,47 +19,25 @@
 * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 * OTHER DEALINGS IN THE SOFTWARE.
 */
-
 //!
-//! \file     vp_mem_compression.cpp
-//! \brief    Defines the common interface for media memory compression
-//! \details  The media mmc is to handle mmc operations
+//! \file      cm_rt_g12_dg1.h
+//! \brief     Contains Definitions for CM on Gen 12 DG1
 //!
 
-#ifndef __MEDIA_VP_MEM_COMPRESSION_H__
-#define __MEDIA_VP_MEM_COMPRESSION_H__
+#ifndef __CM_RT_G12_DG1_H__
+#define __CM_RT_G12_DG1_H__
 
-#include "media_mem_compression.h"
-#include "vp_pipeline_common.h"
+#define DG1_L3_PLANE_DEFAULT    CM_L3_PLANE_DEFAULT
+#define DG1_L3_PLANE_1          CM_L3_PLANE_1
+#define DG1_L3_PLANE_2          CM_L3_PLANE_2
+#define DG1_L3_CONFIG_COUNT     3
 
-class VPMediaMemComp : public MediaMemComp
-{
-public:
-
-    //!
-    //! \brief    Construct
-    //!
-    VPMediaMemComp(
-        PMOS_INTERFACE       osInterface,
-        PVP_MHWINTERFACE     vpInterface);
-
-    //!
-    //! \brief    Copy constructor
-    //!
-    VPMediaMemComp(const VPMediaMemComp&) = delete;
-
-    //!
-    //! \brief    Copy assignment operator
-    //!
-    VPMediaMemComp& operator=(const VPMediaMemComp&) = delete;
-
-    //!
-    //! \brief    Destructor
-    //!
-    virtual ~VPMediaMemComp() {};
-
-    MOS_STATUS DecompressVPResource(PVPHAL_SURFACE surface);
-
+// 16KB per Way for DG1, two Way per section
+static const L3ConfigRegisterValues DG1_L3_PLANES[DG1_L3_CONFIG_COUNT] =
+{                                      //  Rest  DC    RO  Z    Color  UTC  CB  Sum (in KB)
+    {0x00000200, 0,          0, 0},    //  2048  0     0   0    0      0    0   2048
+    {0x80000000, 0x7C000020, 0, 0},    //  1024  0     0   0    0      992  32  2048
+    {0x0101F000, 0x00000020, 0, 0},    //  0     1024  992 0    0      0    32  2048
 };
 
-#endif //__MEDIA_VP_MEM_COMPRESSION_H__
+#endif //__CM_RT_G12_DG1_H__

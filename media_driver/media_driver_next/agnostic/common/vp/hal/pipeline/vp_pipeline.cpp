@@ -216,10 +216,10 @@ MOS_STATUS VpPipeline::ExecuteVpPipeline()
 {
     VP_FUNC_CALL();
 
-    MOS_STATUS              eStatus   = MOS_STATUS_SUCCESS;
-    PacketPipe              *pPacketPipe = nullptr;
-    SwFilterPipe            *swFilterPipe = nullptr;
-    VpFeatureManagerNext    *featureManagerNext = dynamic_cast<VpFeatureManagerNext *>(m_featureManager);
+    MOS_STATUS                 eStatus   = MOS_STATUS_SUCCESS;
+    PacketPipe                 *pPacketPipe = nullptr;
+    std::vector<SwFilterPipe*> swFilterPipes;
+    VpFeatureManagerNext       *featureManagerNext = dynamic_cast<VpFeatureManagerNext *>(m_featureManager);
 
     VP_PUBLIC_CHK_NULL_RETURN(featureManagerNext);
     VP_PUBLIC_CHK_NULL_RETURN(m_pPacketPipeFactory);
@@ -246,51 +246,92 @@ MOS_STATUS VpPipeline::ExecuteVpPipeline()
 
     }
 
-    VP_PUBLIC_CHK_STATUS_RETURN(CreateSwFilterPipe(m_pvpParams, swFilterPipe));
-    VP_PUBLIC_CHK_NULL_RETURN(swFilterPipe);
+    VP_PUBLIC_CHK_STATUS_RETURN(CreateSwFilterPipe(m_pvpParams, swFilterPipes));
+    VP_PUBLIC_CHK_STATUS_RETURN(m_resourceManager->StartProcessNewFrame(*swFilterPipes[0]));
 
-    VP_PUBLIC_CHK_STATUS_RETURN(m_resourceManager->StartProcessNewFrame(*swFilterPipe));
+    for (auto &pipe : swFilterPipes)
+    {
+        pPacketPipe = m_pPacketPipeFactory->CreatePacketPipe();
+        VP_PUBLIC_CHK_NULL(pPacketPipe);
 
-    pPacketPipe = m_pPacketPipeFactory->CreatePacketPipe();
-    VP_PUBLIC_CHK_NULL(pPacketPipe);
+        eStatus = featureManagerNext->InitPacketPipe(*pipe, *pPacketPipe);
+        m_vpInterface->GetSwFilterPipeFactory().Destory(pipe);
+        VP_PUBLIC_CHK_STATUS(eStatus);
 
-    eStatus = featureManagerNext->InitPacketPipe(*swFilterPipe, *pPacketPipe);
-    m_vpInterface->GetSwFilterPipeFactory().Destory(swFilterPipe);
-    VP_PUBLIC_CHK_STATUS(eStatus);
+        // Update output pipe mode.
+        m_vpOutputPipe = pPacketPipe->GetOutputPipeMode();
+        m_veboxFeatureInuse = pPacketPipe->IsVeboxFeatureInuse();
 
-    // Update output pipe mode.
-    m_vpOutputPipe = pPacketPipe->GetOutputPipeMode();
-    m_veboxFeatureInuse = pPacketPipe->IsVeboxFeatureInuse();
+        // MediaPipeline::m_statusReport is always nullptr in VP APO path right now.
+        eStatus = pPacketPipe->Execute(MediaPipeline::m_statusReport, m_scalability, m_mediaContext, MOS_VE_SUPPORTED(m_osInterface), m_numVebox);
 
-    // MediaPipeline::m_statusReport is always nullptr in VP APO path right now.
-    eStatus = pPacketPipe->Execute(MediaPipeline::m_statusReport, m_scalability, m_mediaContext, MOS_VE_SUPPORTED(m_osInterface), m_numVebox);
+        m_pPacketPipeFactory->ReturnPacketPipe(pPacketPipe);
 
+        if (eStatus)
+        {
+            VP_PUBLIC_CHK_STATUS(UpdateExecuteStatus());
+        }
+    }
+
+finish:
     m_pPacketPipeFactory->ReturnPacketPipe(pPacketPipe);
+    for (auto &pipe : swFilterPipes)
+    {
+        m_vpInterface->GetSwFilterPipeFactory().Destory(pipe);
+    }
+    m_statusReport->UpdateStatusTableAfterSubmit(eStatus);
+    m_frameCounter++;
+    return eStatus;
+}
+
+MOS_STATUS VpPipeline::UpdateExecuteStatus()
+{
+    MOS_STATUS                 eStatus = MOS_STATUS_SUCCESS;
 
     if (PIPELINE_PARAM_TYPE_LEGACY == m_pvpParams.type)
     {
         PVP_PIPELINE_PARAMS params = m_pvpParams.renderParams;
         VP_PUBLIC_CHK_NULL(params);
         VPHAL_SURFACE_PTRS_DUMP(m_surfaceDumper,
-                            params->pTarget,
-                            VPHAL_MAX_TARGETS,
-                            params->uDstCount,
-                            m_frameCounter,
-                            VPHAL_DUMP_TYPE_POST_ALL);
-    }
+            params->pTarget,
+            VPHAL_MAX_TARGETS,
+            params->uDstCount,
+            m_frameCounter,
+            VPHAL_DUMP_TYPE_POST_ALL);
+#if ((_DEBUG || _RELEASE_INTERNAL) && !EMUL)
+        // Decompre output surface for debug
+        MOS_USER_FEATURE_VALUE_DATA userFeatureData;
+        bool uiForceDecompressedOutput = false;
+        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
 
+        eStatus = MOS_UserFeature_ReadValue_ID(
+            nullptr,
+            __VPHAL_RNDR_FORCE_VP_DECOMPRESSED_OUTPUT_ID,
+            &userFeatureData,
+            m_osInterface->pOsContext);
+
+        if (eStatus == MOS_STATUS_SUCCESS)
+        {
+            uiForceDecompressedOutput = userFeatureData.u32Data;
+        }
+        else
+        {
+            uiForceDecompressedOutput = false;
+        }
+
+        if (uiForceDecompressedOutput)
+        {
+            VP_PUBLIC_NORMALMESSAGE("uiForceDecompressedOutput: %d", uiForceDecompressedOutput);
+            m_mmc->DecompressVPResource(params->pTarget[0]);
+        }
+#endif
+    }
 finish:
-    m_pPacketPipeFactory->ReturnPacketPipe(pPacketPipe);
-    m_vpInterface->GetSwFilterPipeFactory().Destory(swFilterPipe);
-    m_statusReport->UpdateStatusTableAfterSubmit(eStatus);
-    m_frameCounter++;
     return eStatus;
 }
 
-MOS_STATUS VpPipeline::CreateSwFilterPipe(VP_PARAMS &params, SwFilterPipe *&swFilterPipe)
+MOS_STATUS VpPipeline::CreateSwFilterPipe(VP_PARAMS &params, std::vector<SwFilterPipe*> &swFilterPipe)
 {
-    swFilterPipe = nullptr;
-
     switch (m_pvpParams.type)
     {
     case PIPELINE_PARAM_TYPE_LEGACY:
@@ -304,7 +345,11 @@ MOS_STATUS VpPipeline::CreateSwFilterPipe(VP_PARAMS &params, SwFilterPipe *&swFi
         break;
     }
 
-    VP_PUBLIC_CHK_NULL_RETURN(swFilterPipe);
+    if (swFilterPipe.size() == 0)
+    {
+        VP_PUBLIC_ASSERTMESSAGE("Fail to create SwFilterPipe.");
+        return MOS_STATUS_NULL_POINTER;
+    }
 
     return MOS_STATUS_SUCCESS;
 }
@@ -341,7 +386,7 @@ MOS_STATUS VpPipeline::GetSystemVeboxNumber()
     {
         // Both VE mode and media solo mode should be able to get the VDBOX number via the same interface
         m_numVebox = (uint8_t)(mediaSysInfo.VEBoxInfo.NumberOfVEBoxEnabled);
-        if (m_numVebox == 0)
+        if (m_numVebox == 0 && !IsGtEnv())
         {
             VP_PUBLIC_ASSERTMESSAGE("Fail to get the m_numVebox with value 0");
             VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
@@ -474,6 +519,15 @@ MOS_STATUS VpPipeline::PrepareVpPipelineParams(PVP_PIPELINE_PARAMS params)
     VP_PUBLIC_CHK_STATUS_RETURN(m_allocator->GetSurfaceInfo(
         params->pTarget[0],
         info));
+
+    if (params->pSrc[0]->pBwdRef)
+    {
+        MOS_ZeroMemory(&info, sizeof(VPHAL_GET_SURFACE_INFO));
+
+        VP_PUBLIC_CHK_STATUS_RETURN(m_allocator->GetSurfaceInfo(
+            params->pSrc[0]->pBwdRef,
+            info));
+    }
 
     if (!RECT1_CONTAINS_RECT2(params->pSrc[0]->rcMaxSrc, params->pSrc[0]->rcSrc))
     {

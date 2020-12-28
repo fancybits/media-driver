@@ -98,7 +98,7 @@ MediaAddCommonTargetDefines(${LIB_NAME_OBJ})
 bs_ufo_link_libraries_noBsymbolic(
     ${LIB_NAME}
     "${INCLUDED_LIBS}"
-    "${PKG_PCIACCESS_LIBRARIES} m pthread dl rt"
+    "${PKG_PCIACCESS_LIBRARIES} m pthread ${CMAKE_DL_LIBS} rt"
 )
 
 if (NOT DEFINED INCLUDED_LIBS OR "${INCLUDED_LIBS}" STREQUAL "")

@@ -168,20 +168,20 @@ void SfcRenderBase::SetXYAdaptiveFilter(
 
     // Enable Adaptive Filtering for YUV input only, if it is being upscaled
     // in either direction. We must check for this before clamping the SF.
-    if ((IS_YUV_FORMAT(m_renderData.SfcInputFormat)      ||
-         m_renderData.SfcInputFormat == Format_AYUV)     &&
-        (m_renderData.fScaleX > 1.0F                     ||
-         m_renderData.fScaleY > 1.0F)                    &&
-        //For AVS, we need set psfcStateParams->bBypassXAdaptiveFilter and bBypassYAdaptiveFilter as false;
+    if ((IS_YUV_FORMAT(m_renderData.SfcInputFormat) ||
+        m_renderData.SfcInputFormat == Format_AYUV) &&
+        (m_renderData.fScaleX > 1.0F                ||
+        m_renderData.fScaleY > 1.0F)                &&
         (psfcStateParams->dwAVSFilterMode != MEDIASTATE_SFC_AVS_FILTER_BILINEAR))
     {
-      psfcStateParams->bBypassXAdaptiveFilter = false;
-      psfcStateParams->bBypassYAdaptiveFilter = false;
+        //For AVS, we need set psfcStateParams->bBypassXAdaptiveFilter and bBypassYAdaptiveFilter as false;
+        psfcStateParams->bBypassXAdaptiveFilter = false;
+        psfcStateParams->bBypassYAdaptiveFilter = false;
     }
     else
     {
-      psfcStateParams->bBypassXAdaptiveFilter = true;
-      psfcStateParams->bBypassYAdaptiveFilter = true;
+        psfcStateParams->bBypassXAdaptiveFilter = true;
+        psfcStateParams->bBypassYAdaptiveFilter = true;
     }
 }
 
@@ -626,9 +626,17 @@ MOS_STATUS SfcRenderBase::SetCSCParams(PSFC_CSC_PARAMS cscParams)
     m_renderData.sfcStateParams->bInputColorSpace = cscParams->bInputColorSpace;
 
     // Chromasitting config
-    // config SFC chroma up sampling
-    m_renderData.bForcePolyPhaseCoefs   = cscParams->bChromaUpSamplingEnable;
-    m_renderData.SfcSrcChromaSiting     = cscParams->sfcSrcChromaSiting;
+    // VEBOX use polyphase coefficients for 1x scaling for better quality,
+    // VDBOX dosen't use polyphase coefficients.
+    if (MhwSfcInterface::SFC_PIPE_MODE_VEBOX == m_pipeMode)
+    {
+        m_renderData.bForcePolyPhaseCoefs = cscParams->bChromaUpSamplingEnable;
+    }
+    else
+    {
+        m_renderData.bForcePolyPhaseCoefs = false;
+    }
+    m_renderData.SfcSrcChromaSiting = cscParams->sfcSrcChromaSiting;
 
     // 8-Tap chroma filter enabled or not
     m_renderData.sfcStateParams->b8tapChromafiltering = cscParams->b8tapChromafiltering;
@@ -1018,7 +1026,8 @@ uint32_t SfcRenderBase::GetAvsLineBufferSize(bool lineTiledBuffer, bool b8tapChr
     }
     else
     {
-        size = width * linebufferSizePerPixel;
+        // Align width to 8 for AVS buffer size compute according to VDBOX SFC requirement.
+        size = MOS_ALIGN_CEIL(width, 8) * linebufferSizePerPixel;
     }
 
     // For tile column storage, based on above calcuation, an extra 1K CL need to be added as a buffer.

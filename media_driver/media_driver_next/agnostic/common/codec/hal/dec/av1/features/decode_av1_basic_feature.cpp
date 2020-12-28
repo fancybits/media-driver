@@ -59,6 +59,9 @@ namespace decode
     MOS_STATUS Av1BasicFeature::Init(void *setting)
     {
         DECODE_FUNC_CALL();
+
+        PERF_UTILITY_AUTO(__FUNCTION__, PERF_DECODE, PERF_LEVEL_HAL);
+
         DECODE_CHK_NULL(setting);
 
         DECODE_CHK_STATUS(DecodeBasicFeature::Init(setting));
@@ -95,6 +98,9 @@ namespace decode
     MOS_STATUS Av1BasicFeature::Update(void *params)
     {
         DECODE_FUNC_CALL();
+
+        PERF_UTILITY_AUTO(__FUNCTION__, PERF_DECODE, PERF_LEVEL_HAL);
+
         DECODE_CHK_NULL(params);
 
         DECODE_CHK_STATUS(DecodeBasicFeature::Update(params));
@@ -236,6 +242,9 @@ namespace decode
                 DECODE_CHK_NULL(m_filmGrainProcParams->m_inputSurface);
                 DECODE_CHK_STATUS(m_allocator->GetSurfaceInfo(m_filmGrainProcParams->m_inputSurface));
             }
+            m_filmGrainProcParams->m_inputSurface->UPlaneOffset.iYOffset
+                = (m_filmGrainProcParams->m_inputSurface->UPlaneOffset.iSurfaceOffset - m_filmGrainProcParams->m_inputSurface->dwOffset) / m_filmGrainProcParams->m_inputSurface->dwPitch
+                  + m_filmGrainProcParams->m_inputSurface->RenderOffset.YUV.U.YOffset;
 
             // For AVP+FilmGrain+SFC scenario, SFC will be the final unit,
             // set temp surface for film grain output

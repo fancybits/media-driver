@@ -31,6 +31,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 #include "mhw_sfc_hwcmd_g12_X.h"
 #include "mhw_vdbox_g12_X.h"
 #include "mhw_mmio_g12.h"
+#include "mhw_sfc_g12_X.h"
 
 static uint16_t RDOQLamdas8bits[2][2][2][52] = //[Intra Slice/Inter Slice][Intra/Inter][Luma/Chroma][QP]
 {
@@ -677,6 +678,14 @@ MOS_STATUS MhwVdboxHcpInterfaceG12::GetHcpStateCommandSize(
                     mhw_sfc_g12_X::SFC_AVS_CHROMA_Coeff_Table_CMD::byteSize +
                     mhw_sfc_g12_X::SFC_IEF_STATE_CMD::byteSize +
                     mhw_sfc_g12_X::SFC_FRAME_START_CMD::byteSize;
+                patchListMaxSize +=
+                    MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_STATE_CMD_NUMBER_OF_ADDRESSES +
+                    MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_AVS_CHROMA_Coeff_Table_CMD_NUMBER_OF_ADDRESSES +
+                    MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_AVS_LUMA_Coeff_Table_CMD_NUMBER_OF_ADDRESSES +
+                    MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_AVS_STATE_CMD_NUMBER_OF_ADDRESSES +
+                    MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_FRAME_START_CMD_NUMBER_OF_ADDRESSES +
+                    MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_IEF_STATE_CMD_NUMBER_OF_ADDRESSES +
+                    MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_LOCK_CMD_NUMBER_OF_ADDRESSES;
             }
 
             if (paramsG12->bScalableMode)
@@ -719,6 +728,14 @@ MOS_STATUS MhwVdboxHcpInterfaceG12::GetHcpStateCommandSize(
                         mhw_sfc_g12_X::SFC_AVS_CHROMA_Coeff_Table_CMD::byteSize +
                         mhw_sfc_g12_X::SFC_IEF_STATE_CMD::byteSize +
                         mhw_sfc_g12_X::SFC_FRAME_START_CMD::byteSize;
+                    patchListMaxSize +=
+                        MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_STATE_CMD_NUMBER_OF_ADDRESSES +
+                        MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_AVS_CHROMA_Coeff_Table_CMD_NUMBER_OF_ADDRESSES +
+                        MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_AVS_LUMA_Coeff_Table_CMD_NUMBER_OF_ADDRESSES +
+                        MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_AVS_STATE_CMD_NUMBER_OF_ADDRESSES +
+                        MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_FRAME_START_CMD_NUMBER_OF_ADDRESSES +
+                        MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_IEF_STATE_CMD_NUMBER_OF_ADDRESSES +
+                        MhwSfcInterfaceG12::CommandsNumberOfAddresses::SFC_LOCK_CMD_NUMBER_OF_ADDRESSES;
                 }
             }
         }
@@ -1443,6 +1460,7 @@ MOS_STATUS MhwVdboxHcpInterfaceG12::AddHcpDecodeSurfaceStateCmd(
     PMHW_VDBOX_SURFACE_PARAMS        params)
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+    uint32_t   uvPlaneAlignment = m_uvPlaneAlignmentLegacy;
 
     MHW_MI_CHK_NULL(params);
 
@@ -1544,6 +1562,18 @@ MOS_STATUS MhwVdboxHcpInterfaceG12::AddHcpDecodeSurfaceStateCmd(
             return MOS_STATUS_INVALID_PARAMETER;
         }
     }
+
+    if (params->ucSurfaceStateId == CODECHAL_HCP_SRC_SURFACE_ID)
+    {
+        uvPlaneAlignment = params->dwUVPlaneAlignment ? params->dwUVPlaneAlignment : m_rawUVPlaneAlignment;
+    }
+    else
+    {
+        uvPlaneAlignment = params->dwUVPlaneAlignment ? params->dwUVPlaneAlignment : m_reconUVPlaneAlignment;
+    }
+
+    cmd->DW2.YOffsetForUCbInPixel =
+        MOS_ALIGN_CEIL((params->psSurface->UPlaneOffset.iSurfaceOffset - params->psSurface->dwOffset) / params->psSurface->dwPitch + params->psSurface->RenderOffset.YUV.U.YOffset, uvPlaneAlignment);
 
     if ((params->ucBitDepthLumaMinus8 == 4) || (params->ucBitDepthChromaMinus8 == 4)) // 12 bit
         cmd->DW3.DefaultAlphaValue = 0xfff0;
@@ -2428,7 +2458,7 @@ MOS_STATUS MhwVdboxHcpInterfaceG12::AddHcpIndObjBaseAddrCmd(
                 m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_MFC_INDIRECT_PAKBASE_OBJECT_CODEC].Value;
 
             resourceParams.presResource = params->presPakBaseObjectBuffer;
-            resourceParams.dwOffset = 0;
+            resourceParams.dwOffset = params->presPakBaseObjectBuffer->dwResourceOffset;
             resourceParams.pdwCmd = (cmd.DW9_10.Value);
             resourceParams.dwLocationInCmd = 9;
             resourceParams.dwSize = MOS_ALIGN_FLOOR(params->dwPakBaseObjectSize, 0x1000);

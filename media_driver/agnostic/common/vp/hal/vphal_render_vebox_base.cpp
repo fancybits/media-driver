@@ -4370,27 +4370,46 @@ MOS_STATUS VpHal_RndrRenderVebox(
             }
 
             //May Lose Precision after 0.x
-            rcTempOut.right  = (long)((pInSurface->rcSrc.right - pInSurface->rcSrc.left) * TempfScaleX);
-            rcTempOut.bottom = (long)((pInSurface->rcSrc.bottom - pInSurface->rcSrc.top) * TempfScaleY);
+            if (pInSurface->Rotation == VPHAL_ROTATION_IDENTITY ||
+                pInSurface->Rotation == VPHAL_ROTATION_180      ||
+                pInSurface->Rotation == VPHAL_MIRROR_HORIZONTAL ||
+                pInSurface->Rotation == VPHAL_MIRROR_VERTICAL)
+            {
+                rcTempOut.right  = (long)((pInSurface->rcSrc.right - pInSurface->rcSrc.left) * TempfScaleX);
+                rcTempOut.bottom = (long)((pInSurface->rcSrc.bottom - pInSurface->rcSrc.top) * TempfScaleY);
+            }
+            else
+            {
+                rcTempOut.bottom = (long)((pInSurface->rcSrc.right - pInSurface->rcSrc.left) * TempfScaleX);
+                rcTempOut.right = (long)((pInSurface->rcSrc.bottom - pInSurface->rcSrc.top) * TempfScaleY);
+            }
+
+            VPHAL_RENDER_NORMALMESSAGE("x scaling ratio %f, y %f, 1st pass sfc scaling ratio %f",
+              pRenderData->fScaleX, pRenderData->fScaleY, TempfScaleX);
+        }
+
+        if (pVeboxState->m_sfcPipeState && (pRenderPassData->bSFCScalingOnly || pVeboxState->m_sfcPipeState->m_bSFC2Pass))
+        {
+            if (pRenderPassData->bSFCScalingOnly && !pVeboxState->m_sfcPipeState->m_bSFC2Pass)
+            {
+                rcTempOut.right   = (long)((pInSurface->rcDst.right - pInSurface->rcDst.left));
+                rcTempOut.bottom  = (long)((pInSurface->rcDst.bottom - pInSurface->rcDst.top));
+            }
 
             pOutSurface->rcDst    = rcTempOut;
             pOutSurface->rcSrc    = rcTempOut;
             pOutSurface->dwWidth  = rcTempOut.right;
             pOutSurface->dwHeight = rcTempOut.bottom;
-            pInSurface->rcDst = rcTempOut;
-            VPHAL_RENDER_NORMALMESSAGE("x scaling ratio %f, y %f, 1st pass sfc scaling ratio %f",
-              pRenderData->fScaleX, pRenderData->fScaleY, TempfScaleX);
-        }
-        if (pVeboxState->m_sfcPipeState && (pRenderPassData->bSFCScalingOnly || pVeboxState->m_sfcPipeState->m_bSFC2Pass))
-        {
+            pInSurface->rcDst     = rcTempOut;
+
             VPHAL_RENDER_CHK_STATUS(pVeboxState->AllocateSfcTempSurfaces(pRenderer, pcRenderParams, pRenderData, pInSurface, pOutSurface));
-            pOutSurface = &pVeboxState->SfcTempSurface;
+                pRenderPassData->pOutSurface = &pVeboxState->SfcTempSurface;
             // Reset rendering flags for SFC since output surface changed
             pVeboxState->m_sfcPipeState->SetRenderingFlags(
                 pcRenderParams->pColorFillParams,
                 pcRenderParams->pCompAlpha,
                 pInSurface,
-                pOutSurface,
+                pRenderPassData->pOutSurface,
                 pRenderData);
         }
 
@@ -4417,10 +4436,12 @@ MOS_STATUS VpHal_RndrRenderVebox(
                                                 pcRenderParams,
                                                 pRenderPassData))
 
-        //SFC second pass
-        if (pVeboxState->m_sfcPipeState && pVeboxState->m_sfcPipeState->m_bSFC2Pass)
+        VPHAL_RNDR_DUMP_SURF(
+            pRenderer, pRenderPassData->uiSrcIndex, VPHAL_DBG_DUMP_TYPE_POST_ALL,
+            &pVeboxState->SfcTempSurface);
+
+        if (pVeboxState->m_sfcPipeState && (pRenderPassData->bSFCScalingOnly || pVeboxState->m_sfcPipeState->m_bSFC2Pass))
         {
-            pVeboxState->m_sfcPipeState->m_bSFC2Pass = false;
             pInSurface = &pVeboxState->SfcTempSurface;
             pInSurface->rcMaxSrc = pInSurface->rcSrc;
             pInSurface->rcDst    = rcTempIn;
@@ -4436,8 +4457,13 @@ MOS_STATUS VpHal_RndrRenderVebox(
             pOutSurface = pcRenderParams->pTarget[0];
             pRenderData->pRenderTarget = pOutSurface;
             pRenderPassData->pSrcSurface = pInSurface;
+        }
 
+        //SFC second pass
+        if (pVeboxState->m_sfcPipeState && pVeboxState->m_sfcPipeState->m_bSFC2Pass)
+        {
             // Second time vebox rending for scaling / colorfill/rotation on SFC, disable all other features
+            pVeboxState->m_sfcPipeState->m_bSFC2Pass = false;
             pRenderData->bDenoise = false;
             pRenderData->bDeinterlace = false;
             pRenderData->bQueryVariance = false;
