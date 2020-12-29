@@ -433,7 +433,10 @@ void  *MosUtilities::MosGetProcAddress(HMODULE hModule, const char *lpProcName)
     }
     else
     {
+#if 1
+#else
         pSym = dlsym(hModule, lpProcName);
+#endif
     }
 
     return pSym;
