@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2020, Intel Corporation
+* Copyright (c) 2009-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -909,6 +909,8 @@ typedef struct _RENDERHAL_STATE_HEAP
     uint32_t                dwOffsetSamplerAVS;                                 // Offset to 8x8 Samplers from Media State Base
     uint32_t                dwSizeSamplerAVS;                                   // Size of 8x8 Samplers
 
+    uint32_t                dwSizeSamplers;                                     // Size of All Samplers
+
     PRENDERHAL_MEDIA_STATE  pMediaStates;                                       // Media state table
 
     // Dynamic Media states
@@ -1262,7 +1264,7 @@ typedef struct _RENDERHAL_INTERFACE
     bool                        isMMCEnabled;
 
     MediaPerfProfiler               *pPerfProfiler = nullptr;  //!< Performance data profiler
-
+    int32_t                          iSourceCount  = 0;
     //---------------------------
     // HW interface functions
     //---------------------------

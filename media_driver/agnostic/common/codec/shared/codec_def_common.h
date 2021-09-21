@@ -34,6 +34,7 @@
 #define CODEC_MAX_NUM_REF_FRAME             16
 #define CODEC_MAX_NUM_REF_FRAME_NON_AVC     4
 #define CODEC_NUM_FIELDS_PER_FRAME          2
+#define CODEC_MAX_NUM_REF_RECYCLE_LIST      17
 
 #define CODEC_NUM_BLOCK_PER_MB              6  //!<  Block number per MB: 4Y + Cb +Cr
 
@@ -151,6 +152,8 @@ enum CODECHAL_STANDARD
     //AVP pipeline
     CODECHAL_AVP_BASE   = CODECHAL_HCP_BASE + 2,
     CODECHAL_AV1        = CODECHAL_AVP_BASE,
+
+    CODECHAL_RESERVED0,
     CODECHAL_STANDARD_MAX
 };
 
@@ -369,6 +372,14 @@ typedef enum _CODECHAL_STATUS
     CODECHAL_STATUS_UNAVAILABLE = 3     //!< Indicates that the entry in the status reporting array was not used
 } CODECHAL_STATUS, *PCODECHAL_STATUS;
 
+typedef enum _CODECHAL_SCALING_MODE
+{
+    CODECHAL_SCALING_NEAREST = 0,
+    CODECHAL_SCALING_BILINEAR,
+    CODECHAL_SCALING_AVS,
+    CODECHAL_SCALING_ADV_QUALITY        // !< Advance Perf mode
+} CODECHAL_SCALING_MODE;
+
 typedef enum _CODECHAL_CHROMA_SITING_TYPE
 {
     CODECHAL_CHROMA_SITING_NONE             = 0x00,
@@ -534,6 +545,26 @@ static __inline uint8_t GetU44ModeCost(double mcost)
     return (uint8_t)(mcost * 16 + 0.5);
 }
 
+static __inline uint8_t LimNumBits(uint8_t cost, int32_t numBits)
+{
+    int32_t startBit = -1;
+
+    for (int i = 7; i >= numBits; i--)
+    {
+        if ((cost >> i) != 0)
+        {
+            startBit = i;
+        }
+    }
+
+    if (startBit >= 0)
+    {
+        cost = ((cost >> (startBit - numBits + 1)) << (startBit - numBits + 1));
+    }
+
+    return cost;
+}
+
 static __inline uint32_t CodecHal_GetStandardFromMode(uint32_t mode)
 {
     uint32_t standard = CODECHAL_UNDEFINED;
@@ -571,6 +602,9 @@ static __inline uint32_t CodecHal_GetStandardFromMode(uint32_t mode)
         break;
     case CODECHAL_DECODE_MODE_CENC:
         standard = CODECHAL_CENC;
+        break;
+    case CODECHAL_ENCODE_RESERVED_0:
+        standard = CODECHAL_RESERVED0;
         break;
     default:
         standard = CODECHAL_UNDEFINED;

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2020, Intel Corporation
+* Copyright (c) 2019-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -96,6 +96,7 @@ namespace decode{
             m_allocator->Destroy(m_decodedBlockDataStreamoutBuffer);
             m_allocator->Destroy(m_curMvBufferForDummyWL);
             m_allocator->Destroy(m_bwdAdaptCdfBufForDummyWL);
+            m_allocator->Destroy(m_resDataBufferForDummyWL);
         }
 
         return MOS_STATUS_SUCCESS;
@@ -167,7 +168,7 @@ namespace decode{
             rowstoreParams.Mode             = CODECHAL_DECODE_MODE_AV1VLD;
             rowstoreParams.ucBitDepthMinus8 = m_av1PicParams->m_bitDepthIdx << 1;
             rowstoreParams.ucChromaFormat   = m_av1BasicFeature->m_chromaFormat;
-            DECODE_CHK_STATUS(static_cast<CodechalHwInterfaceG12*>(m_hwInterface)->SetRowstoreCachingOffsets(&rowstoreParams));
+            DECODE_CHK_STATUS(m_hwInterface->SetRowstoreCachingOffsets(&rowstoreParams));
         }
 
         return MOS_STATUS_SUCCESS;
@@ -176,6 +177,7 @@ namespace decode{
     MOS_STATUS Av1DecodePicPkt::AllocateFixedResources()
     {
         DECODE_FUNC_CALL();
+
         if (m_av1BasicFeature->m_usingDummyWl == true)
         {
             MhwVdboxAvpBufferSizeParams avpBufSizeParam;
@@ -194,14 +196,16 @@ namespace decode{
             {
                 DECODE_ASSERTMESSAGE( "Failed to get MvTemporalBuffer size.");
             }
-            m_curMvBufferForDummyWL =
-                m_allocator->AllocateBuffer(avpBufSizeParam.m_bufferSize, "MvBuffer");
+            m_curMvBufferForDummyWL = m_allocator->AllocateBuffer(avpBufSizeParam.m_bufferSize, "MvBuffer",
+                resourceInternalReadWriteCache, notLockableVideoMem);
             DECODE_CHK_NULL(m_curMvBufferForDummyWL);
 
-            m_bwdAdaptCdfBufForDummyWL = m_allocator->AllocateBuffer(MOS_ALIGN_CEIL(m_av1BasicFeature->m_cdfMaxNumBytes,
-                CODECHAL_PAGE_SIZE), "CdfTableBuffer");
+            m_bwdAdaptCdfBufForDummyWL = m_allocator->AllocateBuffer(
+                MOS_ALIGN_CEIL(m_av1BasicFeature->m_cdfMaxNumBytes, CODECHAL_PAGE_SIZE), "CdfTableBuffer",
+                resourceInternalReadWriteCache, notLockableVideoMem);
             DECODE_CHK_NULL(m_bwdAdaptCdfBufForDummyWL);
         }
+
         return MOS_STATUS_SUCCESS;
     }
 
@@ -229,7 +233,7 @@ namespace decode{
         avpBufSizeParam.m_curFrameTileNum   = m_av1PicParams->m_tileCols * m_av1PicParams->m_tileRows;
         avpBufSizeParam.m_numTileCol        = m_av1PicParams->m_tileCols;
 
-        //Intrabc Decoded Output Frame Buffer
+        // Intrabc Decoded Output Frame Buffer
         if (m_av1PicParams->m_picInfoFlags.m_fields.m_allowIntrabc)
         {
             MOS_SURFACE m_destSurface = m_av1BasicFeature->m_destSurface;
@@ -242,7 +246,8 @@ namespace decode{
                     "Intrabc Decoded Output Frame Buffer",
                     m_destSurface.Format,
                     m_destSurface.bCompressible,
-                    resourceInternalReadWriteNoCache);
+                    resourceInternalReadWriteNoCache,
+                    notLockableVideoMem);
 
                 m_intrabcDecodedOutputFrameBuffer = surface;
                 DECODE_CHK_NULL(m_intrabcDecodedOutputFrameBuffer);
@@ -252,11 +257,12 @@ namespace decode{
                 DECODE_CHK_STATUS(m_allocator->Resize(
                     m_intrabcDecodedOutputFrameBuffer,
                     m_destSurface.dwWidth,
-                    MOS_ALIGN_CEIL(m_destSurface.dwHeight, 8)));
+                    MOS_ALIGN_CEIL(m_destSurface.dwHeight, 8),
+                    notLockableVideoMem));
             }
         }
 
-        //Bitstream decode line rowstore buffer
+        // Bitstream decode line rowstore buffer
         if (!m_avpInterface->IsBtdlRowstoreCacheEnabled())
         {
             DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
@@ -267,19 +273,20 @@ namespace decode{
                 m_bitstreamDecoderEncoderLineRowstoreReadWriteBuffer = m_allocator->AllocateBuffer(
                     avpBufSizeParam.m_bufferSize,
                     "BitstreamDecodeLineBuffer",
-                    resourceInternalReadWriteCache);
+                    resourceInternalReadWriteCache,
+                    notLockableVideoMem);
                 DECODE_CHK_NULL(m_bitstreamDecoderEncoderLineRowstoreReadWriteBuffer);
             }
             else
             {
                 DECODE_CHK_STATUS(m_allocator->Resize(
                     m_bitstreamDecoderEncoderLineRowstoreReadWriteBuffer,
-                    avpBufSizeParam.m_bufferSize));
+                    avpBufSizeParam.m_bufferSize,
+                    notLockableVideoMem));
             }
         }
 
-
-        //bitstream decode tile line buffer
+        // Bitstream decode tile line buffer
         DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
             bsdTileLineBuf,
             &avpBufSizeParam));
@@ -288,17 +295,19 @@ namespace decode{
             m_bitstreamDecoderEncoderTileLineRowstoreReadWriteBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "BitstreamDecodeTileLineBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_bitstreamDecoderEncoderTileLineRowstoreReadWriteBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_bitstreamDecoderEncoderTileLineRowstoreReadWriteBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
-        //Intra Prediction Line Rowstore Read/Write Buffer
+        // Intra Prediction Line Rowstore Read/Write Buffer
         if (!m_avpInterface->IsIpdlRowstoreCacheEnabled())
         {
             DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
@@ -309,18 +318,20 @@ namespace decode{
                 m_intraPredictionLineRowstoreReadWriteBuffer = m_allocator->AllocateBuffer(
                     avpBufSizeParam.m_bufferSize,
                     "intraPredictionLineRowstoreBuffer",
-                    resourceInternalReadWriteCache);
+                    resourceInternalReadWriteCache,
+                    notLockableVideoMem);
                 DECODE_CHK_NULL(m_intraPredictionLineRowstoreReadWriteBuffer);
             }
             else
             {
                 DECODE_CHK_STATUS(m_allocator->Resize(
                     m_intraPredictionLineRowstoreReadWriteBuffer,
-                    avpBufSizeParam.m_bufferSize));
+                    avpBufSizeParam.m_bufferSize,
+                    notLockableVideoMem));
             }
         }
 
-        //Intra Prediction Tile Line Rowstore Read/Write Buffer
+        // Intra Prediction Tile Line Rowstore Read/Write Buffer
         DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
             intraPredTileLine,
             &avpBufSizeParam));
@@ -329,17 +340,19 @@ namespace decode{
             m_intraPredictionTileLineRowstoreReadWriteBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "intraPredictionTileLineRowstoreBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_intraPredictionTileLineRowstoreReadWriteBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_intraPredictionTileLineRowstoreReadWriteBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
-        //Spatial motion vector Line rowstore buffer
+        // Spatial motion vector Line rowstore buffer
         if (!m_avpInterface->IsSmvlRowstoreCacheEnabled())
         {
             DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
@@ -350,18 +363,20 @@ namespace decode{
                 m_spatialMotionVectorLineReadWriteBuffer = m_allocator->AllocateBuffer(
                     avpBufSizeParam.m_bufferSize,
                     "SpatialMotionVectorLineRowstoreBuffer",
-                    resourceInternalReadWriteCache);
+                    resourceInternalReadWriteCache,
+                    notLockableVideoMem);
                 DECODE_CHK_NULL(m_spatialMotionVectorLineReadWriteBuffer);
             }
             else
             {
                 DECODE_CHK_STATUS(m_allocator->Resize(
                     m_spatialMotionVectorLineReadWriteBuffer,
-                    avpBufSizeParam.m_bufferSize));
+                    avpBufSizeParam.m_bufferSize,
+                    notLockableVideoMem));
             }
         }
 
-        //spatial motion vector Tile Line Buffer
+        // Spatial motion vector Tile Line Buffer
         DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
             spatialMvTileLineBuf,
             &avpBufSizeParam));
@@ -371,17 +386,19 @@ namespace decode{
             m_spatialMotionVectorCodingTileLineReadWriteBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "SpatialMotionVectorTileLineBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_spatialMotionVectorCodingTileLineReadWriteBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_spatialMotionVectorCodingTileLineReadWriteBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
-        //Loop Restoration Meta Tile Column Read/Write Buffer
+        // Loop Restoration Meta Tile Column Read/Write Buffer
         DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
             lrMetaTileCol,
             &avpBufSizeParam));
@@ -390,17 +407,19 @@ namespace decode{
             m_loopRestorationMetaTileColumnReadWriteBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "LoopRestorationMetaTileColumnReadWriteBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_loopRestorationMetaTileColumnReadWriteBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_loopRestorationMetaTileColumnReadWriteBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
-        //Loop Restoration Filter Tile Read/Write Line Y Buffer
+        // Loop Restoration Filter Tile Read/Write Line Y Buffer
         DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
             lrTileLineY,
             &avpBufSizeParam));
@@ -409,14 +428,16 @@ namespace decode{
             m_loopRestorationFilterTileReadWriteLineYBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "LoopRestorationFilterTileReadWriteLineYBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_loopRestorationFilterTileReadWriteLineYBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_loopRestorationFilterTileReadWriteLineYBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         //Loop Restoration Filter Tile Read/Write Line U Buffer
@@ -428,17 +449,19 @@ namespace decode{
             m_loopRestorationFilterTileReadWriteLineUBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "LoopRestorationFilterTileReadWriteLineUBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_loopRestorationFilterTileReadWriteLineUBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_loopRestorationFilterTileReadWriteLineUBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
-        //Loop Restoration Filter Tile Read/Write Line V Buffer
+        // Loop Restoration Filter Tile Read/Write Line V Buffer
         DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
             lrTileLineV,
             &avpBufSizeParam));
@@ -447,14 +470,16 @@ namespace decode{
             m_loopRestorationFilterTileReadWriteLineVBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "LoopRestorationFilterTileReadWriteLineVBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_loopRestorationFilterTileReadWriteLineVBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_loopRestorationFilterTileReadWriteLineVBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         if (!m_avpInterface->IsDflyRowstoreCacheEnabled())
@@ -468,14 +493,16 @@ namespace decode{
                 m_deblockerFilterLineReadWriteYBuffer = m_allocator->AllocateBuffer(
                     avpBufSizeParam.m_bufferSize,
                     "DeblockerFilterLineReadWriteYBuffer",
-                    resourceInternalReadWriteCache);
+                    resourceInternalReadWriteCache,
+                    notLockableVideoMem);
                 DECODE_CHK_NULL(m_deblockerFilterLineReadWriteYBuffer);
             }
             else
             {
                 DECODE_CHK_STATUS(m_allocator->Resize(
                     m_deblockerFilterLineReadWriteYBuffer,
-                    avpBufSizeParam.m_bufferSize));
+                    avpBufSizeParam.m_bufferSize,
+                    notLockableVideoMem));
             }
         }
 
@@ -489,14 +516,16 @@ namespace decode{
                 m_deblockerFilterLineReadWriteUBuffer = m_allocator->AllocateBuffer(
                     avpBufSizeParam.m_bufferSize,
                     "DeblockerFilterLineReadWriteUBuffer",
-                    resourceInternalReadWriteCache);
+                    resourceInternalReadWriteCache,
+                    notLockableVideoMem);
                 DECODE_CHK_NULL(m_deblockerFilterLineReadWriteUBuffer);
             }
             else
             {
                 DECODE_CHK_STATUS(m_allocator->Resize(
                     m_deblockerFilterLineReadWriteUBuffer,
-                    avpBufSizeParam.m_bufferSize));
+                    avpBufSizeParam.m_bufferSize,
+                    notLockableVideoMem));
             }
         }
 
@@ -510,18 +539,20 @@ namespace decode{
                 m_deblockerFilterLineReadWriteVBuffer = m_allocator->AllocateBuffer(
                     avpBufSizeParam.m_bufferSize,
                     "DeblockerFilterLineReadWriteVBuffer",
-                    resourceInternalReadWriteCache);
+                    resourceInternalReadWriteCache,
+                    notLockableVideoMem);
                 DECODE_CHK_NULL(m_deblockerFilterLineReadWriteVBuffer);
             }
             else
             {
                 DECODE_CHK_STATUS(m_allocator->Resize(
                     m_deblockerFilterLineReadWriteVBuffer,
-                    avpBufSizeParam.m_bufferSize));
+                    avpBufSizeParam.m_bufferSize,
+                    notLockableVideoMem));
             }
         }
 
-        //Deblocking Filter Tile Line Y Buffer
+        // Deblocking Filter Tile Line Y Buffer
         DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
             deblockTileLineYBuf,
             &avpBufSizeParam));
@@ -531,17 +562,19 @@ namespace decode{
             m_deblockerFilterTileLineReadWriteYBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "DeblockerFilterTileLineReadWriteYBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_deblockerFilterTileLineReadWriteYBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_deblockerFilterTileLineReadWriteYBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
-        //Deblocking Filter Tile Line V Buffer
+        // Deblocking Filter Tile Line V Buffer
         DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
             deblockTileLineVBuf,
             &avpBufSizeParam));
@@ -551,17 +584,19 @@ namespace decode{
             m_deblockerFilterTileLineReadWriteVBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "DeblockerFilterTileLineReadWriteVBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_deblockerFilterTileLineReadWriteVBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_deblockerFilterTileLineReadWriteVBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
-        //Deblocking Filter Tile Line U Buffer
+        // Deblocking Filter Tile Line U Buffer
         DECODE_CHK_STATUS(m_avpInterface->GetAv1BufferSize(
             deblockTileLineUBuf,
             &avpBufSizeParam));
@@ -571,14 +606,16 @@ namespace decode{
             m_deblockerFilterTileLineReadWriteUBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "DeblockerFilterTileLineReadWriteUBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_deblockerFilterTileLineReadWriteUBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_deblockerFilterTileLineReadWriteUBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Deblocking Filter Tile Column Y Buffer
@@ -591,14 +628,16 @@ namespace decode{
             m_deblockerFilterTileColumnReadWriteYBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "DeblockerFilterTileColumnReadWriteYBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_deblockerFilterTileColumnReadWriteYBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_deblockerFilterTileColumnReadWriteYBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Deblocking Filter Tile Column U Buffer
@@ -611,14 +650,16 @@ namespace decode{
             m_deblockerFilterTileColumnReadWriteUBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "DeblockerFilterTileColumnReadWriteUBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_deblockerFilterTileColumnReadWriteUBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_deblockerFilterTileColumnReadWriteUBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Deblocking Filter Tile Column V Buffer
@@ -631,14 +672,16 @@ namespace decode{
             m_deblockerFilterTileColumnReadWriteVBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "DeblockerFilterTileColumnReadWriteVBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_deblockerFilterTileColumnReadWriteVBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_deblockerFilterTileColumnReadWriteVBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // CDEF Filter Line Read/Write Buffer
@@ -652,14 +695,16 @@ namespace decode{
                 m_cdefFilterLineReadWriteBuffer = m_allocator->AllocateBuffer(
                     avpBufSizeParam.m_bufferSize,
                     "CdefFilterLineReadWriteBuffer",
-                    resourceInternalReadWriteCache);
+                    resourceInternalReadWriteCache,
+                    notLockableVideoMem);
                 DECODE_CHK_NULL(m_cdefFilterLineReadWriteBuffer);
             }
             else
             {
                 DECODE_CHK_STATUS(m_allocator->Resize(
                     m_cdefFilterLineReadWriteBuffer,
-                    avpBufSizeParam.m_bufferSize));
+                    avpBufSizeParam.m_bufferSize,
+                    notLockableVideoMem));
             }
         }
 
@@ -672,14 +717,16 @@ namespace decode{
             m_cdefFilterTileLineReadWriteBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "CdefFilterTileLineReadWriteBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_cdefFilterTileLineReadWriteBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_cdefFilterTileLineReadWriteBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // CDEF Filter Tile Column Read/Write Buffer
@@ -691,14 +738,16 @@ namespace decode{
             m_cdefFilterTileColumnReadWriteBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "CdefFilterTileColumnReadWriteBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_cdefFilterTileColumnReadWriteBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_cdefFilterTileColumnReadWriteBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // CDEF Filter Meta Tile Line Read Write Buffer
@@ -710,14 +759,16 @@ namespace decode{
             m_cdefFilterMetaTileLineReadWriteBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "CdefFilterMetaTileLineReadWriteBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_cdefFilterMetaTileLineReadWriteBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_cdefFilterMetaTileLineReadWriteBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // CDEF Filter Meta Tile Column Read Write Buffer
@@ -729,14 +780,16 @@ namespace decode{
             m_cdefFilterMetaTileColumnReadWriteBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "CdefFilterMetaTileColumnReadWriteBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_cdefFilterMetaTileColumnReadWriteBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_cdefFilterMetaTileColumnReadWriteBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Cdef Filter Top Left Corner Buffer
@@ -749,14 +802,16 @@ namespace decode{
             m_cdefFilterTopLeftCornerReadWriteBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "CdefFilterTopLeftCornerReadWriteBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_cdefFilterTopLeftCornerReadWriteBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_cdefFilterTopLeftCornerReadWriteBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Super-Res Tile Column Y Buffer
@@ -768,14 +823,16 @@ namespace decode{
             m_superResTileColumnReadWriteYBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "SuperResTileColumnReadWriteYBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_superResTileColumnReadWriteYBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_superResTileColumnReadWriteYBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Super-Res Tile Column U Buffer
@@ -788,14 +845,16 @@ namespace decode{
             m_superResTileColumnReadWriteUBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "SuperResTileColumnReadWriteUBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_superResTileColumnReadWriteUBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_superResTileColumnReadWriteUBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Super-Res Tile Column V Buffer
@@ -808,14 +867,16 @@ namespace decode{
             m_superResTileColumnReadWriteVBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "SuperResTileColumnReadWriteVBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_superResTileColumnReadWriteVBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_superResTileColumnReadWriteVBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Loop Restoration Filter Tile Column Y Buffer
@@ -828,14 +889,16 @@ namespace decode{
             m_loopRestorationFilterTileColumnReadWriteYBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "LoopRestorationFilterTileColumnReadWriteYBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_loopRestorationFilterTileColumnReadWriteYBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_loopRestorationFilterTileColumnReadWriteYBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Loop Restoration Filter Tile Column U Buffer
@@ -848,14 +911,16 @@ namespace decode{
             m_loopRestorationFilterTileColumnReadWriteUBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "LoopRestorationFilterTileColumnReadWriteUBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_loopRestorationFilterTileColumnReadWriteUBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_loopRestorationFilterTileColumnReadWriteUBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Loop Restoration Filter Tile Column V Buffer
@@ -868,14 +933,16 @@ namespace decode{
             m_loopRestorationFilterTileColumnReadWriteVBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "LoopRestorationFilterTileColumnReadWriteVBuffer",
-                resourceInternalReadWriteCache);
+                resourceInternalReadWriteCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_loopRestorationFilterTileColumnReadWriteVBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_loopRestorationFilterTileColumnReadWriteVBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Decoded Frame Status Error Buffer
@@ -888,14 +955,16 @@ namespace decode{
             m_decodedFrameStatusErrorBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "DecodedFrameStatusErrorBuffer",
-                resourceInternalWrite);
+                resourceInternalWrite,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_decodedFrameStatusErrorBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_decodedFrameStatusErrorBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         // Decoded Block Data Streamout Buffer
@@ -908,23 +977,19 @@ namespace decode{
             m_decodedBlockDataStreamoutBuffer = m_allocator->AllocateBuffer(
                 avpBufSizeParam.m_bufferSize,
                 "DecodedBlockDataStreamoutBuffer",
-                resourceInternalReadWriteNoCache);
+                resourceInternalReadWriteNoCache,
+                notLockableVideoMem);
             DECODE_CHK_NULL(m_decodedBlockDataStreamoutBuffer);
         }
         else
         {
             DECODE_CHK_STATUS(m_allocator->Resize(
                 m_decodedBlockDataStreamoutBuffer,
-                avpBufSizeParam.m_bufferSize));
+                avpBufSizeParam.m_bufferSize,
+                notLockableVideoMem));
         }
 
         return MOS_STATUS_SUCCESS;
-    }
-
-    void Av1DecodePicPkt::SetAvpPipeModeSelectParams(MHW_VDBOX_PIPE_MODE_SELECT_PARAMS_G12& pipeModeSelectParams)
-    {
-        DECODE_FUNC_CALL();
-        pipeModeSelectParams.bDeblockerStreamOutEnable = false;
     }
 
     MOS_STATUS Av1DecodePicPkt::SetAvpDstSurfaceParams(MHW_VDBOX_SURFACE_PARAMS& dstSurfaceParams)
@@ -1135,7 +1200,7 @@ namespace decode{
         if (m_av1PicParams->m_picInfoFlags.m_fields.m_frameType != keyFrame)
         {
             const std::vector<uint8_t> &activeRefList = refFrames.GetActiveReferenceList(*m_av1PicParams, m_av1BasicFeature->m_av1TileParams[m_av1BasicFeature->m_tileCoding.m_curTile]);
-            
+
             //set for INTRA_FRAME
             pipeBufAddrParams.m_references[0] = &m_av1BasicFeature->m_destSurface.OsResource;
             pipeBufAddrParams.m_colMvTemporalBuffer[0] = &(curMvBuffer->OsResource);
@@ -1151,20 +1216,21 @@ namespace decode{
 
         DECODE_CHK_STATUS(FixAvpPipeBufAddrParams(pipeBufAddrParams));
 
-        PMOS_BUFFER curInitCdfBuffer = tempBuffers->GetCurBuffer()->initCdfBuf;
+        DECODE_CHK_NULL(tempBuffers->GetCurBuffer()->initCdfBuf);
+        PMOS_BUFFER curInitCdfBuffer = tempBuffers->GetCurBuffer()->initCdfBuf->buffer;
         DECODE_CHK_NULL(curInitCdfBuffer);
         pipeBufAddrParams.m_cdfTableInitializationBuffer = &(curInitCdfBuffer->OsResource);
 
         if (!m_av1PicParams->m_picInfoFlags.m_fields.m_disableFrameEndUpdateCdf)
         {
-            PMOS_BUFFER curBwdCdfBuffer = tempBuffers->GetCurBuffer()->bwdAdaptCdfBuf;
+            PMOS_BUFFER curBwdCdfBuffer = tempBuffers->GetCurBuffer()->bwdAdaptCdfBuf.buffer;
             DECODE_CHK_NULL(curBwdCdfBuffer);
             pipeBufAddrParams.m_cdfTableBwdAdaptationBuffer = &(curBwdCdfBuffer->OsResource);
         }
 
         if (m_av1PicParams->m_av1SegData.m_enabled && m_av1PicParams->m_av1SegData.m_updateMap)
         {
-            PMOS_BUFFER curSegIDWriteBuffer = tempBuffers->GetCurBuffer()->segIdWriteBuf;
+            PMOS_BUFFER curSegIDWriteBuffer = tempBuffers->GetCurBuffer()->segIdWriteBuf.buffer;
             DECODE_CHK_NULL(curSegIDWriteBuffer);
             pipeBufAddrParams.m_segmentIdWriteBuffer = &(curSegIDWriteBuffer->OsResource);
         }
@@ -1176,7 +1242,9 @@ namespace decode{
             if (useSegMapFromPrevFrame && refFrames.CheckSegForPrimFrame(*m_av1PicParams))
             {
                 auto tempBuf = tempBuffers->GetBufferByFrameIndex(prevFrameIdx);
-                pipeBufAddrParams.m_segmentIdReadBuffer = tempBuf ? &(tempBuf->segIdBuf->OsResource) : nullptr;
+                auto segIdBuf = tempBuf ? tempBuf->segIdBuf : nullptr;
+                auto buf = segIdBuf ? segIdBuf->buffer : nullptr;
+                pipeBufAddrParams.m_segmentIdReadBuffer = buf ? &(buf->OsResource) : nullptr;
             }
         }
 
@@ -1329,10 +1397,12 @@ namespace decode{
     {
         DECODE_FUNC_CALL();
 
-        if (!m_isBsBufferWritten)
+        if (!m_dummyBsBufInited)
         {
-            m_resDataBufferForDummyWL= *m_allocator->AllocateBuffer(140, "BsBuffer for inserted Dummy WL"); //140 Bytes
-            auto data = (uint8_t *)m_allocator->LockResouceForWrite(&m_resDataBufferForDummyWL.OsResource);
+            m_resDataBufferForDummyWL= m_allocator->AllocateBuffer(
+                140, "BsBuffer for inserted Dummy WL", resourceInputBitstream, lockableVideoMem); //140 Bytes
+            DECODE_CHK_NULL(m_resDataBufferForDummyWL);
+            auto data = (uint8_t *)m_allocator->LockResouceForWrite(&m_resDataBufferForDummyWL->OsResource);
             DECODE_CHK_NULL(data);
 
             uint32_t bsBuffer[] =
@@ -1349,7 +1419,7 @@ namespace decode{
             };
 
             MOS_SecureMemcpy(data, sizeof(bsBuffer), bsBuffer, sizeof(bsBuffer));
-            m_isBsBufferWritten = true;
+            m_dummyBsBufInited = true;
         }
         MHW_VDBOX_IND_OBJ_BASE_ADDR_PARAMS indObjBaseAddrParams;
 
@@ -1357,7 +1427,7 @@ namespace decode{
         indObjBaseAddrParams.Mode            = CODECHAL_DECODE_MODE_AV1VLD;
         indObjBaseAddrParams.dwDataSize      = 140;
         indObjBaseAddrParams.dwDataOffset    = 0;
-        indObjBaseAddrParams.presDataBuffer  = &(m_resDataBufferForDummyWL.OsResource);
+        indObjBaseAddrParams.presDataBuffer  = &(m_resDataBufferForDummyWL->OsResource);
 
         DECODE_CHK_STATUS(m_avpInterface->AddAvpIndObjBaseAddrCmd(&cmdBuffer, &indObjBaseAddrParams));
 
@@ -1426,32 +1496,6 @@ namespace decode{
                                                 (m_av1PicParams->m_activeRefBitMaskMfmv[4] << 4) |
                                                 (m_av1PicParams->m_activeRefBitMaskMfmv[5] << 5) |
                                                 (m_av1PicParams->m_activeRefBitMaskMfmv[6] << 6);
-        }
-
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS Av1DecodePicPkt::SetInloopFilterStateParams(MhwVdboxAvpPicStateParams& picStateParams)
-    {
-        DECODE_FUNC_CALL();
-
-        MOS_ZeroMemory(&picStateParams, sizeof(picStateParams));
-        picStateParams.m_picParams = m_av1PicParams;
-
-        if (m_av1PicParams->m_picInfoFlags.m_fields.m_useSuperres)
-        {
-            //setup super-res step/offset for luma/chroma, per av1_upscale_normative_rows()
-            if (m_av1BasicFeature->m_tileCoding.m_curTile == 0)
-            {
-                m_av1BasicFeature->m_tileCoding.GetUpscaleConvolveStepX0(*m_av1PicParams, false); // Luma
-                m_av1BasicFeature->m_tileCoding.GetUpscaleConvolveStepX0(*m_av1PicParams, true);  // Chroma
-            }
-
-            uint16_t col = m_av1BasicFeature->m_tileCoding.m_tileDesc[m_av1BasicFeature->m_tileCoding.m_curTile].m_tileColumn;
-            picStateParams.m_lumaPlaneXStepQn     = m_av1BasicFeature->m_tileCoding.m_lumaXStepQn;
-            picStateParams.m_lumaPlaneX0Qn        = m_av1BasicFeature->m_tileCoding.m_lumaX0Qn[col];
-            picStateParams.m_chromaPlaneXStepQn   = m_av1BasicFeature->m_tileCoding.m_chromaXStepQn;
-            picStateParams.m_chromaPlaneX0Qn      = m_av1BasicFeature->m_tileCoding.m_chromaX0Qn[col];
         }
 
         return MOS_STATUS_SUCCESS;
@@ -1534,6 +1578,7 @@ namespace decode{
                 picStateParams.m_referenceFrameSignBias[refFrame] = 0;
             }
         }
+
         return MOS_STATUS_SUCCESS;
     }
 

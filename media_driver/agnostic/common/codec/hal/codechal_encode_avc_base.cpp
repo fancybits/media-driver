@@ -2170,8 +2170,7 @@ MOS_STATUS CodechalEncodeAvcBase::AllocateEncResources()
 
     // to be used in CodecHalEncode_TrackedBuffer_AllocateMbCodeMvDataResources() later
     m_mbCodeSize = MOS_ALIGN_CEIL(fieldNumMBs * 16 * 4, CODECHAL_PAGE_SIZE) + fieldNumMBs * 16 * 4;
-    m_mvDataSize = MOS_ALIGN_CEIL(fieldNumMBs * (32 * 4), CODECHAL_PAGE_SIZE) +  // top field MV + 4K align for bottom field MV
-                   fieldNumMBs * (32 * 4);                                       // bottom field MV
+    m_mvDataSize = MOS_ALIGN_CEIL(fieldNumMBs * (32 * 4), CODECHAL_PAGE_SIZE) * 2; // top field MV + bottom field MV (both page aligned)
 
     // allocate 3 + 2 buffers initially
     if ((m_codecFunction == CODECHAL_FUNCTION_ENC_PAK) && (!m_vdencEnabled))
@@ -4352,12 +4351,15 @@ MOS_STATUS CodechalEncodeAvcBase::PopulateDdiParam(
         m_avcPar->SliceHeight = m_sliceHeight;
 
         m_avcPar->NumSuperSlices = m_avcPar->NumSlices;
-        uint32_t sliceIdx = 0;
-        for (; sliceIdx < m_avcPar->NumSuperSlices - 1; sliceIdx++)
+        if (m_avcPar->NumSuperSlices)
         {
-            m_avcPar->SuperSliceHeight[sliceIdx] = m_sliceHeight;
+            uint32_t sliceIdx = 0;
+            for (; sliceIdx < m_avcPar->NumSuperSlices - 1; sliceIdx++)
+            {
+                m_avcPar->SuperSliceHeight[sliceIdx] = m_sliceHeight;
+            }
+            m_avcPar->SuperSliceHeight[sliceIdx] = avcSeqParams->pic_height_in_map_units_minus1 + 1 - sliceIdx * m_sliceHeight;
         }
-        m_avcPar->SuperSliceHeight[sliceIdx] = avcSeqParams->pic_height_in_map_units_minus1 + 1 - sliceIdx * m_sliceHeight;
 
         m_avcPar->ISliceQP   = avcPicParams->QpY + avcSlcParams->slice_qp_delta;
         m_avcPar->FrameRateM = ((avcSeqParams->FramesPer100Sec % 100) == 0) ? (avcSeqParams->FramesPer100Sec / 100) : avcSeqParams->FramesPer100Sec;

@@ -561,7 +561,7 @@ void CodechalVdencHevcStateG11::SetStreaminDataPerLcu(
     PCODECHAL_VDENC_HEVC_STREAMIN_STATE_G10 data = (PCODECHAL_VDENC_HEVC_STREAMIN_STATE_G10)streaminData;
     if (streaminParams->setQpRoiCtrl)
     {
-        if (m_vdencNativeROIEnabled)
+        if (m_vdencNativeROIEnabled || m_brcAdaptiveRegionBoostEnable)
         {
             data->DW0.RoiCtrl = streaminParams->roiCtrl;
         }
@@ -1995,6 +1995,7 @@ MOS_STATUS CodechalVdencHevcStateG11::ExecutePictureLevel()
             m_brcEnabled,
             m_vdencStreamInEnabled,
             m_vdencNativeROIEnabled,
+            m_brcAdaptiveRegionBoostEnable,
             m_hevcVdencRoundingEnabled,
             panicEnabled,
             GetCurrentPass()));
@@ -3480,7 +3481,6 @@ MOS_STATUS CodechalVdencHevcStateG11::SetDmemHuCBrcInitReset()
         hucVdencBrcInitDmem->StreamInROIEnable_U8 = 1;
         hucVdencBrcInitDmem->StreamInSurfaceEnable_U8 = 1;
     }
-
     // RDOQ adaptation hardened to HW starting Gen11
     hucVdencBrcInitDmem->RDOQ_AdaptationEnable_U8 = 0;
 
@@ -4166,8 +4166,8 @@ MOS_STATUS CodechalVdencHevcStateG11::SetMeCurbe(HmeLevel hmeLevel)
     {
         //StreamIn CURBE
         curbe.DW6.LCUSize            = 1;//Only LCU64 supported by the VDEnc HW
-        // Kernel should use driver-prepared stream-in surface during ROI/ Dirty-Rect
-        curbe.DW6.InputStreamInEn    = (m_hevcPicParams->NumROI || (m_hevcPicParams->NumDirtyRects > 0 && (B_TYPE == m_hevcPicParams->CodingType)));
+        // Kernel should use driver-prepared stream-in surface during ROI/ MBQP(LCUQP)/ Dirty-Rect
+        curbe.DW6.InputStreamInEn    = (m_hevcPicParams->NumROI || m_encodeParams.bMbQpDataEnabled || (m_hevcPicParams->NumDirtyRects > 0 && (B_TYPE == m_hevcPicParams->CodingType)));
         curbe.DW31.MaxCuSize         = 3;
         curbe.DW31.MaxTuSize         = 3;
         switch (m_hevcSeqParams->TargetUsage)
@@ -4450,8 +4450,8 @@ MOS_STATUS CodechalVdencHevcStateG11::SendMeSurfaces(HmeLevel hmeLevel, PMOS_COM
 
         auto streamingSize = (MOS_ALIGN_CEIL(m_frameWidth, 64) / 32) * (MOS_ALIGN_CEIL(m_frameHeight, 64) / 32) * CODECHAL_CACHELINE_SIZE;
 
-        // Send driver-prepared stream-in surface as input during ROI/ Dirty-Rect
-        if (m_hevcPicParams->NumROI || (m_hevcPicParams->NumDirtyRects > 0 && (B_TYPE == m_hevcPicParams->CodingType)))
+        // Send driver-prepared stream-in surface as input during ROI/ MBQP(LCUQP)/ Dirty-Rect
+        if (m_hevcPicParams->NumROI || m_encodeParams.bMbQpDataEnabled || (m_hevcPicParams->NumDirtyRects > 0 && (B_TYPE == m_hevcPicParams->CodingType)))
         {
             MOS_ZeroMemory(&surfaceCodecParams, sizeof(surfaceCodecParams));
             surfaceCodecParams.dwSize = MOS_BYTES_TO_DWORDS(streamingSize);
@@ -4764,6 +4764,7 @@ CodechalVdencHevcStateG11::CodechalVdencHevcStateG11(
     m_kuidCommon = IDR_CODEC_HME_DS_SCOREBOARD_KERNEL;
     m_hucPakStitchEnabled = true;
     m_scalabilityState = nullptr;
+    m_brcAdaptiveRegionBoostSupported = true;
 
     MOS_ZeroMemory(&m_resPakcuLevelStreamoutData, sizeof(m_resPakcuLevelStreamoutData));
     MOS_ZeroMemory(&m_resPakSliceLevelStreamoutData, sizeof(m_resPakSliceLevelStreamoutData));

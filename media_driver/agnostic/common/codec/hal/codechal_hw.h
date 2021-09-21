@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2020, Intel Corporation
+* Copyright (c) 2011-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -39,6 +39,7 @@
 
 #include "mhw_vdbox_mfx_interface.h"
 #include "mhw_vdbox_hcp_interface.h"
+#include "mhw_vdbox_avp_interface.h"
 #include "mhw_vdbox_huc_interface.h"
 #include "mhw_vdbox_vdenc_interface.h"
 
@@ -376,6 +377,7 @@ protected:
     MhwSfcInterface                 *m_sfcInterface = nullptr;        //!< Pointer to Mhw sfc interface
     MhwVdboxMfxInterface            *m_mfxInterface = nullptr;        //!< Pointer to Mhw mfx interface
     MhwVdboxHcpInterface            *m_hcpInterface = nullptr;        //!< Pointer to Mhw hcp interface
+    MhwVdboxAvpInterface            *m_avpInterface = nullptr;        //!< Pointer to Mhw avp interface
     MhwVdboxHucInterface            *m_hucInterface = nullptr;        //!< Pointer to Mhw huc interface
     MhwVdboxVdencInterface          *m_vdencInterface = nullptr;      //!< Pointer to Mhw vdenc interface
 
@@ -537,6 +539,7 @@ public:
             m_sfcInterface = nullptr;
         }
 
+        MHW_HWCMDPARSER_DESTROY();
     }
 
     //!
@@ -657,6 +660,18 @@ public:
     inline MhwVdboxHcpInterface *GetHcpInterface()
     {
         return m_hcpInterface;
+    }
+
+    //!
+    //! \brief    Get avp interface
+    //! \details  Get avp interface in codechal hw interface
+    //!
+    //! \return   [out] MhwVdboxAvpInterface*
+    //!           Interface got.
+    //!
+    MhwVdboxAvpInterface *GetAvpInterface()
+    {
+        return m_avpInterface;
     }
 
     //!
@@ -1285,10 +1300,11 @@ public:
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS SendHwSemaphoreWaitCmd(
-        PMOS_RESOURCE                               semaMem,
-        uint32_t                                    semaData,
-        MHW_COMMON_MI_SEMAPHORE_COMPARE_OPERATION   opCode,
-        PMOS_COMMAND_BUFFER                         cmdBuffer);
+        PMOS_RESOURCE                             semaMem,
+        uint32_t                                  semaData,
+        MHW_COMMON_MI_SEMAPHORE_COMPARE_OPERATION opCode,
+        PMOS_COMMAND_BUFFER                       cmdBuffer,
+        uint32_t                                  semaMemOffset = 0);
 
     //!
     //! \brief    Send mi atomic dword cmd
@@ -1570,6 +1586,11 @@ public:
 
     virtual bool UsesRenderEngine(CODECHAL_FUNCTION codecFunction, uint32_t standard);
 
+    virtual bool Uses2PlanesInputSurfaceFilmGrain()
+    {
+        return false;
+    }
+
     //!
     //! \brief    Get film grain kernel info
     //! \details  Get kernel base and size
@@ -1586,6 +1607,50 @@ public:
     virtual MOS_STATUS GetFilmGrainKernelInfo(
         uint8_t*    &kernelBase,
         uint32_t    &kernelSize);
+
+    //!
+    //! \brief    Calculates the maximum size for AVP picture level commands
+    //! \details  Client facing function to calculate the maximum size for AVP picture level commands
+    //! \param    [in] mode
+    //!           Indicate the codec mode
+    //! \param    [out] commandsSize
+    //!           The maximum command buffer size
+    //! \param    [out] patchListSize
+    //!           The maximum command patch list size
+    //! \param    [in] params
+    //!           Indicate the command size parameters
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS GetAvpStateCommandSize(
+            uint32_t                        mode,
+            uint32_t                        *commandsSize,
+            uint32_t                        *patchListSize,
+            PMHW_VDBOX_STATE_CMDSIZE_PARAMS params)
+    {
+        return MOS_STATUS_SUCCESS;
+    };
+
+    //!
+    //! \brief    Calculates maximum size for AVP tile level commands
+    //! \details  Client facing function to calculate maximum size for AVP tile level commands
+    //! \param    [in] mode
+    //!           Indicate the codec mode
+    //! \param    [out] commandsSize
+    //!            The maximum command buffer size
+    //! \param    [out] patchListSize
+    //!           The maximum command patch list size
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS GetAvpPrimitiveCommandSize(
+            uint32_t                        mode,
+            uint32_t                        *commandsSize,
+            uint32_t                        *patchListSize)
+    {
+        return MOS_STATUS_SUCCESS;
+    };
+
 
     //! \brief    default disable vdbox balancing by UMD
     bool bEnableVdboxBalancingbyUMD = false;

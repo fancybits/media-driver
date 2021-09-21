@@ -1273,7 +1273,7 @@ MOS_STATUS CodechalVdencAvcState::SetDmemHuCBrcInitResetImpl(CODECHAL_VDENC_AVC_
     hucVDEncBrcInitDmem->INIT_InitQPIP = (uint8_t)initQP;
 
     // MBBRC control
-    if (m_mbBrcEnabled)
+    if (m_mbBrcEnabled || m_avcPicParam->bNativeROI)
     {
         hucVDEncBrcInitDmem->INIT_MbQpCtrl_U8 = 1;
         MOS_SecureMemcpy(hucVDEncBrcInitDmem->INIT_DistQPDelta_I8, 4 * sizeof(int8_t), (void*)BRC_INIT_DistQPDelta_I8, 4 * sizeof(int8_t));
@@ -1477,13 +1477,20 @@ MOS_STATUS CodechalVdencAvcState::SetDmemHuCBrcUpdateImpl(CODECHAL_VDENC_AVC_BRC
 
     // HMECost enabled by default in CModel V11738+
     hucVDEncBrcDmem->UPD_HMECostEnable_U8 = 1;
+    
+    // ROI and static region pct parameters
+    // must be zero if they are not used
+    hucVDEncBrcDmem->UPD_RoiQpViaForceQp_U8 = 0;
+    hucVDEncBrcDmem->UPD_StaticRegionPct_U16 = 0;
+    hucVDEncBrcDmem->UPD_ROISource_U8 = 0;
     if (avcPicParams->NumROI)
     {
+        CODECHAL_ENCODE_CHK_COND_RETURN(m_avcPicParam->NumROIDistinctDeltaQp > sizeof(hucVDEncBrcDmem->UPD_ROIQpDelta_I8) - 1, "Number of different ROI delta QP is greater that dmem roi array size");
+
         hucVDEncBrcDmem->UPD_RoiQpViaForceQp_U8 = avcPicParams->bNativeROI ? 0 : 1;
-        for (uint8_t i = 0; i < m_avcPicParam->NumROI; i++)
+        for (uint8_t i = 0; i < m_avcPicParam->NumROIDistinctDeltaQp; i++)
         {
-            hucVDEncBrcDmem->UPD_ROIQpDelta_I8[i + 1] = (int8_t)CodecHal_Clip3(
-                ENCODE_VDENC_AVC_MIN_ROI_DELTA_QP_G9, ENCODE_VDENC_AVC_MAX_ROI_DELTA_QP_G9, m_avcPicParam->ROIDistinctDeltaQp[i]);
+            hucVDEncBrcDmem->UPD_ROIQpDelta_I8[i + 1] = m_avcPicParam->ROIDistinctDeltaQp[i];
         }
     }
     else if (avcPicParams->NumDirtyROI)
@@ -1493,15 +1500,6 @@ MOS_STATUS CodechalVdencAvcState::SetDmemHuCBrcUpdateImpl(CODECHAL_VDENC_AVC_BRC
         {
             hucVDEncBrcDmem->UPD_ROISource_U8 = 2;
         }
-        else
-        {
-            hucVDEncBrcDmem->UPD_ROISource_U8 = 0;
-        }
-    }
-    else
-    {
-        hucVDEncBrcDmem->UPD_StaticRegionPct_U16 = 0;
-        hucVDEncBrcDmem->UPD_ROISource_U8 = 0;
     }
 
     hucVDEncBrcDmem->UPD_SLBB_Size_U16 = (uint16_t)m_hwInterface->m_vdencBrcImgStateBufferSize;

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2020, Intel Corporation
+* Copyright (c) 2018-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -24,7 +24,7 @@
 
 #include "mhw_vebox.h"
 #include "vphal_common.h"
-#include "renderhal_g12.h"
+#include "renderhal_g12_base.h"
 #include "vp_filter.h"
 
 typedef class VP_VEBOX_RENDER_DATA           *PVPHAL_VEBOX_RENDER_DATA;
@@ -34,31 +34,6 @@ typedef struct VPHAL_VEBOX_STATE_PARAMS      *PVPHAL_VEBOX_STATE_PARAMS;
 typedef class MhwVeboxInterface              *PMHW_VEBOX_INTERFACE;
 
 typedef class VPHAL_VEBOX_IECP_PARAMS        *PVPHAL_VEBOX_IECP_PARAMS;
-typedef class VPHAL_VEBOX_IECP_PARAMS_EXT    *PVPHAL_VEBOX_IECP_PARAMS_EXT;
-class VPHAL_VEBOX_IECP_PARAMS
-{
-public:
-    PVPHAL_COLORPIPE_PARAMS         pColorPipeParams = nullptr;
-    PVPHAL_PROCAMP_PARAMS           pProcAmpParams = nullptr;
-    MOS_FORMAT                      dstFormat = Format_Any;
-    MOS_FORMAT                      srcFormat = Format_Any;
-
-    // CSC params
-    bool                            bCSCEnable = false;       // Enable CSC transform
-    float*                          pfCscCoeff = nullptr;     // [3x3] CSC Coeff matrix
-    float*                          pfCscInOffset = nullptr;  // [3x1] CSC Input Offset matrix
-    float*                          pfCscOutOffset = nullptr; // [3x1] CSC Output Offset matrix
-    bool                            bAlphaEnable = false;     // Alpha Enable Param
-    uint16_t                        wAlphaValue = 0;          // Color Pipe Alpha Value
-
-    VPHAL_VEBOX_IECP_PARAMS()
-    {
-    }
-    virtual ~VPHAL_VEBOX_IECP_PARAMS()
-    {
-    }
-    virtual PVPHAL_VEBOX_IECP_PARAMS_EXT   GetExtParams() { return nullptr; }
-};
 
 typedef struct VPHAL_VEBOX_STATE_PARAMS_EXT *PVPHAL_VEBOX_STATE_PARAMS_EXT;
 struct VPHAL_VEBOX_STATE_PARAMS
@@ -87,6 +62,7 @@ typedef struct _VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS
     PVP_SURFACE                     pSurfDNOutput;
     PVP_SURFACE                     pSurfSkinScoreOutput;
     bool                            bDIEnable;
+    bool                            b3DlutEnable;
 } VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS, *PVPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS;
 
 enum GFX_MEDIA_VEBOX_DI_OUTPUT_MODE
@@ -243,11 +219,10 @@ public:
             MOS_FreeMemAndSetNull(pAceCacheData);
         }
     }
+
     virtual MOS_STATUS Init()
     {
         MHW_ACE_PARAMS aceParams = {};
-        bUseKernelUpdate         = false;
-        bVeboxStateCopyNeeded    = false;
         PerfTag                  = VPHAL_NONE;
 
         DN.value                 = 0;
@@ -265,14 +240,24 @@ public:
 
         MOS_ZeroMemory(&m_veboxDNDIParams, sizeof(MHW_VEBOX_DNDI_PARAMS));
         MOS_ZeroMemory(&m_veboxIecpParams, sizeof(MHW_VEBOX_IECP_PARAMS));
+        MOS_ZeroMemory(&m_veboxGamutParams, sizeof(MHW_VEBOX_GAMUT_PARAMS));
+        MOS_ZeroMemory(&m_HvsParams, sizeof(VPHAL_HVSDENOISE_PARAMS));
 
         VP_PUBLIC_CHK_STATUS_RETURN(MOS_SecureMemcpy(&m_veboxIecpParams.AceParams,
                 sizeof(MHW_ACE_PARAMS),
                 &aceParams,
                 sizeof(MHW_ACE_PARAMS)));
 
+        VP_PUBLIC_CHK_STATUS_RETURN(InitChromaSampling());
+
         return MOS_STATUS_SUCCESS;
     }
+
+    virtual VPHAL_HVSDENOISE_PARAMS &GetHVSParams()
+    {
+        return m_HvsParams;
+    }
+
     virtual MHW_VEBOX_DNDI_PARAMS &GetDNDIParams()
     {
         return m_veboxDNDIParams;
@@ -302,9 +287,10 @@ public:
     {
         struct
         {
-            uint32_t bDnEnabled             : 1;      // DN enabled;
+            uint32_t bDnEnabled             : 1;        // DN enabled;
             uint32_t bAutoDetect            : 1;        // Auto DN enabled
-            uint32_t bChromaDnEnabled       : 1;        // Chroma Dn Enabled
+            uint32_t bChromaDnEnabled       : 1;        // Chroma DN Enabled
+            uint32_t bHvsDnEnabled          : 1;        // HVS DN Enabled
         };
         uint32_t value = 0;
     } DN;
@@ -315,6 +301,8 @@ public:
         {
             uint32_t bDeinterlace           : 1;    // DN enabled;
             uint32_t bQueryVariance         : 1;    // DN enabled;
+            uint32_t bFmdEnabled            : 1;    // FMD enabled;
+            uint32_t bTFF                   : 1;
         };
         uint32_t value = 0;
     } DI;
@@ -404,15 +392,24 @@ public:
         }
     } IECP;
 
-    bool bUseKernelUpdate = false;
-    bool bVeboxStateCopyNeeded = false;
-
     // Perf
     VPHAL_PERFTAG                       PerfTag = VPHAL_NONE;
 
     uint32_t *pAceCacheData  = nullptr;
 
+    virtual MOS_STATUS InitChromaSampling()
+    {
+        MOS_ZeroMemory(&m_chromaSampling, sizeof(MHW_VEBOX_CHROMA_SAMPLING));
+        m_chromaSampling.BypassChromaUpsampling                     = 1;
+        m_chromaSampling.ChromaUpsamplingCoSitedHorizontalOffset    = 0;
+        m_chromaSampling.ChromaUpsamplingCoSitedVerticalOffset      = 0;
+        m_chromaSampling.BypassChromaDownsampling                   = 1;
+        m_chromaSampling.ChromaDownsamplingCoSitedHorizontalOffset  = 0;
+        m_chromaSampling.ChromaDownsamplingCoSitedVerticalOffset    = 0;
+        return MOS_STATUS_SUCCESS;
+    }
 protected:
+    VPHAL_HVSDENOISE_PARAMS m_HvsParams = {};
     MHW_VEBOX_DNDI_PARAMS   m_veboxDNDIParams = {};
     MHW_VEBOX_IECP_PARAMS   m_veboxIecpParams = {};
     MHW_VEBOX_CHROMA_SAMPLING m_chromaSampling = {};

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2020, Intel Corporation
+* Copyright (c) 2019-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -71,7 +71,7 @@ namespace decode
         DECODE_CHK_NULL(basicFeature);
 
         DecodeScalabilityPars scalPars;
-        MOS_ZeroMemory(&scalPars, sizeof(ScalabilityPars));
+        MOS_ZeroMemory(&scalPars, sizeof(scalPars));
         scalPars.disableScalability = true;
         scalPars.enableVE = MOS_VE_SUPPORTED(m_osInterface);
         if (MEDIA_IS_SKU(m_skuTable, FtrWithSlimVdbox))
@@ -152,6 +152,7 @@ namespace decode
 
         auto basicFeature = dynamic_cast<Av1BasicFeature *>(m_featureManager->GetFeature(FeatureIDs::basicFeature));
         DECODE_CHK_NULL(basicFeature);
+        DECODE_CHK_NULL(basicFeature->m_av1PicParams);
         if (basicFeature->m_av1PicParams->m_anchorFrameInsertion)
         {
             return MOS_STATUS_SUCCESS;
@@ -193,6 +194,16 @@ namespace decode
                         CodechalDbgAttr::attrFilmGrain,
                         "FilmGrain"));)
             }
+
+            CODECHAL_DEBUG_TOOL(
+                PMHW_BATCH_BUFFER batchBuffer = m_av1DecodePkt->GetSecondLvlBB();
+                DECODE_CHK_NULL(batchBuffer);
+                batchBuffer->iLastCurrent = batchBuffer->iSize;
+                batchBuffer->dwOffset = 0;
+                DECODE_CHK_STATUS(m_debugInterface->Dump2ndLvlBatch(
+                    batchBuffer,
+                    CODECHAL_NUM_MEDIA_STATES,
+                    "AV1_DEC_Secondary"));)
 
             // Only update user features for the first frame.
             if (feature->m_frameNum == 0)
@@ -251,8 +262,13 @@ namespace decode
         DECODE_CHK_STATUS(Av1Pipeline::Initialize(settings));
         DECODE_CHK_STATUS(InitMmcState());
 
-        //pre subpipeline for generate noise
         auto *codecSettings     = (CodechalSetting *)settings;
+        m_fgCoordValSurfInitPipeline = MOS_New(FilmGrainSurfaceInit, this, m_task, m_numVdbox);
+        DECODE_CHK_NULL(m_fgCoordValSurfInitPipeline);
+        DECODE_CHK_STATUS(m_preSubPipeline->Register(*m_fgCoordValSurfInitPipeline));
+        DECODE_CHK_STATUS(m_fgCoordValSurfInitPipeline->Init(*codecSettings));
+
+        //pre subpipeline for generate noise
         m_fgGenNoiseSubPipeline = MOS_New(FilmGrainPreSubPipeline, this, m_task, m_numVdbox);
         DECODE_CHK_NULL(m_fgGenNoiseSubPipeline);
         DECODE_CHK_STATUS(m_preSubPipeline->Register(*m_fgGenNoiseSubPipeline));

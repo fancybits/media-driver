@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2020, Intel Corporation
+* Copyright (c) 2017-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -53,8 +53,6 @@ class CodechalHwInterfaceG12 : public CodechalHwInterface
 protected:
     static const CODECHAL_SSEU_SETTING m_defaultSsEuLutG12[CODECHAL_NUM_MEDIA_STATES_G12];
 
-    MhwVdboxAvpInterface   *m_avpInterface = nullptr;        //!< Pointer to Mhw avp interface
-
 public:
     //!
     //! \brief    Constructor
@@ -99,18 +97,6 @@ public:
         MHW_MEMORY_OBJECT_CONTROL_PARAMS cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_END_CODEC]) override;
 
     //!
-    //! \brief    Get avp interface
-    //! \details  Get avp interface in codechal hw interface
-    //!
-    //! \return   [out] MhwVdboxAvpInterface*
-    //!           Interface got.
-    //!
-    inline MhwVdboxAvpInterface* GetAvpInterface()
-    {
-        return m_avpInterface;
-    }
-
-    //!
     //! \brief    Calculates the maximum size for AVP picture level commands
     //! \details  Client facing function to calculate the maximum size for AVP picture level commands
     //! \param    [in] mode
@@ -124,11 +110,11 @@ public:
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS GetAvpStateCommandSize(
-        uint32_t                        mode,
-        uint32_t                        *commandsSize,
-        uint32_t                        *patchListSize,
-        PMHW_VDBOX_STATE_CMDSIZE_PARAMS params);
+    virtual MOS_STATUS GetAvpStateCommandSize(
+            uint32_t                        mode,
+            uint32_t                        *commandsSize,
+            uint32_t                        *patchListSize,
+            PMHW_VDBOX_STATE_CMDSIZE_PARAMS params) override;
 
     //!
     //! \brief    Calculates maximum size for AVP tile level commands
@@ -142,10 +128,10 @@ public:
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS GetAvpPrimitiveCommandSize(
-        uint32_t                        mode,
-        uint32_t                        *commandsSize,
-        uint32_t                        *patchListSize);
+    virtual MOS_STATUS GetAvpPrimitiveCommandSize(
+            uint32_t                        mode,
+            uint32_t                        *commandsSize,
+            uint32_t                        *patchListSize) override;
 
     //!
     //! \brief    Set Rowstore Cache offsets for Gen12 specific interfaces
@@ -157,8 +143,8 @@ public:
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS SetRowstoreCachingOffsets(
-        PMHW_VDBOX_ROWSTORE_PARAMS rowstoreParams) override;
+    virtual MOS_STATUS SetRowstoreCachingOffsets(
+            PMHW_VDBOX_ROWSTORE_PARAMS rowstoreParams) override;
 
     //!
     //! \brief    Send conditional batch buffer end cmd

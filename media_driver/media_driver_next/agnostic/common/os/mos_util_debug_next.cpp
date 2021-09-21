@@ -380,6 +380,22 @@ void MosUtilDebug::MosMessageInit(MOS_CONTEXT_HANDLE mosCtx)
 
     if(m_mosMsgParams.uiCounter == 0)   // first time only
     {
+        MosUtilities::MosZeroMemory(&UserFeatureData, sizeof(UserFeatureData));
+        eStatus = MosUtilities::MosUserFeatureReadValueID(
+            nullptr,
+            __MOS_USER_FEATURE_KEY_DISABLE_ASSERT_ID,
+            &UserFeatureData,
+            mosCtx);
+        // If the user feature key was not found, create it with default value.
+        if (eStatus != MOS_STATUS_SUCCESS)
+        {
+            MosUtilities::MosZeroMemory(&UserFeatureWriteData, sizeof(UserFeatureWriteData));
+            UserFeatureWriteData.Value.u32Data = UserFeatureData.u32Data;
+            UserFeatureWriteData.ValueID       = __MOS_USER_FEATURE_KEY_DISABLE_ASSERT_ID;
+            MosUtilities::MosUserFeatureWriteValuesID(nullptr, &UserFeatureWriteData, 1, mosCtx);
+        }
+        m_mosMsgParams.bDisableAssert = UserFeatureData.u32Data;
+
         // Set all sub component messages to critical level by default.
         MosSetCompMessageLevelAll(MOS_MESSAGE_LVL_CRITICAL);
 
@@ -410,7 +426,7 @@ void MosUtilDebug::MosMessageInit(MOS_CONTEXT_HANDLE mosCtx)
         if (MosUtilities::m_mosUltFlag)
         {
             MosSetCompMessageLevelAll(MOS_MESSAGE_LVL_DISABLED);
-            MosSetCompMessageLevel(MOS_COMPONENT_OS, MOS_MESSAGE_LVL_VERBOSE);
+            MosSetCompMessageLevel(MOS_COMPONENT_OS, MOS_MESSAGE_LVL_MEMNINJA);
             m_mosMsgParams.bUseOutputDebugString = 0;
             m_mosMsgParams.components[MOS_COMPONENT_OS].bBySubComponent = 0;
             MosCompAssertEnableDisable(MOS_COMPONENT_CM, 0);
@@ -515,6 +531,11 @@ int32_t MosUtilDebug::MosShouldPrintMessage(
 
 int32_t MosUtilDebug::MosShouldAssert(MOS_COMPONENT_ID compID, uint8_t subCompID)
 {
+    if (m_mosMsgParams.bDisableAssert)
+    {
+        return false;
+    }
+
     if (compID    >= MOS_COMPONENT_COUNT      ||
         subCompID >= MOS_MAX_SUBCOMPONENT_COUNT)
     {

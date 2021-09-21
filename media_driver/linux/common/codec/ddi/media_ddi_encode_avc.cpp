@@ -242,9 +242,7 @@ VAStatus DdiEncodeAvc::ParseMiscParamRC(void *data)
     picParams->ucMaximumQP = encMiscParamRC->max_qp;
     if (picParams->ucMaximumQP == 0 && picParams->ucMinimumQP)
         picParams->ucMaximumQP = 51;
-#if VA_CHECK_VERSION(1, 10, 0)
-    picParams->TargetFrameSize = encMiscParamRC->target_frame_size;
-#endif
+
     if ((VA_RC_CBR == m_encodeCtx->uiRCMethod) || ((VA_RC_CBR | VA_RC_MB) == m_encodeCtx->uiRCMethod))
     {
         seqParams->MaxBitRate = seqParams->TargetBitRate;
@@ -305,6 +303,16 @@ VAStatus DdiEncodeAvc::ParseMiscParamRC(void *data)
     seqParams->FrameSizeTolerance = static_cast<ENCODE_FRAMESIZE_TOLERANCE>(encMiscParamRC->rc_flags.bits.frame_tolerance_mode);
 #endif
 
+#if VA_CHECK_VERSION(1, 10, 0)
+    if (m_encodeCtx->bVdencActive &&
+        (m_encodeCtx->uiRCMethod & (VA_RC_VBR | VA_RC_QVBR | VA_RC_VCM)))
+    {
+        picParams->TargetFrameSize = encMiscParamRC->target_frame_size;
+        // to force VC scenario for TCBRC
+        seqParams->bAutoMaxPBFrameSizeForSceneChange = encMiscParamRC->target_frame_size != 0;
+    }
+#endif
+
     return VA_STATUS_SUCCESS;
 }
 
@@ -338,6 +346,11 @@ VAStatus DdiEncodeAvc::ParseMiscParamMaxFrameSize(void *data)
     PCODEC_AVC_ENCODE_SEQUENCE_PARAMS     seqParams                  = (PCODEC_AVC_ENCODE_SEQUENCE_PARAMS)(m_encodeCtx->pSeqParams);
     VAEncMiscParameterBufferMaxFrameSize *vaEncMiscParamMaxFrameSize = (VAEncMiscParameterBufferMaxFrameSize *)data;
     DDI_CHK_NULL(seqParams, "nullptr seqParams", VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    if (seqParams->UserMaxFrameSize != vaEncMiscParamMaxFrameSize->max_frame_size >> 3)
+    {
+        seqParams->bResetBRC = 0x1;
+    }
 
     // populate MaxFrameSize from DDI
     seqParams->UserMaxFrameSize = vaEncMiscParamMaxFrameSize->max_frame_size >> 3;  // convert to byte
@@ -2196,6 +2209,7 @@ void DdiEncodeAvc::GetSlcRefIdx(CODEC_PICTURE *picReference, CODEC_PICTURE *slcR
         if (i == CODEC_MAX_NUM_REF_FRAME)
         {
             slcReference->FrameIdx = CODEC_AVC_NUM_UNCOMPRESSED_SURFACE;
+            slcReference->PicFlags = PICTURE_INVALID;
         }
     }
 }

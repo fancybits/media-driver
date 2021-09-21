@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019, Intel Corporation
+* Copyright (c) 2019-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -44,7 +44,7 @@ public:
     {
         if (m_hwInterface != nullptr)
         {
-            m_avpInterface  =  static_cast<CodechalHwInterfaceG12*>(hwInterface)->GetAvpInterface();
+            m_avpInterface = hwInterface->GetAvpInterface();
         }
     }
     virtual ~Av1DecodeTilePkt(){};
@@ -93,6 +93,9 @@ protected:
 
     virtual MOS_STATUS SetAvpTileCodingParams(MhwVdboxAvpTileCodingParams &tileCodingParams,
                                     int16_t tileIdx);
+
+    virtual MOS_STATUS SetInloopFilterStateParams(MhwVdboxAvpPicStateParams &picStateParams);
+    virtual MOS_STATUS AddAvpInloopFilterStateCmd(MOS_COMMAND_BUFFER &cmdBuffer);
 
     MOS_STATUS AddAvpTileState(MOS_COMMAND_BUFFER &cmdBuffer, int16_t tileIdx);
 

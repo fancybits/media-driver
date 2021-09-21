@@ -83,10 +83,19 @@ public:
     //! \brief  Figure out surface for current picture, and add it to active surface list
     //! \param  [in] frameIdx
     //!         The frame index for current picture
+    //! \param  [in] dstSurface
+    //!         The requirement for the current surface
+    //! \param  [in] isMmcEnabled
+    //!         The MMC flag for currrent surface
+    //! \param  [in] resUsageType
+    //!         The resource usage for currrent surface
+    //! \param  [in] accessReq
+    //!         The access requirement for current surface
     //! \return MOS_STATUS
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS ActiveCurSurf(uint32_t curFrameIdx, PMOS_SURFACE dstSurface, bool isMmcEnabled, ResourceUsage resUsageType = resourceDefault)
+    MOS_STATUS ActiveCurSurf(uint32_t curFrameIdx, PMOS_SURFACE dstSurface, bool isMmcEnabled,
+        ResourceUsage resUsageType = resourceDefault, ResourceAccessReq accessReq = lockableVideoMem)
     {
         DECODE_FUNC_CALL();
 
@@ -106,15 +115,20 @@ public:
                                             "Internal target surface",
                                             dstSurface->Format,
                                             isMmcEnabled,
-                                            resUsageType);
+                                            resUsageType,
+                                            accessReq,
+                                            dstSurface->TileModeGMM);
         }
         else
         {
             auto iter = m_aviableSurfaces.begin();
             m_currentSurface = *iter;
             m_aviableSurfaces.erase(iter);
-            m_allocator->Resize(m_currentSurface, dstSurface->dwWidth,
-                                MOS_ALIGN_CEIL(dstSurface->dwHeight, 8), false,
+            m_allocator->Resize(m_currentSurface,
+                                dstSurface->dwWidth,
+                                MOS_ALIGN_CEIL(dstSurface->dwHeight, 8),
+                                accessReq,
+                                false,
                                 "Internal target surface");
         }
 

@@ -28,20 +28,10 @@
 #include "mos_gpucontext_specific_next.h"
 #include "mos_graphicsresource_specific_next.h"
 
-GpuContextMgrNext::GpuContextMgrNext(GT_SYSTEM_INFO *gtSystemInfo, OsContextNext *osContext)
+GpuContextMgrNext::GpuContextMgrNext(OsContextNext *osContext)
 {
     MOS_OS_FUNCTION_ENTER;
     m_initialized = false;
-
-    if (gtSystemInfo)
-    {
-        MosUtilities::MosSecureMemcpy(&m_gtSystemInfo, sizeof(GT_SYSTEM_INFO), gtSystemInfo, sizeof(GT_SYSTEM_INFO));
-    }
-    else
-    {
-        MOS_OS_ASSERTMESSAGE("Input GTSystemInfo cannot be nullptr");
-        return;
-    }
 
     if (osContext)
     {
@@ -81,18 +71,17 @@ MOS_STATUS GpuContextMgrNext::Initialize()
 
 
 GpuContextMgrNext *GpuContextMgrNext::GetObject(
-    GT_SYSTEM_INFO *gtSystemInfo,
     OsContextNext     *osContext)
 {
     MOS_OS_FUNCTION_ENTER;
-    if (gtSystemInfo == nullptr || osContext == nullptr)
+    if (osContext == nullptr)
     {
         MOS_OS_ASSERTMESSAGE("Invalid input parameters!");
         return nullptr;
     }
 
     MOS_STATUS status = MOS_STATUS_SUCCESS;
-    GpuContextMgrNext* pGpuContext = MOS_New(GpuContextMgrNext, gtSystemInfo, osContext);
+    GpuContextMgrNext* pGpuContext = MOS_New(GpuContextMgrNext, osContext);
     if (!pGpuContext)
     {
         return nullptr;
@@ -146,9 +135,9 @@ GpuContextNext *GpuContextMgrNext::CreateGpuContext(
 {
     MOS_OS_FUNCTION_ENTER;
 
-    if (cmdBufMgr == nullptr)
+    if (cmdBufMgr == nullptr && !m_osContext->IsAynchronous())
     {
-        MOS_OS_ASSERTMESSAGE("nullptr of cmdbufmgr.");
+        MOS_OS_ASSERTMESSAGE("nullptr of cmdbufmgr in normal mode. nullptr can only be applied in Async mode");
         return nullptr;
     }
 

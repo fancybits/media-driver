@@ -25,7 +25,6 @@
 //!
 #include "codechal_hw.h"
 #include "codechal_setting.h"
-#include "mhw_cmd_reader.h"
 
 #define VDBOX_HUC_VDENC_BRC_INIT_KERNEL_DESCRIPTOR 4
 
@@ -49,6 +48,8 @@ CodechalHwInterface::CodechalHwInterface(
     bool              disableScalability)
 {
     CODECHAL_HW_FUNCTION_ENTER;
+
+    MHW_HWCMDPARSER_INIT(osInterface);
 
     // Basic intialization
     m_osInterface = osInterface;
@@ -426,7 +427,8 @@ MOS_STATUS CodechalHwInterface::GetHucStateCommandSize(
     uint32_t cpCmdsize        = 0;
     uint32_t cpPatchListSize  = 0;
 
-    if (m_hucInterface && (standard == CODECHAL_HEVC || standard == CODECHAL_CENC || standard == CODECHAL_VP9 || standard == CODECHAL_AVC))
+    if (m_hucInterface && (standard == CODECHAL_HEVC || standard == CODECHAL_CENC || standard == CODECHAL_VP9 
+        || standard == CODECHAL_AVC || standard == CODECHAL_MPEG2 || standard == CODECHAL_VC1 || standard == CODECHAL_JPEG))
     {
         CODECHAL_HW_CHK_STATUS_RETURN(m_hucInterface->GetHucStateCommandSize(
             mode, &hucCommandsSize, &hucPatchListSize, params));
@@ -509,6 +511,12 @@ MOS_STATUS CodechalHwInterface::GetVdencStateCommandsDataSize(
     {
         commands += m_miInterface->GetMiFlushDwCmdSize();
         commands += m_miInterface->GetMiBatchBufferStartCmdSize();
+    }
+    else if (standard == CODECHAL_RESERVED0)
+    {
+        commands += m_miInterface->GetMiFlushDwCmdSize();
+        commands += m_miInterface->GetMiBatchBufferStartCmdSize();
+        commands += m_sizeOfCmdBatchBufferEnd;
     }
     else
     {
@@ -712,8 +720,6 @@ MOS_STATUS CodechalHwInterface::AddVdencBrcImgBuffer(
 
     // Add batch buffer end insertion flag
     m_miInterface->AddBatchBufferEndInsertionFlag(constructedCmdBuf);
-
-    OVERRIDE_CMD_DATA(constructedCmdBuf.pCmdBase, constructedCmdBuf.iOffset);
 
     if (data)
     {
@@ -1293,7 +1299,8 @@ MOS_STATUS CodechalHwInterface::SendHwSemaphoreWaitCmd(
     PMOS_RESOURCE                               semaMem,
     uint32_t                                    semaData,
     MHW_COMMON_MI_SEMAPHORE_COMPARE_OPERATION   opCode,
-    PMOS_COMMAND_BUFFER                         cmdBuffer)
+    PMOS_COMMAND_BUFFER                         cmdBuffer,
+    uint32_t                                  semaMemOffset)
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
@@ -1305,6 +1312,7 @@ MOS_STATUS CodechalHwInterface::SendHwSemaphoreWaitCmd(
     miSemaphoreWaitParams.bPollingWaitMode = true;
     miSemaphoreWaitParams.dwSemaphoreData = semaData;
     miSemaphoreWaitParams.CompareOperation = opCode;
+    miSemaphoreWaitParams.dwResourceOffset = semaMemOffset;
     eStatus = m_miInterface->AddMiSemaphoreWaitCmd(cmdBuffer, &miSemaphoreWaitParams);
 
     return eStatus;

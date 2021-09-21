@@ -41,6 +41,7 @@
 #endif
 #endif
 
+#include "media_user_setting.h"
 #include "null_hardware.h"
 extern PerfUtility *g_perfutility;
 
@@ -159,6 +160,7 @@ private:
 #define MOS_INVALID_APPID                   0xFFFFFFFF
 
 #define MOS_GPU_CONTEXT_CREATE_DEFAULT      1
+#define MOS_GPU_CONTEXT_CREATE_CM_DEFAULT   15
 
 #define MOS_VCS_ENGINE_USED(GpuContext) (              \
     ((GpuContext) == MOS_GPU_CONTEXT_VIDEO)         || \
@@ -253,6 +255,13 @@ typedef struct _MOS_SYNC_PARAMS
     int32_t                 bDisableLockForTranscode;   //!< Disable the lock function for transcode perf.
 } MOS_SYNC_PARAMS, *PMOS_SYNC_PARAMS;
 
+typedef enum _MOS_SCALABILITY_ENABLE_MODE
+{
+    MOS_SCALABILITY_ENABLE_MODE_FALSE      = 0,
+    MOS_SCALABILITY_ENABLE_MODE_DEFAULT    = 0x0001,
+    MOS_SCALABILITY_ENABLE_MODE_USER_FORCE = 0x0010
+} MOS_SCALABILITY_ENABLE_MODE;
+
 #if (_DEBUG || _RELEASE_INTERNAL)
 //!
 //! \brief for forcing VDBOX
@@ -282,13 +291,6 @@ typedef enum _MOS_FORCE_VEBOX
     MOS_FORCE_VEBOX_1_2_3   = 0x0123,
     MOS_FORCE_VEBOX_1_2_3_4 = 0x1234
 } MOS_FORCE_VEBOX;
-
-typedef enum _MOS_SCALABILITY_ENABLE_MODE
-{
-    MOS_SCALABILITY_ENABLE_MODE_FALSE      = 0,
-    MOS_SCALABILITY_ENABLE_MODE_DEFAULT    = 0x0001,
-    MOS_SCALABILITY_ENABLE_MODE_USER_FORCE = 0x0010
-} MOS_SCALABILITY_ENABLE_MODE;
 
 #define MOS_FORCEVEBOX_VEBOXID_BITSNUM              4 //each VEBOX ID occupies 4 bits see defintion MOS_FORCE_VEBOX
 #define MOS_FORCEVEBOX_MASK                         0xf
@@ -360,6 +362,8 @@ typedef enum _MOS_VEBOX_NODE_IND
 #define SUBMISSION_TYPE_MULTI_PIPE_FLAGS_LAST_PIPE      (1 << SUBMISSION_TYPE_MULTI_PIPE_FLAGS_SHIFT)
 typedef int32_t MOS_SUBMISSION_TYPE;
 
+#define EXTRA_PADDING_NEEDED                            4096
+
 //!
 //! \brief Structure to command buffer
 //!
@@ -397,7 +401,9 @@ typedef struct _MOS_LOCK_PARAMS
             uint32_t NoDecompress        : 1;                                    //!< No decompression for memory compressed surface
             uint32_t Uncached            : 1;                                    //!< Use uncached lock
             uint32_t ForceCached         : 1;                                    //!< Prefer normal map to global GTT map(Uncached) if both can work
-            uint32_t Reserved            : 25;                                   //!< Reserved for expansion.
+            uint32_t DumpBeforeSubmit    : 1;                                    //!< Lock only for dump before submit
+            uint32_t DumpAfterSubmit     : 1;                                    //!< Lock only for dump after submit
+            uint32_t Reserved            : 23;                                   //!< Reserved for expansion.
         };
         uint32_t    Value;
     };
@@ -429,6 +435,7 @@ typedef struct _MOS_GFXRES_FLAGS
     int32_t         bOverlay;
     int32_t         bFlipChain;
     int32_t         bSVM;
+    int32_t         bCacheable;
 } MOS_GFXRES_FLAGS, *PMOS_GFXRES_FLAGS;
 
 //!
@@ -569,12 +576,18 @@ typedef OsContextNext OsDeviceContext;
 typedef _MOS_GPUCTX_CREATOPTIONS GpuContextCreateOption;
 struct _MOS_INTERFACE;
 class MosVeInterface;
+class CommandList;
+class CmdBufMgrNext;
 
 struct MosStreamState
 {
     OsDeviceContext   *osDeviceContext = nullptr;
     GPU_CONTEXT_HANDLE currentGpuContextHandle = MOS_GPU_CONTEXT_INVALID_HANDLE;
     MOS_COMPONENT      component;
+
+    CommandList        *currentCmdList      = nullptr;  //<! Command list used in async mode
+    CmdBufMgrNext      *currentCmdBufMgr    = nullptr;  //<! Cmd buffer manager used in async mode
+    bool                postponedExecution  = false;    //!< Indicate if the stream is work in postponed execution mode. This flag is only used in aync mode.
 
     bool supportVirtualEngine = false; //!< Flag to indicate using virtual engine interface
     MosVeInterface *virtualEngineInterface = nullptr; //!< Interface to virtual engine state
@@ -624,6 +637,7 @@ struct MosStreamState
     int32_t eForceVebox = 0;  //!< Force select Vebox
 #endif // _DEBUG || _RELEASE_INTERNAL
 
+    bool  bGucSubmission     = false;  //!< Flag to indicate if guc submission is enabled
     OS_PER_STREAM_PARAMETERS  perStreamParameters = nullptr; //!< Parameters of OS specific per stream
 };
 
@@ -659,6 +673,9 @@ typedef struct _MOS_INTERFACE
     //!< A handle to the graphics context device that can be used to calls back
     //!< into the kernel subsystem
     HANDLE                          CurrentGpuContextRuntimeHandle;
+
+    //!< Only used in async mode for backward compatiable
+    GPU_CONTEXT_HANDLE              m_GpuContextHandleMap[MOS_GPU_CONTEXT_MAX] = {0};
 
     // OS dependent settings, flags, limits
     int32_t                         b64bit;
@@ -772,6 +789,10 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE              pOsInterface,
         MOS_GPU_CONTEXT             GpuContext);
 
+    MOS_STATUS (* pfnDestroyGpuComputeContext) (
+        PMOS_INTERFACE              osInterface,
+        GPU_CONTEXT_HANDLE          gpuContextHandle);
+
     MOS_STATUS (* pfnSetGpuContext) (
         PMOS_INTERFACE              pOsInterface,
         MOS_GPU_CONTEXT             GpuContext);
@@ -804,6 +825,10 @@ typedef struct _MOS_INTERFACE
 
     MOS_GPU_CONTEXT (* pfnGetGpuContext) (
         PMOS_INTERFACE              pOsInterface);
+
+    void* (*pfnGetGpuContextbyHandle)(
+        PMOS_INTERFACE              pOsInterface,
+        const GPU_CONTEXT_HANDLE    gpuContextHandle);
 
     GMM_CLIENT_CONTEXT* (* pfnGetGmmClientContext) (
         PMOS_INTERFACE              pOsInterface);
@@ -1249,6 +1274,9 @@ typedef struct _MOS_INTERFACE
     MOS_STATUS(*pfnSkipResourceSync)(
         PMOS_RESOURCE               pOsResource);
 
+    MOS_STATUS(*pfnSetObjectCapture)(
+        PMOS_RESOURCE               pOsResource);
+
     MOS_STATUS(*pfnSkipResourceSyncDynamic)(
         PMOS_RESOURCE               pOsResource);
 
@@ -1367,6 +1395,7 @@ typedef struct _MOS_INTERFACE
     bool                            phasedSubmission = false;                     //!< Flag to indicate if secondary command buffers are submitted together (Win) or separately (Linux)
     bool                            frameSplit = true;                            //!< Flag to indicate if frame split is enabled
     bool                            bSetHandleInvalid = false;
+    bool                            bGucSubmission = false;                       //!< Flag to indicate if guc submission is enabled
     MOS_CMD_BUF_ATTRI_VE            bufAttriVe[MOS_GPU_CONTEXT_MAX];
 
     MOS_STATUS (*pfnCheckVirtualEngineSupported)(

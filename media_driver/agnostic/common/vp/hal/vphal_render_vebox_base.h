@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2020, Intel Corporation
+* Copyright (c) 2011-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -499,6 +499,10 @@ typedef enum _VEBOX_STAT_QUERY_TYPE
 #define VPHAL_NUM_RGB_CHANNEL                   3
 #define VPHAL_NUM_FRAME_PREVIOUS_CURRENT        2
 
+//No matter how many vebox running, the histogram slice number is always 4.
+//When there is only one VEBOX, 0 is written to the other histogram slices by HW.
+#define VPHAL_VEBOX_HISTOGRAM_SLICES_COUNT      4
+
 //!
 //! \brief Binding Table Index for Secure Block Copy kernel
 //!
@@ -571,6 +575,7 @@ typedef struct _VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS
     PVPHAL_SURFACE                  pSurfDNOutput;
     PVPHAL_SURFACE                  pSurfSkinScoreOutput;
     bool                            bDIEnable;
+    bool                            b3DlutEnable;
 } VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS, *PVPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS;
 
 //!
@@ -627,6 +632,7 @@ public:
                                             bTFF           = false;
                                             bTopField      = false;
                                             bBeCsc         = false;
+                                            bFeCsc         = false;
                                             bVeboxBypass   = false;
                                             b60fpsDi       = false;
                                             bQueryVariance = false;
@@ -653,6 +659,7 @@ public:
                                             pRenderTarget      = nullptr;
                                             SamplerStateParams = { };
                                             VeboxDNDIParams    = { };
+                                            VeboxChromaParams  = { };
                                             pAlphaParams       = nullptr;
                                             // Batch Buffer rendering arguments
                                             BbArgs = { };
@@ -719,6 +726,7 @@ public:
     bool                                bTFF;
     bool                                bTopField;
     bool                                bBeCsc;
+    bool                                bFeCsc;
     bool                                bVeboxBypass;
     bool                                b60fpsDi;
     bool                                bQueryVariance;
@@ -753,7 +761,9 @@ public:
 
     MHW_VEBOX_DNDI_PARAMS               VeboxDNDIParams;
 
-    PVPHAL_ALPHA_PARAMS                 pAlphaParams;
+    MHW_VEBOX_CHROMA_PARAMS             VeboxChromaParams;
+
+    PVPHAL_ALPHA_PARAMS                 pAlphaParams;                      
 
     // Batch Buffer rendering arguments
     VPHAL_ADVPROC_BB_ARGS               BbArgs;
@@ -904,6 +914,8 @@ public:
       PVPHAL_SURFACE                  pInSurface,
       PVPHAL_SURFACE                  pOutSurface);
 
+    void DestorySfcTempSurface();
+
     // External components
     PMHW_VEBOX_INTERFACE            m_pVeboxInterface;                            //!< Pointer to MHW Vebox Structure Interface
     PMHW_SFC_INTERFACE              m_pSfcInterface;                              //!< Pointer to SFC Structure Interface
@@ -922,6 +934,11 @@ public:
     float                           fCscCoeff[9];                               //!< [3x3] Coeff matrix for CSC
     float                           fCscInOffset[3];                            //!< [3x1] Input Offset matrix for CSC
     float                           fCscOutOffset[3];                           //!< [3x1] Output Offset matrix for CSC
+
+    // Front End CSC in VEBOX params
+    float                           *fFeCscCoeff;                                //!< [3x3] Coeff matrix for CSC
+    float                           *fFeCscInOffset;                             //!< [3x1] Input Offset matrix for CSC
+    float                           *fFeCscOutOffset;                            //!< [3x1] Output Offset matrix for CSC
 
     // Dynamic linking filter
     Kdll_FilterEntry                SearchFilter[2];
@@ -1033,8 +1050,8 @@ public:
     MOS_GPU_CONTEXT                  RenderGpuContext;                           //!< Render GPU context
 
     VPHAL_SURFACE                    Vebox3DLookUpTables = {};
-    VPHAL_SURFACE                    SfcTempSurface = {};
-    VPHAL_SURFACE                    Sfc2ndTempSurface = {};
+    PVPHAL_SURFACE                   m_sfcTempSurface    = nullptr;
+    PVPHAL_SURFACE                   m_sfc2ndTempSurface = nullptr;
 
     VphalHVSDenoiser                 *m_hvsDenoiser;                             //!< Human Vision System Based Denoiser - Media Kernel to generate DN parameter
     uint8_t                          *m_hvsKernelBinary;                         //!< Human Vision System Based Denoiser - Pointer to HVS kernel Binary

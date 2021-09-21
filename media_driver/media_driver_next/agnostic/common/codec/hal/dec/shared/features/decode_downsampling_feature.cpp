@@ -43,9 +43,14 @@ DecodeDownSamplingFeature::DecodeDownSamplingFeature(
 
 DecodeDownSamplingFeature::~DecodeDownSamplingFeature()
 {
-    if (m_histogramBuffer != nullptr &&
-        !m_allocator->ResourceIsNull(&m_histogramBuffer->OsResource))
+    for (auto i = 0; i < DecodeBasicFeature::m_maxFrameIndex; i++)
     {
+        MOS_BUFFER *histogramBuffer = m_histogramBufferList[i];
+        if (histogramBuffer == nullptr ||
+            m_allocator->ResourceIsNull(&histogramBuffer->OsResource))
+        {
+            continue;
+        }
         MOS_STATUS eStatus = m_allocator->Destroy(m_histogramBuffer);
         if (eStatus != MOS_STATUS_SUCCESS)
         {
@@ -66,18 +71,6 @@ MOS_STATUS DecodeDownSamplingFeature::Init(void *setting)
     DECODE_CHK_NULL(m_basicFeature);
 
     MOS_ZeroMemory(&m_outputSurface, sizeof(m_outputSurface));
-
-    m_histogramBuffer = m_allocator->AllocateBuffer(HISTOGRAM_BINCOUNT * m_histogramBinWidth,
-        "Histogram internal buffer",
-        resourceInternalReadWriteCache,
-        true,
-        0,
-        false);
-    DECODE_CHK_NULL(m_histogramBuffer);
-    if (m_allocator->ResourceIsNull(&m_histogramBuffer->OsResource))
-    {
-        DECODE_ASSERTMESSAGE("Failed to allocate hsitogram internal buffer!");
-    }
 
 #if (_DEBUG || _RELEASE_INTERNAL)
     MOS_USER_FEATURE_VALUE_DATA userFeatureData;
@@ -118,6 +111,7 @@ MOS_STATUS DecodeDownSamplingFeature::Update(void *params)
     m_rotationState                = procParams->m_rotationState;
     m_blendState                   = procParams->m_blendState;
     m_mirrorState                  = procParams->m_mirrorState;
+    m_scalingMode                  = procParams->m_scalingMode;
     m_isReferenceOnlyPattern       = procParams->m_isReferenceOnlyPattern;
 
     DECODE_CHK_NULL(procParams->m_outputSurface);
@@ -126,8 +120,10 @@ MOS_STATUS DecodeDownSamplingFeature::Update(void *params)
 
     m_outputSurfaceRegion.m_x      = procParams->m_outputSurfaceRegion.m_x;
     m_outputSurfaceRegion.m_y      = procParams->m_outputSurfaceRegion.m_y;
-    m_outputSurfaceRegion.m_width  = procParams->m_outputSurfaceRegion.m_width;
-    m_outputSurfaceRegion.m_height = procParams->m_outputSurfaceRegion.m_height;
+    m_outputSurfaceRegion.m_width  = (procParams->m_outputSurfaceRegion.m_width == 0) ?
+        m_outputSurface.dwWidth : procParams->m_outputSurfaceRegion.m_width;
+    m_outputSurfaceRegion.m_height = (procParams->m_outputSurfaceRegion.m_height == 0) ?
+        m_outputSurface.dwHeight : procParams->m_outputSurfaceRegion.m_height;
 
     if (procParams->m_inputSurface != nullptr)
     {
@@ -164,14 +160,21 @@ MOS_STATUS DecodeDownSamplingFeature::Update(void *params)
     if (m_allocator->ResourceIsNull(&decodeParams->m_histogramSurface.OsResource) && !m_histogramDebug)
     {
         m_histogramDestSurf = nullptr;
+        m_histogramBuffer   = nullptr;
     }
     else
     {
         m_histogramDestSurf = &decodeParams->m_histogramSurface;
+        m_histogramBuffer   = AllocateHistogramBuffer(m_basicFeature->m_curRenderPic.FrameIdx);
+        DECODE_CHK_NULL(m_histogramBuffer);
     }
 
     // Update decode output in basic feature
     DECODE_CHK_STATUS(UpdateDecodeTarget(*m_inputSurface));
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    m_outputSurfaceList[m_basicFeature->m_curRenderPic.FrameIdx] = m_outputSurface;
+#endif
 
     return MOS_STATUS_SUCCESS;
 }
@@ -188,13 +191,43 @@ MOS_STATUS DecodeDownSamplingFeature::UpdateInternalTargets(DecodeBasicFeature &
 
     MOS_SURFACE surface;
     MOS_ZeroMemory(&surface, sizeof(surface));
-    surface.dwWidth  = basicFeature.m_width;
-    surface.dwHeight = basicFeature.m_height;
+    DECODE_CHK_STATUS(GetDecodeTargetSize(surface.dwWidth, surface.dwHeight));
     DECODE_CHK_STATUS(GetDecodeTargetFormat(surface.Format));
     DECODE_CHK_STATUS(m_internalTargets.ActiveCurSurf(
-        curFrameIdx, &surface, basicFeature.IsMmcEnabled(), resourceOutputPicture));
+        curFrameIdx, &surface, basicFeature.IsMmcEnabled(), resourceOutputPicture, notLockableVideoMem));
 
     return MOS_STATUS_SUCCESS;
+}
+
+PMOS_BUFFER DecodeDownSamplingFeature::AllocateHistogramBuffer(uint8_t frameIndex)
+{
+    DECODE_FUNC_CALL();
+
+    if (frameIndex >= DecodeBasicFeature::m_maxFrameIndex)
+    {
+        return nullptr;
+    }
+
+    if (m_histogramBufferList[frameIndex] == nullptr)
+    {
+        auto histogramBuffer = m_allocator->AllocateBuffer(HISTOGRAM_BINCOUNT * m_histogramBinWidth,
+            "Histogram internal buffer",
+            resourceInternalReadWriteCache,
+            lockableVideoMem,
+            true,
+            0,
+            false);
+
+        if (histogramBuffer == nullptr ||
+            m_allocator->ResourceIsNull(&histogramBuffer->OsResource))
+        {
+            DECODE_ASSERTMESSAGE("Failed to allocate hsitogram internal buffer!");
+        }
+
+        m_histogramBufferList[frameIndex] = histogramBuffer;
+    }
+
+    return m_histogramBufferList[frameIndex];
 }
 
 MOS_STATUS DecodeDownSamplingFeature::DumpSfcOutputs(CodechalDebugInterface* debugInterface)

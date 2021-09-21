@@ -635,6 +635,9 @@ MOS_STATUS MediaVeboxDecompState::GetResourceInfo(PMOS_SURFACE surface)
     surface->bCompressible                                      = resDetails.bCompressible;
     surface->bIsCompressed                                      = resDetails.bIsCompressed;
     surface->dwOffset                                           = resDetails.RenderOffset.YUV.Y.BaseOffset;
+    surface->YPlaneOffset.iSurfaceOffset                        = resDetails.RenderOffset.YUV.Y.BaseOffset;
+    surface->YPlaneOffset.iXOffset                              = resDetails.RenderOffset.YUV.Y.XOffset;
+    surface->YPlaneOffset.iYOffset                              = resDetails.RenderOffset.YUV.Y.YOffset;
     surface->UPlaneOffset.iSurfaceOffset                        = resDetails.RenderOffset.YUV.U.BaseOffset;
     surface->UPlaneOffset.iXOffset                              = resDetails.RenderOffset.YUV.U.XOffset;
     surface->UPlaneOffset.iYOffset                              = resDetails.RenderOffset.YUV.U.YOffset;
@@ -815,7 +818,6 @@ MOS_STATUS MediaVeboxDecompState::InitCommandBuffer(
 {
     PMOS_INTERFACE              pOsInterface;
     MOS_STATUS                  eStatus = MOS_STATUS_SUCCESS;
-    MEDIA_SYSTEM_INFO           *pGtSystemInfo;
     uint32_t                    iRemaining;
     RENDERHAL_GENERIC_PROLOG_PARAMS         GenericPrologParams = {};
     PMOS_RESOURCE                           gpuStatusBuffer     = nullptr;

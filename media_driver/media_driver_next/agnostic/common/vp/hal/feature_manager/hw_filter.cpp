@@ -49,6 +49,8 @@ HwFilter::~HwFilter()
 
 MOS_STATUS HwFilter::Initialize(HW_FILTER_PARAMS &param)
 {
+    VP_FUNC_CALL();
+
     bool bRet = true;
 
     Clean();
@@ -70,6 +72,8 @@ MOS_STATUS HwFilter::Initialize(HW_FILTER_PARAMS &param)
 
 MOS_STATUS HwFilter::ConfigParam(HW_FILTER_PARAM& param)
 {
+    VP_FUNC_CALL();
+
     if (!param.pfnCreatePacketParam)
     {
         VP_PUBLIC_ASSERTMESSAGE("Create packet params function is Null, return invalid params");
@@ -84,6 +88,8 @@ MOS_STATUS HwFilter::ConfigParam(HW_FILTER_PARAM& param)
 
 MOS_STATUS HwFilter::Clean()
 {
+    VP_FUNC_CALL();
+
     std::vector<VpPacketParameter *>::iterator it = m_Params.Params.begin();
     for (; it != m_Params.Params.end(); ++it)
     {
@@ -95,6 +101,20 @@ MOS_STATUS HwFilter::Clean()
     m_vpInterface.GetSwFilterPipeFactory().Destory(m_swFilterPipe);
 
     return MOS_STATUS_SUCCESS;
+}
+
+RenderTargetType HwFilter::GetRenderTargetType()
+{
+    VP_FUNC_CALL();
+
+    if (m_swFilterPipe)
+    {
+        return m_swFilterPipe->GetRenderTargetType();
+    }
+    else
+    {
+        return RenderTargetTypeInvalid;
+    }
 }
 
 /****************************************************************************************************/
@@ -115,6 +135,8 @@ HwFilterVebox::~HwFilterVebox()
 
 MOS_STATUS HwFilterVebox::SetPacketParams(VpCmdPacket &packet)
 {
+    VP_FUNC_CALL();
+
     bool bRet = true;
 
     PVPHAL_SURFACE pSrcSurface = nullptr;
@@ -153,6 +175,8 @@ HwFilterVeboxSfc::~HwFilterVeboxSfc()
 
 MOS_STATUS HwFilterVeboxSfc::SetPacketParams(VpCmdPacket &packet)
 {
+    VP_FUNC_CALL();
+
     return HwFilterVebox::SetPacketParams(packet);
 }
 
@@ -168,5 +192,31 @@ HwFilterRender::~HwFilterRender()
 
 MOS_STATUS HwFilterRender::SetPacketParams(VpCmdPacket &packet)
 {
-    return MOS_STATUS_SUCCESS;
+    VP_FUNC_CALL();
+
+    bool bRet = true;
+
+    PVPHAL_SURFACE pSrcSurface    = nullptr;
+    PVPHAL_SURFACE pOutputSurface = nullptr;
+
+    // Remove dependence on vphal surface later.
+    VP_PUBLIC_CHK_NULL_RETURN(m_swFilterPipe);
+    VP_SURFACE* inputSurf  = m_swFilterPipe->GetSurface(true, 0);
+    VP_SURFACE* outputSurf = m_swFilterPipe->GetSurface(false, 0);
+    // previousSurf can be nullptr;
+    VP_SURFACE* previousSurf = m_swFilterPipe->GetPastSurface(0);
+    auto& surfSetting        = m_swFilterPipe->GetSurfacesSetting();
+    VP_PUBLIC_CHK_NULL_RETURN(inputSurf);
+    VP_PUBLIC_CHK_NULL_RETURN(outputSurf);
+    VP_PUBLIC_CHK_STATUS_RETURN(packet.PacketInit(inputSurf, outputSurf,
+        previousSurf, surfSetting, m_vpExecuteCaps));
+
+    for (auto handler : m_Params.Params)
+    {
+        if (handler)
+        {
+            bRet = handler->SetPacketParam(&packet) && bRet;
+        }
+    }
+    return bRet ? MOS_STATUS_SUCCESS : MOS_STATUS_UNKNOWN;
 }

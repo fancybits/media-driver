@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2020, Intel Corporation
+* Copyright (c) 2019-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -63,6 +63,10 @@ MOS_STATUS Av1DecodePkt::Init()
     DECODE_CHK_NULL(m_tilePkt);
     DECODE_CHK_STATUS(m_tilePkt->CalculateCommandSize(m_tileStatesSize, m_tilePatchListSize));
 
+    m_secondLevelBBArray = m_allocator->AllocateBatchBufferArray(
+        m_pictureStatesSize, 1, CODEC_NUM_AV1_SECOND_BB, true, lockableVideoMem);
+    DECODE_CHK_NULL(m_secondLevelBBArray);
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -79,6 +83,9 @@ MOS_STATUS Av1DecodePkt::Prepare()
 MOS_STATUS Av1DecodePkt::Destroy()
 {
     m_statusReport->UnregistObserver(this);
+
+    DECODE_CHK_STATUS(m_allocator->Destroy(m_secondLevelBBArray));
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -87,7 +94,9 @@ void Av1DecodePkt::SetPerfTag(CODECHAL_MODE mode, uint16_t picCodingType)
     DECODE_FUNC_CALL();
 
     uint16_t perfTag = ((mode << 4) & 0xF0) | (picCodingType & 0xF);
+    m_osInterface->pfnIncPerfFrameID(m_osInterface);
     m_osInterface->pfnSetPerfTag(m_osInterface, perfTag);
+    m_osInterface->pfnResetPerfBufferID(m_osInterface);
 }
 
 bool Av1DecodePkt::IsPrologRequired()
@@ -119,18 +128,22 @@ MOS_STATUS Av1DecodePkt::SendPrologWithFrameTracking(MOS_COMMAND_BUFFER& cmdBuff
     DECODE_CHK_STATUS(makerPacket->Execute(cmdBuffer));
 
 #ifdef _MMC_SUPPORTED
-        m_mmcState = m_av1Pipeline->GetMmcState();
-        if (m_mmcState && m_mmcState->IsMmcEnabled())
-        {
-            DECODE_CHK_STATUS(m_mmcState->SendPrologCmd(&cmdBuffer, false));
-        }
+    m_mmcState = m_av1Pipeline->GetMmcState();
+    bool isMmcEnabled = (m_mmcState != nullptr && m_mmcState->IsMmcEnabled());
+    if (isMmcEnabled)
+    {
+        DECODE_CHK_STATUS(m_mmcState->SendPrologCmd(&cmdBuffer, false));
+    }
 #endif
 
     MHW_GENERIC_PROLOG_PARAMS  genericPrologParams;
     MOS_ZeroMemory(&genericPrologParams, sizeof(genericPrologParams));
     genericPrologParams.pOsInterface = m_osInterface;
     genericPrologParams.pvMiInterface = m_miInterface;
-    genericPrologParams.bMmcEnabled = false;
+
+#ifdef _MMC_SUPPORTED
+    genericPrologParams.bMmcEnabled = isMmcEnabled;
+#endif
 
     DECODE_CHK_STATUS(Mhw_SendGenericPrologCmd(&cmdBuffer, &genericPrologParams));
 
@@ -252,21 +265,36 @@ MOS_STATUS Av1DecodePkt::StartStatusReport(uint32_t srType, MOS_COMMAND_BUFFER* 
 
 MOS_STATUS Av1DecodePkt::EndStatusReport(uint32_t srType, MOS_COMMAND_BUFFER* cmdBuffer)
 {
-
     DECODE_FUNC_CALL();
     DECODE_CHK_NULL(cmdBuffer);
-
     DECODE_CHK_STATUS(ReadAvpStatus( m_statusReport, *cmdBuffer));
-
     DECODE_CHK_STATUS(MediaPacket::EndStatusReport(srType, cmdBuffer));
+
+    SetPerfTag(CODECHAL_DECODE_MODE_AV1VLD, m_av1BasicFeature->m_pictureCodingType);
 
     MediaPerfProfiler* perfProfiler = MediaPerfProfiler::Instance();
     DECODE_CHK_NULL(perfProfiler);
     DECODE_CHK_STATUS(perfProfiler->AddPerfCollectEndCmd(
         (void*)m_av1Pipeline, m_osInterface, m_miInterface, cmdBuffer));
 
-    return MOS_STATUS_SUCCESS;
+    // Add Mi flush here to ensure end status tag flushed to memory earlier than completed count
+    DECODE_CHK_STATUS(MiFlush(*cmdBuffer));
 
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS Av1DecodePkt::InitPicLevelCmdBuffer(MHW_BATCH_BUFFER &batchBuffer, uint8_t *batchBufBase)
+{
+    DECODE_FUNC_CALL();
+
+    auto &cmdBuffer = m_picCmdBuffer;
+    MOS_ZeroMemory(&cmdBuffer, sizeof(MOS_COMMAND_BUFFER));
+    cmdBuffer.pCmdBase   = (uint32_t*)batchBufBase;
+    cmdBuffer.pCmdPtr    = cmdBuffer.pCmdBase;
+    cmdBuffer.iRemaining = batchBuffer.iSize;
+    cmdBuffer.OsResource = batchBuffer.OsResource;
+
+    return MOS_STATUS_SUCCESS;
 }
 
 #if USE_CODECHAL_DEBUG_TOOL

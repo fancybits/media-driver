@@ -50,6 +50,7 @@ enum ProfileIdc
 //!
 enum LevelIdc
 {
+    levelHighP       = 2,
     levelHigh        = 4,
     levelHigh1440    = 6,
     levelMain        = 8,
@@ -1336,11 +1337,13 @@ MOS_STATUS CodechalEncodeMpeg2::AllocateBuffer2D(
         return eStatus;
     }
 
+    surface->dwPitch = (uint32_t)surface->OsResource.pGmmResInfo->GetRenderPitch();
+
     CodechalResLock bufLock(m_osInterface, &surface->OsResource);
     auto data = bufLock.Lock(CodechalResLock::writeOnly);
     CODECHAL_ENCODE_CHK_NULL_RETURN(data);
 
-    MOS_ZeroMemory(data, surface->dwWidth * surface->dwHeight);
+    MOS_ZeroMemory(data, surface->dwPitch * surface->dwHeight);
 
     return eStatus;
 }
@@ -1711,6 +1714,7 @@ MOS_STATUS CodechalEncodeMpeg2::CheckProfileAndLevel()
         case levelHigh1440:
         case levelMain:
         case levelLow:
+        case levelHighP:
             break;
         default:
             return eStatus;
@@ -3754,7 +3758,7 @@ MOS_STATUS CodechalEncodeMpeg2::InitBrcConstantBuffer()
     auto data = (uint8_t *)bufLock.Lock(CodechalResLock::writeOnly);
     CODECHAL_ENCODE_CHK_NULL_RETURN(data);
 
-    MOS_ZeroMemory(data, brcConstantDataBuffer.dwWidth * brcConstantDataBuffer.dwHeight);
+    MOS_ZeroMemory(data, brcConstantDataBuffer.dwPitch * brcConstantDataBuffer.dwHeight);
 
     uint8_t *maxFrameThresholdArray = nullptr;
     uint8_t *distQPAdjustmentArray  = nullptr;
@@ -3779,18 +3783,18 @@ MOS_STATUS CodechalEncodeMpeg2::InitBrcConstantBuffer()
     }
 
     // Fill surface with QP Adjustment table, Distortion threshold table, MaxFrame threshold table for I frame
-    // The surface width happens to be the size of the array.
+    // The surface width happens to be the size of the array (64), but pitch can be greater.
     CODECHAL_ENCODE_CHK_STATUS_RETURN(MOS_SecureMemcpy(
         data,
         m_frameThresholdArraySize,
         maxFrameThresholdArray,
         m_frameThresholdArraySize));
 
-    data += m_frameThresholdArraySize;
+    data += brcConstantDataBuffer.dwPitch; // advance next row in 2D using pitch
 
-    for (uint32_t i = 0; i < m_distQpAdjustmentArraySize; i += m_brcConstantSurfaceWidth)
+    for (uint32_t i = 0; i < m_distQpAdjustmentArraySize; i += m_brcConstantSurfaceWidth, data += brcConstantDataBuffer.dwPitch)
     {
-        uint32_t copySize;
+        uint32_t copySize; // to write <=64 bytes per row
         if ((m_distQpAdjustmentArraySize - i) > m_brcConstantSurfaceWidth)
         {
             copySize = m_brcConstantSurfaceWidth;
@@ -3800,7 +3804,7 @@ MOS_STATUS CodechalEncodeMpeg2::InitBrcConstantBuffer()
             copySize = m_distQpAdjustmentArraySize - i;
         }
         CODECHAL_ENCODE_CHK_STATUS_RETURN(MOS_SecureMemcpy(
-            data + i,
+            data,
             copySize,
             distQPAdjustmentArray + i,
             copySize));

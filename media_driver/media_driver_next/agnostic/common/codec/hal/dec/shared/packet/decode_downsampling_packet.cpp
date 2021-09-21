@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020, Intel Corporation
+* Copyright (c) 2020-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -58,10 +58,6 @@ MOS_STATUS DecodeDownSamplingPkt::Init()
 
     m_downSampling = dynamic_cast<DecodeDownSamplingFeature *>(
         featureManager->GetFeature(DecodeFeatureIDs::decodeDownSampling));
-    DECODE_CHK_NULL(m_downSampling);
-
-    m_sfcInterface = MOS_New(MediaSfcInterface, m_hwInterface->GetOsInterface());
-    DECODE_CHK_NULL(m_sfcInterface);
 
     MOS_ZeroMemory(&m_sfcParams, sizeof(m_sfcParams));
     return MOS_STATUS_SUCCESS;
@@ -82,6 +78,18 @@ MOS_STATUS DecodeDownSamplingPkt::Execute(MOS_COMMAND_BUFFER& cmdBuffer)
         m_isSupported = false;
         return MOS_STATUS_SUCCESS;
     }
+
+    if (m_sfcInterface == nullptr)
+    {
+        m_sfcInterface = MOS_New(MediaSfcInterface, m_hwInterface->GetOsInterface(), m_pipeline->GetMmcState());
+        DECODE_CHK_NULL(m_sfcInterface);
+
+        MEDIA_SFC_INTERFACE_MODE mode;
+        SetSfcMode(mode);
+
+        DECODE_CHK_STATUS(m_sfcInterface->Initialize(mode));
+    }
+   
 
     DECODE_CHK_STATUS(InitSfcParams(m_sfcParams));
     if (m_sfcInterface->IsParameterSupported(m_sfcParams) == MOS_STATUS_SUCCESS)
@@ -116,8 +124,11 @@ MOS_STATUS DecodeDownSamplingPkt::InitSfcParams(VDBOX_SFC_PARAMS &sfcParams)
 
     DECODE_CHK_NULL(m_downSampling->m_inputSurface);
 
-    sfcParams.input.width         = m_downSampling->m_inputSurface->dwWidth;
-    sfcParams.input.height        = m_downSampling->m_inputSurface->dwHeight;
+    // x + width/ y + height is the effective width/height of SFC input, which may be smaller than frame width/height.
+    sfcParams.input.width         = m_downSampling->m_inputSurfaceRegion.m_x +
+                                    m_downSampling->m_inputSurfaceRegion.m_width;
+    sfcParams.input.height        = m_downSampling->m_inputSurfaceRegion.m_y +
+                                    m_downSampling->m_inputSurfaceRegion.m_height;
     sfcParams.input.format        = m_downSampling->m_inputSurface->Format;
     sfcParams.input.colorSpace    = CSpace_Any;
     sfcParams.input.chromaSiting  = m_downSampling->m_chromaSitingType;
@@ -134,6 +145,7 @@ MOS_STATUS DecodeDownSamplingPkt::InitSfcParams(VDBOX_SFC_PARAMS &sfcParams)
                                     m_downSampling->m_outputSurfaceRegion.m_height;
 
     sfcParams.videoParams.codecStandard = m_basicFeature->m_standard;
+    sfcParams.scalingMode         = m_downSampling->m_scalingMode;
 
     // If histogram is enabled
     if (m_downSampling->m_histogramDestSurf || m_downSampling->m_histogramDebug)

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2020, Intel Corporation
+* Copyright (c) 2017-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -42,6 +42,24 @@ MOS_STATUS CodechalDecodeAvcG12::AllocateStandard(
     CODECHAL_DECODE_CHK_NULL_RETURN(settings);
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(CodechalDecodeAvc::AllocateStandard(settings));
+#ifdef _MMC_SUPPORTED
+    // To WA invalid aux data caused HW issue when MMC on
+    // Add disable Clear CCS WA due to green corruption issue
+    if (m_mmc->IsMmcEnabled())
+    {
+        if (MEDIA_IS_WA(m_waTable, Wa_1408785368) || MEDIA_IS_WA(m_waTable, Wa_22010493002) && (!MEDIA_IS_WA(m_waTable, WaDisableClearCCS)))
+        {
+            //Add HUC STATE Commands
+            MHW_VDBOX_STATE_CMDSIZE_PARAMS stateCmdSizeParams;
+
+            m_hwInterface->GetHucStateCommandSize(
+                CODECHAL_DECODE_MODE_AVCVLD,
+                &m_HucStateCmdBufferSizeNeeded,
+                &m_HucPatchListSizeNeeded,
+                &stateCmdSizeParams);
+        }
+    }
+#endif
 
     if ( MOS_VE_SUPPORTED(m_osInterface))
     {
@@ -162,12 +180,31 @@ MOS_STATUS CodechalDecodeAvcG12::AllocateHistogramSurface()
     return MOS_STATUS_SUCCESS;
 }
 
+void CodechalDecodeAvcG12::CalcRequestedSpace(
+    uint32_t &requestedSize,
+    uint32_t &additionalSizeNeeded,
+    uint32_t &requestedPatchListSize) 
+{  
+    CODECHAL_DECODE_FUNCTION_ENTER;
+
+    requestedSize          = m_commandBufferSizeNeeded + m_HucStateCmdBufferSizeNeeded +
+                    (m_standardDecodeSizeNeeded * (m_decodeParams.m_numSlices + 1));
+    requestedPatchListSize = m_commandPatchListSizeNeeded + m_HucPatchListSizeNeeded +
+                             (m_standardDecodePatchListSizeNeeded * (m_decodeParams.m_numSlices + 1));
+    additionalSizeNeeded = COMMAND_BUFFER_RESERVED_SPACE;
+
+}
+
 MOS_STATUS CodechalDecodeAvcG12::SetFrameStates()
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
     CODECHAL_DECODE_FUNCTION_ENTER;
 
+    if (m_secureDecoder)
+    {
+        m_secureDecoder->EnableSampleGroupConstantIV();
+    }
 
 #ifdef _DECODE_PROCESSING_SUPPORTED
     if (m_decodeParams.m_procParams)
@@ -179,25 +216,6 @@ MOS_STATUS CodechalDecodeAvcG12::SetFrameStates()
         if (m_decodeHistogram)
             m_decodeHistogram->SetSrcHistogramSurface(m_histogramSurface);
 
-    }
-#endif
-
-#ifdef _MMC_SUPPORTED
-    // To WA invalid aux data caused HW issue when MMC on
-    if (m_mmc && m_mmc->IsMmcEnabled() && (MEDIA_IS_WA(m_waTable, Wa_1408785368) || MEDIA_IS_WA(m_waTable, Wa_22010493002)) &&
-        m_decodeParams.m_destSurface && !Mos_ResourceIsNull(&m_decodeParams.m_destSurface->OsResource) &&
-        m_decodeParams.m_destSurface->OsResource.bConvertedFromDDIResource)
-    {
-        if (m_secureDecoder && m_secureDecoder->IsAuxDataInvalid(&m_decodeParams.m_destSurface->OsResource))
-        {
-            CODECHAL_DECODE_CHK_STATUS_RETURN(m_secureDecoder->InitAuxSurface(&m_decodeParams.m_destSurface->OsResource, false, true));
-        }
-        else
-        {
-            CODECHAL_DECODE_VERBOSEMESSAGE("Clear CCS by VE resolve before frame %d submission", m_frameNum);
-            CODECHAL_DECODE_CHK_STATUS_RETURN(static_cast<CodecHalMmcStateG12 *>(m_mmc)->ClearAuxSurf(
-                this, m_miInterface, &m_decodeParams.m_destSurface->OsResource, m_veState));
-        }
     }
 #endif
 
@@ -226,6 +244,29 @@ MOS_STATUS CodechalDecodeAvcG12::DecodeStateLevel()
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
     CODECHAL_DECODE_FUNCTION_ENTER;
+
+#ifdef _MMC_SUPPORTED
+    // To WA invalid aux data caused HW issue when MMC on
+    // Add disable Clear CCS WA due to green corruption issue
+    if (m_mmc->IsMmcEnabled() && m_decodeParams.m_destSurface && !Mos_ResourceIsNull(&m_decodeParams.m_destSurface->OsResource) &&
+        m_decodeParams.m_destSurface->OsResource.bConvertedFromDDIResource)
+    {
+        if (MEDIA_IS_WA(m_waTable, Wa_1408785368) || MEDIA_IS_WA(m_waTable, Wa_22010493002) && (!MEDIA_IS_WA(m_waTable, WaDisableClearCCS)))
+        {
+            if (m_secureDecoder && m_secureDecoder->IsAuxDataInvalid(&m_decodeParams.m_destSurface->OsResource))
+            {
+                CODECHAL_DECODE_CHK_STATUS_RETURN(m_secureDecoder->InitAuxSurface(&m_decodeParams.m_destSurface->OsResource, false, true));
+            }
+            else
+            {
+                CODECHAL_DECODE_VERBOSEMESSAGE("Clear CCS by VE resolve before frame %d submission", m_frameNum);
+                CODECHAL_DECODE_CHK_STATUS_RETURN(static_cast<CodecHalMmcStateG12 *>(m_mmc)->ClearAuxSurf(
+                    this, m_miInterface, &m_decodeParams.m_destSurface->OsResource, m_veState));
+            }
+        }
+
+    }
+#endif
 
     if (m_secureDecoder)
     {
@@ -365,6 +406,18 @@ MOS_STATUS CodechalDecodeAvcG12::DecodePrimitiveLevel()
 
         CODECHAL_DECODE_CHK_STATUS_RETURN(EndStatusReport(decodeStatusReport, &cmdBuffer));
     }
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    if (CodecHal_PictureIsFrame(m_crrPic) ||
+        CodecHal_PictureIsInterlacedFrame(m_crrPic) ||
+        m_secondField)
+    {
+        uint32_t curIdx = (GetDecodeStatusBuf()->m_currIndex + CODECHAL_DECODE_STATUS_NUM - 1) % CODECHAL_DECODE_STATUS_NUM;
+        uint32_t frameCrcOffset = curIdx * sizeof(CodechalDecodeStatus) + GetDecodeStatusBuf()->m_decFrameCrcOffset + sizeof(uint32_t) * 2;
+        std::vector<MOS_RESOURCE> vSemaResource{GetDecodeStatusBuf()->m_statusBuffer};
+        m_debugInterface->DetectCorruptionHw(m_hwInterface, &m_frameCountTypeBuf, curIdx, frameCrcOffset, vSemaResource, &cmdBuffer, m_frameNum);
+    }
+#endif
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_miInterface->AddMiBatchBufferEnd(&cmdBuffer, nullptr));
 

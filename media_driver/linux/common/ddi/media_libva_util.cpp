@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2020, Intel Corporation
+* Copyright (c) 2009-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -207,7 +207,7 @@ VAStatus DdiMediaUtil_AllocateSurface(
         case Media_Format_B10G10R10X2:
         case Media_Format_A16R16G16B16:
         case Media_Format_A16B16G16R16:
-            if (VA_SURFACE_ATTRIB_USAGE_HINT_ENCODER != mediaSurface->surfaceUsageHint   &&
+            if (VA_SURFACE_ATTRIB_USAGE_HINT_ENCODER != mediaSurface->surfaceUsageHint     &&
                 !(mediaSurface->surfaceUsageHint & VA_SURFACE_ATTRIB_USAGE_HINT_VPP_WRITE))
             {
                 tileformat = I915_TILING_NONE;
@@ -224,12 +224,22 @@ VAStatus DdiMediaUtil_AllocateSurface(
                 alignedHeight = MOS_ALIGN_CEIL(height, 2);
                 break;
             }
+
         case Media_Format_RGBP:
         case Media_Format_BGRP:
-        case Media_Format_A8R8G8B8:
-            if (VA_SURFACE_ATTRIB_USAGE_HINT_ENCODER != mediaSurface->surfaceUsageHint &&
+            if (VA_SURFACE_ATTRIB_USAGE_HINT_ENCODER != mediaSurface->surfaceUsageHint   &&
                 !(mediaSurface->surfaceUsageHint & VA_SURFACE_ATTRIB_USAGE_HINT_DECODER) &&
                 !(mediaSurface->surfaceUsageHint & VA_SURFACE_ATTRIB_USAGE_HINT_VPP_WRITE))
+            {
+                tileformat = I915_TILING_NONE;
+                break;
+            }
+        case Media_Format_A8R8G8B8:
+            if (VA_SURFACE_ATTRIB_USAGE_HINT_ENCODER != mediaSurface->surfaceUsageHint     &&
+                !(mediaSurface->surfaceUsageHint & VA_SURFACE_ATTRIB_USAGE_HINT_DECODER)   &&
+                !(mediaSurface->surfaceUsageHint & VA_SURFACE_ATTRIB_USAGE_HINT_VPP_WRITE) &&
+                !(MEDIA_IS_SKU(&mediaDrvCtx->SkuTable, FtrRenderCompressionOnly)           &&
+                  MEDIA_IS_SKU(&mediaDrvCtx->SkuTable, FtrE2ECompression)))
             {
                 tileformat = I915_TILING_NONE;
                 break;
@@ -313,13 +323,8 @@ VAStatus DdiMediaUtil_AllocateSurface(
         // Default set as compression not supported, surface compression import only support from Memory Type VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2
         bMemCompEnable   = false;
         bMemCompRC       = false;
-        pitch = mediaSurface->pSurfDesc->uiPitches[0];
-        if (pitch == 0)
-        {
-            DDI_ASSERTMESSAGE("Invalid pitch value.");
-            hRes = VA_STATUS_ERROR_INVALID_PARAMETER;
-            goto finish;
-        }
+        pitch            = mediaSurface->pSurfDesc->uiPitches[0];
+        DDI_CHK_CONDITION(pitch == 0, "Invalid pich.", VA_STATUS_ERROR_INVALID_PARAMETER);
         // DRM buffer allocated by Application, No need to re-allocate new DRM buffer
         if ((mediaSurface->pSurfDesc->uiVaMemType == VA_SURFACE_ATTRIB_MEM_TYPE_KERNEL_DRM) ||
             (mediaSurface->pSurfDesc->uiVaMemType == VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME))
@@ -338,6 +343,10 @@ VAStatus DdiMediaUtil_AllocateSurface(
                 uint32_t swizzle_mode;
                 //Overwrite the tile format that matches the exteral buffer
                 mos_bo_get_tiling(bo, &tileformat, &swizzle_mode);
+                if(tileformat == 0)
+                {
+                    tileformat = mediaSurface->pSurfDesc->uiFlags & VA_SURFACE_EXTBUF_DESC_ENABLE_TILING? I915_TILING_Y:I915_TILING_NONE;
+                }
             }
             else
             {
@@ -466,6 +475,21 @@ VAStatus DdiMediaUtil_AllocateSurface(
                             gmmParams.Flags.Info.RenderCompressed = 1;
                         }
 
+                        if(MEDIA_IS_SKU(&mediaDrvCtx->SkuTable, FtrRenderCompressionOnly))
+                        {
+                            gmmParams.Flags.Info.MediaCompressed = 0;
+
+                            if (format == Media_Format_X8R8G8B8 ||
+                                format == Media_Format_X8B8G8R8 ||
+                                format == Media_Format_A8B8G8R8 ||
+                                format == Media_Format_A8R8G8B8 ||
+                                format == Media_Format_R8G8B8A8)
+                            {
+                                gmmParams.Flags.Info.MediaCompressed  = 0;
+                                gmmParams.Flags.Info.RenderCompressed = 1;
+                            }
+                        }
+
                         if(MEDIA_IS_SKU(&mediaDrvCtx->SkuTable, FtrFlatPhysCCS))
                         {
                             gmmParams.Flags.Gpu.UnifiedAuxSurface = 0;
@@ -485,12 +509,31 @@ VAStatus DdiMediaUtil_AllocateSurface(
         }
         else
         {
+            int32_t baseHeight = 0;
+            DDI_CHK_CONDITION(mediaSurface->pSurfDesc->uiPlanes == 0,
+                "Invalid plane number.",
+                VA_STATUS_ERROR_INVALID_PARAMETER);
+
+            if (mediaSurface->pSurfDesc->uiPlanes == 1)
+            {
+                DDI_CHK_CONDITION(mediaSurface->pSurfDesc->uiSize == 0,
+                    "Invalid Size.",
+                    VA_STATUS_ERROR_INVALID_PARAMETER);
+                baseHeight = mediaSurface->pSurfDesc->uiSize / pitch;
+            }
+            else
+            {
+                DDI_CHK_CONDITION(mediaSurface->pSurfDesc->uiOffsets[1] == 0,
+                    "Invalid offset.",
+                    VA_STATUS_ERROR_INVALID_PARAMETER);
+                baseHeight = mediaSurface->pSurfDesc->uiOffsets[1] / pitch;
+            }
             // Create GmmResourceInfo
             MOS_ZeroMemory(&gmmCustomParams, sizeof(gmmCustomParams));
             gmmCustomParams.Type          = RESOURCE_2D;
             gmmCustomParams.Format        = mediaDrvCtx->m_caps->ConvertMediaFmtToGmmFmt(format);
             gmmCustomParams.BaseWidth64   = width;
-            gmmCustomParams.BaseHeight    = height;
+            gmmCustomParams.BaseHeight    = baseHeight;
             gmmCustomParams.Pitch         = pitch;
             gmmCustomParams.Size          = mediaSurface->pSurfDesc->uiSize;
             gmmCustomParams.BaseAlignment = 4096;
@@ -519,6 +562,8 @@ VAStatus DdiMediaUtil_AllocateSurface(
                     gmmCustomParams.PlaneOffset.Y[GMM_PLANE_Y] = mediaSurface->pSurfDesc->uiOffsets[0] / pitch;
                     gmmCustomParams.PlaneOffset.X[GMM_PLANE_U] = 0;
                     gmmCustomParams.PlaneOffset.Y[GMM_PLANE_U] = mediaSurface->pSurfDesc->uiOffsets[1] / pitch;
+                    gmmCustomParams.PlaneOffset.X[GMM_PLANE_V] = 0;
+                    gmmCustomParams.PlaneOffset.Y[GMM_PLANE_V] = mediaSurface->pSurfDesc->uiOffsets[1] / pitch;
                     break;
                 case 3:
                     if (mediaSurface->format == Media_Format_YV12)
@@ -561,7 +606,7 @@ VAStatus DdiMediaUtil_AllocateSurface(
             mediaSurface->bMapped          = false;
             mediaSurface->format           = format;
             mediaSurface->iWidth           = width;
-            mediaSurface->iHeight          = mediaSurface->pSurfDesc->uiOffsets[1] / pitch;
+            mediaSurface->iHeight          = gmmResourceInfo->GetBaseHeight();
             mediaSurface->iRealHeight      = height;
             mediaSurface->iPitch           = pitch;
             mediaSurface->iRefCount        = 0;
@@ -570,6 +615,8 @@ VAStatus DdiMediaUtil_AllocateSurface(
             mediaSurface->isTiled          = (tileformat != I915_TILING_NONE) ? 1 : 0;
             mediaSurface->pData            = (uint8_t*) bo->virt;
             DDI_VERBOSEMESSAGE("Allocate external surface %7d bytes (%d x %d resource).", mediaSurface->pSurfDesc->uiSize, width, height);
+            uint32_t event[] = {bo->handle, format, width, height, pitch, bo->size, tileformat, cpTag};
+            MOS_TraceEventExt(EVENT_VA_SURFACE, EVENT_TYPE_INFO, event, sizeof(event), &gmmResourceInfo->GetResFlags(), sizeof(GMM_RESOURCE_FLAG));
         }
         else
         {
@@ -631,6 +678,21 @@ VAStatus DdiMediaUtil_AllocateSurface(
                     if(MEDIA_IS_SKU(&mediaDrvCtx->SkuTable, FtrFlatPhysCCS))
                     {
                         gmmParams.Flags.Gpu.UnifiedAuxSurface = 0;
+                    }
+
+                    if(MEDIA_IS_SKU(&mediaDrvCtx->SkuTable, FtrRenderCompressionOnly))
+                    {
+                        gmmParams.Flags.Info.MediaCompressed = 0;
+
+                        if (format == Media_Format_X8R8G8B8 ||
+                            format == Media_Format_X8B8G8R8 ||
+                            format == Media_Format_A8B8G8R8 ||
+                            format == Media_Format_A8R8G8B8 ||
+                            format == Media_Format_R8G8B8A8)
+                        {
+                            gmmParams.Flags.Info.MediaCompressed  = 0;
+                            gmmParams.Flags.Info.RenderCompressed = 1;
+                        }
                     }
                 }
                 break;
@@ -1373,25 +1435,17 @@ void DdiMediaUtil_FreeSurface(DDI_MEDIA_SURFACE *surface)
         surface->pMediaCtx->m_auxTableMgr->UnmapResource(surface->pGmmResourceInfo, surface->bo);
     }
 
-    // For External Buffer, only needs to destory SurfaceDescriptor
-    if ( DdiMediaUtil_IsExternalSurface(surface) )
+    if(surface->bMapped)
     {
-        // In DdiMediaUtil_AllocateSurface call, driver will increase the surface reference count by calling drm_intel_bo_gem_create_from_name
-        // Thus, when freeing the surface, the drm_intel_bo_unreference function should be called to avoid memory leak
-        mos_bo_unreference(surface->bo);
+        DdiMediaUtil_UnlockSurface(surface);
+        DDI_VERBOSEMESSAGE("DDI: try to free a locked surface.");
+    }
+    mos_bo_unreference(surface->bo);
+    // For External Buffer, only needs to destory SurfaceDescriptor
+    if (surface->pSurfDesc)
+    {
         MOS_FreeMemory(surface->pSurfDesc);
         surface->pSurfDesc = nullptr;
-    }
-    else
-    {
-        // calling sequence checking
-        if (surface->bMapped)
-        {
-            DdiMediaUtil_UnlockSurface(surface);
-            DDI_VERBOSEMESSAGE("DDI: try to free a locked surface.");
-        }
-        mos_bo_unreference(surface->bo);
-        surface->bo = nullptr;
     }
 
     if (nullptr != surface->pGmmResourceInfo)
@@ -1796,6 +1850,43 @@ VAStatus DdiMediaUtil_UnRegisterRTSurfaces(
             }
         }
         DdiMediaUtil_UnLockMutex(&mediaCtx->EncoderMutex);
+    }
+
+    return VA_STATUS_SUCCESS;
+}
+
+VAStatus DdiMediaUtil_SetMediaResetEnableFlag(PDDI_MEDIA_CONTEXT mediaCtx)
+{
+    mediaCtx->bMediaResetEnable = false;
+    
+    DDI_CHK_NULL(mediaCtx,"nullptr mediaCtx!", VA_STATUS_ERROR_INVALID_CONTEXT);
+    
+    if(!MEDIA_IS_SKU(&mediaCtx->SkuTable, FtrSWMediaReset))
+    {
+        mediaCtx->bMediaResetEnable = false;
+        return VA_STATUS_SUCCESS;
+    }
+
+    mediaCtx->bMediaResetEnable = true;
+
+    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
+    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+    MOS_USER_FEATURE_INVALID_KEY_ASSERT(
+        MOS_UserFeature_ReadValue_ID(nullptr,
+                                     __MEDIA_USER_FEATURE_VALUE_MEDIA_RESET_ENABLE_ID,
+                                     &userFeatureData,
+                                     nullptr));
+    mediaCtx->bMediaResetEnable = userFeatureData.i32Data ? true : false;
+    if(!mediaCtx->bMediaResetEnable)
+    {
+        return VA_STATUS_SUCCESS;
+    }
+
+    char* mediaResetEnv = getenv("INTEL_MEDIA_RESET_WATCHDOG");
+    if(mediaResetEnv)
+    {
+        mediaCtx->bMediaResetEnable = strcmp(mediaResetEnv, "1") ? false : true;
+        return VA_STATUS_SUCCESS;
     }
 
     return VA_STATUS_SUCCESS;

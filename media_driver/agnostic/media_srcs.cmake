@@ -1,4 +1,4 @@
-# Copyright (c) 2017, Intel Corporation
+# Copyright (c) 2017-2021, Intel Corporation
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -388,6 +388,7 @@ endif()
 
 if(GEN12)
     media_include_subdirectory(gen12)
+    media_include_subdirectory(g12)
     media_include_subdirectory(../media_driver_next/agnostic/gen12)
 endif()
 
@@ -395,7 +396,4 @@ if(GEN12_TGLLP)
     media_include_subdirectory(gen12_tgllp)
 endif()
 
-if(GEN12_DG1)
-    media_include_subdirectory(gen12_dg1)
-endif()
 include(${MEDIA_EXT}/agnostic/media_srcs_ext.cmake OPTIONAL)

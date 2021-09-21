@@ -47,6 +47,8 @@ SfcRenderM12::~SfcRenderM12()
 MOS_STATUS SfcRenderM12::SetupSfcState(
     PVP_SURFACE                     targetSurface)
 {
+    VP_FUNC_CALL();
+
     MOS_STATUS                eStatus = MOS_STATUS_SUCCESS;
     PMHW_SFC_STATE_PARAMS_G12 sfcStateParamsM12 = nullptr;
 
@@ -57,6 +59,8 @@ MOS_STATUS SfcRenderM12::SetupSfcState(
     sfcStateParamsM12 = static_cast<PMHW_SFC_STATE_PARAMS_G12>(m_renderData.sfcStateParams);
     VP_RENDER_CHK_NULL_RETURN(sfcStateParamsM12);
 
+    VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resAvsLineBuffer, m_AVSLineBufferSurfaceArray[m_scalabilityParams.curPipe]));
+    VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resIefLineBuffer, m_IEFLineBufferSurfaceArray[m_scalabilityParams.curPipe]));
     VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resSfdLineBuffer, m_SFDLineBufferSurfaceArray[m_scalabilityParams.curPipe]));
     VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resAvsLineTileBuffer, m_AVSLineTileBufferSurface));
     VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resIefLineTileBuffer, m_IEFLineTileBufferSurface));
@@ -69,6 +73,8 @@ MOS_STATUS SfcRenderM12::SetupSfcState(
 
 MOS_STATUS SfcRenderM12::InitSfcStateParams()
 {
+    VP_FUNC_CALL();
+
     if (nullptr == m_sfcStateParams)
     {
         m_sfcStateParams = (MHW_SFC_STATE_PARAMS_G12*)MOS_AllocAndZeroMemory(sizeof(MHW_SFC_STATE_PARAMS_G12));
@@ -87,6 +93,8 @@ MOS_STATUS SfcRenderM12::InitSfcStateParams()
 
 MOS_STATUS SfcRenderM12::SetCodecPipeMode(CODECHAL_STANDARD codecStandard)
 {
+    VP_FUNC_CALL();
+
     if (CODECHAL_HEVC == codecStandard ||
         CODECHAL_VP9 == codecStandard)
     {
@@ -102,6 +110,8 @@ MOS_STATUS SfcRenderM12::SetCodecPipeMode(CODECHAL_STANDARD codecStandard)
 MOS_STATUS SfcRenderM12::SetSfcStateInputOrderingModeHcp(
     PMHW_SFC_STATE_PARAMS       sfcStateParams)
 {
+    VP_FUNC_CALL();
+
     if (CODECHAL_HEVC != m_videoConfig.codecStandard &&
         CODECHAL_VP9 != m_videoConfig.codecStandard)
     {
@@ -115,13 +125,10 @@ MOS_STATUS SfcRenderM12::SetSfcStateInputOrderingModeHcp(
     else if (CODECHAL_VP9 == m_videoConfig.codecStandard)
     {
         VPHAL_COLORPACK colorPack = VpHal_GetSurfaceColorPack(m_renderData.SfcInputFormat);
-        if (VPHAL_COLORPACK_420 == colorPack)
+        if ((VPHAL_COLORPACK_420 == colorPack)
+            || (VPHAL_COLORPACK_444 == colorPack))
         {
             sfcStateParams->dwVDVEInputOrderingMode = MhwSfcInterfaceG12::LCU_64_64_VP9;
-        }
-        else if (VPHAL_COLORPACK_444 == colorPack)
-        {
-            sfcStateParams->dwVDVEInputOrderingMode = MhwSfcInterfaceG12::LCU_64_64_VP9_ENC;
         }
         else
         {
@@ -135,6 +142,8 @@ MOS_STATUS SfcRenderM12::AddSfcLock(
     PMOS_COMMAND_BUFFER            pCmdBuffer,
     PMHW_SFC_LOCK_PARAMS           pSfcLockParams)
 {
+    VP_FUNC_CALL();
+
     VP_RENDER_CHK_NULL_RETURN(m_miInterface);
 
     // Send SFC_LOCK command to acquire SFC pipe for Vebox
@@ -157,6 +166,9 @@ MOS_STATUS SfcRenderM12::AddSfcLock(
 
 MOS_STATUS SfcRenderM12::SetupScalabilityParams()
 {
+
+    VP_FUNC_CALL();
+
     VP_RENDER_CHK_NULL_RETURN(m_renderData.sfcStateParams);
     PMHW_SFC_STATE_PARAMS_G12 sfcStateParams = static_cast<PMHW_SFC_STATE_PARAMS_G12>(m_renderData.sfcStateParams);
 
@@ -201,4 +213,68 @@ MOS_STATUS SfcRenderM12::SetupScalabilityParams()
     }
 
     return MOS_STATUS_SUCCESS;
+}
+
+//!
+//! \brief    Set sfc pipe selected with vebox
+//! \details  Set sfc pipe selected with vebox
+//! \param    [in] dwSfcPipe
+//!           Sfc pipe selected with vebox
+//! \param    [in] dwSfcNum
+//!           Sfc pipe num in total
+//! \return   MOS_STATUS
+//!           MOS_STATUS_SUCCESS if success, else fail reason
+MOS_STATUS SfcRenderM12::SetSfcPipe(
+    uint32_t dwSfcPipe,
+    uint32_t dwSfcNum)
+{
+    VP_FUNC_CALL();
+
+    MOS_STATUS         eStatus = MOS_STATUS_SUCCESS;
+
+    VP_PUBLIC_CHK_NULL_RETURN(m_sfcInterface);
+    PMHW_SFC_INTERFACE pSfcInterface = static_cast<PMHW_SFC_INTERFACE>(m_sfcInterface);
+
+    if (dwSfcPipe >= dwSfcNum)
+    {
+        VP_PUBLIC_ASSERTMESSAGE("Scalability sfc pipe set by vebox, dwSfcPipe %d, dwSfcNum %d", dwSfcPipe, dwSfcNum);
+        return MOS_STATUS_INVALID_PARAMETER;
+    }
+
+    m_scalabilityParams.curPipe    = dwSfcPipe;
+    m_scalabilityParams.numPipe    = dwSfcNum;
+    m_scalabilityParams.engineMode = (0 == m_scalabilityParams.curPipe) ? 1 : (m_scalabilityParams.numPipe - 1 == m_scalabilityParams.curPipe) ? 2 : 3;
+
+    pSfcInterface = m_sfcInterface;
+
+    pSfcInterface->SetSfcIndex(dwSfcPipe, dwSfcNum);
+
+    return eStatus;
+}
+
+bool SfcRenderM12::IsOutputChannelSwapNeeded(MOS_FORMAT outputFormat)
+{
+    VP_FUNC_CALL();
+
+    // ARGB8,ABGR10, output format need to enable swap
+    // Only be used with RGB output formats and CSC conversion is turned on.
+    if (outputFormat == Format_X8R8G8B8 ||
+        outputFormat == Format_A8R8G8B8 ||
+        outputFormat == Format_R10G10B10A2)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+bool SfcRenderM12::IsCscNeeded(SFC_CSC_PARAMS &cscParams)
+{
+    VP_FUNC_CALL();
+
+    return cscParams.bCSCEnabled                        ||
+        IsInputChannelSwapNeeded(cscParams.inputFormat) ||
+        IsOutputChannelSwapNeeded(cscParams.outputFormat);
 }

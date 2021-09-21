@@ -390,7 +390,8 @@ protected:
         MOS_FORMAT              inputFormat,
         MOS_FORMAT              outputFormat,
         uint16_t                &widthAlignUnit,
-        uint16_t                &heightAlignUnit) = 0;
+        uint16_t                &heightAlignUnit,
+        bool                    isInterlacedScaling = false) = 0;
 
     //!
     //! \brief    Get width and height align unit of output format
@@ -405,7 +406,8 @@ protected:
     virtual void GetOutputWidthHeightAlignUnit(
         MOS_FORMAT              outputFormat,
         uint16_t                &widthAlignUnit,
-        uint16_t                &heightAlignUnit);
+        uint16_t                &heightAlignUnit,
+        bool                    isInterlacedScaling = false);
 
     //!
     //! \brief    Setup SFC State related parameters
@@ -562,6 +564,7 @@ private:
 
 public:
     bool                            m_bSFC2Pass = false;
+    bool                            m_bSFC2PassPerfMode = false;
 
 protected:
     bool                            disableSFC    = false;                      //!< Disable SFC for validation purposes

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2020, Intel Corporation
+* Copyright (c) 2019-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -29,28 +29,42 @@
 
 #include "mos_defs.h"
 #include "codec_def_common.h"
+#include "media_status_report.h"
 
 namespace decode
 {
 
-typedef enum _CODECHAL_CS_ENGINE_ID_DEF
+enum CsEngineIdDef
 {
     // Instance ID
-    CODECHAL_CS_INSTANCE_ID_VDBOX0 = 0,
-    CODECHAL_CS_INSTANCE_ID_VDBOX1 = 1,
-    CODECHAL_CS_INSTANCE_ID_VDBOX2 = 2,
-    CODECHAL_CS_INSTANCE_ID_VDBOX3 = 3,
-    CODECHAL_CS_INSTANCE_ID_VDBOX4 = 4,
-    CODECHAL_CS_INSTANCE_ID_VDBOX5 = 5,
-    CODECHAL_CS_INSTANCE_ID_VDBOX6 = 6,
-    CODECHAL_CS_INSTANCE_ID_VDBOX7 = 7,
-    CODECHAL_CS_INSTANCE_ID_MAX,
+    csInstanceIdVdbox0 = 0,
+    csInstanceIdVdbox1 = 1,
+    csInstanceIdVdbox2 = 2,
+    csInstanceIdVdbox3 = 3,
+    csInstanceIdVdbox4 = 4,
+    csInstanceIdVdbox5 = 5,
+    csInstanceIdVdbox6 = 6,
+    csInstanceIdVdbox7 = 7,
+    csInstanceIdMax,
     // Class ID
-    CODECHAL_CLASS_ID_VIDEO_ENGINE = 1,
-} CODECHAL_CS_ENGINE_ID_DEF;
+    classIdVideoEngine = 1,
+};
+
+union CsEngineId
+{
+    struct
+    {
+        uint32_t       classId            : 3;    //[0...4]
+        uint32_t       reservedFiled1     : 1;    //[0]
+        uint32_t       instanceId         : 6;    //[0...7]
+        uint32_t       reservedField2     : 22;   //[0]
+    } fields;
+    uint32_t            value;
+};
 
 enum DecodeStatusReportType
 {
+    statusReportGlobalCount = STATUS_REPORT_GLOBAL_COUNT,
     statusReportMfx,
 
     //! \brief decode error status
@@ -84,7 +98,6 @@ enum DecodeStatusReportType
     HucErrorStatusMask,
 
     statusReportRcs,
-    statusReportGlobalCount = 0x50,
     statusReportMaxNum
 };
 
@@ -101,6 +114,10 @@ struct DecodeStatusParameters
     uint16_t           frameFieldHeightInMb;
     uint32_t           numSlices;
     MOS_RESOURCE       currDecodedPicRes;
+#if (_DEBUG || _RELEASE_INTERNAL)
+    MOS_RESOURCE      *sfcOutputPicRes;
+    MOS_RESOURCE      *histogramOutputBuf;
+#endif
 };
 
 struct DecodeStatusMfx
@@ -114,7 +131,7 @@ struct DecodeStatusMfx
     //! \brief Frame CRC related to current frames
     uint32_t                m_mmioFrameCrcReg = 0;
     //! \brief Value of MMIO CS Engine ID register for each BB
-    uint32_t                m_mmioCsEngineIdReg[CODECHAL_CS_INSTANCE_ID_MAX] = { 0 };
+    uint32_t                m_mmioCsEngineIdReg[csInstanceIdMax] = { 0 };
     //! \brief Huc error for HEVC Fix Function, DWORD0: mask value, DWORD1: reg value
     uint64_t                m_hucErrorStatus2 = 0;
     //! \brief Huc error for HEVC Fix Function, DWORD0: mask value, DWORD1: reg value

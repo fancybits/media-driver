@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019, Intel Corporation
+* Copyright (c) 2019-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -50,7 +50,6 @@ namespace decode
         DECODE_CHK_STATUS(AddAvpPicStateCmd(cmdBuffer));
         DECODE_CHK_STATUS(AddAvpInterPredStateCmd(cmdBuffer));
         DECODE_CHK_STATUS(AddAvpSegmentStateCmd(cmdBuffer));
-        DECODE_CHK_STATUS(AddAvpInloopFilterStateCmd(cmdBuffer));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -69,13 +68,6 @@ namespace decode
         return MOS_STATUS_SUCCESS;
     }
 
-    void Av1DecodePicPktG12::SetAvpPipeModeSelectParams(MHW_VDBOX_PIPE_MODE_SELECT_PARAMS_G12& pipeModeSelectParams)
-    {
-        DECODE_FUNC_CALL();
-
-        Av1DecodePicPkt::SetAvpPipeModeSelectParams(pipeModeSelectParams);
-    }
-
     MOS_STATUS Av1DecodePicPktG12::AddAvpPipeModeSelectCmd(MOS_COMMAND_BUFFER &cmdBuffer)
     {
         DECODE_FUNC_CALL();
@@ -86,6 +78,12 @@ namespace decode
         DECODE_CHK_STATUS(m_avpInterface->AddAvpPipeModeSelectCmd(&cmdBuffer, &pipeModeSelectParams));
 
         return MOS_STATUS_SUCCESS;
+    }
+
+    void Av1DecodePicPktG12::SetAvpPipeModeSelectParams(MHW_VDBOX_PIPE_MODE_SELECT_PARAMS_G12& pipeModeSelectParams)
+    {
+        DECODE_FUNC_CALL();
+        pipeModeSelectParams.bDeblockerStreamOutEnable = false;
     }
 
     MOS_STATUS Av1DecodePicPktG12::AddAvpPipeBufAddrCmd(MOS_COMMAND_BUFFER &cmdBuffer)
@@ -120,39 +118,13 @@ namespace decode
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS Av1DecodePicPktG12::SetAvpPicStateParams(MhwVdboxAvpPicStateParams& picStateParams)
-    {
-        DECODE_FUNC_CALL();
-
-        DECODE_CHK_STATUS(Av1DecodePicPkt::SetAvpPicStateParams(picStateParams));
-
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS Av1DecodePicPktG12::SetInterPredStateParams(MhwVdboxAvpPicStateParams& picStateParams)
-    {
-        DECODE_FUNC_CALL();
-
-        DECODE_CHK_STATUS(Av1DecodePicPkt::SetAvpInterPredStateParams(picStateParams));
-
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS Av1DecodePicPktG12::SetInloopFilterStateParams(MhwVdboxAvpPicStateParams& picStateParams)
-    {
-        DECODE_FUNC_CALL();
-
-        DECODE_CHK_STATUS(Av1DecodePicPkt::SetInloopFilterStateParams(picStateParams));
-
-        return MOS_STATUS_SUCCESS;
-    }
 
     MOS_STATUS Av1DecodePicPktG12::AddAvpInterPredStateCmd(MOS_COMMAND_BUFFER &cmdBuffer)
     {
         DECODE_FUNC_CALL();
 
         MhwVdboxAvpPicStateParams picStateParams;
-        DECODE_CHK_STATUS(SetInterPredStateParams(picStateParams));
+        DECODE_CHK_STATUS(Av1DecodePicPkt::SetAvpInterPredStateParams(picStateParams));
         DECODE_CHK_STATUS(m_avpInterface->AddAvpInterPredStateCmd(&cmdBuffer, &picStateParams));
 
         return MOS_STATUS_SUCCESS;
@@ -169,17 +141,6 @@ namespace decode
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS Av1DecodePicPktG12::AddAvpInloopFilterStateCmd(MOS_COMMAND_BUFFER &cmdBuffer)
-    {
-        DECODE_FUNC_CALL();
-
-        MhwVdboxAvpPicStateParams picStateParams;
-        DECODE_CHK_STATUS(SetInloopFilterStateParams(picStateParams));
-        DECODE_CHK_STATUS(m_avpInterface->AddAvpInloopFilterStateCmd(&cmdBuffer, &picStateParams));
-
-        return MOS_STATUS_SUCCESS;
-    }
-
     MOS_STATUS Av1DecodePicPktG12::CalculatePictureStateCommandSize()
     {
         MHW_VDBOX_STATE_CMDSIZE_PARAMS_G12 stateCmdSizeParams;
@@ -187,7 +148,7 @@ namespace decode
         stateCmdSizeParams.bHucDummyStream = false;
         stateCmdSizeParams.bSfcInUse       = false;
         // Picture Level Commands
-        DECODE_CHK_STATUS(static_cast<CodechalHwInterfaceG12*>(m_hwInterface)->GetAvpStateCommandSize(
+        DECODE_CHK_STATUS(m_hwInterface->GetAvpStateCommandSize(
                 m_av1BasicFeature->m_mode,
                 &m_pictureStatesSize,
                 &m_picturePatchListSize,

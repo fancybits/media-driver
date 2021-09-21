@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2020, Intel Corporation
+* Copyright (c) 2017-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -97,14 +97,12 @@ MOS_STATUS CodechalDecodeHevcG12::AllocateResourcesVariableSizes ()
     if (CodecHalDecodeIsSCCIBCMode(m_hevcSccPicParams))
     {
         bool isNeedBiggerSize = (widthMax > m_widthLastMaxAlloced) || (heightMax > m_heightLastMaxAlloced);
-        bool isResourceNull = Mos_ResourceIsNull(&m_resRefBeforeLoopFilter);
+        bool isResourceNull = Mos_ResourceIsNull(&m_resRefBeforeLoopFilter.OsResource);
         if (isNeedBiggerSize || isResourceNull)
         {
             if (!isResourceNull)
             {
-                m_osInterface->pfnFreeResource(
-                    m_osInterface,
-                    &m_resRefBeforeLoopFilter);
+                DestroySurface(&m_resRefBeforeLoopFilter);
             }
 
             // allocate an internal temporary buffer as reference which holds pixels before in-loop filter
@@ -185,7 +183,7 @@ MOS_STATUS CodechalDecodeHevcG12::AllocateResourceRefBefLoopFilter()
 
     CODECHAL_DECODE_FUNCTION_ENTER;
 
-    if (!Mos_ResourceIsNull(&m_resRefBeforeLoopFilter))
+    if (!Mos_ResourceIsNull(&m_resRefBeforeLoopFilter.OsResource))
     {
         return MOS_STATUS_SUCCESS;
     }
@@ -202,7 +200,7 @@ MOS_STATUS CodechalDecodeHevcG12::AllocateResourceRefBefLoopFilter()
                                                   m_destSurface.bCompressible),
         "Failed to allocate reference before loop filter for IBC.");
 
-    m_resRefBeforeLoopFilter = surface.OsResource;
+    m_resRefBeforeLoopFilter = surface;
 
     return eStatus;
 }
@@ -253,9 +251,9 @@ CodechalDecodeHevcG12::~CodechalDecodeHevcG12 ()
         MOS_FreeMemAndSetNull(m_scalabilityState);
     }
 
-    if (!Mos_ResourceIsNull(&m_resRefBeforeLoopFilter))
+    if (!Mos_ResourceIsNull(&m_resRefBeforeLoopFilter.OsResource))
     {
-        m_osInterface->pfnFreeResource(m_osInterface, &m_resRefBeforeLoopFilter);
+        DestroySurface(&m_resRefBeforeLoopFilter);
     }
     for (uint32_t i = 0; i < CODEC_HEVC_NUM_SECOND_BB; i++)
     {
@@ -270,15 +268,15 @@ CodechalDecodeHevcG12::~CodechalDecodeHevcG12 ()
     MOS_USER_FEATURE_VALUE_WRITE_DATA   userFeatureWriteData = __NULL_USER_FEATURE_VALUE_WRITE_DATA__;
 
     userFeatureWriteData.Value.i32Data = m_rtFrameCount;
-    userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_ENABLE_HEVC_DECODE_RT_FRAME_COUNT_ID_G12;
+    userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_ENABLE_HEVC_DECODE_RT_FRAME_COUNT_ID;
     MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, m_osInterface->pOsContext);
 
     userFeatureWriteData.Value.i32Data = m_vtFrameCount;
-    userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_ENABLE_HEVC_DECODE_VT_FRAME_COUNT_ID_G12;
+    userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_ENABLE_HEVC_DECODE_VT_FRAME_COUNT_ID;
     MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, m_osInterface->pOsContext);
 
     userFeatureWriteData.Value.i32Data = m_spFrameCount;
-    userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_ENABLE_HEVC_DECODE_SP_FRAME_COUNT_ID_G12;
+    userFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_ENABLE_HEVC_DECODE_SP_FRAME_COUNT_ID;
     MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, m_osInterface->pOsContext);
 
 #endif
@@ -337,7 +335,7 @@ MOS_STATUS CodechalDecodeHevcG12::SetGpuCtxCreatOption(
 
         if (static_cast<MhwVdboxMfxInterfaceG12 *>(m_mfxInterface)->IsScalabilitySupported())
         {
-            CODECHAL_DECODE_CHK_STATUS_RETURN(CodechalDecodeScalability_ConstructParmsForGpuCtxCreation(
+            CODECHAL_DECODE_CHK_STATUS_RETURN(CodechalDecodeScalability_ConstructParmsForGpuCtxCreation_g12(
                 m_scalabilityState,
                 (PMOS_GPUCTX_CREATOPTIONS_ENHANCED)m_gpuCtxCreatOpt,
                 codecHalSetting));
@@ -632,7 +630,21 @@ MOS_STATUS CodechalDecodeHevcG12 ::InitializeDecodeMode()
         initParams.bIsTileEnabled      = m_hevcPicParams->tiles_enabled_flag;
         initParams.bHasSubsetParams    = !!m_decodeParams.m_subsetParams;
         initParams.format              = m_decodeParams.m_destSurface->Format;
-        initParams.usingSecureDecode   = m_secureDecoder ? m_secureDecoder->IsSecureDecodeEnabled() : false;
+        initParams.usingSecureDecode   = (m_secureDecoder != nullptr);
+        if (m_decodeHistogram == nullptr)
+        {
+            initParams.usingHistogram = false;
+#if (_DEBUG || _RELEASE_INTERNAL)
+            if (m_histogramDebug)
+            {
+                initParams.usingHistogram = true;
+            }
+#endif
+        }
+        else
+        {
+            initParams.usingHistogram = true;
+        }
         // Only support SCC real tile mode. SCC virtual tile scalability mode is disabled here
         initParams.bIsSccDecoding   = m_hevcSccPicParams != nullptr;
         initParams.u8NumTileColumns = m_hevcPicParams->num_tile_columns_minus1 + 1;
@@ -688,6 +700,11 @@ MOS_STATUS CodechalDecodeHevcG12::SetFrameStates ()
 
     CODECHAL_DECODE_CHK_NULL_RETURN(m_decodeParams.m_destSurface);
     CODECHAL_DECODE_CHK_NULL_RETURN(m_decodeParams.m_dataBuffer);
+
+    if (m_secureDecoder)
+    {
+        m_secureDecoder->EnableSampleGroupConstantIV();
+    }
 
     m_frameIdx++;
 
@@ -992,7 +1009,7 @@ MOS_STATUS CodechalDecodeHevcG12::SetFrameStates ()
 
     if (m_twoVersionsOfCurrDecPicFlag)
     {
-        m_hevcRefList[m_hevcPicParams->CurrPic.FrameIdx]->resRefPic = m_resRefBeforeLoopFilter;
+        m_hevcRefList[m_hevcPicParams->CurrPic.FrameIdx]->resRefPic = m_resRefBeforeLoopFilter.OsResource;
     }
     else
     {
@@ -1617,6 +1634,14 @@ MOS_STATUS CodechalDecodeHevcG12::SendPictureLongFormat()
         {
             CODECHAL_DECODE_CHK_STATUS_RETURN(StartStatusReport(cmdBufferInUse));
         }
+        else
+        {
+            CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StartPredicate(m_miInterface, cmdBufferInUse));
+        }
+    }
+    else
+    {
+        CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StartPredicate(m_miInterface, cmdBufferInUse));
     }
 
     if (CodecHalDecodeScalabilityIsScalableMode(m_scalabilityState))
@@ -1774,6 +1799,14 @@ MOS_STATUS CodechalDecodeHevcG12::AddPipeEpilog(
                 decodeStatusReport,
                 cmdBufferInUse));
         }
+        else
+        {
+            CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StopPredicate(m_miInterface, cmdBufferInUse));
+        }
+    }
+    else
+    {
+        CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StopPredicate(m_miInterface, cmdBufferInUse));
     }
 
     MOS_ZeroMemory(&flushDwParams, sizeof(flushDwParams));
@@ -2039,6 +2072,10 @@ MOS_STATUS CodechalDecodeHevcG12::DecodePrimitiveLevel()
     {
         CODECHAL_DECODE_CHK_STATUS_RETURN(AddPipeEpilog(cmdBufferInUse, scdryCmdBuffer));
     }
+    else
+    {
+        CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StopPredicate(m_miInterface, cmdBufferInUse));
+    }
 
     m_osInterface->pfnReturnCommandBuffer(m_osInterface, &primCmdBuffer, 0);
     if (CodecHalDecodeScalabilityIsScalableMode(m_scalabilityState) && MOS_VE_SUPPORTED(m_osInterface))
@@ -2201,6 +2238,10 @@ MOS_STATUS CodechalDecodeHevcG12::AllocateStandard (
     CODECHAL_DECODE_CHK_NULL_RETURN(settings);
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(InitMmcState());
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    m_debugInterface->SetSWCrcMode(true);
+#endif
 
     m_width                         = settings->width;
     m_height                        = settings->height;

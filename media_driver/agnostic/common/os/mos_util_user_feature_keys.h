@@ -247,6 +247,8 @@
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_MCPY_TAG       "MCPY Sub Components Tags"
 
+#define __MOS_USER_FEATURE_KEY_DISABLE_ASSERT               "DisableAssert"
+
 #endif // MOS_MESSAGES_ENABLED
 
 //User feature key for MDF
@@ -283,6 +285,9 @@
 #define __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_MODE          "OS API Fail Simulate Mode"
 #define __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_FREQ          "OS API Fail Simulate Freq"
 #define __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_HINT          "OS API Fail Simulate Hint"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIA_TILE_ENCODING_1_DEFAULT      "Media tile encoding as 1 by default"
+#define __MEDIA_USER_FEATURE_VALUE_TILE_ENCODING_1_INTERNAL_USED      "Media Internal tile encoding as 1 used"
+#define __MEDIA_USER_FEATURE_VALUE_TILE_ENCODING_3_INTERNAL_USED      "Media Internal tile encoding as 3 used"
 #endif //(_DEBUG || _RELEASE_INTERNAL)
 
 //User feature key for UMD_OCA

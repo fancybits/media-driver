@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2020, Intel Corporation
+* Copyright (c) 2009-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -52,6 +52,7 @@
 
 // Media Features width
 #define VPHAL_RNDR_8K_WIDTH (7680)
+#define VPHAL_RNDR_16K_HEIGHT_LIMIT (16352)
 
 // Media Features height
 #define VPHAL_RNDR_2K_HEIGHT  1080
@@ -335,8 +336,9 @@ struct VphalFeatureReport
     //! \brief    VphalFeatureReport Constructor
     //! \details  Creates instance of VphalFeatureReport
     //!
-    VphalFeatureReport()
+    VphalFeatureReport(void *owner = nullptr)
     {
+        this->owner = owner;
         // call InitReportValue() to initialize report value
         InitReportValue();
     };
@@ -346,7 +348,7 @@ struct VphalFeatureReport
     //! \details  initialize VphalFeatureReport value, can use it to reset report value
     //!
     void InitReportValue();
-
+    void                           *owner = nullptr;    //!< Pointer to object creating the report
     bool                            IECP;               //!< IECP enable/disable
     bool                            IEF;                //!< Enhancement filter
     bool                            Denoise;            //!< Denoise
@@ -596,6 +598,11 @@ protected:
     //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
     //!
     virtual MOS_STATUS CreateRenderer() = 0;
+
+    virtual bool IsApoEnabled()
+    {
+        return false;
+    }
 };
 
 #endif  // __VPHAL_H__

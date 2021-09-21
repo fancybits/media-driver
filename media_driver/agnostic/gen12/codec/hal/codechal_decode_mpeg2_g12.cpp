@@ -97,18 +97,6 @@ MOS_STATUS CodechalDecodeMpeg2G12::SetFrameStates ()
         CODECHAL_DECODE_CHK_STATUS_RETURN(CodecHalDecodeSinglePipeVE_SetHintParams(m_veState, &vesetParams));
     }
 
-#ifdef _MMC_SUPPORTED
-    // To WA invalid aux data caused HW issue when MMC on
-    if (m_mmc && m_mmc->IsMmcEnabled() && (MEDIA_IS_WA(m_waTable, Wa_1408785368) || MEDIA_IS_WA(m_waTable, Wa_22010493002)) &&
-        !Mos_ResourceIsNull(&m_destSurface.OsResource) &&
-        m_destSurface.OsResource.bConvertedFromDDIResource)
-    {
-        CODECHAL_DECODE_VERBOSEMESSAGE("Clear CCS by VE resolve before frame %d submission", m_frameNum);
-        CODECHAL_DECODE_CHK_STATUS_RETURN(static_cast<CodecHalMmcStateG12 *>(m_mmc)->ClearAuxSurf(
-            this, m_miInterface, &m_destSurface.OsResource, m_veState));
-    }
-#endif
-
     return eStatus;
 }
 
@@ -117,6 +105,20 @@ MOS_STATUS CodechalDecodeMpeg2G12::DecodeStateLevel()
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
     CODECHAL_DECODE_FUNCTION_ENTER;
+#ifdef _MMC_SUPPORTED
+    // To WA invalid aux data caused HW issue when MMC on
+    // Add disable Clear CCS WA due to green corruption issue
+    if (m_mmc->IsMmcEnabled() && !Mos_ResourceIsNull(&m_destSurface.OsResource) &&
+        m_destSurface.OsResource.bConvertedFromDDIResource)
+    {
+        if (MEDIA_IS_WA(m_waTable, Wa_1408785368) || MEDIA_IS_WA(m_waTable, Wa_22010493002) && (!MEDIA_IS_WA(m_waTable, WaDisableClearCCS)))
+        {
+            CODECHAL_DECODE_VERBOSEMESSAGE("Clear CCS by VE resolve before frame %d submission", m_frameNum);
+            CODECHAL_DECODE_CHK_STATUS_RETURN(static_cast<CodecHalMmcStateG12 *>(m_mmc)->ClearAuxSurf(
+                this, m_miInterface, &m_destSurface.OsResource, m_veState));
+        }
+    }
+#endif
 
     uint8_t fwdRefIdx = (uint8_t)m_picParams->m_forwardRefIdx;
     uint8_t bwdRefIdx = (uint8_t)m_picParams->m_backwardRefIdx;
@@ -551,6 +553,13 @@ MOS_STATUS CodechalDecodeMpeg2G12::SliceLevel()
                 &cmdBuffer));
         }
 
+#if (_DEBUG || _RELEASE_INTERNAL)
+        uint32_t curIdx         = (GetDecodeStatusBuf()->m_currIndex + CODECHAL_DECODE_STATUS_NUM - 1) % CODECHAL_DECODE_STATUS_NUM;
+        uint32_t frameCrcOffset = curIdx * sizeof(CodechalDecodeStatus) + GetDecodeStatusBuf()->m_decFrameCrcOffset + sizeof(uint32_t) * 2;
+        std::vector<MOS_RESOURCE> vSemaResource{GetDecodeStatusBuf()->m_statusBuffer};
+        m_debugInterface->DetectCorruptionHw(m_hwInterface, &m_frameCountTypeBuf, curIdx, frameCrcOffset, vSemaResource, &cmdBuffer, m_frameNum);
+#endif
+
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_miInterface->AddMiBatchBufferEnd(
             &cmdBuffer,
             nullptr));
@@ -634,6 +643,25 @@ MOS_STATUS CodechalDecodeMpeg2G12::AllocateStandard (
     CODECHAL_DECODE_CHK_STATUS_RETURN(CodechalDecodeMpeg2::AllocateStandard(
         settings));
 
+#ifdef _MMC_SUPPORTED
+    // To WA invalid aux data caused HW issue when MMC on
+    // Add disable Clear CCS WA due to green corruption issue
+    if (m_mmc->IsMmcEnabled())
+    {
+        if (MEDIA_IS_WA(m_waTable, Wa_1408785368) || MEDIA_IS_WA(m_waTable, Wa_22010493002) && (!MEDIA_IS_WA(m_waTable, WaDisableClearCCS)))
+        {
+            MHW_VDBOX_STATE_CMDSIZE_PARAMS stateCmdSizeParams;
+
+            //Add HUC STATE Commands
+            m_hwInterface->GetHucStateCommandSize(
+                CODECHAL_DECODE_MODE_MPEG2VLD,
+                &m_HucStateCmdBufferSizeNeeded,
+                &m_HucPatchListSizeNeeded,
+                &stateCmdSizeParams);
+        }
+    }
+#endif
+
     if ( MOS_VE_SUPPORTED(m_osInterface))
     {
         static_cast<MhwVdboxMfxInterfaceG12*>(m_mfxInterface)->DisableScalabilitySupport();
@@ -658,5 +686,19 @@ CodechalDecodeMpeg2G12::CodechalDecodeMpeg2G12 (
     CODECHAL_DECODE_CHK_NULL_NO_STATUS_RETURN(m_osInterface);
 
     Mos_CheckVirtualEngineSupported(m_osInterface, true, true);
+}
+
+void CodechalDecodeMpeg2G12::CalcRequestedSpace(
+    uint32_t &requestedSize,
+    uint32_t &additionalSizeNeeded,
+    uint32_t &requestedPatchListSize)
+{
+    CODECHAL_DECODE_FUNCTION_ENTER;
+
+    requestedSize = m_commandBufferSizeNeeded + m_HucStateCmdBufferSizeNeeded +
+                    (m_standardDecodeSizeNeeded * (m_decodeParams.m_numSlices + 1));
+    requestedPatchListSize = m_commandPatchListSizeNeeded + m_HucPatchListSizeNeeded +
+                             (m_standardDecodePatchListSizeNeeded * (m_decodeParams.m_numSlices + 1));
+    additionalSizeNeeded = COMMAND_BUFFER_RESERVED_SPACE;
 }
 

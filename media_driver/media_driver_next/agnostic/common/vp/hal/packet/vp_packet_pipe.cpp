@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2020, Intel Corporation
+* Copyright (c) 2018-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -41,6 +41,8 @@ PacketFactory::~PacketFactory()
 
 void PacketFactory::ClearPacketPool(std::vector<VpCmdPacket *> &pool)
 {
+    VP_FUNC_CALL();
+
     while (!pool.empty())
     {
         VpCmdPacket *p = pool.back();
@@ -49,8 +51,11 @@ void PacketFactory::ClearPacketPool(std::vector<VpCmdPacket *> &pool)
     }
 }
 
-MOS_STATUS PacketFactory::Initialize(MediaTask *pTask, PVP_MHWINTERFACE pHwInterface, PVpAllocator pAllocator, VPMediaMemComp *pMmc, VP_PACKET_SHARED_CONTEXT *packetSharedContext, VpKernelSet* vpKernels)
+MOS_STATUS PacketFactory::Initialize(MediaTask *pTask, PVP_MHWINTERFACE pHwInterface, PVpAllocator pAllocator, VPMediaMemComp *pMmc, VP_PACKET_SHARED_CONTEXT *packetSharedContext, VpKernelSet* vpKernels, 
+void *debugInterface)
 {
+    VP_FUNC_CALL();
+
     m_pTask = pTask;
     m_pHwInterface = pHwInterface;
     m_pAllocator = pAllocator;
@@ -58,11 +63,17 @@ MOS_STATUS PacketFactory::Initialize(MediaTask *pTask, PVP_MHWINTERFACE pHwInter
     m_packetSharedContext = packetSharedContext;
     m_kernelSet = vpKernels;
 
+#if (_DEBUG || _RELEASE_INTERNAL)
+    m_debugInterface = static_cast<VpDebugInterface*>(debugInterface);
+#endif
+
     return MOS_STATUS_SUCCESS;
 }
 
 VpCmdPacket *PacketFactory::CreatePacket(EngineType type)
 {
+    VP_FUNC_CALL();
+
     switch(type)
     {
     case EngineTypeVebox:
@@ -89,6 +100,8 @@ VpCmdPacket *PacketFactory::CreatePacket(EngineType type)
 
 void PacketFactory::ReturnPacket(VpCmdPacket *&pPacket)
 {
+    VP_FUNC_CALL();
+
     if (nullptr == pPacket)
     {
         return;
@@ -110,6 +123,8 @@ void PacketFactory::ReturnPacket(VpCmdPacket *&pPacket)
 
 VpCmdPacket *PacketFactory::CreateVeboxPacket()
 {
+    VP_FUNC_CALL();
+
     VpCmdPacket *p = m_vpPlatformInterface ? m_vpPlatformInterface->CreateVeboxPacket(m_pTask, m_pHwInterface, m_pAllocator, m_pMmc) : nullptr;
     if (p)
     {
@@ -120,6 +135,8 @@ VpCmdPacket *PacketFactory::CreateVeboxPacket()
 
 VpCmdPacket *PacketFactory::CreateRenderPacket()
 {
+    VP_FUNC_CALL();
+
     VpCmdPacket *p = m_vpPlatformInterface ? m_vpPlatformInterface->CreateRenderPacket(m_pTask, m_pHwInterface, m_pAllocator, m_pMmc, m_kernelSet) : nullptr;
     if (p)
     {
@@ -139,6 +156,8 @@ PacketPipe::~PacketPipe()
 
 MOS_STATUS PacketPipe::Clean()
 {
+    VP_FUNC_CALL();
+
     m_outputPipeMode = VPHAL_OUTPUT_PIPE_MODE_INVALID;
     m_veboxFeatureInuse = false;
     for (std::vector<VpCmdPacket *>::iterator it = m_Pipe.begin(); it != m_Pipe.end(); ++it)
@@ -151,6 +170,8 @@ MOS_STATUS PacketPipe::Clean()
 
 MOS_STATUS PacketPipe::AddPacket(HwFilter &hwFilter)
 {
+    VP_FUNC_CALL();
+
     VpCmdPacket *pPacket = m_PacketFactory.CreatePacket(hwFilter.GetEngineType());
     VP_PUBLIC_CHK_NULL_RETURN(pPacket);
     MOS_STATUS status = hwFilter.SetPacketParams(*pPacket);
@@ -161,7 +182,11 @@ MOS_STATUS PacketPipe::AddPacket(HwFilter &hwFilter)
         return status;
     }
     m_Pipe.push_back(pPacket);
-    VP_PUBLIC_CHK_STATUS_RETURN(SetOutputPipeMode(hwFilter.GetEngineType()));
+    if (hwFilter.GetRenderTargetType() == RenderTargetTypeSurface)
+    {
+        VP_PUBLIC_CHK_STATUS_RETURN(SetOutputPipeMode(hwFilter.GetEngineType()));
+    }
+
     m_veboxFeatureInuse |= hwFilter.IsVeboxFeatureInuse();
 
     return MOS_STATUS_SUCCESS;
@@ -169,6 +194,8 @@ MOS_STATUS PacketPipe::AddPacket(HwFilter &hwFilter)
 
 MOS_STATUS PacketPipe::SetOutputPipeMode(EngineType engineType)
 {
+    VP_FUNC_CALL();
+
     switch (engineType)
     {
     case EngineTypeVebox:
@@ -191,6 +218,8 @@ MOS_STATUS PacketPipe::SetOutputPipeMode(EngineType engineType)
 
 MOS_STATUS PacketPipe::SwitchContext(PacketType type, MediaScalability *&scalability, MediaContext *mediaContext, bool bEnableVirtualEngine, uint8_t numVebox)
 {
+    VP_FUNC_CALL();
+
     ScalabilityPars scalPars = {};
     switch (type)
     {
@@ -220,6 +249,16 @@ MOS_STATUS PacketPipe::SwitchContext(PacketType type, MediaScalability *&scalabi
 
 MOS_STATUS PacketPipe::Execute(MediaStatusReport *statusReport, MediaScalability *&scalability, MediaContext *mediaContext, bool bEnableVirtualEngine, uint8_t numVebox)
 {
+    VP_FUNC_CALL();
+
+    // PrePare Packet in case any packet resources shared
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+    for (std::vector<VpCmdPacket*>::reverse_iterator it = m_Pipe.rbegin(); it != m_Pipe.rend(); ++it)
+    {
+        VpCmdPacket* packet = *it;
+        VP_PUBLIC_CHK_STATUS_RETURN(packet->PrepareState());
+    }
+
     for (std::vector<VpCmdPacket *>::iterator it = m_Pipe.begin(); it != m_Pipe.end(); ++it)
     {
         VpCmdPacket *pPacket = *it;
@@ -234,14 +273,33 @@ MOS_STATUS PacketPipe::Execute(MediaStatusReport *statusReport, MediaScalability
 
         VP_PUBLIC_CHK_STATUS_RETURN(SwitchContext(pPacket->GetPacketId(), scalability, mediaContext, bEnableVirtualEngine, numVebox));
         VP_PUBLIC_CHK_NULL_RETURN(scalability);
+        pPacket->SetMediaScalability(scalability);
 
         VP_PUBLIC_CHK_STATUS_RETURN(pTask->AddPacket(&prop));
         if (prop.immediateSubmit)
         {
             VP_PUBLIC_CHK_STATUS_RETURN(pTask->Submit(true, scalability, nullptr));
         }
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+        for (auto& handle : pPacket->GetSurfSetting().surfGroup)
+        {
+            if(handle.first && handle.second)
+            {
+                VP_SURFACE_DUMP(m_PacketFactory.m_debugInterface,
+                handle.second,
+                0,
+                handle.first,
+                VPHAL_DUMP_TYPE_POST_COMP);
+            }
+        }
+#endif
     }
-    return MOS_STATUS_SUCCESS;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+finish:
+#endif
+    return eStatus;
 }
 
 VpCmdPacket *PacketPipe::CreatePacket(EngineType type)
@@ -266,6 +324,8 @@ PacketPipeFactory::~PacketPipeFactory()
 
 PacketPipe *PacketPipeFactory::CreatePacketPipe()
 {
+    VP_FUNC_CALL();
+
     if (!m_Pool.empty())
     {
         PacketPipe *p = m_Pool.back();
@@ -278,6 +338,8 @@ PacketPipe *PacketPipeFactory::CreatePacketPipe()
 
 void PacketPipeFactory::ReturnPacketPipe(PacketPipe *&pPipe)
 {
+    VP_FUNC_CALL();
+
     if (nullptr == pPipe)
     {
         return;

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2015-2019, Intel Corporation
+* Copyright (c) 2015-2020, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -186,6 +186,11 @@ MOS_STATUS MhwMiInterfaceG12::AddPipeControl(
         cmd.DW1.IndirectStatePointersDisable = true;
     }
 
+    if (params->bHdcPipelineFlush)
+    {
+        cmd.DW0.HdcPipelineFlush = true;
+    }
+
     MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, batchBuffer, &cmd, cmd.byteSize));
 
     return MOS_STATUS_SUCCESS;
@@ -199,7 +204,7 @@ MOS_STATUS MhwMiInterfaceG12::AddMiBatchBufferStartCmd(
 
     MHW_MI_CHK_NULL(cmdBuffer);
     MHW_MI_CHK_NULL(batchBuffer);
-
+    MHW_MI_CHK_NULL(m_osInterface);
     bool vcsEngineUsed =
         MOS_VCS_ENGINE_USED(m_osInterface->pfnGetGpuContext(m_osInterface));
 
@@ -305,7 +310,7 @@ MOS_STATUS MhwMiInterfaceG12::AddMiStoreRegisterMemCmd(
     MHW_MI_CHK_NULL(cmdBuffer);
     MHW_MI_CHK_NULL(cmdBuffer->pCmdPtr);
     MHW_MI_CHK_NULL(params);
-
+    MHW_MI_CHK_NULL(m_osInterface);
     mhw_mi_g12_X::MI_STORE_REGISTER_MEM_CMD *cmd =
         (mhw_mi_g12_X::MI_STORE_REGISTER_MEM_CMD*)cmdBuffer->pCmdPtr;
 
@@ -511,7 +516,7 @@ MOS_STATUS MhwMiInterfaceG12::SetWatchdogTimerThreshold(uint32_t frameWidth, uin
     MEDIA_WA_TABLE *waTable = nullptr;
 
     MHW_FUNCTION_ENTER;
-
+    MHW_MI_CHK_NULL(m_osInterface);
     if (m_osInterface->bMediaReset == false ||
         m_osInterface->umdMediaResetEnable == false)
     {
@@ -561,22 +566,8 @@ MOS_STATUS MhwMiInterfaceG12::SetWatchdogTimerThreshold(uint32_t frameWidth, uin
         }
     }
 
-    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-#if (_DEBUG || _RELEASE_INTERNAL)
-    // User feature config of watchdog timer threshold
-    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-    MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_MEDIA_RESET_TH_ID,
-        &userFeatureData,
-        m_osInterface->pOsContext);
-    if (userFeatureData.u32Data != 0)
-    {
-        MediaResetParam.watchdogCountThreshold = userFeatureData.u32Data;
-    }
-#endif
-
+    GetWatchdogThreshold(m_osInterface);
+    
     return MOS_STATUS_SUCCESS;
 }
 
@@ -636,7 +627,7 @@ MOS_STATUS MhwMiInterfaceG12::AddWatchdogTimerStartCmd(
     MOS_GPU_CONTEXT gpuContext;
 
     MHW_FUNCTION_ENTER;
-
+    MHW_MI_CHK_NULL(m_osInterface);
     if (m_osInterface->bMediaReset == false ||
         m_osInterface->umdMediaResetEnable == false)
     {
@@ -681,7 +672,7 @@ MOS_STATUS MhwMiInterfaceG12::AddWatchdogTimerStopCmd(
     MOS_GPU_CONTEXT gpuContext;
 
     MHW_FUNCTION_ENTER;
-
+    MHW_MI_CHK_NULL(m_osInterface);
     if (m_osInterface->bMediaReset == false ||
         m_osInterface->umdMediaResetEnable == false)
     {
@@ -739,7 +730,7 @@ MOS_STATUS MhwMiInterfaceG12::SkipMiBatchBufferEndBb(
     MHW_FUNCTION_ENTER;
 
     MHW_MI_CHK_STATUS(MhwMiInterfaceGeneric<mhw_mi_g12_X>::SkipMiBatchBufferEndBb(batchBuffer));
-
+    MHW_MI_CHK_NULL(m_osInterface);
     auto waTable = m_osInterface->pfnGetWaTable(m_osInterface);
     MHW_MI_CHK_NULL(waTable);
 

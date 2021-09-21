@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2020, Intel Corporation
+* Copyright (c) 2019-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -29,6 +29,7 @@
 #include "mos_os.h"
 #include "hal_oca_interface.h"
 #include "mhw_mmio.h"
+#include "mos_interface.h"
 
 /****************************************************************************************************/
 /*                                      HalOcaInterface                                             */
@@ -59,6 +60,7 @@ void HalOcaInterface::On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTE
         uint32_t gpuContextHandle, MhwMiInterface &mhwMiInterface, MHW_MI_MMIOREGISTERS &mmioRegisters,
         uint32_t offsetOf1stLevelBB, bool bUseSizeOfCmdBuf, uint32_t sizeOf1stLevelBB)
 {
+    MosInterface::SetObjectCapture(&cmdBuffer.OsResource);
 }
 
 //!
@@ -86,6 +88,7 @@ void HalOcaInterface::On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTE
         uint32_t gpuContextHandle, MhwMiInterface &mhwMiInterface, MmioRegistersMfx &mmioRegisters,
         uint32_t offsetOf1stLevelBB, bool bUseSizeOfCmdBuf, uint32_t sizeOf1stLevelBB)
 {
+    MosInterface::SetObjectCapture(&cmdBuffer.OsResource);
 }
 
 //!
@@ -121,6 +124,7 @@ void HalOcaInterface::On1stLevelBBEnd(MOS_COMMAND_BUFFER &cmdBuffer, MOS_INTERFA
 //!
 void HalOcaInterface::OnSubLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, void *pMosResource, uint32_t offsetOfSubLevelBB, bool bUseSizeOfResource, uint32_t sizeOfSubLevelBB)
 {
+    MosInterface::SetObjectCapture((PMOS_RESOURCE)pMosResource);
 }
 
 //!
@@ -142,6 +146,7 @@ void HalOcaInterface::OnSubLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTE
 //!
 void HalOcaInterface::OnIndirectState(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, void *pMosResource, uint32_t offsetOfIndirectState, bool bUseSizeOfResource, uint32_t sizeOfIndirectState)
 {
+    MosInterface::SetObjectCapture((PMOS_RESOURCE)pMosResource);
 }
 
 //!
@@ -176,6 +181,27 @@ void HalOcaInterface::OnDispatch(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mos
 //!         No return value. Handle all exception inside the function.
 //!
 void HalOcaInterface::TraceMessage(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, const char *str, uint32_t maxCount)
+{
+}
+
+//!
+//! \brief  Add vp kernel info to oca log section.
+//! \param  [in] cmdBuffer
+//!         Command buffer for current BB.
+//! \param  [in] osInterface
+//!         Reference to MOS_INTERFACE.
+//! \param  [in] res
+//!         Reference to MOS_RESOURCE.
+//! \param  [in] hwCmdType
+//!         Hw command type.
+//! \param  [in] locationInCmd
+//!         Location in command.
+//! \param  [in] offsetInRes
+//!         Offset in resource.
+//! \return void
+//!         No return value. Handle all exception inside the function.
+//!
+void HalOcaInterface::DumpResourceInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_INTERFACE &osInterface, MOS_RESOURCE &res, MOS_HW_COMMAND hwCmdType, uint32_t locationInCmd, uint32_t offsetInRes)
 {
 }
 

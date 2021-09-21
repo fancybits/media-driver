@@ -43,10 +43,12 @@ static const int   MHW_SFC_VE_HEIGHT_ALIGN   = 4;
 static const int   MHW_SFC_VE_WIDTH_ALIGN    = 16;
 static const float MHW_SFC_MIN_SCALINGFACTOR = (1.0F / 8.0F);
 static const float MHW_SFC_MAX_SCALINGFACTOR = 8.0F;
-static const uint32_t MHW_SFC_SFD_BUFF_HEIGHT_BAR = 4160;
+// After resuming from S3/S4, SFD surface is also need even scaled height smaller than 4160, such as 4154.
+// Lower the MHW_SFC_SFD_BUFF_HEIGHT_BAR from 4160 to 4000 to ensure SFD surface can be allocated for such case.
+static const uint32_t MHW_SFC_SFD_BUFF_HEIGHT_BAR = 4000;
 
 #define NEED_SFD_LINE_BUFFER(_SURFACE_HEIGHT) ((_SURFACE_HEIGHT) > MHW_SFC_SFD_BUFF_HEIGHT_BAR)
-#define SFD_LINE_BUFFER_SIZE(_SURFACE_HEIGHT) (NEED_SFD_LINE_BUFFER(_SURFACE_HEIGHT) ? (uint32_t)ceil(((_SURFACE_HEIGHT) - MHW_SFC_SFD_BUFF_HEIGHT_BAR) / 10 * MHW_SFC_CACHELINE_SIZE) : 0)
+#define SFD_LINE_BUFFER_SIZE(_SURFACE_HEIGHT) (NEED_SFD_LINE_BUFFER(_SURFACE_HEIGHT) ? (uint32_t)ceil((_SURFACE_HEIGHT) * MHW_SFC_CACHELINE_SIZE / 10) : 0)
 
 typedef class MhwSfcInterface MHW_SFC_INTERFACE, *PMHW_SFC_INTERFACE;
 
@@ -220,6 +222,7 @@ typedef struct _MHW_SFC_STATE_PARAMS
     MOS_FORMAT                      OutputFrameFormat;                          // Output Frame Format
     uint32_t                        dwInputFrameHeight;                         // Input Frame Height
     uint32_t                        dwInputFrameWidth;                          // Input Frame Width
+    MOS_FORMAT                      InputFrameFormat;                           // Input Frame Format
 
     // Scaling parameters
     uint32_t                        dwAVSFilterMode;                            // Bilinear, 5x5 or 8x8
@@ -295,6 +298,7 @@ typedef struct _MHW_SFC_OUT_SURFACE_PARAMS
     uint32_t                    dwSurfaceXOffset;   //!<  Surface X offset
     uint32_t                    dwSurfaceYOffset;   //!<  Surface Y offset
     uint32_t                    dwUYoffset;         //!<  Surface Uoffset in Vertical
+    uint32_t                    dwVUoffset;         //!<  Surface Voffset in Vertical, named by Vplane relative to Uplane
     PMOS_RESOURCE               pOsResource;        //!<  Surface resource
     bool                        bCompressible;      //!<  Surface can be compressed
     uint32_t                    dwCompressionFormat;//!< Surface Compression format
@@ -498,6 +502,24 @@ public:
     virtual MOS_STATUS GetInputFrameWidthHeightAlignUnit(uint32_t &widthAlignUnit, uint32_t &heightAlignUnit,
         bool bVdbox, CODECHAL_STANDARD codecStandard, CodecDecodeJpegChromaType jpegChromaType);
 
+    //!
+    //! \brief    Set Sfc Index
+    //! \details  Set Sfc Index
+    //! \param    [in] dwSfcIndex
+    //!           set Sfc Index
+    //! \param    [in] dwSfcCount
+    //!           set Sfc Count
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    virtual MOS_STATUS SetSfcIndex(
+        uint32_t dwSfcIndex,
+        uint32_t dwSfcCount)
+    {
+        MOS_UNUSED(dwSfcIndex);
+        MOS_UNUSED(dwSfcCount);
+        return MOS_STATUS_SUCCESS;
+    }
+
 protected:
 
     MhwSfcInterface(PMOS_INTERFACE pOsInterface);
@@ -574,6 +596,11 @@ public:
     MHW_MEMORY_OBJECT_CONTROL_PARAMS           m_outputSurfCtrl;          // Output Frame caching control bits
     MHW_MEMORY_OBJECT_CONTROL_PARAMS           m_avsLineBufferCtrl;       // AVS Line Buffer caching control bits
     MHW_MEMORY_OBJECT_CONTROL_PARAMS           m_iefLineBufferCtrl;       // IEF Line Buffer caching control bits
+    MHW_MEMORY_OBJECT_CONTROL_PARAMS           m_sfdLineBufferCtrl;       // SFD Line Buffer caching control bits
+    MHW_MEMORY_OBJECT_CONTROL_PARAMS           m_avsLineTileBufferCtrl;   // AVS Line Tile Buffer caching control bits
+    MHW_MEMORY_OBJECT_CONTROL_PARAMS           m_iefLineTileBufferCtrl;   // IEF Line Tile Buffer caching control bits
+    MHW_MEMORY_OBJECT_CONTROL_PARAMS           m_sfdLineTileBufferCtrl;   // SFD Line Tile Buffer caching control bits
+    MHW_MEMORY_OBJECT_CONTROL_PARAMS           m_histogramBufferCtrl;     // Histogram Buffer caching control bits
 
     MHW_SCALING_MODE                           m_scalingMode;
 };

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019 - 2020, Intel Corporation
+* Copyright (c) 2019 - 2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -85,6 +85,18 @@ public:
             return false;
         }
     }
+    RenderTargetType GetRenderTargetType()
+    {
+        if (m_UnorderedFilters.IsEmpty())
+        {
+            // For VEBOX copy case w/o any feature enabled
+            return RenderTargetTypeSurface;
+        }
+        else
+        {
+            return m_UnorderedFilters.GetRenderTargetType();
+        }
+    }
 
 private:
     std::vector<SwFilterSet *> m_OrderedFilters;    // For features in featureRule
@@ -132,6 +144,7 @@ public:
     MOS_STATUS AddSwFilterOrdered(SwFilter *swFilter, bool isInputPipe, int index, bool useNewSwFilterSet);
     MOS_STATUS AddSwFilterUnordered(SwFilter *swFilter, bool isInputPipe, int index);
     MOS_STATUS RemoveSwFilter(SwFilter *swFilter);
+    VP_SURFACE *ReplaceSurface(VP_SURFACE *surf, bool isInputSurface, uint32_t index);
     VP_SURFACE *GetSurface(bool isInputSurface, uint32_t index);
     VP_SURFACE *GetPastSurface(uint32_t index);
     VP_SURFACE *GetFutureSurface(uint32_t index);
@@ -154,7 +167,7 @@ public:
         return MOS_STATUS_SUCCESS;
     }
 
-    bool GetSecureProcessFlag()
+    bool IsSecurePreProcessComplete()
     {
         return m_processedSecurePrepared;
     }
@@ -163,6 +176,22 @@ public:
     {
         m_processedSecurePrepared = false;
         return MOS_STATUS_SUCCESS;
+    }
+
+    RenderTargetType GetRenderTargetType()
+    {
+        for (auto subpipe : m_InputPipes)
+        {
+            if (subpipe)
+            {
+                RenderTargetType targetType = subpipe->GetRenderTargetType();
+                if (targetType == RenderTargetTypeSurface)
+                {
+                    return RenderTargetTypeSurface;
+                }
+            }
+        }
+        return RenderTargetTypeParameter;
     }
 
 protected:

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2020, Intel Corporation
+* Copyright (c) 2019-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -48,6 +48,8 @@ VpFeatureManagerNext::~VpFeatureManagerNext()
 
 MOS_STATUS VpFeatureManagerNext::Init(void* settings)
 {
+    VP_FUNC_CALL();
+
     if (!m_policy)
     {
         m_policy = MOS_New(Policy, m_vpInterface);
@@ -60,6 +62,8 @@ MOS_STATUS VpFeatureManagerNext::Init(void* settings)
 
 bool VpFeatureManagerNext::IsVeboxSfcFormatSupported(MOS_FORMAT formatInput, MOS_FORMAT formatOutput)
 {
+    VP_FUNC_CALL();
+
     if (m_policy)
     {
         return m_policy->IsVeboxSfcFormatSupported(formatInput, formatOutput);
@@ -70,6 +74,8 @@ bool VpFeatureManagerNext::IsVeboxSfcFormatSupported(MOS_FORMAT formatInput, MOS
 
 MOS_STATUS VpFeatureManagerNext::CreateHwFilterPipe(SwFilterPipe &swFilterPipe, HwFilterPipe *&pHwFilterPipe)
 {
+    VP_FUNC_CALL();
+
     MOS_STATUS status = MOS_STATUS_SUCCESS;
     pHwFilterPipe = nullptr;
 
@@ -84,6 +90,8 @@ MOS_STATUS VpFeatureManagerNext::CreateHwFilterPipe(SwFilterPipe &swFilterPipe, 
 MOS_STATUS VpFeatureManagerNext::InitPacketPipe(SwFilterPipe &swFilterPipe,
                 PacketPipe &packetPipe)
 {
+    VP_FUNC_CALL();
+
     HwFilterPipe *pHwFilterPipe = nullptr;
 
     MOS_STATUS status = CreateHwFilterPipe(swFilterPipe, pHwFilterPipe);
@@ -108,11 +116,15 @@ MOS_STATUS VpFeatureManagerNext::InitPacketPipe(SwFilterPipe &swFilterPipe,
 
 MOS_STATUS VpFeatureManagerNext::UpdateResources(HwFilterPipe &hwFilterPipe)
 {
+    VP_FUNC_CALL();
+
     return hwFilterPipe.UpdateResources();
 }
 
 MOS_STATUS VpFeatureManagerNext::RegisterFeatures()
 {
+    VP_FUNC_CALL();
+
     if (m_isFeatureRegistered)
     {
         return MOS_STATUS_SUCCESS;
@@ -162,8 +174,10 @@ MOS_STATUS VpFeatureManagerNext::RegisterFeatures()
     return MOS_STATUS_SUCCESS;
 }
 
-MOS_STATUS vp::VpFeatureManagerNext::UnregisterFeatures()
+MOS_STATUS VpFeatureManagerNext::UnregisterFeatures()
 {
+    VP_FUNC_CALL();
+
     while (!m_featureHandler.empty())
     {
         auto it = m_featureHandler.begin();
@@ -189,6 +203,8 @@ VPFeatureManager::VPFeatureManager(
 
 MOS_STATUS VPFeatureManager::CheckFeatures(void * params, bool &bApgFuncSupported)
 {
+    VP_FUNC_CALL();
+
     VP_PUBLIC_CHK_NULL_RETURN(params);
 
     PVP_PIPELINE_PARAMS pvpParams = (PVP_PIPELINE_PARAMS)params;
@@ -222,6 +238,13 @@ MOS_STATUS VPFeatureManager::CheckFeatures(void * params, bool &bApgFuncSupporte
         return MOS_STATUS_SUCCESS;
     }
 
+    // WA: Force NV12 16K to render
+    if (pvpParams->pTarget[0]->Format == Format_NV12 && pvpParams->pTarget[0]->dwHeight > VPHAL_RNDR_16K_HEIGHT_LIMIT)
+    {
+        VPHAL_RENDER_NORMALMESSAGE("Disable VEBOX/SFC for NV12 16k resolution");
+        return MOS_STATUS_SUCCESS;
+    }
+
     if (IsHdrNeeded(pvpParams->pSrc[0], pvpParams->pTarget[0]))
     {
         return MOS_STATUS_SUCCESS;
@@ -240,8 +263,7 @@ MOS_STATUS VPFeatureManager::CheckFeatures(void * params, bool &bApgFuncSupporte
         return MOS_STATUS_SUCCESS;
     }
 
-    if (pvpParams->pSrc[0]->pDeinterlaceParams              ||
-        pvpParams->pSrc[0]->pBlendingParams                 ||
+    if (pvpParams->pSrc[0]->pBlendingParams                 ||
         pvpParams->pSrc[0]->pLumaKeyParams                  ||
         pvpParams->pConstriction)
     {
@@ -253,8 +275,6 @@ MOS_STATUS VPFeatureManager::CheckFeatures(void * params, bool &bApgFuncSupporte
         return MOS_STATUS_SUCCESS;
     }
 
-    // Disable DN kernel copy/update in APO path.
-    // Disable chroma DN in APO path.
     // Disable HVS Denoise in APO path.
     if (pvpParams->pSrc[0]->pDenoiseParams                       &&
         pvpParams->pSrc[0]->pDenoiseParams->bEnableHVSDenoise)
@@ -267,16 +287,9 @@ MOS_STATUS VPFeatureManager::CheckFeatures(void * params, bool &bApgFuncSupporte
         return MOS_STATUS_SUCCESS;
     }
 
-    // for now, Temp removed ARGB input for APG
-    if (pvpParams->pSrc[0]->Format == Format_A8R8G8B8 ||
-        pvpParams->pSrc[0]->Format == Format_X8R8G8B8)
-    {
-        return MOS_STATUS_SUCCESS;
-    }
-
-    // Ensure only enable DN/ACE/STE/TCC for vebox only case. For other features supported on vebox, such as csc,
-    // just fallback to legacy path.
-    if (IsVeboxOutFeasible(pvpParams) && !IsVeboxSupported(pvpParams))
+    // Temp removed RGB input with DN/DI/IECP case
+    if ((IS_RGB_FORMAT(pvpParams->pSrc[0]->Format)) &&
+        (pvpParams->pSrc[0]->pColorPipeParams))
     {
         return MOS_STATUS_SUCCESS;
     }
@@ -311,6 +324,8 @@ MOS_STATUS VPFeatureManager::CheckFeatures(void * params, bool &bApgFuncSupporte
 
 MOS_STATUS VPFeatureManager::CheckFeatures(void * params)
 {
+    VP_FUNC_CALL();
+
     bool bApgFuncSupported = false;
     return CheckFeatures(params, bApgFuncSupported);
 }
@@ -319,6 +334,8 @@ bool VPFeatureManager::IsHdrNeeded(
     PVPHAL_SURFACE              pSrc,
     PVPHAL_SURFACE              pRenderTarget)
 {
+    VP_FUNC_CALL();
+
     if (!pSrc || !pRenderTarget)
     {
         return false;
@@ -380,6 +397,8 @@ bool VPFeatureManager::IsHdrNeeded(
 
 bool VPFeatureManager::Is2PassesCSCNeeded(PVPHAL_SURFACE pSrc, PVPHAL_SURFACE pRenderTarget)
 {
+    VP_FUNC_CALL();
+
     bool bRet = false;
     bool b2PassesCSCNeeded = false;
 
@@ -410,6 +429,8 @@ finish:
 bool VPFeatureManager::IsVeboxOutFeasible(
     PVP_PIPELINE_PARAMS params)
 {
+    VP_FUNC_CALL();
+
     bool    bRet = false;
 
     // Vebox Comp Bypass is on by default
@@ -434,7 +455,7 @@ bool VPFeatureManager::IsVeboxOutFeasible(
         m_hwInterface->m_osInterface->pOsContext));
     dwCompBypassMode = UserFeatureData.u32Data;
 
-    if (dwCompBypassMode  != VP_COMP_BYPASS_DISABLED                           &&
+    if (dwCompBypassMode != VP_COMP_BYPASS_DISABLED                            &&
         params->uDstCount ==1                                                  &&
         SAME_SIZE_RECT(params->pSrc[0]->rcSrc, params->pSrc[0]->rcDst)         &&
         RECT1_CONTAINS_RECT2(params->pSrc[0]->rcMaxSrc, params->pSrc[0]->rcSrc) &&
@@ -460,8 +481,13 @@ finish:
 }
 bool VPFeatureManager::IsVeboxInputFormatSupport(PVPHAL_SURFACE pSrcSurface)
 {
-    bool    bRet = false;
-    VPHAL_RENDER_CHK_NULL_NO_STATUS(pSrcSurface);
+    VP_FUNC_CALL();
+
+    if (nullptr == pSrcSurface)
+    {
+        VP_PUBLIC_ASSERTMESSAGE("nullptr == pSrcSurface");
+        return false;
+    }
 
     // Check if Sample Format is supported
     // Vebox only support P016 format, P010 format can be supported by faking it as P016
@@ -474,22 +500,25 @@ bool VPFeatureManager::IsVeboxInputFormatSupport(PVPHAL_SURFACE pSrcSurface)
         pSrcSurface->Format != Format_Y8 &&
         pSrcSurface->Format != Format_Y16U &&
         pSrcSurface->Format != Format_Y16S &&
-        !IS_PA_FORMAT(pSrcSurface->Format)/* &&
+        !IS_PA_FORMAT(pSrcSurface->Format) &&
+        (pSrcSurface->Format != Format_A8B8G8R8) &&
+        (pSrcSurface->Format != Format_X8B8G8R8) &&
+        (pSrcSurface->Format != Format_A8R8G8B8) &&
+        (pSrcSurface->Format != Format_X8R8G8B8)/* &&
         !IS_RGB64_FLOAT_FORMAT(pSrcSurface->Format)*/)
     {
-        VPHAL_RENDER_NORMALMESSAGE("Unsupported Source Format '0x%08x' for VEBOX.", pSrcSurface->Format);
-        goto finish;
+        VP_PUBLIC_NORMALMESSAGE("Unsupported Source Format '0x%08x' for VEBOX.", pSrcSurface->Format);
+        return false;
     }
 
-    bRet = true;
-
-finish:
-    return bRet;
+    return true;
 }
 bool VPFeatureManager::IsVeboxRTFormatSupport(
     PVPHAL_SURFACE pSrcSurface,
     PVPHAL_SURFACE pRTSurface)
 {
+    VP_FUNC_CALL();
+
     bool bRet = false;
 
     if ((nullptr == pSrcSurface) || (nullptr == pRTSurface))
@@ -528,6 +557,8 @@ bool VPFeatureManager::IsVeboxRTFormatSupport(
 
 bool VPFeatureManager::IsVeboxSupported(PVP_PIPELINE_PARAMS params)
 {
+    VP_FUNC_CALL();
+
     VPHAL_RENDER_CHK_NULL_NO_STATUS(params);
     VPHAL_RENDER_CHK_NULL_NO_STATUS(params->pSrc[0]);
 
@@ -547,6 +578,8 @@ finish:
 
 bool VPFeatureManager::IsSfcOutputFeasible(PVP_PIPELINE_PARAMS params)
 {
+    VP_FUNC_CALL();
+
     uint32_t                    dwSfcMaxWidth = 0;
     uint32_t                    dwSfcMaxHeight = 0;
     uint32_t                    dwSfcMinWidth = 0;
@@ -560,7 +593,9 @@ bool VPFeatureManager::IsSfcOutputFeasible(PVP_PIPELINE_PARAMS params)
     uint32_t                    dwOutputRegionHeight = 0;
     bool                        bRet = false;
     float                       fScaleX = 0.0f, fScaleY = 0.0f;
+    float                       minRatio = 0.125f, maxRatio = 8.0f;
     bool                        disableSFC = false;
+    VP_POLICY_RULES             rules = {};
 
     VPHAL_RENDER_CHK_NULL_NO_STATUS(params);
     VPHAL_RENDER_CHK_NULL_NO_STATUS(params->pTarget[0]);
@@ -669,10 +704,10 @@ bool VPFeatureManager::IsSfcOutputFeasible(PVP_PIPELINE_PARAMS params)
     dwOutputRegionHeight = MOS_MIN(dwOutputRegionHeight, params->pTarget[0]->dwHeight);
     dwOutputRegionWidth = MOS_MIN(dwOutputRegionWidth, params->pTarget[0]->dwWidth);
 
-    if (params->pSrc[0]->Rotation > VPHAL_ROTATION_270 &&
+    if ((params->pSrc[0]->Rotation > VPHAL_ROTATION_IDENTITY && params->pSrc[0]->Rotation != VPHAL_MIRROR_HORIZONTAL) &&
         params->pTarget[0]->TileType != MOS_TILE_Y)
     {
-        VPHAL_RENDER_NORMALMESSAGE("non TileY output mirror not supported by SFC Pipe.");
+        VPHAL_RENDER_NORMALMESSAGE("non TileY output mirror and rotation not supported by SFC Pipe.");
         bRet = false;
         return bRet;
     }
@@ -694,13 +729,21 @@ bool VPFeatureManager::IsSfcOutputFeasible(PVP_PIPELINE_PARAMS params)
         fScaleY = (float)dwOutputRegionWidth / (float)dwSourceRegionHeight;
     }
 
+    m_hwInterface->m_vpPlatformInterface->InitPolicyRules(rules);
+
+    if (rules.sfcMultiPassSupport.scaling.enable)
+    {
+        minRatio *= rules.sfcMultiPassSupport.scaling.downScaling.minRatioEnlarged;
+        maxRatio *= rules.sfcMultiPassSupport.scaling.upScaling.maxRatioEnlarged;
+    }
+
     // SFC scaling range is [0.125, 8] for both X and Y direction.
-    if ((fScaleX < 0.125F) || (fScaleX > 8.0F) ||
-        (fScaleY < 0.125F) || (fScaleY > 8.0F))
+    if ((fScaleX < minRatio) || (fScaleX > maxRatio) ||
+        (fScaleY < minRatio) || (fScaleY > maxRatio))
     {
         VPHAL_RENDER_NORMALMESSAGE("Scaling factor not supported by SFC Pipe.");
-            bRet = false;
-            return bRet;
+        bRet = false;
+        return bRet;
     }
 
     // Check if the input/output combination is supported, given certain alpha fill mode.
@@ -742,33 +785,75 @@ finish:
     return bRet;
 }
 
+bool VPFeatureManager::IsRGBOutputFormatSupported(PVPHAL_SURFACE outSurface)
+{
+    if (nullptr == outSurface)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE(" invalid outputsurface");
+        return false;
+    }
+
+    if (IS_RGB32_FORMAT(outSurface->Format)) // Remove RGB565 support due to quality issue. IS_RGB16_FORMAT(outSurface->Format)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+bool VPFeatureManager::IsNV12P010OutputFormatSupported(PVPHAL_SURFACE outSurface)
+{
+    if (nullptr == outSurface)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE(" invalid outputsurface");
+        return false;
+    }
+
+    if (outSurface->TileType == MOS_TILE_Y &&
+        (outSurface->Format == Format_P010 ||
+         outSurface->Format == Format_P016 ||
+         outSurface->Format == Format_NV12))
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
 bool VPFeatureManager::IsOutputFormatSupported(PVPHAL_SURFACE outSurface)
 {
+    VP_FUNC_CALL();
+    if (nullptr == outSurface)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE(" invalid outputsurface");
+        return false;
+    }
+
     bool ret = true;
 
-    if (!IS_RGB32_FORMAT(outSurface->Format) &&
-        // Remove RGB565 support due to quality issue, may reopen this after root cause in the future.
-        //!IS_RGB16_FORMAT(outSurface->Format)   &&
-        outSurface->Format != Format_YUY2 &&
-        outSurface->Format != Format_UYVY &&
-        outSurface->Format != Format_AYUV &&
-        outSurface->Format != Format_Y210 &&
-        outSurface->Format != Format_Y410 &&
-        outSurface->Format != Format_Y216 &&
-        outSurface->Format != Format_Y416)
+    if (IsRGBOutputFormatSupported(outSurface) ||
+        outSurface->Format == Format_YUY2 ||
+        outSurface->Format == Format_UYVY ||
+        outSurface->Format == Format_AYUV ||
+        outSurface->Format == Format_Y210 ||
+        outSurface->Format == Format_Y410 ||
+        outSurface->Format == Format_Y216 ||
+        outSurface->Format == Format_Y416)
     {
-        if (outSurface->TileType == MOS_TILE_Y    &&
-            (outSurface->Format == Format_P010    ||
-             outSurface->Format == Format_P016    ||
-             outSurface->Format == Format_NV12))
-        {
-            ret = true;
-        }
-        else
-        {
-            VPHAL_RENDER_NORMALMESSAGE("Unsupported Render Target Format '0x%08x' for SFC Pipe.", outSurface->Format);
-            ret = false;
-        }
+        ret = true;
+    }
+    else if (IsNV12P010OutputFormatSupported(outSurface))
+    {
+        ret = true;
+    }
+    else
+    {
+        VPHAL_RENDER_NORMALMESSAGE("Unsupported Render Target Format '0x%08x' for SFC Pipe.", outSurface->Format);
+        ret = false;
     }
 
     return ret;
@@ -791,6 +876,8 @@ void VPFeatureManager::GetAlignUnit(
     uint16_t        &wHeightAlignUnit,
     MOS_FORMAT      format)
 {
+    VP_FUNC_CALL();
+
     switch (format)
     {
         case Format_YV12:
@@ -850,6 +937,8 @@ MOS_STATUS VPFeatureManager::RectSurfaceAlignment(
     PVPHAL_SURFACE       pSurface,
     MOS_FORMAT           formatForDstRect)
 {
+    VP_FUNC_CALL();
+
     uint16_t   wWidthAlignUnit;
     uint16_t   wHeightAlignUnit;
     uint16_t   wWidthAlignUnitForDstRect;
@@ -905,6 +994,8 @@ MOS_STATUS VPFeatureManager::RectSurfaceAlignment(
 
 bool VPFeatureManager::IsDiFormatSupported(MOS_FORMAT format)
 {
+    VP_FUNC_CALL();
+
     if (format != Format_AYUV         &&
         format != Format_Y416         &&
         format != Format_Y410         &&
@@ -925,5 +1016,7 @@ bool VPFeatureManager::IsDiFormatSupported(MOS_FORMAT format)
 
 bool VPFeatureManager::IsVeboxSurfaceHeightAligned(VPHAL_SURFACE &surf)
 {
+    VP_FUNC_CALL();
+
     return MOS_IS_ALIGNED(MOS_MIN((uint32_t)surf.dwHeight, (uint32_t)surf.rcSrc.bottom), 4);
 }

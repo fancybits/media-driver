@@ -21,7 +21,7 @@
 */
 //!
 //! \file     codechal_encode_hevc_brc_g12.h
-//! \brief    HEVC dual-pipe base class kernel interface for GEN12 platform.
+//! \brief    HEVC dual-pipe brc class kernel interface for GEN12 platform.
 //!
 
 
@@ -29,6 +29,8 @@
 #define __CODECHAL_ENCODE_HEVC_BRC_G12_H__
 
 #include "codechal_encode_hevc_g12.h"
+
+#define INTRA_PERIOD_MAX 4000
 
 class CodecHalHevcMbencG12;
 namespace CMRT_UMD

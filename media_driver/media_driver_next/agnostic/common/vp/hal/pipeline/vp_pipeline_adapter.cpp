@@ -69,6 +69,17 @@ MOS_STATUS VpPipelineAdapter::Init(
     vpMhwinterface.m_statusTable      = &vphalState.GetStatusTable();
     vpMhwinterface.m_vpPlatformInterface = &m_vpPlatformInterface;
 
+    // Init Video processing settings
+    VP_SETTINGS settings;
+
+    MOS_ZeroMemory(&settings, sizeof(VP_SETTINGS));
+    settings.disableHdr             = pVpHalSettings->disableHdr;
+    settings.disableDnDi            = pVpHalSettings->disableDnDi;
+    settings.kernelUpdate           = pVpHalSettings->kernelUpdate;
+    settings.veboxParallelExecution = pVpHalSettings->veboxParallelExecution;
+
+    vpMhwinterface.m_settings         = (void *) &settings;
+
     if (vphalState.GetVeboxInterface() &&
         vphalState.GetVeboxInterface()->m_veboxSettings.uiNumInstances > 0 &&
         vphalState.GetVeboxInterface()->m_veboxHeap == nullptr)
@@ -122,6 +133,8 @@ void VpPipelineAdapter::Destroy()
 
 MOS_STATUS VpPipelineAdapter::Render(PCVPHAL_RENDER_PARAMS pcRenderParams)
 {
+    VP_FUNC_CALL();
+
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
     VP_PIPELINE_PARAMS params = {};
 

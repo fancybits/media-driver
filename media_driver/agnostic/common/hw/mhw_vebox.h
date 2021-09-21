@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2014-2020, Intel Corporation
+* Copyright (c) 2014-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -301,6 +301,21 @@ typedef struct _MHW_VEBOX_DNDI_PARAMS
 } MHW_VEBOX_DNDI_PARAMS, *PMHW_VEBOX_DNDI_PARAMS;
 
 //!
+//! \brief  VEBOX Chroma parameters
+//!
+typedef struct _MHW_VEBOX_CHROMA_PARAMS
+{
+    uint32_t dwPixRangeThresholdChromaU[MHW_PIXRANGETHRES_NUM];
+    uint32_t dwPixRangeWeightChromaU[MHW_PIXRANGETHRES_NUM];
+    uint32_t dwPixRangeThresholdChromaV[MHW_PIXRANGETHRES_NUM];
+    uint32_t dwPixRangeWeightChromaV[MHW_PIXRANGETHRES_NUM];
+    uint32_t dwHotPixelThresholdChromaU;
+    uint32_t dwHotPixelCountChromaU;
+    uint32_t dwHotPixelThresholdChromaV;
+    uint32_t dwHotPixelCountChromaV;
+} MHW_VEBOX_CHROMA_PARAMS;
+
+//!
 //! Structure MHW_STE_PARAMS
 //! \brief STE parameters - Skin Tone Enhancement
 //!
@@ -592,9 +607,9 @@ typedef struct _MHW_VEBOX_IECP_PARAMS
 
     // CSC params
     bool                            bCSCEnable;                                 // Enable CSC transform
-    float                           *pfCscCoeff;                                 // [3x3] CSC Coeff matrix
-    float                           *pfCscInOffset;                              // [3x1] CSC Input Offset matrix
-    float                           *pfCscOutOffset;                             // [3x1] CSC Output Offset matrix
+    float                           *pfCscCoeff;                                // [3x3] CSC Coeff matrix
+    float                           *pfCscInOffset;                             // [3x1] CSC Input Offset matrix
+    float                           *pfCscOutOffset;                            // [3x1] CSC Output Offset matrix
     bool                            bAlphaEnable;                               // Alpha Enable Param
     uint16_t                        wAlphaValue;                                // Color Pipe Alpha Value
 
@@ -602,6 +617,12 @@ typedef struct _MHW_VEBOX_IECP_PARAMS
 
     MHW_3DLUT_PARAMS                s3DLutParams;
     MHW_1DLUT_PARAMS                s1DLutParams;
+
+    // Front End CSC params
+    bool                            bFeCSCEnable;                               // Enable Front End CSC transform
+    float                           *pfFeCscCoeff;                              // [3x3] Front End CSC Coeff matrix
+    float                           *pfFeCscInOffset;                           // [3x1] Front End CSC Input Offset matrix
+    float                           *pfFeCscOutOffset;                          // [3x1] Front End CSC Output Offset matrix
 } MHW_VEBOX_IECP_PARAMS, *PMHW_VEBOX_IECP_PARAMS;
 
 //!
@@ -661,12 +682,6 @@ typedef struct _MHW_VEBOX_GAMUT_PARAMS
     MHW_GAMUT_MODE                      GExpMode;
     uint32_t                            *pFwdGammaBias;
     uint32_t                            *pInvGammaBias;
-    float                               *pfCscCoeff;         // [3x3] CSC Coeff matrix
-    float                               *pfCscInOffset;      // [3x1] CSC Input Offset matrix
-    float                               *pfCscOutOffset;     // [3x1] CSC Output Offset matrix
-    float                               *pfFeCscCoeff;       // [3x3] Front-end CSC Coeff matrix
-    float                               *pfFeCscInOffset;    // [3x1] Front-end CSC Input Offset matrix
-    float                               *pfFeCscOutOffset;   // [3x1] Front-end CSC Output Offset matrix
     int32_t                             Matrix[3][3];
 
     // Gamma correction
@@ -759,6 +774,7 @@ typedef struct _MHW_VEBOX_SURFACE_STATE_CMD_PARAMS
     MHW_VEBOX_SURFACE_PARAMS         SurfDNOutput;
     MHW_VEBOX_SURFACE_PARAMS         SurfSkinScoreOutput;
     bool                             bDIEnable;
+    bool                             b3DlutEnable;
     bool                             bOutputValid;
 } MHW_VEBOX_SURFACE_STATE_CMD_PARAMS, *PMHW_VEBOX_SURFACE_STATE_CMD_PARAMS;
 
@@ -1161,6 +1177,28 @@ public:
     //!
     MOS_STATUS UpdateVeboxSync();
 
+    //!
+    //! \brief    Set which vebox can be used by HW
+    //! \details  VPHAL set which VEBOX can be use by HW
+    //! \param    [in] dwVeboxIndex
+    //!           set which Vebox can be used by HW
+    //! \param    [in] dwVeboxCount
+    //!           set Vebox Count
+    //! \param    [in] dwUsingSFC
+    //!           set whether using SFC
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    virtual MOS_STATUS SetVeboxIndex(
+        uint32_t dwVeboxIndex,
+        uint32_t dwVeboxCount,
+        uint32_t dwUsingSFC)
+    {
+        MOS_UNUSED(dwVeboxIndex);
+        MOS_UNUSED(dwVeboxCount);
+        MOS_UNUSED(dwUsingSFC);
+        return MOS_STATUS_SUCCESS;
+    }
+
 private:
     //!
     //! \brief    Refresh Vebox Sync
@@ -1177,6 +1215,7 @@ private:
     PMOS_INTERFACE         m_osInterface   = nullptr;
     PMHW_VEBOX_HEAP        m_veboxHeap     = nullptr;
     MHW_VEBOX_SETTINGS     m_veboxSettings;
+    bool                   m_veboxScalabilitywith4K    = false;
 };
 
 #endif // __MHW_VEBOX_H__

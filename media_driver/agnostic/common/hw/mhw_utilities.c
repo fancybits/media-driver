@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2014-2018, Intel Corporation
+* Copyright (c) 2014-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -64,8 +64,6 @@ MOS_STATUS Mhw_AddResourceToCmd_GfxAddress(
 
     pbCmdBufBase = (uint8_t*)pCmdBuffer->pCmdBase;
 
-    MOS_TraceEventExt(EVENT_RESOURCE_REGISTER, EVENT_TYPE_INFO2, &pParams->HwCommandType, sizeof(uint32_t), &pParams->dwLocationInCmd, sizeof(uint32_t));
-
     MHW_CHK_STATUS(pOsInterface->pfnRegisterResource(
         pOsInterface,
         pParams->presResource,
@@ -86,6 +84,13 @@ MOS_STATUS Mhw_AddResourceToCmd_GfxAddress(
     *pParams->pdwCmd = (*pParams->pdwCmd & ~dwMask) | (dwGfxAddrBottom & dwMask);
     // this is next DW for top part of the address
     *(pParams->pdwCmd + 1) = dwGfxAddrTop;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    {
+        uint32_t evtData[4] ={(uint32_t)pParams->HwCommandType, pParams->dwLocationInCmd, pParams->dwOffset, pParams->dwSize};
+        MOS_TraceEventExt(EVENT_RESOURCE_REGISTER, EVENT_TYPE_INFO2, evtData, sizeof(evtData), &ui64GfxAddress, sizeof(ui64GfxAddress));
+    }
+#endif
 
     if (pParams->dwOffsetInSSH > 0)
     {
@@ -145,6 +150,21 @@ MOS_STATUS Mhw_AddResourceToCmd_GfxAddress(
         MHW_CHK_STATUS(pOsInterface->pfnSetPatchEntry(
             pOsInterface,
             &PatchEntryParams));
+    }
+
+    if (MOS_VEBOX_STATE             == pParams->HwCommandType   ||
+        MOS_VEBOX_DI_IECP           == pParams->HwCommandType   ||
+        MOS_VEBOX_TILING_CONVERT    == pParams->HwCommandType   ||
+        MOS_SFC_STATE               == pParams->HwCommandType   ||
+        MOS_STATE_BASE_ADDR         == pParams->HwCommandType   ||
+        MOS_SURFACE_STATE           == pParams->HwCommandType   ||
+        MOS_SURFACE_STATE_ADV       == pParams->HwCommandType   ||
+        MOS_MFX_PIPE_BUF_ADDR       == pParams->HwCommandType   ||
+        MOS_MFX_VP8_PIC             == pParams->HwCommandType   ||
+        MOS_MFX_BSP_BUF_BASE_ADDR   == pParams->HwCommandType)
+    {
+        HalOcaInterface::DumpResourceInfo(*pCmdBuffer, *pOsInterface, *pParams->presResource, pParams->HwCommandType,
+            pParams->dwLocationInCmd, pParams->dwOffset);
     }
 
 finish:
@@ -880,6 +900,10 @@ finish:
 //!           [in/out] If valid, represents the batch buffer list maintained by the client
 //! \param    uint32_t dwSize
 //!           [in] Sixe of the batch vuffer to be allocated
+//! \param    bool notLockable
+//!           [in] Indicate if the batch buffer not lockable, by default is false
+//! \param    bool inSystemMem
+//!           [in] Indicate if the batch buffer in system memory, by default is false
 //! \return   MOS_STATUS
 //!           true  if the Batch Buffer was successfully allocated
 //!           false if failed
@@ -889,7 +913,9 @@ MOS_STATUS Mhw_AllocateBb(
     PMHW_BATCH_BUFFER       pBatchBuffer,
     PMHW_BATCH_BUFFER       pBatchBufferList,
     uint32_t                dwSize,
-    uint32_t                batchCount)
+    uint32_t                batchCount,
+    bool                    notLockable,
+    bool                    inSystemMem)
 {
     MOS_RESOURCE                        OsResource;
     MOS_ALLOC_GFXRES_PARAMS             AllocParams;
@@ -898,6 +924,7 @@ MOS_STATUS Mhw_AllocateBb(
 
     MHW_CHK_NULL(pOsInterface);
     MHW_CHK_NULL(pBatchBuffer);
+    MHW_ASSERT(!(notLockable && inSystemMem)); // Notlockable system memory doesn't make sense
 
     MHW_FUNCTION_ENTER;
 
@@ -913,6 +940,19 @@ MOS_STATUS Mhw_AllocateBb(
     AllocParams.dwBytes  = allocSize;
     AllocParams.pBufName = "BatchBuffer";
     AllocParams.ResUsageType = MOS_HW_RESOURCE_USAGE_MEDIA_BATCH_BUFFERS;
+    AllocParams.Flags.bNotLockable = notLockable ? 1 : 0;
+    if (notLockable)
+    {
+        AllocParams.dwMemType = MOS_MEMPOOL_DEVICEMEMORY;
+    }
+    else if (inSystemMem)
+    {
+        AllocParams.dwMemType = MOS_MEMPOOL_SYSTEMMEMORY;
+    }
+    else
+    {
+        AllocParams.dwMemType = MOS_MEMPOOL_VIDEOMEMORY;
+    }
 
     MHW_CHK_STATUS(pOsInterface->pfnAllocateResource(
         pOsInterface,
