@@ -145,6 +145,10 @@ public:
         //! \brief   mos resource usage type, set mocs index
         //!
         MOS_HW_RESOURCE_DEF m_mocsMosResUsageType = MOS_MP_RESOURCE_USAGE_DEFAULT;
+        
+        //! \brief   Flag as hint that Resource can be used as hw protected
+        //!
+        bool m_hardwareProtected = false;
 
         //!
         //! \brief   Create the graphics buffer from a PMOS_ALLOC_GFXRES_PARAMS, for wrapper usage, to be deleted
@@ -179,6 +183,7 @@ public:
                 m_mocsMosResUsageType = pParams->ResUsageType;
             }
             m_gmmResUsageType = MosInterface::GetGmmResourceUsageType(pParams->ResUsageType);
+            m_hardwareProtected = pParams->hardwareProtected;
         };
 
         CreateParams()
@@ -476,11 +481,6 @@ protected:
     uint32_t m_count = 0;
 
     //!
-    //! \brief   the active S3D_CHANNEL for the graphic resource
-    //!
-    MOS_S3D_CHANNEL m_s3dChannel = MOS_S3D_NONE;
-
-    //!
     //! \brief   the size of the graphic resource
     //!
     uint32_t m_size = 0;
@@ -511,24 +511,9 @@ protected:
     MOS_GFXRES_TYPE m_type = MOS_GFXRES_INVALID;
 
     //!
-    //! \brief   U surface plane offset
-    //!
-    MOS_PLANE_OFFSET m_uPlaneOffset = {};
-
-    //!
-    //! \brief   V surface plane offset
-    //!
-    MOS_PLANE_OFFSET m_vPlaneOffset = {};
-
-    //!
     //! \brief   Type == 2D || VOLUME, width in pixels.
     //!
     uint32_t m_width = 0;
-
-    //!
-    //! \brief   Y surface plane offset or RGB
-    //!
-    MOS_PLANE_OFFSET m_yPlaneOffset = {};
 
     //!
     //! \brief  This is used by MDF when a wrapper MOS Resource is used to 

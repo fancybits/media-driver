@@ -35,6 +35,8 @@
 #include "media_ddi_decode_const.h"
 #include "media_ddi_encode_const.h"
 #include "media_ddi_decode_const_g12.h"
+#include "mos_bufmgr_priv.h"
+
 
 #ifndef VA_CENC_TYPE_NONE
 #define VA_CENC_TYPE_NONE 0x00000000
@@ -2387,8 +2389,9 @@ VAStatus MediaLibvaCapsG12::LoadAv1DecProfileEntrypoints()
 
 #if _AV1_DECODE_SUPPORTED
     AttribMap *attributeList = nullptr;
-    if (MEDIA_IS_SKU(&(m_mediaCtx->SkuTable), FtrIntelAV1VLDDecoding8bit420)
+    if ((MEDIA_IS_SKU(&(m_mediaCtx->SkuTable), FtrIntelAV1VLDDecoding8bit420)
         ||MEDIA_IS_SKU(&(m_mediaCtx->SkuTable), FtrIntelAV1VLDDecoding10bit420))
+        && m_mediaCtx->pDrmBufMgr->has_full_vd)
     {
         status = CreateDecAttributes((VAProfile) VAProfileAV1Profile0, VAEntrypointVLD, &attributeList);
         DDI_CHK_RET(status, "Failed to initialize Caps!");
@@ -2609,7 +2612,7 @@ VAStatus MediaLibvaCapsG12::GetDisplayAttributes(
         switch(attribList->type)
         {
             case VADisplayAttribCopy:
-                attribList->min_value = attribList->value = attribList->max_value = (1 << VA_EXEC_MODE_DEFAULT);
+                attribList->min_value = attribList->value = attribList->max_value = 0;
                 attribList->flags = VA_DISPLAY_ATTRIB_GETTABLE;
                 break;
             default:

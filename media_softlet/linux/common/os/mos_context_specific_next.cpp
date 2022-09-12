@@ -94,7 +94,7 @@ MOS_STATUS OsContextSpecificNext::Init(DDI_DEVICE_CONTEXT ddiDriverContext)
             nullptr,
             __MEDIA_USER_FEATURE_VALUE_ENABLE_SOFTPIN_ID,
             &UserFeatureData,
-            nullptr);
+            osDriverContext);
         if (UserFeatureData.i32Data)
         {
             mos_bufmgr_gem_enable_softpin(m_bufmgr);
@@ -233,12 +233,17 @@ MOS_STATUS OsContextSpecificNext::Init(DDI_DEVICE_CONTEXT ddiDriverContext)
         }
 #endif
         m_mosMediaCopy = MOS_New(MosMediaCopy, osDriverContext);
-        MOS_OS_CHK_NULL_RETURN(m_mosMediaCopy);
-        osDriverContext->ppMediaCopyState = m_mosMediaCopy->GetMediaCopyState();
-        MOS_OS_CHK_NULL_RETURN(osDriverContext->ppMediaCopyState);
-        if (*osDriverContext->ppMediaCopyState == nullptr)
+        if (nullptr == m_mosMediaCopy)
         {
-            MOS_OS_ASSERTMESSAGE("Media Copy state creation failed");
+            MOS_OS_NORMALMESSAGE("m_mosMediaCopy creation failed");
+        }
+        else
+        {
+            osDriverContext->ppMediaCopyState = m_mosMediaCopy->GetMediaCopyState();
+            if ((nullptr == osDriverContext->ppMediaCopyState) || (nullptr == *osDriverContext->ppMediaCopyState))
+            {
+                MOS_OS_NORMALMESSAGE("Media Copy state creation failed");
+            }
         }
     }
     return eStatus;

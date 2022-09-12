@@ -35,6 +35,7 @@
 #include "vp_utils.h"
 #include "sw_filter.h"
 #include "vp_feature_caps.h"
+#include "vp_render_fc_types.h"
 
 namespace vp {
 
@@ -109,6 +110,7 @@ protected:
 
     VpCmdPacket         * m_packet = nullptr;
 
+MEDIA_CLASS_DEFINE_END(VpFilter)
 };
 
 struct _SFC_SCALING_PARAMS
@@ -254,6 +256,18 @@ struct _VEBOX_CSC_PARAMS
     uint32_t                        chromaUpSamplingHorizontalCoef;              // Chroma UpSampling Horizontal Coeff
     uint32_t                        chromaDownSamplingVerticalCoef;              // Chroma DownSampling Vertical Coeff
     uint32_t                        chromaDownSamplingHorizontalCoef;            // Chroma DownSampling Horizontal Coeff
+};
+
+struct _RENDER_CSC_PARAMS
+{
+    uint32_t                        layer;
+    bool                            bCSCEnabled;                                 // CSC Enabled
+    VPHAL_CSPACE                    inputColorSpcase;                            // Input Color Space
+    VPHAL_CSPACE                    outputColorSpcase;                           // Input Color Space
+    MOS_FORMAT                      inputFormat;                                 // Input Format
+    MOS_FORMAT                      outputFormat;                                // Output Format
+    PVPHAL_ALPHA_PARAMS             alphaParams;                                 // Output Alpha Params
+    uint32_t                        inputChromaSetting;                          // Chroma setting
 };
 
 struct _VEBOX_HDR_PARAMS
@@ -409,6 +423,14 @@ struct _RENDER_DI_FMD_PARAMS
 using RENDER_DI_FMD_PARAMS  = _RENDER_DI_FMD_PARAMS;
 using PRENDER_DI_FMD_PARAMS = RENDER_DI_FMD_PARAMS *;
 
+struct _RENDER_FC_PARAMS
+{
+    VpKernelID              kernelId;
+    VP_COMPOSITE_PARAMS     compParams;
+};
+using RENDER_FC_PARAMS  = _RENDER_FC_PARAMS;
+using PRENDER_FC_PARAMS = RENDER_FC_PARAMS *;
+
 class SwFilterPipe;
 class HwFilter;
 class PacketParamFactoryBase;
@@ -428,6 +450,8 @@ public:
 
 private:
     FeatureType m_FeatureType = FeatureTypeInvalid;
+
+MEDIA_CLASS_DEFINE_END(HwFilterParameter)
 };
 
 /////////////////////////////Packet Parameters///////////////////////////////////
@@ -444,6 +468,8 @@ public:
 
 private:
     PacketParamFactoryBase *m_packetParamFactory = nullptr;
+
+MEDIA_CLASS_DEFINE_END(VpPacketParameter)
 };
 
 /////////////////////////////Policy Feature Handler//////////////////////////////
@@ -465,6 +491,8 @@ protected:
     FeatureType m_Type = FeatureTypeInvalid;
     std::vector<HwFilterParameter *> m_Pool;
     VP_HW_CAPS  &m_hwCaps;
+
+MEDIA_CLASS_DEFINE_END(PolicyFeatureHandler)
 };
 
 class PacketParamFactoryBase
@@ -476,6 +504,8 @@ public:
     void ReturnPacketParameter(VpPacketParameter *&p);
 protected:
     std::vector<VpPacketParameter *> m_Pool;
+
+MEDIA_CLASS_DEFINE_END(PacketParamFactoryBase)
 };
 
 template<class T>
@@ -517,6 +547,8 @@ public:
             return p;
         }
     }
+
+MEDIA_CLASS_DEFINE_END(PacketParamFactory)
 };
 
 struct HW_FILTER_PARAM

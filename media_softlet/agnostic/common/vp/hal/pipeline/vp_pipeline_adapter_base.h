@@ -38,7 +38,8 @@
 namespace vp
 {
 class VpPlatformInterface;
-}
+class VpUserFeatureControl;
+};
 
 //-----------------------------------------------------------------------------
 // VPHAL-DDI RENDERING INTERFACE
@@ -119,6 +120,7 @@ struct _VP_MHWINTERFACE
     PVPHAL_STATUS_TABLE m_statusTable;
 
     void *m_debugInterface;
+    vp::VpUserFeatureControl *m_userFeatureControl;
 };
 
 using VP_MHWINTERFACE  = _VP_MHWINTERFACE;
@@ -262,6 +264,8 @@ protected:
     // StatusTable indicating if command is done by gpu or not
     VPHAL_STATUS_TABLE       m_statusTable = {};
     vp::VpPlatformInterface &m_vpPlatformInterface;  //!< vp platform interface. Should be destroyed during deconstruction.
+
+MEDIA_CLASS_DEFINE_END(VpPipelineAdapterBase)
 };
 
 #endif  // __VP_PIPELINE_ADAPTER_BASE_H__

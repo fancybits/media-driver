@@ -715,7 +715,18 @@ MOS_STATUS CodechalDecodeHevcG12::SetFrameStates ()
     if (m_shortFormatInUse && m_frameIdx < 3 && m_statusQueryReportingEnabled &&
         (((m_decodeStatusBuf.m_decodeStatus->m_hucErrorStatus2 >> 32) & m_hucInterface->GetHucStatus2ImemLoadedMask()) == 0))
     {
+        if (!m_reportHucStatus)
+        {
+            MOS_USER_FEATURE_VALUE_WRITE_DATA userFeatureWriteData;
+            MOS_ZeroMemory(&userFeatureWriteData, sizeof(userFeatureWriteData));
+            userFeatureWriteData.Value.i32Data                     = true;
+            userFeatureWriteData.ValueID                           = __MEDIA_USER_FEATURE_VALUE_HUC_LOAD_STATUS_ID;
+            MOS_UserFeature_WriteValues_ID(nullptr, &userFeatureWriteData, 1, m_osInterface->pOsContext);
+            m_reportHucStatus = true;
+        }
+
         CODECHAL_DECODE_ASSERTMESSAGE("HuC IMEM Loaded fails");
+        MT_ERR1(MT_DEC_HEVC, MT_DEC_HUC_ERROR_STATUS2, (m_decodeStatusBuf.m_decodeStatus->m_hucErrorStatus2 >> 32));
         return MOS_STATUS_UNKNOWN;
     }
 

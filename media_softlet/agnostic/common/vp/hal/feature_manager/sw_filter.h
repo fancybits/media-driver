@@ -116,6 +116,7 @@ enum FeatureType
     FeatureTypeAlphaOnRender    = FeatureTypeAlpha | FEATURE_TYPE_ENGINE_BITS_RENDER,
     FeatureTypeCappipe          = 0x2000,
     FeatureTypeCappipeOnVebox   = FeatureTypeCappipe | FEATURE_TYPE_ENGINE_BITS_VEBOX,
+    FeatureTypeCappipeOnRender  = FeatureTypeCappipe | FEATURE_TYPE_ENGINE_BITS_RENDER,
     // ...
     NumOfFeatureType
 };
@@ -163,6 +164,27 @@ enum SurfaceType
     SurfaceTypePwlfOut,
     SurfaceTypeWeitCoef,
     SurfaceTypGlobalToneMappingCurveLUT,
+    // FC
+    SurfaceTypeFcInputLayer0,
+    SurfaceTypeFcInputLayer1,
+    SurfaceTypeFcInputLayer2,
+    SurfaceTypeFcInputLayer3,
+    SurfaceTypeFcInputLayer4,
+    SurfaceTypeFcInputLayer5,
+    SurfaceTypeFcInputLayer6,
+    SurfaceTypeFcInputLayer7,
+    SurfaceTypeFcInputLayerMax = SurfaceTypeFcInputLayer7,
+    SurfaceTypeFcTarget0,
+    SurfaceTypeFcTarget1,
+    SurfaceTypeFcCscCoeff,
+    //LGCA related Surfaces
+    SurfaceTypeSamplerSurfaceR,
+    SurfaceTypeSamplerSurfaceG,
+    SurfaceTypeSamplerSurfaceB,
+    SurfaceTypeOutputSurfaceR,
+    SurfaceTypeOutputSurfaceG,
+    SurfaceTypeOutputSurfaceB,
+    SurfaceTypeSamplerParamsMinMax,
     NumberOfSurfaceType
 };
 
@@ -231,6 +253,13 @@ struct FeatureParam
     MOS_FORMAT  formatOutput;
 };
 
+enum FeatureCategory
+{
+    FeatureCategoryBasic    = 0,
+    FeatureCategoryIsolated,
+    FeatureCategoryFC,
+};
+
 class SwFilterSet;
 
 class SwFilter
@@ -242,6 +271,7 @@ public:
     {
         MOS_ZeroMemory(&m_EngineCaps, sizeof(m_EngineCaps));
         m_noNeedUpdate = false;
+        m_isInExePipe = false;
         return MOS_STATUS_SUCCESS;
     }
     virtual FeatureType GetFeatureType()
@@ -276,6 +306,7 @@ public:
     {
         return MOS_STATUS_UNIMPLEMENTED;
     }
+
     virtual SwFilter *Clone() = 0;
     virtual bool operator == (class SwFilter&) = 0;
     virtual MOS_STATUS Update(VP_SURFACE *inputSurf, VP_SURFACE *outputSurf, SwFilterSubPipe &pipe) = 0;
@@ -319,6 +350,11 @@ public:
         return MOS_STATUS_SUCCESS;
     }
 
+    void SetExePipeFlag(bool isInExePipe)
+    {
+        m_isInExePipe = isInExePipe;
+    }
+
 protected:
     VpInterface &m_vpInterface;
     FeatureType m_type = FeatureTypeInvalid;
@@ -327,6 +363,9 @@ protected:
     VP_EngineEntry  m_EngineCaps = {};
     bool m_noNeedUpdate = false;
     RenderTargetType m_renderTargetType = RenderTargetTypeSurface;
+    bool m_isInExePipe = false;
+
+MEDIA_CLASS_DEFINE_END(SwFilter)
 };
 
 struct FeatureParamCsc : public FeatureParam
@@ -361,6 +400,8 @@ public:
 
 private:
     FeatureParamCsc m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterCsc)
 };
 
 struct FeatureParamScaling : public FeatureParam
@@ -406,6 +447,7 @@ public:
     virtual MOS_STATUS Clean();
     virtual MOS_STATUS Configure(VP_PIPELINE_PARAMS &params, bool isInputSurf, int surfIndex);
     virtual MOS_STATUS Configure(VEBOX_SFC_PARAMS &params);
+    virtual MOS_STATUS Configure(PVP_SURFACE surfInput, PVP_SURFACE surfOutput, VP_EXECUTE_CAPS caps);
     virtual FeatureParamScaling &GetSwFilterParams();
     virtual SwFilter *Clone();
     virtual bool operator == (SwFilter& swFilter);
@@ -413,6 +455,8 @@ public:
 
 private:
     FeatureParamScaling m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterScaling)
 };
 
 struct FeatureParamRotMir : public FeatureParam
@@ -441,6 +485,8 @@ public:
 
 private:
     FeatureParamRotMir m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterRotMir)
 };
 
 struct FeatureParamDenoise : public FeatureParam
@@ -466,6 +512,8 @@ public:
 
 private:
     FeatureParamDenoise m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterDenoise)
 };
 
 struct FeatureParamDeinterlace : public FeatureParam
@@ -476,6 +524,8 @@ struct FeatureParamDeinterlace : public FeatureParam
     bool                    bFmdExtraVariance;    //!< Check if extra FMD variances need to be calculated
     bool                    bFmdKernelEnable;     //!< FMD kernel path enabled
     bool                    bQueryVarianceEnable; //!< Query variance enabled
+    uint32_t                heightInput;
+    RECT                    rcSrc;
 };
 
 class SwFilterDeinterlace : public SwFilter
@@ -498,6 +548,8 @@ public:
 
 private:
     FeatureParamDeinterlace m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterDeinterlace)
 };
 
 struct FeatureParamSte : public FeatureParam
@@ -520,6 +572,8 @@ public:
 
 private:
     FeatureParamSte m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterSte)
 };
 
 struct FeatureParamTcc : public FeatureParam
@@ -547,6 +601,8 @@ public:
 
 private:
     FeatureParamTcc m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterTcc)
 };
 
 struct FeatureParamProcamp : public FeatureParam
@@ -568,6 +624,8 @@ public:
 
 private:
     FeatureParamProcamp m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterProcamp)
 };
 
 struct FeatureParamHdr : public FeatureParam
@@ -593,6 +651,54 @@ public:
 
 private:
     FeatureParamHdr m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterHdr)
+};
+
+struct FeatureParamLumakey : public FeatureParam
+{
+    PVPHAL_LUMAKEY_PARAMS   lumaKeyParams;
+};
+
+class SwFilterLumakey : public SwFilter
+{
+public:
+    SwFilterLumakey(VpInterface &vpInterface);
+    virtual ~SwFilterLumakey();
+    virtual MOS_STATUS       Clean();
+    virtual MOS_STATUS       Configure(VP_PIPELINE_PARAMS &params, bool isInputSurf, int surfIndex);
+    virtual FeatureParamLumakey &GetSwFilterParams();
+    virtual SwFilter *       Clone();
+    virtual bool             operator==(SwFilter &swFilter);
+    virtual MOS_STATUS       Update(VP_SURFACE *inputSurf, VP_SURFACE *outputSurf, SwFilterSubPipe &pipe);
+
+private:
+    FeatureParamLumakey m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterLumakey)
+};
+
+struct FeatureParamBlending : public FeatureParam
+{
+    PVPHAL_BLENDING_PARAMS  blendingParams;
+};
+
+class SwFilterBlending : public SwFilter
+{
+public:
+    SwFilterBlending(VpInterface &vpInterface);
+    virtual ~SwFilterBlending();
+    virtual MOS_STATUS       Clean();
+    virtual MOS_STATUS       Configure(VP_PIPELINE_PARAMS &params, bool isInputSurf, int surfIndex);
+    virtual FeatureParamBlending &GetSwFilterParams();
+    virtual SwFilter *       Clone();
+    virtual bool             operator==(SwFilter &swFilter);
+    virtual MOS_STATUS       Update(VP_SURFACE *inputSurf, VP_SURFACE *outputSurf, SwFilterSubPipe &pipe);
+
+private:
+    FeatureParamBlending m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterBlending)
 };
 
 struct FeatureParamColorFill : public FeatureParam
@@ -615,11 +721,14 @@ public:
 
 private:
     FeatureParamColorFill m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterColorFill)
 };
 
 struct FeatureParamAlpha : public FeatureParam
 {
     PVPHAL_ALPHA_PARAMS     compAlpha;           //!< Alpha for composited surface
+    bool                    calculatingAlpha;    //!< Alpha calculation parameters
 };
 
 class SwFilterAlpha : public SwFilter
@@ -636,6 +745,8 @@ public:
 
 private:
     FeatureParamAlpha m_Params = {};
+
+MEDIA_CLASS_DEFINE_END(SwFilterAlpha)
 };
 
 class SwFilterSet
@@ -662,6 +773,8 @@ private:
     std::map<FeatureType, SwFilter *> m_swFilters;
     // nullptr if it is unordered filters, otherwise, it's the pointer to m_OrderedFilters it belongs to.
     std::vector<class SwFilterSet *> *m_location = nullptr;
+
+MEDIA_CLASS_DEFINE_END(SwFilterSet)
 };
 
 }

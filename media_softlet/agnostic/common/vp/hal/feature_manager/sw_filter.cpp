@@ -29,7 +29,16 @@
 #include "sw_filter.h"
 #include "vp_obj_factories.h"
 #include "sw_filter_handle.h"
+#include "vp_utils.h"
 using namespace vp;
+
+template <typename T>
+inline void swap(T &a, T &b)
+{
+    T tmp = b;
+    b     = a;
+    a     = tmp;
+}
 
 /****************************************************************************************************/
 /*                                      SwFilter                                                    */
@@ -89,6 +98,7 @@ SwFilter* SwFilter::CreateSwFilter(FeatureType type)
             return nullptr;
         }
         p->SetRenderTargetType(m_renderTargetType);
+        p->GetFilterEngineCaps().value = 0;
     }
     else
     {
@@ -399,6 +409,11 @@ MOS_STATUS SwFilterScaling::Configure(VP_PIPELINE_PARAMS &params, bool isInputSu
         m_Params.output.dwHeight *= 2;
     }
 
+    VP_PUBLIC_NORMALMESSAGE("Configure scaling parameters by VP_PIPELINE_PARAMS: intput %d x %d, output %d x %d, (%d, %d, %d, %d) -> (%d, %d, %d, %d)",
+        m_Params.input.dwWidth, m_Params.input.dwHeight, m_Params.output.dwWidth, m_Params.output.dwHeight,
+        m_Params.input.rcSrc.left, m_Params.input.rcSrc.top, m_Params.input.rcSrc.right, m_Params.input.rcSrc.bottom,
+        m_Params.input.rcDst.left, m_Params.input.rcDst.top, m_Params.input.rcDst.right, m_Params.input.rcDst.bottom);
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -427,6 +442,7 @@ MOS_STATUS SwFilterScaling::Configure(VEBOX_SFC_PARAMS &params)
         params.input.rotation == (MEDIA_ROTATION)VPHAL_MIRROR_HORIZONTAL    ||
         params.input.rotation == (MEDIA_ROTATION)VPHAL_MIRROR_VERTICAL)
     {
+        m_Params.rotation.rotationNeeded = false;
         m_Params.output.dwWidth     = params.output.surface->dwWidth;
         m_Params.output.dwHeight    = params.output.surface->dwHeight;
         m_Params.input.rcDst        = params.output.rcDst;
@@ -436,6 +452,7 @@ MOS_STATUS SwFilterScaling::Configure(VEBOX_SFC_PARAMS &params)
     }
     else
     {
+        m_Params.rotation.rotationNeeded = true;
         m_Params.output.dwWidth     = params.output.surface->dwHeight;
         m_Params.output.dwHeight    = params.output.surface->dwWidth;
 
@@ -444,6 +461,59 @@ MOS_STATUS SwFilterScaling::Configure(VEBOX_SFC_PARAMS &params)
         RECT_ROTATE(m_Params.output.rcDst, recOutput);
         RECT_ROTATE(m_Params.output.rcMaxSrc, recOutput);
     }
+
+    VP_PUBLIC_NORMALMESSAGE("Configure scaling parameters by VEBOX_SFC_PARAMS: intput %d x %d, output %d x %d, (%d, %d, %d, %d) -> (%d, %d, %d, %d)",
+        m_Params.input.dwWidth, m_Params.input.dwHeight, m_Params.output.dwWidth, m_Params.output.dwHeight,
+        m_Params.input.rcSrc.left, m_Params.input.rcSrc.top, m_Params.input.rcSrc.right, m_Params.input.rcSrc.bottom,
+        m_Params.input.rcDst.left, m_Params.input.rcDst.top, m_Params.input.rcDst.right, m_Params.input.rcDst.bottom);
+
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS SwFilterScaling::Configure(PVP_SURFACE surfInput, PVP_SURFACE surfOutput, VP_EXECUTE_CAPS caps)
+{
+    VP_FUNC_CALL();
+
+    VP_PUBLIC_CHK_NULL_RETURN(surfInput);
+    VP_PUBLIC_CHK_NULL_RETURN(surfInput->osSurface);
+    VP_PUBLIC_CHK_NULL_RETURN(surfOutput);
+    VP_PUBLIC_CHK_NULL_RETURN(surfOutput->osSurface);
+
+    m_Params.type                       = FeatureTypeScaling;
+    m_Params.formatInput                = surfInput->osSurface->Format;
+    m_Params.formatOutput               = surfOutput->osSurface->Format;
+
+    m_Params.input.dwWidth              = surfInput->osSurface->dwWidth;
+    m_Params.input.dwHeight             = surfInput->osSurface->dwHeight;
+    m_Params.input.rcSrc                = surfInput->rcSrc;
+    m_Params.input.rcDst                = surfInput->rcDst;
+    m_Params.input.rcMaxSrc             = surfInput->rcMaxSrc;
+    m_Params.input.sampleType           = surfInput->SampleType;
+
+    m_Params.rotation.rotationNeeded    = false;
+    m_Params.output.dwWidth             = surfOutput->osSurface->dwWidth;
+    m_Params.output.dwHeight            = surfOutput->osSurface->dwHeight;
+    m_Params.output.rcSrc               = surfOutput->rcSrc;
+    m_Params.output.rcDst               = surfOutput->rcDst;
+    m_Params.output.rcMaxSrc            = surfOutput->rcMaxSrc;
+    m_Params.output.sampleType          = surfOutput->SampleType;
+
+    m_Params.isPrimary                  = SURF_IN_PRIMARY == surfInput->SurfType;
+    m_Params.scalingMode                = VPHAL_SCALING_NEAREST;
+    m_Params.scalingPreference          = VPHAL_SCALING_PREFER_SFC;
+
+    m_Params.interlacedScalingType      = ISCALING_NONE;
+    m_Params.pColorFillParams           = nullptr;
+    m_Params.pCompAlpha                 = nullptr;
+    m_Params.bDirectionalScalar         = false;
+
+    m_Params.csc.colorSpaceOutput       = surfOutput->ColorSpace;
+    m_Params.rotation.rotationNeeded    = false;
+
+    VP_PUBLIC_NORMALMESSAGE("Configure scaling parameters by Surfaces: intput %d x %d, output %d x %d, (%d, %d, %d, %d) -> (%d, %d, %d, %d)",
+        m_Params.input.dwWidth, m_Params.input.dwHeight, m_Params.output.dwWidth, m_Params.output.dwHeight,
+        m_Params.input.rcSrc.left, m_Params.input.rcSrc.top, m_Params.input.rcSrc.right, m_Params.input.rcSrc.bottom,
+        m_Params.input.rcDst.left, m_Params.input.rcDst.top, m_Params.input.rcDst.right, m_Params.input.rcDst.bottom);
 
     return MOS_STATUS_SUCCESS;
 }
@@ -502,14 +572,65 @@ MOS_STATUS SwFilterScaling::Update(VP_SURFACE *inputSurf, VP_SURFACE *outputSurf
         rotMir->GetSwFilterParams().rotation == VPHAL_ROTATE_90_MIRROR_HORIZONTAL))
     {
         m_Params.rotation.rotationNeeded = true;
+
+        // Update the rectangle on input surface. The input surface may be used as output in previous
+        // step, in which case the rectangle may be different.
+        // The rcDst in surface should be the one after rotation.
+        inputSurf->rcSrc = m_Params.input.rcSrc;
+        RECT_ROTATE(inputSurf->rcDst, m_Params.input.rcDst);
+        inputSurf->rcMaxSrc = m_Params.input.rcMaxSrc;
     }
     else
     {
+        // 90/270 rotation has been done in execute pipe. Update scaling parameters in swfilter.
+        if (m_Params.rotation.rotationNeeded && !m_isInExePipe)
+        {
+            // width and height cannot be used to check whether rotation has been done,
+            // as width and height may be same.
+            if (m_Params.input.dwWidth != inputSurf->osSurface->dwHeight    ||
+                m_Params.input.dwHeight != inputSurf->osSurface->dwWidth    ||
+                m_Params.output.dwWidth != outputSurf->osSurface->dwHeight  ||
+                m_Params.output.dwHeight != outputSurf->osSurface->dwWidth)
+            {
+                VP_PUBLIC_ASSERTMESSAGE("The Rotation not matching between input params and output params of scaling.");
+                VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+            }
+            // For VE-SFC + FC case, scaling is done by sfc, but scaling filter is still needed
+            // by render workload for composition position.
+            VP_PUBLIC_NORMALMESSAGE("Rotation has been done in execute pipe. Update scaling parameters.");
+            swap(m_Params.input.dwWidth, m_Params.input.dwHeight);
+            RECT tmp = m_Params.input.rcSrc;
+            RECT_ROTATE(m_Params.input.rcSrc, tmp);
+            tmp = m_Params.input.rcDst;
+            RECT_ROTATE(m_Params.input.rcDst, tmp);
+            tmp = m_Params.input.rcMaxSrc;
+            RECT_ROTATE(m_Params.input.rcMaxSrc, tmp);
+
+            swap(m_Params.output.dwWidth, m_Params.output.dwHeight);
+            tmp = m_Params.output.rcSrc;
+            RECT_ROTATE(m_Params.output.rcSrc, tmp);
+            tmp = m_Params.output.rcDst;
+            RECT_ROTATE(m_Params.output.rcDst, tmp);
+            tmp = m_Params.output.rcMaxSrc;
+            RECT_ROTATE(m_Params.output.rcMaxSrc, tmp);
+        }
+
         m_Params.rotation.rotationNeeded = false;
+
+        // Update the rectangle on input surface. The input surface may be used as output in previous
+        // step, in which case the rectangle may be different.
+        inputSurf->rcSrc = m_Params.input.rcSrc;
+        inputSurf->rcDst = m_Params.input.rcDst;
+        inputSurf->rcMaxSrc = m_Params.input.rcMaxSrc;
     }
 
     // update source sample type for field to interleaved mode.
     m_Params.input.sampleType       = inputSurf->SampleType;
+
+    VP_PUBLIC_NORMALMESSAGE("Update scaling parameters: intput %d x %d, output %d x %d, (%d, %d, %d, %d) -> (%d, %d, %d, %d)",
+        m_Params.input.dwWidth, m_Params.input.dwHeight, m_Params.output.dwWidth, m_Params.output.dwHeight,
+        m_Params.input.rcSrc.left, m_Params.input.rcSrc.top, m_Params.input.rcSrc.right, m_Params.input.rcSrc.bottom,
+        m_Params.input.rcDst.left, m_Params.input.rcDst.top, m_Params.input.rcDst.right, m_Params.input.rcDst.bottom);
 
     return MOS_STATUS_SUCCESS;
 }
@@ -729,6 +850,8 @@ MOS_STATUS SwFilterDeinterlace::Configure(VP_PIPELINE_PARAMS& params, bool isInp
     m_Params.diParams             = surfInput->pDeinterlaceParams;
     m_Params.bHDContent           = MEDIA_IS_HDCONTENT(surfInput->dwWidth, surfInput->dwHeight);
     m_Params.bQueryVarianceEnable = false; // Feature is not supported in current filter, disable in current stage
+    m_Params.heightInput          = surfInput->dwHeight;
+    m_Params.rcSrc                = surfInput->rcSrc;
 
     return MOS_STATUS_SUCCESS;
 }
@@ -1153,6 +1276,178 @@ MOS_STATUS vp::SwFilterHdr::Update(VP_SURFACE *inputSurf, VP_SURFACE *outputSurf
 }
 
 /****************************************************************************************************/
+/*                                SwFilterLumakey                                                   */
+/****************************************************************************************************/
+
+SwFilterLumakey::SwFilterLumakey(VpInterface& vpInterface) : SwFilter(vpInterface, FeatureTypeLumakey)
+{
+    m_Params.type = m_type;
+}
+
+SwFilterLumakey::~SwFilterLumakey()
+{
+    Clean();
+}
+
+MOS_STATUS SwFilterLumakey::Clean()
+{
+    VP_FUNC_CALL();
+
+    VP_PUBLIC_CHK_STATUS_RETURN(SwFilter::Clean());
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS SwFilterLumakey::Configure(VP_PIPELINE_PARAMS& params, bool isInputSurf, int surfIndex)
+{
+    VP_FUNC_CALL();
+
+    if (!isInputSurf ||
+        nullptr == params.pSrc[surfIndex]->pLumaKeyParams)
+    {
+        VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+    }
+
+    auto surfInput = params.pSrc[surfIndex];
+
+    m_Params.formatInput    = surfInput->Format;
+    m_Params.formatOutput   = surfInput->Format;
+    m_Params.lumaKeyParams  = surfInput->pLumaKeyParams;
+
+    return MOS_STATUS_SUCCESS;
+}
+
+FeatureParamLumakey& SwFilterLumakey::GetSwFilterParams()
+{
+    VP_FUNC_CALL();
+
+    return m_Params;
+}
+
+SwFilter *SwFilterLumakey::Clone()
+{
+    VP_FUNC_CALL();
+
+    SwFilter* p = CreateSwFilter(m_type);
+
+    SwFilterLumakey *swFilter = dynamic_cast<SwFilterLumakey *>(p);
+    if (nullptr == swFilter)
+    {
+        DestroySwFilter(p);
+        return nullptr;
+    }
+
+    swFilter->m_Params = m_Params;
+    return p;
+}
+
+bool vp::SwFilterLumakey::operator==(SwFilter& swFilter)
+{
+    VP_FUNC_CALL();
+
+    SwFilterLumakey* p = dynamic_cast<SwFilterLumakey*>(&swFilter);
+    return nullptr != p && 0 == memcmp(&this->m_Params, &p->m_Params, sizeof(FeatureParamLumakey));
+}
+
+MOS_STATUS vp::SwFilterLumakey::Update(VP_SURFACE* inputSurf, VP_SURFACE* outputSurf, SwFilterSubPipe &pipe)
+{
+    VP_FUNC_CALL();
+
+    VP_PUBLIC_CHK_NULL_RETURN(inputSurf);
+    VP_PUBLIC_CHK_NULL_RETURN(inputSurf->osSurface);
+    VP_PUBLIC_CHK_NULL_RETURN(outputSurf);
+    VP_PUBLIC_CHK_NULL_RETURN(outputSurf->osSurface);
+    m_Params.formatInput = inputSurf->osSurface->Format;
+    m_Params.formatOutput = inputSurf->osSurface->Format;
+    return MOS_STATUS_SUCCESS;
+}
+
+/****************************************************************************************************/
+/*                                SwFilterBlending                                                  */
+/****************************************************************************************************/
+
+SwFilterBlending::SwFilterBlending(VpInterface& vpInterface) : SwFilter(vpInterface, FeatureTypeBlending)
+{
+    m_Params.type = m_type;
+}
+
+SwFilterBlending::~SwFilterBlending()
+{
+    Clean();
+}
+
+MOS_STATUS SwFilterBlending::Clean()
+{
+    VP_FUNC_CALL();
+
+    VP_PUBLIC_CHK_STATUS_RETURN(SwFilter::Clean());
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS SwFilterBlending::Configure(VP_PIPELINE_PARAMS& params, bool isInputSurf, int surfIndex)
+{
+    VP_FUNC_CALL();
+
+    if (!isInputSurf ||
+        nullptr == params.pSrc[surfIndex]->pBlendingParams)
+    {
+        VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+    }
+
+    auto surfInput = params.pSrc[surfIndex];
+
+    m_Params.formatInput    = surfInput->Format;
+    m_Params.formatOutput   = surfInput->Format;
+    m_Params.blendingParams = surfInput->pBlendingParams;
+
+    return MOS_STATUS_SUCCESS;
+}
+
+FeatureParamBlending& SwFilterBlending::GetSwFilterParams()
+{
+    VP_FUNC_CALL();
+
+    return m_Params;
+}
+
+SwFilter *SwFilterBlending::Clone()
+{
+    VP_FUNC_CALL();
+
+    SwFilter* p = CreateSwFilter(m_type);
+
+    SwFilterBlending *swFilter = dynamic_cast<SwFilterBlending *>(p);
+    if (nullptr == swFilter)
+    {
+        DestroySwFilter(p);
+        return nullptr;
+    }
+
+    swFilter->m_Params = m_Params;
+    return p;
+}
+
+bool vp::SwFilterBlending::operator==(SwFilter& swFilter)
+{
+    VP_FUNC_CALL();
+
+    SwFilterBlending* p = dynamic_cast<SwFilterBlending*>(&swFilter);
+    return nullptr != p && 0 == memcmp(&this->m_Params, &p->m_Params, sizeof(FeatureParamBlending));
+}
+
+MOS_STATUS vp::SwFilterBlending::Update(VP_SURFACE* inputSurf, VP_SURFACE* outputSurf, SwFilterSubPipe &pipe)
+{
+    VP_FUNC_CALL();
+
+    VP_PUBLIC_CHK_NULL_RETURN(inputSurf);
+    VP_PUBLIC_CHK_NULL_RETURN(inputSurf->osSurface);
+    VP_PUBLIC_CHK_NULL_RETURN(outputSurf);
+    VP_PUBLIC_CHK_NULL_RETURN(outputSurf->osSurface);
+    m_Params.formatInput = inputSurf->osSurface->Format;
+    m_Params.formatOutput = inputSurf->osSurface->Format;
+    return MOS_STATUS_SUCCESS;
+}
+
+/****************************************************************************************************/
 /*                                      SwFilterColorFill                                           */
 /****************************************************************************************************/
 
@@ -1258,6 +1553,7 @@ VP_EngineEntry SwFilterColorFill::GetCombinedFilterEngineCaps(SwFilterSubPipe *i
         }
 
         FeatureParamScaling &scalingParams = scaling->GetSwFilterParams();
+        VP_EngineEntry &scalingCaps = scaling->GetFilterEngineCaps();
 
         bool isColorFill = (m_Params.colorFillParams &&
                     (!m_Params.colorFillParams->bDisableColorfillinSFC) &&
@@ -1267,7 +1563,7 @@ VP_EngineEntry SwFilterColorFill::GetCombinedFilterEngineCaps(SwFilterSubPipe *i
                     ? true
                     : false;
 
-        if (!isColorFill && (engineCaps.VeboxNeeded || engineCaps.SfcNeeded))
+        if (!scalingCaps.SfcNeeded || !isColorFill && (engineCaps.VeboxNeeded || engineCaps.SfcNeeded))
         {
             engineCaps.VeboxNeeded = 0;
             engineCaps.SfcNeeded = 0;
@@ -1315,6 +1611,7 @@ MOS_STATUS SwFilterAlpha::Configure(VP_PIPELINE_PARAMS& params, bool isInputSurf
     m_Params.formatInput    = surfOutput->Format;
     m_Params.formatOutput   = surfOutput->Format;
     m_Params.compAlpha      = params.pCompAlpha;
+    m_Params.calculatingAlpha = params.bCalculatingAlpha;
 
     return MOS_STATUS_SUCCESS;
 }

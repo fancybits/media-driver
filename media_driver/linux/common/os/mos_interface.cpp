@@ -238,7 +238,7 @@ MOS_STATUS MosInterface::CreateOsStreamState(
         NULL,
         __MEDIA_USER_FEATURE_VALUE_ENABLE_GUC_SUBMISSION_ID,
         &userFeatureData,
-    nullptr);
+        (MOS_CONTEXT_HANDLE) nullptr);
     (*streamState)->bGucSubmission = (*streamState)->bGucSubmission && ((uint32_t)userFeatureData.i32Data);
 
     //KMD Virtual Engine DebugOverride
@@ -1971,6 +1971,21 @@ uint64_t MosInterface::GetResourceGfxAddress(
     return resource->bo->offset64;
 }
 
+uint32_t MosInterface::GetResourceAllocationHandle(
+    MOS_RESOURCE_HANDLE resource)
+{
+    MOS_OS_FUNCTION_ENTER;
+
+    if (resource && resource->bo)
+    {
+        return resource->bo->handle;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
 uint32_t MosInterface::GetResourceAllocationIndex(
     MOS_STREAM_HANDLE   streamState,
     MOS_RESOURCE_HANDLE resource)
@@ -2878,6 +2893,11 @@ PMOS_RESOURCE MosInterface::GetMarkerResource(
     return nullptr;
 }
 
+int MosInterface::GetPlaneSurfaceOffset(const MOS_PLANE_OFFSET &planeOffset)
+{
+    return planeOffset.iSurfaceOffset;
+}
+
 #if MOS_COMMAND_BUFFER_DUMP_SUPPORTED
 MOS_STATUS MosInterface::DumpCommandBufferInit(
     MOS_STREAM_HANDLE streamState)
@@ -2895,7 +2915,7 @@ MOS_STATUS MosInterface::DumpCommandBufferInit(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_DUMP_COMMAND_BUFFER_ENABLE_ID,
         &UserFeatureData,
-        nullptr);
+        (MOS_CONTEXT_HANDLE)streamState->perStreamParameters);
     streamState->dumpCommandBuffer            = (UserFeatureData.i32Data != 0);
     streamState->dumpCommandBufferToFile      = ((UserFeatureData.i32Data & 1) != 0);
     streamState->dumpCommandBufferAsMessages  = ((UserFeatureData.i32Data & 2) != 0);

@@ -31,6 +31,7 @@
 
 #include "vphal_common.h"
 #include "vphal_common_tools.h"
+#include "media_class_trace.h"
 
 //!
 //! Class VphalFeatureReport
@@ -101,5 +102,7 @@ public:
 
 protected:
     VP_FEATURES m_features;
+
+MEDIA_CLASS_DEFINE_END(VpFeatureReport)
 };
 #endif // __VP_FEATURE_REPORT_H__

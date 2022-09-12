@@ -70,11 +70,12 @@ public:
 
 protected:
     virtual MOS_STATUS RegisterFeatures();
+    virtual void UnregisterFeatures();
     virtual MOS_STATUS GetExecutionCapsForSingleFeature(FeatureType featureType, SwFilterSubPipe& swFilterPipe);
     virtual MOS_STATUS UpdateExeCaps(SwFilter* feature, VP_EXECUTE_CAPS& caps, EngineType Type);
     virtual MOS_STATUS BuildVeboxSecureFilters(SwFilterPipe& featurePipe, VP_EXECUTE_CAPS& caps, HW_FILTER_PARAMS& params);
 
-    MOS_STATUS BuildExecutionEngines(SwFilterSubPipe &swFilterPipe);
+    MOS_STATUS BuildExecutionEngines(SwFilterPipe &swFilterPipe, bool isInputPipe, uint32_t index);
     MOS_STATUS GetHwFilterParam(SwFilterPipe& subSwFilterPipe, HW_FILTER_PARAMS& params);
     MOS_STATUS ReleaseHwFilterParam(HW_FILTER_PARAMS &params);
     MOS_STATUS InitExecuteCaps(VP_EXECUTE_CAPS &caps, VP_EngineEntry &engineCapsInputPipe, VP_EngineEntry &engineCapsOutputPipe);
@@ -82,10 +83,11 @@ protected:
     MOS_STATUS GetCSCExecutionCapsHdr(SwFilter *hdr, SwFilter *csc);
     MOS_STATUS GetCSCExecutionCapsDi(SwFilter* feature);
     MOS_STATUS GetCSCExecutionCaps(SwFilter* feature);
+    bool IsSfcSupported(MOS_FORMAT format);
     MOS_STATUS GetScalingExecutionCaps(SwFilter* feature);
     bool IsSfcRotationSupported(FeatureParamRotMir *rotationParams);
     MOS_STATUS GetRotationExecutionCaps(SwFilter* feature);
-    virtual MOS_STATUS GetDenoiseExecutionCaps(SwFilter* feature);
+    MOS_STATUS GetDenoiseExecutionCaps(SwFilter* feature);
     MOS_STATUS GetSteExecutionCaps(SwFilter* feature);
     MOS_STATUS GetTccExecutionCaps(SwFilter* feature);
     MOS_STATUS GetProcampExecutionCaps(SwFilter* feature);
@@ -94,6 +96,8 @@ protected:
     MOS_STATUS GetDeinterlaceExecutionCaps(SwFilter* feature);
     MOS_STATUS GetColorFillExecutionCaps(SwFilter* feature);
     MOS_STATUS GetAlphaExecutionCaps(SwFilter* feature);
+    MOS_STATUS GetLumakeyExecutionCaps(SwFilter* feature);
+    MOS_STATUS GetBlendingExecutionCaps(SwFilter* feature);
 
     MOS_STATUS BuildExecuteCaps(SwFilterPipe& featurePipe, VP_EXECUTE_CAPS &caps, VP_EngineEntry &engineCapsInputPipe, VP_EngineEntry &engineCapsOutputPipe,
                                 bool &isSingleSubPipe, uint32_t &selectedPipeIndex);
@@ -137,7 +141,9 @@ protected:
     MOS_STATUS AssignExecuteResource(VP_EXECUTE_CAPS& caps, HW_FILTER_PARAMS& params);
 
     virtual bool IsExcludedFeatureForHdr(FeatureType feature);
-    virtual MOS_STATUS FilterFeatureCombination(SwFilterSubPipe *pipe);
+
+    virtual MOS_STATUS FilterFeatureCombination(SwFilterPipe &pipe, bool isInputPipe, uint32_t index);
+    MOS_STATUS AddCommonFilters(SwFilterSubPipe &swFilterSubPipe, VP_SURFACE *input, VP_SURFACE *outputs);
 
     virtual bool IsVeboxSecurePathEnabled(SwFilterPipe& subSwFilterPipe, VP_EXECUTE_CAPS& caps)
     {
@@ -162,7 +168,6 @@ protected:
 
     VpInterface         &m_vpInterface;
     VP_HW_CAPS          m_hwCaps = {};
-    uint32_t            m_bypassCompMode = 0;
     bool                m_initialized = false;
 
     //!
@@ -193,6 +198,10 @@ protected:
         }
         return false;
     }
+
+    void PrintFeatureExecutionCaps(const char *name, VP_EngineEntry &engineCaps);
+
+MEDIA_CLASS_DEFINE_END(Policy)
 };
 
 }

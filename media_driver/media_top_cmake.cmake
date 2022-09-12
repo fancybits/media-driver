@@ -53,6 +53,7 @@ message("-- media -- LIBVA_INSTALL_PATH = ${LIBVA_INSTALL_PATH}")
 message("-- media -- MEDIA_VERSION = ${MEDIA_VERSION}")
 if(X11_FOUND)
 message("-- media -- X11 Found")
+pkg_check_modules(LIBVAX11 libva-x11)
 endif()
 
 set(LIB_NAME_OBJ    "${LIB_NAME}_OBJ")
@@ -147,6 +148,10 @@ if (NOT DEFINED INCLUDED_LIBS OR "${INCLUDED_LIBS}" STREQUAL "")
 
 endif(NOT DEFINED INCLUDED_LIBS OR "${INCLUDED_LIBS}" STREQUAL "")
 
+if (${CLASS_TRACE} EQUAL 1)
+    message("start to generate media_trace_offset.h in media_top_cmake.cmake")
+    execute_process(COMMAND python3 ${BS_DIR_MEDIA}/Tools/MediaDriverTools/MediaClassTrace/gen_ClassTraceOffset.py -w ${BS_DIR_MEDIA} -f ${MEDIA_SOFTLET_EXT}/agnostic/common/shared/classtrace/media_trace_offset.h)
+endif ()
 # post target attributes
 bs_set_post_target()
 
