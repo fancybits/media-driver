@@ -207,7 +207,7 @@ extern "C" {
 #define NLAS_NONLINEARCROP_DEFAULT    0.0F
 #define NLAS_NONLINEARCROP_STEP       0.001F
 
-#define VPHAL_MAX_SOURCES               17       //!< worst case: 16 sub-streams + 1 pri video
+#define VPHAL_MAX_SOURCES               65       //!< worst case: 64 sub-streams + 1 pri video
 #define VPHAL_MAX_CHANNELS              2
 #define VPHAL_MAX_TARGETS               8        //!< multi output support
 #define VPHAL_MAX_FUTURE_FRAMES         18       //!< maximum future frames supported in VPHAL
@@ -873,6 +873,15 @@ typedef struct _VPHAL_HVSDENOISE_PARAMS
     VPHAL_HVSDN_MODE    Mode;
     void*               pHVSDenoiseParam;
     uint32_t            dwDenoiseParamSize;
+    uint32_t            dwGlobalNoiseLevel  = 0;  //!< Global Noise Level for Y
+    uint32_t            dwGlobalNoiseLevelU = 0;  //!< Global Noise Level for U
+    uint32_t            dwGlobalNoiseLevelV = 0;  //!< Global Noise Level for V
+    uint16_t            TgneEnable          = 0;
+    uint16_t            FirstFrame          = 0;
+    uint16_t            TgneFirstFrame      = 0;
+    uint16_t            Fallback            = 0;
+    uint16_t            EnableChroma        = 0;
+    uint16_t            EnableTemporalGNE   = 0;
 } VPHAL_HVSDENOISE_PARAMS, *PVPHAL_HVSDENOISE_PARAMS;
 
 //!
@@ -1548,6 +1557,71 @@ void VpHal_AllocParamsInitType(
 MOS_SURFACE VpHal_ConvertVphalSurfaceToMosSurface(
     PVPHAL_SURFACE pSurface);
 
+//!
+//! \brief  VEBOX IECP parameters
+//!
+class VPHAL_VEBOX_IECP_PARAMS
+{
+public:
+    PVPHAL_COLORPIPE_PARAMS         pColorPipeParams;
+    PVPHAL_PROCAMP_PARAMS           pProcAmpParams;
+    MOS_FORMAT                      dstFormat;
+    MOS_FORMAT                      srcFormat;
+
+    // CSC params
+    bool                            bCSCEnable;                                 // Enable CSC transform
+    float*                          pfCscCoeff;                                 // [3x3] CSC Coeff matrix
+    float*                          pfCscInOffset;                              // [3x1] CSC Input Offset matrix
+    float*                          pfCscOutOffset;                             // [3x1] CSC Output Offset matrix
+    bool                            bAlphaEnable;                               // Alpha Enable Param
+    uint16_t                        wAlphaValue;                                // Color Pipe Alpha Value
+
+    // Front End CSC params
+    bool                            bFeCSCEnable;                               // Enable Front End CSC transform
+    float*                          pfFeCscCoeff;                               // [3x3] Front End CSC Coeff matrix
+    float*                          pfFeCscInOffset;                            // [3x1] Front End CSC Input Offset matrix
+    float*                          pfFeCscOutOffset;                           // [3x1] Front End CSC Output Offset matrix
+
+    VPHAL_VEBOX_IECP_PARAMS()
+    {
+        pColorPipeParams    = nullptr;
+        pProcAmpParams      = nullptr;
+        dstFormat           = Format_Any;
+        srcFormat           = Format_Any;
+        bCSCEnable          = false;
+        pfCscCoeff          = nullptr;
+        pfCscInOffset       = nullptr;
+        pfCscOutOffset      = nullptr;
+        bAlphaEnable        = false;
+        wAlphaValue         = 0;
+
+        bFeCSCEnable        = false;
+        pfFeCscCoeff        = nullptr;
+        pfFeCscInOffset     = nullptr;
+        pfFeCscOutOffset    = nullptr;
+    }
+    virtual ~VPHAL_VEBOX_IECP_PARAMS()
+    {
+        pColorPipeParams    = nullptr;
+        pProcAmpParams      = nullptr;
+    }
+    virtual void Init()
+    {
+        pColorPipeParams    = nullptr;
+        pProcAmpParams      = nullptr;
+
+        dstFormat           = Format_Any;
+        srcFormat           = Format_Any;
+
+        bCSCEnable          = false;
+        pfCscCoeff          = nullptr;
+        pfCscInOffset       = nullptr;
+        pfCscOutOffset      = nullptr;
+        bAlphaEnable        = false;
+        wAlphaValue         = 0;
+    }
+    virtual void   *GetExtParams() { return nullptr; }
+};
 #ifdef __cplusplus
 }
 #endif

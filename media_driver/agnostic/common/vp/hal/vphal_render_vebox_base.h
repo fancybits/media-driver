@@ -659,6 +659,7 @@ public:
                                             pRenderTarget      = nullptr;
                                             SamplerStateParams = { };
                                             VeboxDNDIParams    = { };
+                                            VeboxChromaParams  = { };
                                             pAlphaParams       = nullptr;
                                             // Batch Buffer rendering arguments
                                             BbArgs = { };
@@ -760,7 +761,9 @@ public:
 
     MHW_VEBOX_DNDI_PARAMS               VeboxDNDIParams;
 
-    PVPHAL_ALPHA_PARAMS                 pAlphaParams;
+    MHW_VEBOX_CHROMA_PARAMS             VeboxChromaParams;
+
+    PVPHAL_ALPHA_PARAMS                 pAlphaParams;                      
 
     // Batch Buffer rendering arguments
     VPHAL_ADVPROC_BB_ARGS               BbArgs;
@@ -911,6 +914,8 @@ public:
       PVPHAL_SURFACE                  pInSurface,
       PVPHAL_SURFACE                  pOutSurface);
 
+    void DestorySfcTempSurface();
+
     // External components
     PMHW_VEBOX_INTERFACE            m_pVeboxInterface;                            //!< Pointer to MHW Vebox Structure Interface
     PMHW_SFC_INTERFACE              m_pSfcInterface;                              //!< Pointer to SFC Structure Interface
@@ -1045,8 +1050,8 @@ public:
     MOS_GPU_CONTEXT                  RenderGpuContext;                           //!< Render GPU context
 
     VPHAL_SURFACE                    Vebox3DLookUpTables = {};
-    VPHAL_SURFACE                    SfcTempSurface = {};
-    VPHAL_SURFACE                    Sfc2ndTempSurface = {};
+    PVPHAL_SURFACE                   m_sfcTempSurface    = nullptr;
+    PVPHAL_SURFACE                   m_sfc2ndTempSurface = nullptr;
 
     VphalHVSDenoiser                 *m_hvsDenoiser;                             //!< Human Vision System Based Denoiser - Media Kernel to generate DN parameter
     uint8_t                          *m_hvsKernelBinary;                         //!< Human Vision System Based Denoiser - Pointer to HVS kernel Binary

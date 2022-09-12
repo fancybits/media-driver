@@ -343,6 +343,10 @@ VAStatus DdiMediaUtil_AllocateSurface(
                 uint32_t swizzle_mode;
                 //Overwrite the tile format that matches the exteral buffer
                 mos_bo_get_tiling(bo, &tileformat, &swizzle_mode);
+                if(tileformat == 0)
+                {
+                    tileformat = mediaSurface->pSurfDesc->uiFlags & VA_SURFACE_EXTBUF_DESC_ENABLE_TILING? I915_TILING_Y:I915_TILING_NONE;
+                }
             }
             else
             {
@@ -1853,6 +1857,8 @@ VAStatus DdiMediaUtil_UnRegisterRTSurfaces(
 
 VAStatus DdiMediaUtil_SetMediaResetEnableFlag(PDDI_MEDIA_CONTEXT mediaCtx)
 {
+    mediaCtx->bMediaResetEnable = false;
+    
     DDI_CHK_NULL(mediaCtx,"nullptr mediaCtx!", VA_STATUS_ERROR_INVALID_CONTEXT);
     
     if(!MEDIA_IS_SKU(&mediaCtx->SkuTable, FtrSWMediaReset))
@@ -1860,6 +1866,8 @@ VAStatus DdiMediaUtil_SetMediaResetEnableFlag(PDDI_MEDIA_CONTEXT mediaCtx)
         mediaCtx->bMediaResetEnable = false;
         return VA_STATUS_SUCCESS;
     }
+
+    mediaCtx->bMediaResetEnable = true;
 
     MOS_USER_FEATURE_VALUE_DATA userFeatureData;
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -1869,18 +1877,17 @@ VAStatus DdiMediaUtil_SetMediaResetEnableFlag(PDDI_MEDIA_CONTEXT mediaCtx)
                                      &userFeatureData,
                                      nullptr));
     mediaCtx->bMediaResetEnable = userFeatureData.i32Data ? true : false;
-    if(mediaCtx->bMediaResetEnable)
+    if(!mediaCtx->bMediaResetEnable)
     {
         return VA_STATUS_SUCCESS;
     }
 
     char* mediaResetEnv = getenv("INTEL_MEDIA_RESET_WATCHDOG");
-    if(!mediaResetEnv)
+    if(mediaResetEnv)
     {
-        mediaCtx->bMediaResetEnable = false;
+        mediaCtx->bMediaResetEnable = strcmp(mediaResetEnv, "1") ? false : true;
         return VA_STATUS_SUCCESS;
     }
 
-    mediaCtx->bMediaResetEnable = strcmp(mediaResetEnv, "1") ? false : true;
     return VA_STATUS_SUCCESS;
 }

@@ -947,6 +947,16 @@ public:
     //!           else MOS_STATUS_SUCCESS
     //!
     static MOS_STATUS MosReadApoDdiEnabledUserFeature(uint32_t& userfeatureValue, char* path = nullptr);
+    
+    //! \brief    Read the User Feature Value of Media Solo
+    //! \details  Read the User Feature Value of Media Solo
+    //! \param    uint32_t& mediasoloEnabled
+    //!           [out] media solo statue
+    //! \return   MOS_STATUS
+    //!           Returns one of the MOS_STATUS error codes if failed,
+    //!           else MOS_STATUS_SUCCESS
+    //!
+    static MOS_STATUS MosReadMediaSoloEnabledUserFeature(bool &mediasoloEnabled);
 
     //------------------------------------------------------------------------------
     // String Functions
@@ -1009,6 +1019,28 @@ public:
         char                *strDestination,
         size_t              numberOfElements,
         const char * const  strSource);
+
+    //!
+    //! \brief    String copy with security checks.
+    //! \details  String copy with security checks.
+    //!           Copy strSource to strDestination, with buffer size checking
+    //! \param    [out] strDestination
+    //!           Pointer to the character array to copy to, destsz
+    //! \param    [in] destsz
+    //!           Size of the destination buffer
+    //! \param    [in] strSource
+    //!           Pointer to the character array to copy from
+    //! \param    [in] maxCount
+    //!           Maximum number of characters to copy
+    //! \return   MOS_STATUS
+    //!           Returns one of the MOS_STATUS error codes if failed,
+    //!           else MOS_STATUS_SUCCESS
+    //!
+    static MOS_STATUS MosSecureStrncpy(
+        char                *strDestination,
+        size_t              destSz,
+        const char* const   strSource,
+        size_t              maxCount);
 
     //!
     //! \brief    Memory copy with security checks.
@@ -1273,7 +1305,7 @@ public:
     //!           A pointer to a variable that receives a code indicating the
     //!           type of data stored in the specified value.
     //! \param    [out] data
-    //!           A pointer to a buffer that receives the value's data.
+    //!           Buffer that receives the value's data.
     //! \param    [out] size
     //!           A pointer to a variable that specifies the size of the buffer
     //!           pointed to by the data parameter, in bytes.
@@ -1285,7 +1317,7 @@ public:
         UFKEY_NEXT keyHandle,
         const std::string &valueName,
         uint32_t *type,
-        char *data,
+        std::string &data,
         uint32_t *size);
 
     //!

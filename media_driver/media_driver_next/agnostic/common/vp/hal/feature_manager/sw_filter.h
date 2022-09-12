@@ -85,6 +85,8 @@ enum FeatureType
     FeatureTypeLaceOnVebox,
     FeatureTypeLaceOnRender,
     FeatureTypeGamutExt         = 0x1300,
+    FeatureTypeDV               = 0x1400,
+    FeatureTypeDVOnVebox,
     // ...
     NumOfFeatureType
 };
@@ -168,6 +170,7 @@ struct VP_SURFACE_SETTING
 };
 
 #define FEATURE_TYPE_MASK   0xffffff00
+#define FEATURE_TYPE_ENGINE_ASSIGNED(feature) (((feature)&FEATURE_TYPE_MASK) != (feature))
 
 inline bool operator==(FeatureType a, FeatureType b)
 {
@@ -303,6 +306,7 @@ public:
     virtual MOS_STATUS Configure(VP_PIPELINE_PARAMS &params, bool isInputSurf, int surfIndex);
     virtual MOS_STATUS Configure(PVP_SURFACE surfInput, PVP_SURFACE surfOutput, VP_EXECUTE_CAPS caps);
     virtual MOS_STATUS Configure(VEBOX_SFC_PARAMS &params);
+    virtual MOS_STATUS Configure(FeatureParamCsc &params);
     virtual FeatureParamCsc &GetSwFilterParams();
     virtual SwFilter *Clone();
     virtual bool operator == (SwFilter& swFilter);

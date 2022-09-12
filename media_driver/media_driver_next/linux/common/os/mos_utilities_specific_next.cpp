@@ -142,6 +142,23 @@ MOS_STATUS MosUtilities::MosSecureStrcpy(char  *strDestination, size_t numberOfE
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS MosUtilities::MosSecureStrncpy(char *strDestination, size_t destSz, const char* const strSource, size_t maxCount)
+{
+    if ( (strDestination == nullptr) || (strSource == nullptr) )
+    {
+        return MOS_STATUS_INVALID_PARAMETER;
+    }
+
+    if ( destSz <= maxCount ) // checks if there is space for null termination after copy.
+    {
+        return MOS_STATUS_INVALID_PARAMETER;
+    }
+
+    strncpy(strDestination, strSource, maxCount);
+
+    return MOS_STATUS_SUCCESS;
+}
+
 MOS_STATUS MosUtilities::MosSecureMemcpy(void  *pDestination, size_t dstLength, PCVOID pSource, size_t srcLength)
 {
     if ( (pDestination == nullptr) || (pSource == nullptr) )
@@ -1659,10 +1676,9 @@ MOS_STATUS MosUtilities::MosGetRegValue(
     UFKEY_NEXT keyHandle,
     const std::string &valueName,
     uint32_t *type,
-    char *data,
+    std::string &data,
     uint32_t *size)
 {
-    MOS_OS_CHK_NULL_RETURN(data);
     MOS_OS_CHK_NULL_RETURN(size);
     MOS_UNUSED(type);
 
@@ -1685,7 +1701,8 @@ MOS_STATUS MosUtilities::MosGetRegValue(
         {
             std::string strData = retVal;
             *size = strData.length();
-            return MOS_SecureMemcpy(data, strData.length(), strData.c_str(), strData.length());
+            data = strData;
+            return MOS_STATUS_SUCCESS;
         }
 
         auto keys = util::m_regBuffer[keyHandle];
@@ -1695,7 +1712,7 @@ MOS_STATUS MosUtilities::MosGetRegValue(
             return MOS_STATUS_INVALID_PARAMETER;
         }
 
-        status = MOS_SecureMemcpy(data, it->second.length(), it->second.c_str(), it->second.length());
+        data = it->second;
     }
     catch(const std::exception &e)
     {
@@ -1846,6 +1863,106 @@ MOS_STATUS MosUtilities::MosGetApoMosEnabledUserFeatureFile()
     return MOS_STATUS_SUCCESS;
 }
 #endif
+
+MOS_STATUS MosUtilities::MosReadMediaSoloEnabledUserFeature(bool &mediasoloEnabled)
+{
+    MOS_STATUS eStatus  = MOS_STATUS_SUCCESS;
+
+#if MOS_MEDIASOLO_SUPPORTED
+
+    void *     UFKey    = nullptr;
+    uint32_t   dwUFSize = 0;
+    uint32_t   data     = 0;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    eStatus = MosGetApoMosEnabledUserFeatureFile();
+    if (eStatus != MOS_STATUS_SUCCESS)
+    {
+        MOS_OS_NORMALMESSAGE("Failed to get user feature file, error status %d.", eStatus);
+        return eStatus;
+    }
+#endif
+
+    eStatus = MosUserFeatureOpen(
+        MOS_USER_FEATURE_TYPE_USER,
+        __MEDIA_USER_FEATURE_SUBKEY_INTERNAL,
+        KEY_READ,
+        &UFKey,
+        nullptr);
+
+    if (eStatus != MOS_STATUS_SUCCESS)
+    {
+        MOS_OS_NORMALMESSAGE("Failed to open user feature key , error status %d.", eStatus);
+        return eStatus;
+    }
+
+    eStatus = MosUserFeatureGetValue(
+        UFKey,
+        nullptr,
+        __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_ENABLE,
+        RRF_RT_UF_DWORD,
+        nullptr,
+        &data,
+        &dwUFSize);
+
+    if (eStatus == MOS_STATUS_SUCCESS && data > 0)
+    {
+        mediasoloEnabled = true;
+    }
+    MosUserFeatureCloseKey(UFKey); 
+
+#endif
+    return eStatus;
+}
+
+MOS_STATUS MosUtilities::MosReadApoDdiEnabledUserFeature(uint32_t &userfeatureValue, char *path)
+{
+    MOS_STATUS eStatus  = MOS_STATUS_SUCCESS;
+    void *     UFKey    = nullptr;
+    uint32_t   dwUFSize = 0;
+    uint32_t   data     = 0;
+    MOS_UNUSED(path);
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    eStatus = MosGetApoMosEnabledUserFeatureFile();
+    if (eStatus != MOS_STATUS_SUCCESS)
+    {
+        MOS_OS_NORMALMESSAGE("Failed to get user feature file, error status %d.", eStatus);
+        return eStatus;
+    }
+#endif
+
+    eStatus = MosUserFeatureOpen(
+        MOS_USER_FEATURE_TYPE_USER,
+        __MEDIA_USER_FEATURE_SUBKEY_INTERNAL,
+        KEY_READ,
+        &UFKey,
+        nullptr);
+
+    if (eStatus != MOS_STATUS_SUCCESS)
+    {
+        MOS_OS_NORMALMESSAGE("Failed to open ApoDdiEnable user feature key , error status %d.", eStatus);
+        return eStatus;
+    }
+
+    eStatus = MosUserFeatureGetValue(
+        UFKey,
+        nullptr,
+        "ApoDdiEnable",
+        RRF_RT_UF_DWORD,
+        nullptr,
+        &userfeatureValue,
+        &dwUFSize);
+
+    if (eStatus != MOS_STATUS_SUCCESS)
+    {
+        // This error case can be hit if the user feature key does not exist.
+        MOS_OS_NORMALMESSAGE("Failed to read ApoDdiEnable user feature key value, error status %d", eStatus);
+    }
+
+    MosUserFeatureCloseKey(UFKey);  // Closes the key if not nullptr
+    return eStatus;
+}
 
 MOS_STATUS MosUtilities::MosReadApoMosEnabledUserFeature(uint32_t &userfeatureValue, char *path)
 {

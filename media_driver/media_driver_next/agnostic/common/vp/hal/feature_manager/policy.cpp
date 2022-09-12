@@ -1409,8 +1409,14 @@ MOS_STATUS Policy::SetupExecuteFilter(SwFilterPipe& featurePipe, VP_EXECUTE_CAPS
                 }
                 // Vebox only cases
                 else if (caps.bVebox && engineCaps->bEnabled &&
-                    (engineCaps->VeboxNeeded || (!caps.bHDR3DLUT && caps.bIECP && filterID == FeatureTypeCsc)))
+                    (engineCaps->VeboxNeeded || caps.bIECP && filterID == FeatureTypeCsc))
                 {
+                    // If HDR filter exist, handle CSC previous to HDR in AddFiltersBasedOnCaps
+                    if (filterID == FeatureTypeCsc && IsHDRfilterExist(inputPipe))
+                    {
+                        VP_PUBLIC_NORMALMESSAGE("HDR exist, handle CSC previous to HDR in AddFiltersBasedOnCaps");
+                        continue;
+                    }
                     UpdateExeCaps(feature, caps, EngineTypeVebox);
                 }
                 else if (engineCaps->RenderNeeded)
@@ -1428,13 +1434,13 @@ MOS_STATUS Policy::SetupExecuteFilter(SwFilterPipe& featurePipe, VP_EXECUTE_CAPS
             {
                 engineCaps = &(feature->GetFilterEngineCaps());
 
-                if (m_VeboxSfcFeatureHandlers.end() != m_VeboxSfcFeatureHandlers.find(feature->GetFeatureType()))
+                if (FEATURE_TYPE_ENGINE_ASSIGNED(feature->GetFeatureType()) && m_VeboxSfcFeatureHandlers.end() != m_VeboxSfcFeatureHandlers.find(feature->GetFeatureType()))
                 {
                     // Engine has been assigned to feature.
                     PolicyFeatureHandler *handler = m_VeboxSfcFeatureHandlers.find(feature->GetFeatureType())->second;
                     handler->UpdateFeaturePipe(caps, *feature, featurePipe, *params.executedFilters, true, 0);
                 }
-                else if (m_RenderFeatureHandlers.end() != m_RenderFeatureHandlers.find(feature->GetFeatureType()))
+                else if (FEATURE_TYPE_ENGINE_ASSIGNED(feature->GetFeatureType()) && m_RenderFeatureHandlers.end() != m_RenderFeatureHandlers.find(feature->GetFeatureType()))
                 {
                     PolicyFeatureHandler *handler = m_RenderFeatureHandlers.find(feature->GetFeatureType())->second;
                     handler->UpdateFeaturePipe(caps, *feature, featurePipe, *params.executedFilters, true, 0);
@@ -1620,6 +1626,7 @@ MOS_STATUS Policy::UpdateExeCaps(SwFilter* feature, VP_EXECUTE_CAPS& caps, Engin
             break;
         case FeatureTypeHdr:
             caps.bHDR3DLUT = 1;
+            caps.b3DlutOutput |= 1;
             feature->SetFeatureType(FeatureType(FEATURE_TYPE_EXECUTE(Hdr, Vebox)));
             break;
         case FeatureTypeLace:
@@ -1736,10 +1743,20 @@ MOS_STATUS Policy::AddFiltersBasedOnCaps(
 {
     VP_FUNC_CALL();
 
-    //Create and Add CSC filter for VEBOX IECP chromasiting config
-    if (caps.bSFC && !caps.bBeCSC && (caps.bIECP || caps.bDI))
+    // Create and Add CSC filter for VEBOX IECP chromasiting config
+    // HDR State holder: To keep same as Legacy path -- for VE 3DLut HDR, enable VE chroma up sampling when ONLY VE output.
+    if (!caps.bBeCSC && ((caps.bSFC && (caps.bIECP || caps.bDI)) || (!caps.bSFC && caps.b3DlutOutput)))
     {
         VP_PUBLIC_CHK_STATUS_RETURN(AddNewFilterOnVebox(featurePipe, caps, executedFilters, FeatureTypeCsc));
+    }
+    else
+    {
+        if (caps.bBeCSC && caps.bHDR3DLUT)
+        {
+            // bBeCSC won't be set in GetCSCExecutionCaps for HDR case
+            VP_PUBLIC_ASSERTMESSAGE("bBeCSC shouldn't be set in GetCSCExecutionCaps for HDR case");
+            VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+        }
     }
     return MOS_STATUS_SUCCESS;
 }
@@ -1752,7 +1769,8 @@ MOS_STATUS Policy::AddNewFilterOnVebox(
 {
     VP_FUNC_CALL();
 
-    PVP_SURFACE pSurfInput = featurePipe.GetSurface(true, 0);
+    MOS_STATUS  status      = MOS_STATUS_SUCCESS;
+    PVP_SURFACE pSurfInput  = featurePipe.GetSurface(true, 0);
     PVP_SURFACE pSurfOutput = featurePipe.GetSurface(false, 0);
     VP_PUBLIC_CHK_NULL_RETURN(pSurfInput);
     VP_PUBLIC_CHK_NULL_RETURN(pSurfOutput);
@@ -1768,7 +1786,19 @@ MOS_STATUS Policy::AddNewFilterOnVebox(
     SwFilter* swfilter = handler->CreateSwFilter();
     VP_PUBLIC_CHK_NULL_RETURN(swfilter);
 
-    MOS_STATUS status = swfilter->Configure(pSurfInput, pSurfOutput, caps);
+    if (featureType == FeatureTypeCsc)
+    {
+        SwFilterCsc *csc = (SwFilterCsc *)swfilter;
+        FeatureParamCsc cscParams = csc->GetSwFilterParams();
+        VP_PUBLIC_CHK_STATUS_RETURN(GetCscParamsOnCaps(pSurfInput, pSurfOutput, caps, cscParams));
+
+        status = csc->Configure(cscParams);
+    }
+    else
+    {
+        status = swfilter->Configure(pSurfInput, pSurfOutput, caps);
+    }
+
     if (MOS_FAILED(status))
     {
         handler->Destory(swfilter);
@@ -1781,4 +1811,50 @@ MOS_STATUS Policy::AddNewFilterOnVebox(
     VP_PUBLIC_CHK_STATUS_RETURN(status);
 
     return status;
+}
+
+namespace vp
+{
+MOS_STATUS GetVeboxOutputParams(VP_EXECUTE_CAPS &executeCaps, MOS_FORMAT inputFormat, MOS_TILE_TYPE inputTileType, MOS_FORMAT outputFormat, MOS_FORMAT &veboxOutputFormat, MOS_TILE_TYPE &veboxOutputTileType);
+}
+
+MOS_STATUS Policy::GetCscParamsOnCaps(PVP_SURFACE surfInput, PVP_SURFACE surfOutput, VP_EXECUTE_CAPS &caps, FeatureParamCsc &cscParams)
+{
+    if (caps.bHDR3DLUT)
+    {
+        cscParams.input.colorSpace  = surfInput->ColorSpace;
+        cscParams.formatInput       = surfInput->osSurface->Format;
+        cscParams.input.chromaSiting = surfInput->ChromaSiting;
+
+        // CSC before HDR converts BT2020 P010 to ARGB10
+        cscParams.output.colorSpace  = CSpace_BT2020_RGB;
+        cscParams.formatOutput       = Format_B10G10R10A2;
+        cscParams.output.chromaSiting = surfOutput->ChromaSiting;
+
+        cscParams.pAlphaParams = nullptr;
+        cscParams.pIEFParams   = nullptr;
+
+        return MOS_STATUS_SUCCESS;
+    }
+    else if (caps.bSFC)
+    {
+        MOS_FORMAT    veboxOutputFormat   = surfInput->osSurface->Format;
+        MOS_TILE_TYPE veboxOutputTileType = surfInput->osSurface->TileType;
+
+        GetVeboxOutputParams(caps, surfInput->osSurface->Format, surfInput->osSurface->TileType, surfOutput->osSurface->Format, veboxOutputFormat, veboxOutputTileType);
+        cscParams.input.colorSpace = surfInput->ColorSpace;
+        cscParams.output.colorSpace = surfInput->ColorSpace;
+
+        cscParams.formatInput        = surfInput->osSurface->Format;
+        cscParams.formatOutput       = veboxOutputFormat;
+        cscParams.input.chromaSiting = surfInput->ChromaSiting;
+        cscParams.output.chromaSiting = surfOutput->ChromaSiting;
+
+        cscParams.pAlphaParams = nullptr;
+        cscParams.pIEFParams   = nullptr;
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+    return MOS_STATUS_UNIMPLEMENTED;
 }
