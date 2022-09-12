@@ -1995,14 +1995,14 @@ public:
     //!
     static void MosResetResource(PMOS_RESOURCE   resource);
 
-//!
-//! \brief    Get Gmm Resource Info
-//! \details  Get Gmm Resource Info
-//! \param    PMOS_RESOURCE resource
-//!           [in/out] pointer to OS resource
-//! \return   MOS_STATUS
-//!           MOS_STATUS_SUCCESS if successful
-//!
+    //!
+    //! \brief    Get Gmm Resource Info
+    //! \details  Get Gmm Resource Info
+    //! \param    PMOS_RESOURCE resource
+    //!           [in/out] pointer to OS resource
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if successful
+    //!
     static MOS_STATUS GetGmmResourceInfo(PMOS_RESOURCE resource);
 
     //!
@@ -2047,12 +2047,21 @@ public:
 
     //! \brief    Get usersetting instance for each stream
     //! \details  the user setting instance
-    //! \param    MOS_PLANE_OFFSET planeOffset
-    //!           [in] Reference to MOS_PLANE_OFFSET structure
-    //! \return   int - offset of the plane
+    //! \param    MOS_STREAM_HANDLE streamState
+    //!           [in] streamState
+    //! \return   MediaUserSettingSharedPtr - user setting instance
     //!
     static MediaUserSettingSharedPtr MosGetUserSettingInstance(
         MOS_STREAM_HANDLE streamState);
+
+    //! \brief    Get usersetting instance for each stream
+    //! \details  the user setting instance
+    //! \param    PMOS_CONTEXT mosCtx
+    //!           [in] mosCtx
+    //! \return   MediaUserSettingSharedPtr - user setting instance
+    //!
+    static MediaUserSettingSharedPtr MosGetUserSettingInstance(
+        PMOS_CONTEXT mosCtx);
 
     //!
     //! \brief  Translate MOS_OS_FORMT into MOS_FORMAT
@@ -2063,6 +2072,47 @@ public:
     //! \brief  Check if Mismatch Order Programming model is supported
     //!
     static bool IsMismatchOrderProgrammingSupported();
+
+    //!
+    //! \brief  Translate GMM_TILE_TYPE to MOS_TILE_TYPE
+    //!
+    static MOS_TILE_TYPE MapTileType(GMM_RESOURCE_FLAG flags, GMM_TILE_TYPE type);
+
+    //!
+    //! \brief  Check if Multiple Codec Devices is in use
+    //!
+    static bool IsMultipleCodecDevicesInUse(PMOS_INTERFACE osInterface);
+
+    //! \brief    Wait for the created Batch Buffer completion event
+    //! \details  Wait for the created Batch Buffer completion event, we will be 
+    //!           woken up for every Batch Buffer completion or when TimeOut expires
+    //! \param    MOS_STREAM_HANDLE streamState
+    //!           [in] Pointer to streamState
+    //! \param    GPU_CONTEXT_HANDLE gpuContextHandle
+    //!           [in] gpuContextHandle
+    //! \param    uint32_t uiTimeOut
+    //!           [in] Wait until signaled or TimeOut ms
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if success else failure reason
+    //!
+    static MOS_STATUS WaitForBBCompleteNotifyEvent(
+        MOS_STREAM_HANDLE       streamState,
+        GPU_CONTEXT_HANDLE      gpuContextHandle,
+        uint32_t                uiTimeOut);
+
+    //!
+    //! \brief    Register GPU Context with KMD BB Complete Event
+    //! \details  Register GPU Context with KMD BB Complete Event
+    //! \param    MOS_STREAM_HANDLE streamState
+    //!           [in] Pointer to streamState
+    //! \param    GPU_CONTEXT_HANDLE gpuContextHandle
+    //!           [in] GPU context handle
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success else fail reason
+    //!
+    static MOS_STATUS RegisterBBCompleteNotifyEvent(
+        MOS_STREAM_HANDLE   streamState,
+        GPU_CONTEXT_HANDLE  gpuContextHandle);
 
 private:
     //!
@@ -2141,7 +2191,7 @@ private:
     //!           os device ctx handle
     //! \return   void
     //!
-    static void MosInitOsApiFailSimulateFlag(MOS_CONTEXT_HANDLE mosCtx);
+    static void MosInitOsApiFailSimulateFlag(MediaUserSettingSharedPtr userSettingPtr);
 
     //!
     //! \brief    Deinit OS API fail simulate flags

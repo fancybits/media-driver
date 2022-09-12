@@ -95,23 +95,58 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
         VP_PUBLIC_NORMALMESSAGE("disableSfc %d", m_ctrlValDefault.disableSfc);
     }
 
-    // If AutoDn need to be disabled
-    bool disableAutoDN = false;
+    // If disable dn
+    bool disableDn = false;
     status = ReadUserSetting(
         m_userSettingPtr,
-        disableAutoDN,
-        __MEDIA_USER_FEATURE_VALUE_DISABLE_AUTODN,
+        disableDn,
+        __MEDIA_USER_FEATURE_VALUE_DISABLE_DN,
         MediaUserSetting::Group::Sequence);
     if (MOS_SUCCEEDED(status))
     {
-        m_ctrlValDefault.disableAutoDn = disableAutoDN;
+        m_ctrlValDefault.disableDn = disableDn;
     }
     else
     {
         // Default value
-        m_ctrlValDefault.disableAutoDn = false;
+        m_ctrlValDefault.disableDn = false;
     }
-    VP_PUBLIC_NORMALMESSAGE("disableAutoDn %d", m_ctrlValDefault.disableAutoDn);
+    VP_PUBLIC_NORMALMESSAGE("disableDn %d", m_ctrlValDefault.disableDn);
+
+    // __MEDIA_USER_FEATURE_VALUE_CSC_COEFF_PATCH_MODE_DISABLE
+    bool cscCoeffPatchModeDisabled = false;
+    status = ReadUserSetting(
+        m_userSettingPtr,
+        cscCoeffPatchModeDisabled,
+        __MEDIA_USER_FEATURE_VALUE_CSC_COEFF_PATCH_MODE_DISABLE,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(status))
+    {
+        m_ctrlValDefault.cscCosffPatchModeDisabled = cscCoeffPatchModeDisabled;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.cscCosffPatchModeDisabled = false;
+    }
+    VP_PUBLIC_NORMALMESSAGE("cscCosffPatchModeDisabled %d", m_ctrlValDefault.cscCosffPatchModeDisabled);
+
+    bool disablePacketReuse = false;
+    status = ReadUserSetting(
+        m_userSettingPtr,
+        disablePacketReuse,
+        __MEDIA_USER_FEATURE_VALUE_DISABLE_PACKET_REUSE,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(status))
+    {
+        m_ctrlValDefault.disablePacketReuse = disablePacketReuse;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.disablePacketReuse = false;
+    }
+    VP_PUBLIC_NORMALMESSAGE("disablePacketReuse %d", m_ctrlValDefault.disablePacketReuse);
 
     // bComputeContextEnabled is true only if Gen12+. 
     // Gen12+, compute context(MOS_GPU_NODE_COMPUTE, MOS_GPU_CONTEXT_COMPUTE) can be used for render engine.
@@ -143,6 +178,9 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
     }
     VP_PUBLIC_NORMALMESSAGE("computeContextEnabled %d", m_ctrlValDefault.computeContextEnabled);
 
+    // Read userSettingForDebug
+    CreateUserSettingForDebug();
+
     if (m_vpPlatformInterface)
     {
         m_ctrlValDefault.eufusionBypassWaEnabled = m_vpPlatformInterface->IsEufusionBypassWaEnabled();
@@ -162,6 +200,65 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
 
 VpUserFeatureControl::~VpUserFeatureControl()
 {
+}
+
+MOS_STATUS VpUserFeatureControl::CreateUserSettingForDebug()
+{
+    MOS_STATUS eRegKeyReadStatus = MOS_STATUS_SUCCESS;
+#if ((_DEBUG || _RELEASE_INTERNAL) && !EMUL)
+    bool forceDecompressedOutput = false;
+    eRegKeyReadStatus = ReadUserSettingForDebug(
+        m_userSettingPtr,
+        forceDecompressedOutput,
+        __VPHAL_RNDR_FORCE_VP_DECOMPRESSED_OUTPUT,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(eRegKeyReadStatus))
+    {
+        m_ctrlValDefault.forceDecompressedOutput = forceDecompressedOutput;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.forceDecompressedOutput = false;
+    }
+#endif
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    //SFC NV12/P010 Linear Output.
+    uint32_t enabledSFCNv12P010LinearOutput = 0;
+    eRegKeyReadStatus = ReadUserSettingForDebug(
+        m_userSettingPtr,
+        enabledSFCNv12P010LinearOutput,
+        __VPHAL_ENABLE_SFC_NV12_P010_LINEAR_OUTPUT,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(eRegKeyReadStatus))
+    {
+        m_ctrlValDefault.enabledSFCNv12P010LinearOutput = enabledSFCNv12P010LinearOutput;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.enabledSFCNv12P010LinearOutput = 0;
+    }
+
+    //SFC RGBP Linear/Tile RGB24 Linear Output.
+    uint32_t enabledSFCRGBPRGB24Output = 0;
+    eRegKeyReadStatus =ReadUserSettingForDebug(
+        m_userSettingPtr,
+        enabledSFCRGBPRGB24Output,
+        __VPHAL_ENABLE_SFC_RGBP_RGB24_OUTPUT,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(eRegKeyReadStatus))
+    {
+        m_ctrlValDefault.enabledSFCRGBPRGB24Output = enabledSFCRGBPRGB24Output;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.enabledSFCRGBPRGB24Output = 0;
+    }
+#endif
+    return MOS_STATUS_SUCCESS;
 }
 
 MOS_STATUS VpUserFeatureControl::Update(PVP_PIPELINE_PARAMS params)

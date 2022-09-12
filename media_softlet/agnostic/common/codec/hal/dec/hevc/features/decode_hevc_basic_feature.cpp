@@ -38,6 +38,8 @@ MOS_STATUS HevcBasicFeature::Init(void *setting)
     DECODE_CHK_NULL(setting);
     DECODE_CHK_NULL(m_hwInterface);
 
+    m_shortFormatInUse = ((CodechalSetting*)setting)->shortFormatInUse;
+
     DECODE_CHK_STATUS(DecodeBasicFeature::Init(setting));
 
     DECODE_CHK_STATUS(m_refFrames.Init(this, *m_allocator));
@@ -219,8 +221,7 @@ MOS_STATUS HevcBasicFeature::ErrorDetectAndConceal()
         // check for non-scc
         if (m_hevcSccPicParams == nullptr)
         {
-            DECODE_ASSERTMESSAGE("Only SCC 4:4:4 allows both tiles_enabled_flag andentropy_coding_sync_enabled_flag to be ON at the same time\n");
-            return MOS_STATUS_INVALID_PARAMETER;
+            DECODE_ASSERTMESSAGE("Only SCC 4:4:4 allows both tiles_enabled_flag and entropy_coding_sync_enabled_flag to be on at the same time\n");
         }
     }
 
@@ -268,7 +269,38 @@ MOS_STATUS HevcBasicFeature::ErrorDetectAndConceal()
         {
             if (m_hevcPicParams->entropy_coding_sync_enabled_flag && m_hevcPicParams->tiles_enabled_flag)
             {
-                DECODE_ASSERTMESSAGE("Only SCC 4:4:4 allows both tiles_enabled_flag andentropy_coding_sync_enabled_flag to be ON at the same time\n");
+                DECODE_ASSERTMESSAGE("Only SCC 4:4:4 allows both tiles_enabled_flag and entropy_coding_sync_enabled_flag to be on at the same time\n");
+            }
+        }
+    }
+
+    if (!m_shortFormatInUse)
+    {
+        if (m_hevcPicParams->tiles_enabled_flag || m_hevcPicParams->entropy_coding_sync_enabled_flag)
+        {
+            if (m_hevcPicParams->tiles_enabled_flag == 0 && m_hevcPicParams->entropy_coding_sync_enabled_flag == 1)
+            {
+                if (m_hevcSliceParams->num_entry_point_offsets < 0 || m_hevcSliceParams->num_entry_point_offsets > m_hevcPicParams->PicHeightInMinCbsY - 1)
+                {
+                    DECODE_ASSERTMESSAGE("num_entry_point_offsets is out of range\n");
+                    return MOS_STATUS_INVALID_PARAMETER;
+                }
+            }
+            else if (m_hevcPicParams->tiles_enabled_flag == 1 && m_hevcPicParams->entropy_coding_sync_enabled_flag == 0)
+            {
+                if (m_hevcSliceParams->num_entry_point_offsets < 0 || m_hevcSliceParams->num_entry_point_offsets > ((m_hevcPicParams->num_tile_columns_minus1 + 1) * (m_hevcPicParams->num_tile_rows_minus1 + 1) - 1))
+                {
+                    DECODE_ASSERTMESSAGE("num_entry_point_offsets is out of range\n");
+                    return MOS_STATUS_INVALID_PARAMETER;
+                }
+            }
+            else
+            {
+                if (m_hevcSliceParams->num_entry_point_offsets < 0 || m_hevcSliceParams->num_entry_point_offsets > ((m_hevcPicParams->num_tile_columns_minus1 + 1) * m_hevcPicParams->PicHeightInMinCbsY - 1))
+                {
+                    DECODE_ASSERTMESSAGE("num_entry_point_offsets is out of range\n");
+                    return MOS_STATUS_INVALID_PARAMETER;
+                }
             }
         }
     }

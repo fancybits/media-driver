@@ -28,6 +28,18 @@
 #include "renderhal_legacy.h"
 #include "renderhal_g12_base.h"
 #include "mhw_mi_g12_X.h"
+#include "media_common_defs.h"
+#include "media_skuwa_specific.h"
+#include "mhw_mi.h"
+#include "mhw_render.h"
+#include "mhw_state_heap_g12.h"
+#include "mhw_utilities_next.h"
+#include "mos_defs_specific.h"
+#include "mos_os.h"
+#include "mos_os_hw.h"
+#include "mos_utilities.h"
+#include "mos_utilities_common.h"
+#include "renderhal_dsh.h"
 
 //!
 //! \brief      GSH settings for G12
@@ -202,7 +214,7 @@ MOS_STATUS XRenderHal_Interface_G12_Base::SetupSurfaceState (
             m_renderHalMMCEnabled)
         {
             // Set surface compression states
-            if (pSurface->MmcState == MOS_MEMCOMP_RC && pParams->bRenderTarget)
+            if (pSurface->MmcState == MOS_MEMCOMP_RC && pParams->isOutput)
             {
                 // bCompressionEnabled/bCompressionMode is deprecated on Gen12+, use MmcState instead.
                 // RC compression mode is not supported on render output surface on tgllp.
@@ -1086,7 +1098,7 @@ MOS_STATUS XRenderHal_Interface_G12_Base::SetScratchSpaceBufferState(
     RENDERHAL_SURFACE_STATE_PARAMS renderhal_surface_state_param;
     MOS_ZeroMemory(&renderhal_surface_state_param,
                    sizeof(renderhal_surface_state_param));
-    renderhal_surface_state_param.bRenderTarget = 1;
+    renderhal_surface_state_param.isOutput = 1;
     renderhal_surface_state_param.MemObjCtl = 2;
 
     RENDERHAL_SURFACE_STATE_ENTRY *renderhal_surface_state_entry = nullptr;

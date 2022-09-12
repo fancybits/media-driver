@@ -26,8 +26,8 @@
 //!
 #include "vp_render_fc_kernel.h"
 #include "vp_render_kernel_obj.h"
-#include "hal_kerneldll.h"
-#include "hal_oca_interface.h"
+#include "hal_kerneldll_next.h"
+#include "hal_oca_interface_next.h"
 #include "vp_user_feature_control.h"
 
 using namespace vp;
@@ -79,8 +79,6 @@ const int32_t VpRenderFcKernel::s_bindingTableIndexField[] =
 VpRenderFcKernel::VpRenderFcKernel(PVP_MHWINTERFACE hwInterface, PVpAllocator allocator) :
     VpRenderKernelObj(hwInterface, allocator)
 {
-    bool cscCoeffPatchModeEnabled = false;
-
     m_kernelBinaryID = IDR_VP_EOT;
     m_kernelId       = kernelCombinedFc;
 
@@ -121,13 +119,11 @@ VpRenderFcKernel::VpRenderFcKernel(PVP_MHWINTERFACE hwInterface, PVpAllocator al
         {
             m_userSettingPtr = m_hwInterface->m_osInterface->pfnGetUserSettingInstance(m_hwInterface->m_osInterface);
         }
-
-        ReadUserSetting(
-            m_userSettingPtr,
-            cscCoeffPatchModeEnabled,
-            __MEDIA_USER_FEATURE_VALUE_CSC_COEFF_PATCH_MODE_DISABLE,
-            MediaUserSetting::Group::Sequence);
-        m_cscCoeffPatchModeEnabled = cscCoeffPatchModeEnabled ? false : true;
+        auto userFeatureControl = m_hwInterface->m_userFeatureControl;
+        if (userFeatureControl != nullptr)
+        {
+            m_cscCoeffPatchModeEnabled = !userFeatureControl->IsCscCosffPatchModeDisabled();
+        }
 
         m_computeWalkerEnabled = true;
     }
@@ -169,8 +165,8 @@ MOS_STATUS VpRenderFcKernel::SetSurfaceParams(KERNEL_SURFACE_STATE_PARAM &surfPa
         layer.iefEnabled    = false;
 
         // Set flags for RT
-        surfParam.renderTarget              = true;
-        renderSurfParams.bRenderTarget      = true;
+        surfParam.isOutput                  = true;
+        renderSurfParams.isOutput           = true;
         renderSurfParams.bWidthInDword_Y    = true;
         renderSurfParams.bWidthInDword_UV   = true;
         renderSurfParams.Boundary           = RENDERHAL_SS_BOUNDARY_DSTRECT;
@@ -178,8 +174,8 @@ MOS_STATUS VpRenderFcKernel::SetSurfaceParams(KERNEL_SURFACE_STATE_PARAM &surfPa
     // other surfaces
     else
     {
-        surfParam.renderTarget              = false;
-        renderSurfParams.bRenderTarget      = false;
+        surfParam.isOutput                  = false;
+        renderSurfParams.isOutput           = false;
         renderSurfParams.bWidthInDword_Y    = false;
         renderSurfParams.bWidthInDword_UV   = false;
         renderSurfParams.Boundary           = RENDERHAL_SS_BOUNDARY_SRCRECT;
@@ -375,7 +371,7 @@ MOS_STATUS VpRenderFcKernel::SetupSurfaceState()
 
         surfParam.surfaceOverwriteParams.updatedRenderSurfaces             = true;
         surfParam.surfaceOverwriteParams.renderSurfaceParams.Type          = RENDERHAL_SURFACE_TYPE_G10;
-        surfParam.surfaceOverwriteParams.renderSurfaceParams.bRenderTarget = false;
+        surfParam.surfaceOverwriteParams.renderSurfaceParams.isOutput = false;
         surfParam.surfaceOverwriteParams.renderSurfaceParams.Boundary      = RENDERHAL_SS_BOUNDARY_ORIGINAL;
         surfParam.surfaceOverwriteParams.renderSurfaceParams.bWidth16Align = false;
         surfParam.surfaceOverwriteParams.renderSurfaceParams.MemObjCtl     = m_surfMemCacheCtl.InputSurfMemObjCtl;
@@ -637,7 +633,7 @@ MOS_STATUS VpRenderFcKernel::InitRenderHalSurface(
 
 void VpRenderFcKernel::OcaDumpKernelInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext)
 {
-    HalOcaInterface::DumpVpKernelInfo(cmdBuffer, mosContext, m_kernelId, m_kernelSearch.KernelCount, m_kernelSearch.KernelID);
+    HalOcaInterfaceNext::DumpVpKernelInfo(cmdBuffer, mosContext, m_kernelId, m_kernelSearch.KernelCount, m_kernelSearch.KernelID);
 }
 
 bool IsRenderAlignmentWANeeded(VP_SURFACE *surface)
@@ -711,17 +707,20 @@ MOS_STATUS VpRenderFcKernel::BuildFilter(
     PKdll_FilterEntry               pFilter,
     int32_t*                        piFilterSize)
 {
-    VP_FC_LAYER                 *src = nullptr;
-    VPHAL_CSPACE                cspace_main = CSpace_sRGB;
-    int32_t                     iMaxFilterSize = 0;
-    bool                        bColorFill = false, bLumaKey = false;
-    int32_t                     i = 0;
-    PRECT                       pTargetRect = nullptr;
-    RENDERHAL_SURFACE           RenderHalSurface = {};
-    bool                        bNeed = false;
-    int32_t                     procampCount = 0;
-    float scaleX = 1.0;
-    float scaleY = 1.0;
+    VP_FC_LAYER      *src              = nullptr;
+    VPHAL_CSPACE      cspace_main      = CSpace_sRGB;
+    int32_t           iMaxFilterSize   = 0;
+    bool              bColorFill       = false, bLumaKey = false;
+    int32_t           i                = 0;
+    PRECT             pTargetRect      = nullptr;
+    RENDERHAL_SURFACE RenderHalSurface = {};
+    bool              bNeed            = false;
+    int32_t           procampCount     = 0;
+    float             scaleX           = 1.0;
+    float             scaleY           = 1.0;
+    bool              bPrimary         = false;
+    bool              bRotation        = false;
+    VPHAL_PERFTAG     perfTag          = VPHAL_NONE;
 
     VP_RENDER_CHK_NULL_RETURN(m_hwInterface);
     VP_RENDER_CHK_NULL_RETURN(m_hwInterface->m_waTable);
@@ -850,6 +849,10 @@ MOS_STATUS VpRenderFcKernel::BuildFilter(
         // Set layer rotation
         //--------------------------------
         pFilter->rotation = src->rotation;
+        if (src->rotation != VPHAL_ROTATION_IDENTITY)
+        {
+            bRotation = true;
+        }
 
         //--------------------------------
         // Set layer color space
@@ -869,6 +872,7 @@ MOS_STATUS VpRenderFcKernel::BuildFilter(
         if (src->surf->SurfType == SURF_IN_PRIMARY)
         {
             cspace_main = pFilter->cspace;
+            bPrimary = true;
         }
 
         //--------------------------------
@@ -1157,6 +1161,28 @@ MOS_STATUS VpRenderFcKernel::BuildFilter(
 
     // Get App supplied RT format
     pFilter->cspace = target.surf->ColorSpace;
+
+    // Set performance tag for current phase
+    // Set rotation perftag if there is a layer that needs to be rotated in
+    // the current phase, regardless of primary or non-primary.
+    if (bRotation)
+    {
+        perfTag = (VPHAL_PERFTAG)((int)VPHAL_ROT + i - 1);
+    }
+    else if (bPrimary)
+    {
+        perfTag = (VPHAL_PERFTAG)((int)VPHAL_PRI + i - 1);
+    }
+    else
+    {
+        perfTag = (VPHAL_PERFTAG)((int)VPHAL_NONE + i);
+    }
+
+    auto osInterface = m_hwInterface->m_osInterface;
+    VP_RENDER_CHK_NULL_RETURN(osInterface);
+    VP_RENDER_CHK_NULL_RETURN(osInterface->pfnSetPerfTag);
+
+    osInterface->pfnSetPerfTag(osInterface, perfTag);
 
     // Update filter
     (*piFilterSize)++;
@@ -1578,7 +1604,7 @@ MOS_STATUS VpRenderFcKernel::InitLayerInCurbeData(VP_FC_LAYER *layer)
             m_curbeData.DW11.ChromasitingUOffset, m_curbeData.DW12.ChromasitingVOffset);
 
         // Set output depth.
-        bitDepth = VpHal_GetSurfaceBitDepth(layer->surf->osSurface->Format);
+        bitDepth                        = VpUtils::GetSurfaceBitDepth(layer->surf->osSurface->Format);
         m_curbeData.DW07.OutputDepth    = VP_COMP_P010_DEPTH;
         if (bitDepth && !(layer->surf->osSurface->Format == Format_P010 || layer->surf->osSurface->Format == Format_Y210))
         {
@@ -1850,7 +1876,7 @@ MOS_STATUS VpRenderFcKernel::InitColorFillInCurbeData()
             (m_srcCspace     != srcCspace)  ||
             (m_dstCspace     != dstCspace))
         {
-            VpHal_CSC_8(&m_dstColor, &srcColor, srcCspace, dstCspace);
+            VpUtils::GetCscMatrixForRender8Bit(&m_dstColor, &srcColor, srcCspace, dstCspace);
 
             // store the values for next iteration
             m_srcColor     = srcColor;

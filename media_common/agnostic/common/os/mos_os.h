@@ -575,7 +575,7 @@ private:
     static std::shared_ptr<GpuCmdResInfoDump> m_instance;
     mutable uint32_t         m_cnt         = 0;
     bool                     m_dumpEnabled = false;
-    std::string              m_path;
+    std::string              m_path        = "";
 };
 #endif // MOS_COMMAND_RESINFO_DUMP_SUPPORTED
 
@@ -696,7 +696,8 @@ typedef struct _MOS_INTERFACE
 
     //!< Only used in async mode for backward compatiable
     GPU_CONTEXT_HANDLE              m_GpuContextHandleMap[MOS_GPU_CONTEXT_MAX] = {0};
-
+    GPU_CONTEXT_HANDLE              m_encContext;
+    GPU_CONTEXT_HANDLE              m_pakContext;
     // OS dependent settings, flags, limits
     int32_t                         b64bit;
     int32_t                         bDeallocateOnExit;
@@ -808,6 +809,10 @@ typedef struct _MOS_INTERFACE
     MOS_STATUS (* pfnDestroyGpuContext) (
         PMOS_INTERFACE              pOsInterface,
         MOS_GPU_CONTEXT             GpuContext);
+    
+    MOS_STATUS (* pfnDestroyGpuContextByHandle) (
+        PMOS_INTERFACE              pOsInterface,
+        GPU_CONTEXT_HANDLE          gpuContextHandle);
 
     MOS_STATUS (* pfnDestroyGpuComputeContext) (
         PMOS_INTERFACE              osInterface,
@@ -915,10 +920,6 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE              pOsInterface,
         MOS_GPU_CONTEXT             busyGPUCtx,
         MOS_GPU_CONTEXT             requestorGPUCtx);
-
-    void(* pfnSyncWith3DContext)(
-        PMOS_INTERFACE              pOsInterface,
-        PMOS_SYNC_PARAMS            pParams);
 
     MOS_STATUS (* pfnRegisterBBCompleteNotifyEvent) (
         PMOS_INTERFACE              pOsInterface,
@@ -1122,10 +1123,6 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE              pOsInterface);
 #endif // MOS_MEDIASOLO_SUPPORTED
 
-    MOS_STATUS (* pfnWaitOnResource) (
-        PMOS_INTERFACE              pOsInterface,
-        PMOS_RESOURCE               pResource);
-
     uint32_t (* pfnGetGpuStatusTag) (
         PMOS_INTERFACE              pOsInterface,
         MOS_GPU_CONTEXT             GpuContext);
@@ -1221,9 +1218,6 @@ typedef struct _MOS_INTERFACE
     MOS_STATUS (*pfnFreeLibrary) (
         HINSTANCE                   hInstance);
 
-    void (*pfnLogData)(
-        char                        *pData);
-
     MOS_NULL_RENDERING_FLAGS  (* pfnGetNullHWRenderFlags) (
         PMOS_INTERFACE              pOsInterface);
 
@@ -1285,20 +1279,10 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE              pOsInterface,
         MOS_GPU_NODE                VideoNodeOrdinal);
 
-    int32_t (*pfnSetCpuCacheability)(
-        PMOS_INTERFACE              pOsInterface,
-        PMOS_ALLOC_GFXRES_PARAMS    pParams);
-
     MOS_STATUS(*pfnSkipResourceSync)(
         PMOS_RESOURCE               pOsResource);
 
     MOS_STATUS(*pfnSetObjectCapture)(
-        PMOS_RESOURCE               pOsResource);
-
-    MOS_STATUS(*pfnSkipResourceSyncDynamic)(
-        PMOS_RESOURCE               pOsResource);
-
-    MOS_STATUS(*pfnEnableResourceSyncDynamic)(
         PMOS_RESOURCE               pOsResource);
 
     bool(*pfnIsValidStreamID)(
@@ -1316,6 +1300,9 @@ typedef struct _MOS_INTERFACE
         PMOS_RESOURCE               pOsResource);
 
     int32_t (*pfnIsGPUHung)(
+        PMOS_INTERFACE              pOsInterface);
+
+    bool (*pfnIsMultipleCodecDevicesInUse)(
         PMOS_INTERFACE              pOsInterface);
 
     //!
@@ -1435,6 +1422,14 @@ typedef struct _MOS_INTERFACE
 
     MOS_STATUS (*pfnCheckVirtualEngineSupported)(
         PMOS_INTERFACE              pOsInterface);
+
+    bool (*pfnIsCpEnabled)(
+        PMOS_INTERFACE              pOsInterface);
+
+    MOS_STATUS (*pfnPrepareResources)(
+        PMOS_INTERFACE pOsInterface,
+        void *source[], uint32_t sourceCount,
+        void *target[], uint32_t targetCount);
 
 #if MOS_MEDIASOLO_SUPPORTED
     int32_t                         bSupportMediaSoloVirtualEngine;               //!< Flag to indicate if MediaSolo uses VE solution in cmdbuffer submission.
@@ -1605,6 +1600,20 @@ MOS_STATUS Mos_CheckVirtualEngineSupported(
     PMOS_INTERFACE osInterface,
     bool           isDecode,
     bool           veDefaultEnable);
+
+//!
+//! \brief    Retrieve the CachePolicyMemoryObject for a resource
+//! \details  Retrieve the CachePolicyMemoryObject for a resource
+//! \param    PMOS_INTERFACE osInterface
+//!           [in] OS Interface
+//! \param    PMOS_RESOURCE resource
+//!           [in] resource
+//! \return   MEMORY_OBJECT_CONTROL_STATE
+//!           return a value of MEMORY_OBJECT_CONTROL_STATE
+//!
+MEMORY_OBJECT_CONTROL_STATE Mos_GetResourceCachePolicyMemoryObject(
+    PMOS_INTERFACE      osInterface,
+    PMOS_RESOURCE       resource);
 
 struct ContextRequirement
 {

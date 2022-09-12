@@ -28,13 +28,14 @@
 #include "vp_platform_interface.h"
 #include "vp_pipeline_common.h"
 #include "vp_render_kernel_obj.h"
-#include "hal_oca_interface.h"
 #include "vp_pipeline.h"
 #include "vp_packet_pipe.h"
 #include "vp_user_feature_control.h"
 #include "mhw_mi_itf.h"
 #include "mhw_mi_cmdpar.h"
 #include "vp_platform_interface.h"
+#include "hal_oca_interface_next.h"
+#include "renderhal_platform_interface.h"
 
 namespace vp
 {
@@ -152,7 +153,26 @@ MOS_STATUS VpRenderCmdPacket::Prepare()
     VP_RENDER_CHK_NULL_RETURN(m_kernelSet);
     VP_RENDER_CHK_NULL_RETURN(m_surfMemCacheCtl);
 
-    if (m_packetResourcesdPrepared)
+    if (m_renderHal->pStateHeap == nullptr)
+    {
+        VP_RENDER_CHK_STATUS_RETURN(m_renderHal->pfnAllocateStateHeaps(m_renderHal, &m_renderHal->StateHeapSettings));
+        if (m_renderHal->pStateHeap)
+        {
+            MHW_STATE_BASE_ADDR_PARAMS *pStateBaseParams = &m_renderHal->StateBaseAddressParams;
+
+            pStateBaseParams->presGeneralState           = &m_renderHal->pStateHeap->GshOsResource;
+            pStateBaseParams->dwGeneralStateSize         = m_renderHal->pStateHeap->dwSizeGSH;
+            pStateBaseParams->presDynamicState           = &m_renderHal->pStateHeap->GshOsResource;
+            pStateBaseParams->dwDynamicStateSize         = m_renderHal->pStateHeap->dwSizeGSH;
+            pStateBaseParams->bDynamicStateRenderTarget  = false;
+            pStateBaseParams->presIndirectObjectBuffer   = &m_renderHal->pStateHeap->GshOsResource;
+            pStateBaseParams->dwIndirectObjectBufferSize = m_renderHal->pStateHeap->dwSizeGSH;
+            pStateBaseParams->presInstructionBuffer      = &m_renderHal->pStateHeap->IshOsResource;
+            pStateBaseParams->dwInstructionBufferSize    = m_renderHal->pStateHeap->dwSizeISH;
+        }
+    }
+
+    if (m_packetResourcesPrepared)
     {
         VP_RENDER_NORMALMESSAGE("Resource Prepared, skip this time");
         return MOS_STATUS_SUCCESS;
@@ -170,6 +190,28 @@ MOS_STATUS VpRenderCmdPacket::Prepare()
     if (m_submissionMode == MULTI_KERNELS_WITH_MULTI_MEDIA_STATES)
     {
         m_kernelRenderData.clear();
+
+        if (m_bindingtableMode == MULTI_KERNELS_WITH_MULTI_BINDINGTABLES)
+        {
+            bool bAllocated = false;
+            VP_RENDER_CHK_STATUS_RETURN(m_renderHal->pfnReAllocateStateHeapsforAdvFeature(m_renderHal, bAllocated));
+
+            if (bAllocated && m_renderHal->pStateHeap)
+            {
+                MHW_STATE_BASE_ADDR_PARAMS *pStateBaseParams = &m_renderHal->StateBaseAddressParams;
+
+                pStateBaseParams->presGeneralState           = &m_renderHal->pStateHeap->GshOsResource;
+                pStateBaseParams->dwGeneralStateSize         = m_renderHal->pStateHeap->dwSizeGSH;
+                pStateBaseParams->presDynamicState           = &m_renderHal->pStateHeap->GshOsResource;
+                pStateBaseParams->dwDynamicStateSize         = m_renderHal->pStateHeap->dwSizeGSH;
+                pStateBaseParams->bDynamicStateRenderTarget  = false;
+                pStateBaseParams->presIndirectObjectBuffer   = &m_renderHal->pStateHeap->GshOsResource;
+                pStateBaseParams->dwIndirectObjectBufferSize = m_renderHal->pStateHeap->dwSizeGSH;
+                pStateBaseParams->presInstructionBuffer      = &m_renderHal->pStateHeap->IshOsResource;
+                pStateBaseParams->dwInstructionBufferSize    = m_renderHal->pStateHeap->dwSizeISH;
+            }
+        }
+
         VP_RENDER_CHK_NULL_RETURN(m_renderHal->pStateHeap);
 
         m_renderHal->pStateHeap->iCurrentBindingTable = 0;
@@ -516,7 +558,7 @@ MOS_STATUS VpRenderCmdPacket::PacketInit(
     // Init packet surface params.
     m_surfSetting = surfSetting;
 
-    m_packetResourcesdPrepared = false;
+    m_packetResourcesPrepared = false;
     m_kernelConfigs.clear();
     m_renderKernelParams.clear();
 
@@ -576,7 +618,7 @@ MOS_STATUS VpRenderCmdPacket::SetupSurfaceState()
             }
             else
             {
-                renderSurfaceParams.bRenderTarget    = (kernelSurfaceParam->renderTarget == true) ? 1 : 0;
+                renderSurfaceParams.isOutput         = (kernelSurfaceParam->isOutput == true) ? 1 : 0;
                 renderSurfaceParams.Boundary         = RENDERHAL_SS_BOUNDARY_ORIGINAL;  // Add conditional in future for Surfaces out of range
                 renderSurfaceParams.bWidth16Align    = false;
                 renderSurfaceParams.bWidthInDword_Y  = true;
@@ -635,7 +677,7 @@ MOS_STATUS VpRenderCmdPacket::SetupSurfaceState()
                     &renderHalSurface,
                     &renderSurfaceParams,
                     kernelSurfaceParam->surfaceOverwriteParams.bindIndex,
-                    renderSurfaceParams.bRenderTarget,
+                    renderSurfaceParams.isOutput,
                     kernelSurfaceParam->surfaceEntries,
                     kernelSurfaceParam->sizeOfSurfaceEntries);
             }
@@ -650,7 +692,7 @@ MOS_STATUS VpRenderCmdPacket::SetupSurfaceState()
                         &renderHalSurface,
                         &renderSurfaceParams,
                         kernelSurfaceParam->surfaceOverwriteParams.bindIndex,
-                        renderSurfaceParams.bRenderTarget);
+                        renderSurfaceParams.isOutput);
                 }
                 else if ((kernelSurfaceParam->surfaceOverwriteParams.updatedSurfaceParams &&
                      kernelSurfaceParam->surfaceOverwriteParams.bufferResource            &&
@@ -663,15 +705,16 @@ MOS_STATUS VpRenderCmdPacket::SetupSurfaceState()
                         &renderHalSurface.OsSurface,
                         &renderHalSurface,
                         &renderSurfaceParams,
-                        renderSurfaceParams.bRenderTarget);
+                        renderSurfaceParams.isOutput);
                 }
                 else
                 {
+                    VP_RENDER_NORMALMESSAGE("If 1D buffer overwrite to 2D for use, it will go SetSurfaceForHwAccess()");
                     index = SetSurfaceForHwAccess(
                         &renderHalSurface.OsSurface,
                         &renderHalSurface,
                         &renderSurfaceParams,
-                        renderSurfaceParams.bRenderTarget);
+                        renderSurfaceParams.isOutput);
                 }
             }
             VP_RENDER_CHK_STATUS_RETURN(m_kernel->UpdateCurbeBindingIndex(type, index));
@@ -786,7 +829,7 @@ void VpRenderCmdPacket::OcaDumpDbgInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEX
         }
     }
     // Add vphal param to log.
-    HalOcaInterface::DumpVphalParam(cmdBuffer, mosContext, m_renderHal->pVphalOcaDumper);
+    HalOcaInterfaceNext::DumpVphalParam(cmdBuffer, mosContext, m_renderHal->pVphalOcaDumper);
 }
 
 MOS_STATUS VpRenderCmdPacket::SetMediaFrameTracking(RENDERHAL_GENERIC_PROLOG_PARAMS &genericPrologParams)
@@ -938,7 +981,7 @@ MOS_STATUS VpRenderCmdPacket::SamplerAvsCalcScalingTable(
         // we don't do this when bForcePolyPhaseCoefs flag is set
         if (fLumaScale == 1.0F && !avsParameters.bForcePolyPhaseCoefs)
         {
-            VPHAL_RENDER_CHK_STATUS_RETURN(SetNearestModeTable(
+            VP_RENDER_CHK_STATUS_RETURN(SetNearestModeTable(
                 piYCoefsParam,
                 Plane,
                 true));
@@ -948,7 +991,7 @@ MOS_STATUS VpRenderCmdPacket::SamplerAvsCalcScalingTable(
             {
                 if (fChromaScale == 1.0F)
                 {
-                    VPHAL_RENDER_CHK_STATUS_RETURN(SetNearestModeTable(
+                    VP_RENDER_CHK_STATUS_RETURN(SetNearestModeTable(
                         piUVCoefsParam,
                         MHW_U_PLANE,
                         true));
@@ -958,7 +1001,7 @@ MOS_STATUS VpRenderCmdPacket::SamplerAvsCalcScalingTable(
                     if (dwChromaSiting & (bVertical ? MHW_CHROMA_SITING_VERT_TOP : MHW_CHROMA_SITING_HORZ_LEFT))
                     {
                         // No Chroma Siting
-                        VPHAL_RENDER_CHK_STATUS_RETURN(CalcPolyphaseTablesUV(
+                        VP_RENDER_CHK_STATUS_RETURN(CalcPolyphaseTablesUV(
                             piUVCoefsParam,
                             2.0F,
                             fChromaScale));
@@ -975,7 +1018,7 @@ MOS_STATUS VpRenderCmdPacket::SamplerAvsCalcScalingTable(
                             iUvPhaseOffset = MOS_UF_ROUND(1.0F * 16.0F);  // U0.4
                         }
 
-                        VPHAL_RENDER_CHK_STATUS_RETURN(CalcPolyphaseTablesUVOffset(
+                        VP_RENDER_CHK_STATUS_RETURN(CalcPolyphaseTablesUVOffset(
                             piUVCoefsParam,
                             3.0F,
                             fChromaScale,
@@ -989,7 +1032,7 @@ MOS_STATUS VpRenderCmdPacket::SamplerAvsCalcScalingTable(
             // Clamp the Scaling Factor if > 1.0x
             fLumaScale = MOS_MIN(1.0F, fLumaScale);
 
-            VPHAL_RENDER_CHK_STATUS_RETURN(CalcPolyphaseTablesY(
+            VP_RENDER_CHK_STATUS_RETURN(CalcPolyphaseTablesY(
                 piYCoefsParam,
                 fLumaScale,
                 Plane,
@@ -1005,7 +1048,7 @@ MOS_STATUS VpRenderCmdPacket::SamplerAvsCalcScalingTable(
                 {
                     if (fChromaScale == 1.0F)
                     {
-                        VPHAL_RENDER_CHK_STATUS_RETURN(SetNearestModeTable(
+                        VP_RENDER_CHK_STATUS_RETURN(SetNearestModeTable(
                             piUVCoefsParam,
                             MHW_U_PLANE,
                             true));
@@ -1016,7 +1059,7 @@ MOS_STATUS VpRenderCmdPacket::SamplerAvsCalcScalingTable(
                         if (dwChromaSiting & (bVertical ? MHW_CHROMA_SITING_VERT_TOP : MHW_CHROMA_SITING_HORZ_LEFT))
                         {
                             // No Chroma Siting
-                            VPHAL_RENDER_CHK_STATUS_RETURN(CalcPolyphaseTablesUV(
+                            VP_RENDER_CHK_STATUS_RETURN(CalcPolyphaseTablesUV(
                                 piUVCoefsParam,
                                 2.0F,
                                 fChromaScale));
@@ -1033,7 +1076,7 @@ MOS_STATUS VpRenderCmdPacket::SamplerAvsCalcScalingTable(
                                 iUvPhaseOffset = MOS_UF_ROUND(1.0F * 16.0F);  // U0.4
                             }
 
-                            VPHAL_RENDER_CHK_STATUS_RETURN(CalcPolyphaseTablesUVOffset(
+                            VP_RENDER_CHK_STATUS_RETURN(CalcPolyphaseTablesUVOffset(
                                 piUVCoefsParam,
                                 3.0F,
                                 fChromaScale,
@@ -1618,7 +1661,7 @@ MOS_STATUS VpRenderCmdPacket::SendMediaStates(
     MHW_RENDERHAL_CHK_STATUS(pRenderHal->pRenderHalPltInterface->AddPipelineSelectCmd(pRenderHal, pCmdBuffer, (m_walkerType == WALKER_TYPE_COMPUTE) ? true : false));
 
     // The binding table for surface states is at end of command buffer. No need to add it to indirect state heap.
-    HalOcaInterface::OnIndirectState(*pCmdBuffer, *pOsContext, pRenderHal->StateBaseAddressParams.presInstructionBuffer, pStateHeap->CurIDEntryParams.dwKernelOffset, false, pStateHeap->iKernelUsedForDump);
+    HalOcaInterfaceNext::OnIndirectState(*pCmdBuffer, *pOsContext, pRenderHal->StateBaseAddressParams.presInstructionBuffer, pStateHeap->CurIDEntryParams.dwKernelOffset, false, pStateHeap->iKernelUsedForDump);
 
     // Send State Base Address command
     MHW_RENDERHAL_CHK_STATUS(pRenderHal->pfnSendStateBaseAddress(pRenderHal, pCmdBuffer));

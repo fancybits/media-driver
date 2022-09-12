@@ -34,6 +34,8 @@
 #if defined(ENABLE_KERNELS) && !defined(_FULL_OPEN_SOURCE)
 #include "igvpkrn_isa_g12_tgllp.h"
 #endif
+#include "vphal_render_hdr_3dlut_g12.h"
+
 const char g_KernelDNDI_Str_g12[KERNEL_VEBOX_BASE_MAX][MAX_PATH] =
 {
     DBG_TEXT("Reserved"),
@@ -1048,7 +1050,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::AllocateResources()
             {
 #if defined(ENABLE_KERNELS) && !defined(_FULL_OPEN_SOURCE)
                 PRENDERHAL_INTERFACE pRenderHal = pVeboxState->m_pRenderHal;
-                m_hdr3DLutGenerator             = MOS_New(Hdr3DLutGenerator, pRenderHal, m_hdr3DLutKernelBinary, m_hdr3DLutKernelBinarySize);
+                m_hdr3DLutGenerator             = MOS_New(Hdr3DLutGeneratorG12, pRenderHal, m_hdr3DLutKernelBinary, m_hdr3DLutKernelBinarySize);
 #endif
             }
         }
@@ -2473,6 +2475,28 @@ VPHAL_OUTPUT_PIPE_MODE VPHAL_VEBOX_STATE_G12_BASE::GetOutputPipe(
         {
             OutputPipe              = VPHAL_OUTPUT_PIPE_MODE_VEBOX;
             pTarget->bFastColorFill = true;
+            
+            if (pTarget->bIsCompressed &&
+                pTarget->CompressionMode == MOS_MMC_MC &&
+                (pSrcSurface->rcDst.bottom - pSrcSurface->rcDst.top) % 8 != 0)
+            {
+                //If FastColorFill is enabled, pTarget will be shared by VE and Render
+                //Upper rectangle in pTarget will be used by VE
+                //Bottom rectangle in pTarget will be used by Render
+                //If upper rectangle height is not a multiple of 8 unit When MMC is enabled,    
+                //we need to decompress the target surface to avoid output corruption
+                MOS_STATUS eStatus = m_pOsInterface->pfnDecompResource(m_pOsInterface, &pTarget->OsResource);
+                if(eStatus == MOS_STATUS_SUCCESS)
+                {
+                    pTarget->bIsCompressed     = false;
+                    pTarget->CompressionMode   = MOS_MMC_DISABLED;
+                    pTarget->CompressionFormat = 0;
+                }
+                else
+                {
+                    VPHAL_RENDER_ASSERTMESSAGE("FastColorFill is enabled and decompress target surface failed");
+                }
+            }
         }
         pTarget->rcDst.bottom = lTargetBottom;
     }
@@ -2862,7 +2886,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::SetupSurfaceStatesForDenoise()
     MOS_ZeroMemory(&SurfaceParams, sizeof(SurfaceParams));
 
     SurfaceParams.Type             = pRenderHal->SurfaceTypeDefault;
-    SurfaceParams.bRenderTarget    = true;
+    SurfaceParams.isOutput    = true;
     SurfaceParams.bWidthInDword_Y  = true;
     SurfaceParams.bWidthInDword_UV = true;
     SurfaceParams.Boundary         = RENDERHAL_SS_BOUNDARY_ORIGINAL;
@@ -2884,7 +2908,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::SetupSurfaceStatesForDenoise()
     MOS_ZeroMemory(&SurfaceParams, sizeof(SurfaceParams));
 
     SurfaceParams.Type             = pRenderHal->SurfaceTypeDefault;
-    SurfaceParams.bRenderTarget    = true;
+    SurfaceParams.isOutput    = true;
     SurfaceParams.bWidthInDword_Y  = true;
     SurfaceParams.bWidthInDword_UV = true;
     SurfaceParams.Boundary         = RENDERHAL_SS_BOUNDARY_ORIGINAL;

@@ -957,7 +957,7 @@ MOS_STATUS Policy::GetScalingExecutionCaps(SwFilter *feature, bool isHdrEnabled,
     if (!m_hwCaps.m_rules.isAvsSamplerSupported &&
         scalingParams->scalingPreference != VPHAL_SCALING_PREFER_SFC)
     {
-        VP_PUBLIC_NORMALMESSAGE("Force scalingPreference from %d to SFC");
+        VP_PUBLIC_NORMALMESSAGE("Force scalingPreference from %d to SFC", scalingParams->scalingPreference);
         scalingParams->scalingPreference = VPHAL_SCALING_PREFER_SFC;
     }
 
@@ -1120,7 +1120,7 @@ MOS_STATUS Policy::GetScalingExecutionCaps(SwFilter *feature, bool isHdrEnabled,
 
     // SFC Scaling enabling check
     if (m_hwCaps.m_sfcHwEntry[scalingParams->formatInput].inputSupported   &&
-        m_hwCaps.m_sfcHwEntry[scalingParams->formatOutput].outputSupported &&
+        (m_hwCaps.m_sfcHwEntry[scalingParams->formatOutput].outputSupported & VpGetFormatTileSupport(scalingParams->output.tileMode) ) &&
         m_hwCaps.m_sfcHwEntry[scalingParams->formatInput].scalingSupported)
     {
         if (!(OUT_OF_BOUNDS(dwSurfaceWidth, dwSfcMinWidth, dwSfcMaxWidth)         ||
@@ -2819,7 +2819,7 @@ MOS_STATUS Policy::UpdateFeatureOutputPipe(std::vector<int> &layerIndexes, SwFil
 
     if (!featurePipe.IsAllInputPipeSurfaceFeatureEmpty(layerIndexes))
     {
-        VPHAL_PUBLIC_ASSERTMESSAGE("bOutputPipeFeatureInuse being set but input pipe is not empty.");
+        VP_PUBLIC_ASSERTMESSAGE("bOutputPipeFeatureInuse being set but input pipe is not empty.");
         VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
     }
 

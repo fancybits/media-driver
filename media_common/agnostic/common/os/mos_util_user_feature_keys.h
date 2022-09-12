@@ -64,7 +64,17 @@
 
 #if (_DEBUG || _RELEASE_INTERNAL)
 
+//!
+//! \brief Dump surface for MediaCopy in/out
+//!
+#define __COMMON_DBG_SURF_DUMPER_RESOURCE_LOCK                          "McpySurfaceDumperResourceLockError"
+#define __COMMON_DBG_SURF_DUMP_OUTFILE_KEY_NAME                         "McpyOutfileLocation"
+#define __COMMON_DBG_DUMP_OUTPUT_DIRECTORY                              "Common Debug Dump Output Directory"
+#define __COMMON_DBG_SURF_DUMP_LOCATION_KEY_NAME_IN                     "dumpLocation before MCPY"
+#define __COMMON_DBG_SURF_DUMP_LOCATION_KEY_NAME_OUT                    "dumpLocation after MCPY"
+
 #define __MEDIA_USER_FEATURE_VALUE_MEDIA_RESET_ENABLE                   "Media Reset"
+#define __MEDIA_USER_FEATURE_VALUE_FORCE_RESET_THRESHOLD                "Force media reset threshold"
 
 //!
 //! \brief ISA ASM Debug Enable and Debug Surface BTI
@@ -98,8 +108,20 @@
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_LINUX_FRAME_SPLIT               "Enable Linux Frame Split"
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_GUC_SUBMISSION                  "Enable Guc Submission"
 #define __MEDIA_USER_FEATURE_VALUE_SOFT_RESET_ENABLE                      "Soft Reset"
+
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_DECODE_VE_CTXSCHEDULING         "Enable Decode VE CtxBasedScheduling"
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_DECODE_VIRTUAL_ENGINE           "Enable Decode VE"
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_ENCODE_VIRTUAL_ENGINE           "Enable Encode VE"
 #endif // (_DEBUG || _RELEASE_INTERNAL)
 
+#if MOS_COMMAND_BUFFER_DUMP_SUPPORTED
+#define __MEDIA_USER_FEATURE_VALUE_DUMP_COMMAND_BUFFER_ENABLE             "Dump Command Buffer Enable"
+#endif
+
+#if MOS_COMMAND_RESINFO_DUMP_SUPPORTED
+#define __MEDIA_USER_FEATURE_VALUE_DUMP_COMMAND_INFO_ENABLE               "Dump Command Info Enable"
+#define __MEDIA_USER_FEATURE_VALUE_DUMP_COMMAND_INFO_PATH                 "Dump Command Info Path"
+#endif
 //!
 //! \brief User feature keys to define debug message levels and assertions.
 //!
@@ -317,6 +339,16 @@
 #define __MEDIA_USER_FEATURE_VALUE_MEDIA_TILE_ENCODING_1_DEFAULT      "Media tile encoding as 1 by default"
 #define __MEDIA_USER_FEATURE_VALUE_TILE_ENCODING_1_INTERNAL_USED      "Media Internal tile encoding as 1 used"
 #define __MEDIA_USER_FEATURE_VALUE_TILE_ENCODING_3_INTERNAL_USED      "Media Internal tile encoding as 3 used"
+//User feature key for vp surface dump
+#define __VPHAL_DBG_SURF_DUMP_OUTFILE_KEY_NAME                        "outfileLocation"
+#define __VPHAL_DBG_SURF_DUMP_LOCATION_KEY_NAME                       "dumpLocations"
+#define __VPHAL_DBG_SURF_DUMP_MANUAL_TRIGGER_KEY_NAME                 "VphalSurfaceDumpManualTrigger"
+#define __VPHAL_DBG_SURF_DUMP_START_FRAME_KEY_NAME                    "startFrame"
+#define __VPHAL_DBG_SURF_DUMP_END_FRAME_KEY_NAME                      "endFrame"
+#define __VPHAL_DBG_SURF_DUMPER_ENABLE_PLANE_DUMP                     "enablePlaneDump"
+#define __VPHAL_DBG_SURF_DUMP_ENABLE_AUX_DUMP                         "enableAuxDump"
+#define __VPHAL_DBG_SURF_DUMPER_RESOURCE_LOCK                         "SurfaceDumperResourceLockError"
+#define __VPHAL_DBG_STATE_DUMP_ENABLE                                 "enableStateDump"
 #endif //(_DEBUG || _RELEASE_INTERNAL)
 
 //User feature key for UMD_OCA
@@ -330,6 +362,11 @@
 #define __MEDIA_USER_FEATURE_VALUE_COUNT_FOR_ADDITIONAL_OCA_BUFFER_ALLOCATED    "Count For Additional Oca Buffer Allocated"
 
 #define __VPHAL_ENABLE_VEBOX_MMC_DECOMPRESS                                     "Enable Vebox Decompress"
+
+#define __MEDIA_USER_FEATURE_VALUE_NULLHW_ENABLE                                "NULL HW Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_PLATFORM                         "MockAdaptor Platform"
+#define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_STEPPING                         "MockAdaptor Stepping"
+#define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_DEVICE                           "MockAdaptor Device ID"
 
 //User feature key for enable Perf Utility Tool
 #define __MEDIA_USER_FEATURE_VALUE_PERF_UTILITY_TOOL_ENABLE          "Perf Utility Tool Enable"

@@ -31,16 +31,25 @@
 #ifndef __RENDERHAL_PLATFORM_INTERFACE_NEXT_H__
 #define __RENDERHAL_PLATFORM_INTERFACE_NEXT_H__
 
-#include "mos_os.h"
-#include "renderhal.h"
+#include <memory>
+#include "media_class_trace.h"
+#include "mhw_mi.h"
+#include "mhw_mmio.h"
+#include "mhw_render.h"
+#include "mhw_state_heap.h"
+#include "mhw_utilities_next.h"
+#include "mos_defs.h"
+#include "mos_os_specific.h"
+#include "vp_common.h"
 #include "renderhal_platform_interface.h"
 #include "mhw_render_itf.h"
-#include "mhw_render_cmdpar.h"
-#include "media_packet.h"
-#include "vp_utils.h"
-#include "media_feature_manager.h"
-#include "media_interfaces_mhw_next.h"
-#include "mhw_mi_itf.h"
+class MediaFeatureManager;
+namespace mhw { namespace mi { class Itf; } }
+
+typedef struct _RENDERHAL_GENERIC_PROLOG_PARAMS_NEXT : _RENDERHAL_GENERIC_PROLOG_PARAMS
+{
+    MOS_VIRTUALENGINE_HINT_PARAMS VEngineHintParams = {{0}, 0, {{0}, {0}, {0}, {0}}, {0, 0, 0, 0}};
+} RENDERHAL_GENERIC_PROLOG_PARAMS_NEXT, *PRENDERHAL_GENERIC_PROLOG_PARAMS_NEXT;
 
 class XRenderHal_Platform_Interface_Next : public XRenderHal_Platform_Interface, public mhw::render::Itf::ParSetting
 {

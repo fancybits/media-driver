@@ -221,6 +221,57 @@ public:
 
             break;
         }
+        case RowStorePar::VP9:
+        {
+            // HVD, Meta/MV, DeBlock, VDEnc
+            const bool enableVP9[13][4] =
+            {
+            { 1, 1, 1, 1 }, { 0, 0, 1, 1 }, { 1, 0, 1, 1 }, { 1, 1, 0, 1 },
+            { 1, 1, 1, 1 }, { 0, 0, 1, 1 }, { 0, 0, 1, 0 }, { 1, 1, 0, 1 },
+            { 1, 1, 1, 1 }, { 1, 1, 0, 1 }, { 1, 1, 1, 1 }, { 1, 1, 0, 1 },
+            { 1, 1, 0, 1 }
+            };
+
+            const uint32_t addressVP9[13][4] =
+            {
+            { 0,  64, 384, 1536, }, { 0,   0,   0, 2304, }, { 0,   0,  64, 2368, }, { 0, 128,   0,  768, },
+            { 0,  64, 384, 1536, }, { 0,   0,   0, 2304, }, { 0,   0,   0,    0, }, { 0, 128,   0,  768, },
+            { 0,  64, 384, 2112, }, { 0, 128,   0,  768, }, { 0,  32, 192, 1920, }, { 0, 128,   0,  768, },
+            { 0, 128,   0,  768, }
+            };
+
+            if(this->m_rowStoreCache.vdenc.supported)
+            {
+                bool     is8bit      = par.bitDepth == RowStorePar::DEPTH_8;
+                bool     isGt2k      = par.frameWidth > 2048;
+                bool     isGt4k      = par.frameWidth > 4096;
+                bool     isGt8k      = par.frameWidth > 8192;
+                uint32_t index       = 0;
+
+                if((par.format >= RowStorePar::YUV420) && (par.format <= RowStorePar::YUV444))
+                {
+                    index = 4 * (par.format - RowStorePar::YUV420) + 2 * (!is8bit) + isGt4k;
+                }
+                else
+                {
+                    return MOS_STATUS_SUCCESS;
+                }
+
+                if(par.format == RowStorePar::YUV444 && !is8bit)
+                {
+                    index += isGt2k;
+                }
+
+                if(!isGt8k)
+                {
+                    this->m_rowStoreCache.vdenc.enabled = enableVP9[index][3];
+                    if(this->m_rowStoreCache.vdenc.enabled)
+                    {
+                        this->m_rowStoreCache.vdenc.dwAddress = addressVP9[index][3];
+                    }
+                }
+            }
+        }
         default:
         {
             break;
@@ -241,12 +292,12 @@ public:
         return MOS_SecureMemcpy(m_cacheabilitySettings, size, settings, size);
     }
 
-    bool IsPerfModeSupported()
+    bool IsPerfModeSupported() override
     {
         return m_perfModeSupported;
     }
 
-    bool IsRhoDomainStatsEnabled()
+    bool IsRhoDomainStatsEnabled() override
     {
         return m_rhoDomainStatsEnabled;
     }
@@ -1504,9 +1555,28 @@ protected:
     DO_FIELD(DW17, PocNumberForFwdRef1, params.pocNumberForFwdRef1);                                                \
     DO_FIELD(DW18, PocNumberForFwdRef2, params.pocNumberForFwdRef2);                                                \
     DO_FIELD(DW19, PocNumberForBwdRef0, params.pocNumberForBwdRef0);                                                \
+    
+#define NO_RETURN
+#include "mhw_hwcmd_process_cmdfields.h"
+
+        if (params.extSettings.empty())
+        {
+#define DO_FIELDS() \
     __MHW_VDBOX_VDENC_WRAPPER_EXT(VDENC_AVC_IMG_STATE_IMPL_EXT)
 
 #include "mhw_hwcmd_process_cmdfields.h"
+        }
+        else
+        {
+            for (const auto &func : params.extSettings)
+            {
+                MHW_CHK_STATUS_RETURN(func(reinterpret_cast<uint32_t *>(&cmd)));
+            }
+        }
+
+        return MOS_STATUS_SUCCESS;
+#undef NO_RETURN
+
     }
 MEDIA_CLASS_DEFINE_END(mhw__vdbox__vdenc__Impl)
 };

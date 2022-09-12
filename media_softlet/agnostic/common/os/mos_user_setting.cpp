@@ -30,6 +30,9 @@
 MOS_STATUS MosUserSetting::InitMosUserSetting(MediaUserSettingSharedPtr userSettingPtr)
 {
     InitMosCommonUserSetting(userSettingPtr);
+
+    InitMosUserSettingSpecific(userSettingPtr);
+
 #if MOS_MESSAGES_ENABLED
     InitMosMessageUserSetting(userSettingPtr);
 #endif
@@ -37,9 +40,6 @@ MOS_STATUS MosUserSetting::InitMosUserSetting(MediaUserSettingSharedPtr userSett
 #if (_DEBUG || _RELEASE_INTERNAL)
     InitUserSettingForDebug(userSettingPtr);
 #endif
-
-    InitMosUserSettingSpecific(userSettingPtr);
-
     return MOS_STATUS_SUCCESS;
 }
 
@@ -51,7 +51,7 @@ MOS_STATUS MosUserSetting::InitMosCommonUserSetting(MediaUserSettingSharedPtr us
         MediaUserSetting::Group::Device,
         0,
         true);
-    
+
     DeclareUserSettingKey(
         userSettingPtr,
         "ApoDdiEnable",
@@ -136,6 +136,79 @@ MOS_STATUS MosUserSetting::InitMosCommonUserSetting(MediaUserSettingSharedPtr us
         "",
         true); //" Perf Utility Tool Customize Output Directory. "
 
+#if MOS_COMMAND_BUFFER_DUMP_SUPPORTED
+    DeclareUserSettingKey(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_DUMP_COMMAND_BUFFER_ENABLE,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "If enabled, all of the command buffers submitted through MOS will be dumped (0: disabled, 1: to a file, 2: as a normal message)."
+#endif
+
+#if MOS_COMMAND_RESINFO_DUMP_SUPPORTED
+    DeclareUserSettingKey(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_DUMP_COMMAND_INFO_ENABLE,
+        MediaUserSetting::Group::Device,
+        0,
+        true); //"If enabled, gpu command info will be dumped (0: disabled, 1: to a file)."
+
+    DeclareUserSettingKey(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_DUMP_COMMAND_INFO_PATH,
+        MediaUserSetting::Group::Device,
+        "",
+        true); //"Path where command info will be dumped, for example: ./"
+#endif // MOS_COMMAND_RESINFO_DUMP_SUPPORTED
+
+    DeclareUserSettingKey(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_ENABLE_UMD_OCA,
+        MediaUserSetting::Group::Device,
+        1,
+        true); //"Enable UMD_OCA in media driver."
+
+    DeclareUserSettingKey(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_OCA_STATUS,
+        MediaUserSetting::Group::Device,
+        0,
+        true); //Reports out the first OCA error.
+
+    DeclareUserSettingKey(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_OCA_ERROR_HINT,
+        MediaUserSetting::Group::Device,
+        0,
+        true); //Reports out the line number of first OCA error.
+
+    DeclareUserSettingKey(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_COUNT_FOR_OCA_BUFFER_LEAKED,
+        MediaUserSetting::Group::Device,
+        0,
+        true); //Reports out the line number of first OCA error.
+
+    DeclareUserSettingKey(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_COUNT_FOR_OCA_1ST_LEVEL_BB_END_MISSED,
+        MediaUserSetting::Group::Device,
+        0,
+        true); //Reports out the count for OCA buffer which missed to call On1stLevelBBEnd.
+
+    DeclareUserSettingKey(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_COUNT_FOR_ADDITIONAL_OCA_BUFFER_ALLOCATED,
+        MediaUserSetting::Group::Device,
+        0,
+        true); //Reports out the count for additional OCA buffer allocated.
+
+    DeclareUserSettingKey(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_IS_INDIRECT_STATE_HEAP_INVALID,
+        MediaUserSetting::Group::Device,
+        0,
+        true); //Reports out whether indirect state heap invalid
     return MOS_STATUS_SUCCESS;
 }
 
@@ -389,6 +462,41 @@ MOS_STATUS MosUserSetting::InitUserSettingForDebug(MediaUserSettingSharedPtr use
 {
     DeclareUserSettingKeyForDebug(
         userSettingPtr,
+        __COMMON_DBG_SURF_DUMPER_RESOURCE_LOCK,
+        MediaUserSetting::Group::Device,
+        1,
+        true);
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __COMMON_DBG_SURF_DUMP_OUTFILE_KEY_NAME,
+        MediaUserSetting::Group::Device,
+        "",
+        true);
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __COMMON_DBG_DUMP_OUTPUT_DIRECTORY,
+        MediaUserSetting::Group::Device,
+        "",
+        true);
+
+    DeclareUserSettingKeyForDebug( // MCPY Surface_in Dump Location
+        userSettingPtr,
+        __COMMON_DBG_SURF_DUMP_LOCATION_KEY_NAME_IN,
+        MediaUserSetting::Group::Device,
+        "",
+        true);
+
+    DeclareUserSettingKeyForDebug( // MCPY Surface_out Dump Location
+        userSettingPtr,
+        __COMMON_DBG_SURF_DUMP_LOCATION_KEY_NAME_OUT,
+        MediaUserSetting::Group::Device,
+        "",
+        true);
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
         __MEDIA_USER_FEATURE_VALUE_MEMORY_NINJA_BEGIN_COUNTER,
         MediaUserSetting::Group::Device,
         0,
@@ -414,6 +522,13 @@ MOS_STATUS MosUserSetting::InitUserSettingForDebug(MediaUserSettingSharedPtr use
         MediaUserSetting::Group::Device,
         1,
         true); //"If enabled, media reset will be enabled."
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_FORCE_RESET_THRESHOLD,
+        MediaUserSetting::Group::Device,
+        0,
+        true);  //"Force set media reset threshold. 1: enabled, 0: not used (default)."
 
     DeclareUserSettingKeyForDebug(
         userSettingPtr,
@@ -494,8 +609,191 @@ MOS_STATUS MosUserSetting::InitUserSettingForDebug(MediaUserSettingSharedPtr use
         0xDEADC0DE,
         true); // "Override Slice/Sub-Slice/EU request"
 
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_ALLOC_MEMORY_FAIL_SIMULATE_MODE,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "MOS memory alloc fail simulate mode,  0-Disable, 1-Random, 2-Traverse."
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_ALLOC_MEMORY_FAIL_SIMULATE_FREQ,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "MOS memory alloc fail simulate frequence."
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_ALLOC_MEMORY_FAIL_SIMULATE_HINT,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "MOS memory alloc fail simulate counter."
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_TYPE,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "the OS API fail type to simulate"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_MODE,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "MOS OS API fail simulate mode, 0-Disable, 1-Random, 2-Traverse."
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_FREQ,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "MOS OS API fail simulate frequence."
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_OS_API_FAIL_SIMULATE_HINT,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "MOS OS API fail simulate counter."
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_ENABLE_DECODE_VE_CTXSCHEDULING,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "TRUE for Enabling Decode Virtual Engine context based scheduling. (Default false: disabled"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_ENABLE_DECODE_VIRTUAL_ENGINE,
+        MediaUserSetting::Group::Device,
+        1,
+        true); // "TRUE for Enabling Decode Virtual Engine. (Default TRUE: enabled)"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_ENABLE_ENCODE_VIRTUAL_ENGINE,
+        MediaUserSetting::Group::Device,
+        1,
+        true); // "TRUE for Enabling Encode Virtual Engine. (Default TRUE: enabled)"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_MEDIA_TILE_ENCODING_1_DEFAULT,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "DDI Res tile as 1 default"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_TILE_ENCODING_1_INTERNAL_USED,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "Internal Res tile as 1 used"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_TILE_ENCODING_3_INTERNAL_USED,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "Internal Res tile as 3 used"
+
+    DeclareUserSettingKeyForDebug(  // Surface Dump Outfile
+        userSettingPtr,
+        __VPHAL_DBG_SURF_DUMP_OUTFILE_KEY_NAME,
+        MediaUserSetting::Group::Device,
+        "",
+        true);
+
+    DeclareUserSettingKeyForDebug(  // VP Surface Dump Location
+        userSettingPtr,
+        __VPHAL_DBG_SURF_DUMP_LOCATION_KEY_NAME,
+        MediaUserSetting::Group::Device,
+        "",
+        true);
+
+    DeclareUserSettingKeyForDebug(  // Manual trigger to start VP Surface Dump
+        userSettingPtr,
+        __VPHAL_DBG_SURF_DUMP_MANUAL_TRIGGER_KEY_NAME,
+        MediaUserSetting::Group::Device,
+        -1,
+        true);
+
+    DeclareUserSettingKeyForDebug(  // VP Surface Dump Start Frame
+        userSettingPtr,
+        __VPHAL_DBG_SURF_DUMP_START_FRAME_KEY_NAME,
+        MediaUserSetting::Group::Device,
+        0,
+        true);
+
+    DeclareUserSettingKeyForDebug(  // VP Surface Dump End Frame
+        userSettingPtr,
+        __VPHAL_DBG_SURF_DUMP_END_FRAME_KEY_NAME,
+        MediaUserSetting::Group::Device,
+        -1,
+        true);
+
+    DeclareUserSettingKeyForDebug(  // VP Surface dump each plance seprately
+        userSettingPtr,
+        __VPHAL_DBG_SURF_DUMPER_ENABLE_PLANE_DUMP,
+        MediaUserSetting::Group::Device,
+        0,
+        true);
+
+    DeclareUserSettingKeyForDebug(  // VP Surface dump aux data enable
+        userSettingPtr,
+        __VPHAL_DBG_SURF_DUMP_ENABLE_AUX_DUMP,
+        MediaUserSetting::Group::Device,
+        0,
+        true);
+
+    DeclareUserSettingKeyForDebug(  // VP Surface Dump: Locking Resource
+        userSettingPtr,
+        __VPHAL_DBG_SURF_DUMPER_RESOURCE_LOCK,
+        MediaUserSetting::Group::Device,
+        0,
+        true);
+
+    DeclareUserSettingKeyForDebug(  // VP State Dump Enable
+        userSettingPtr,
+        __VPHAL_DBG_STATE_DUMP_ENABLE,
+        MediaUserSetting::Group::Device,
+        0,
+        true);
+    /**********************MOCK ADAPTER**********************************/
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_NULLHW_ENABLE,
+        MediaUserSetting::Group::Device,
+        0,
+        true); // "Enable NULL HW or not"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_PLATFORM,
+        MediaUserSetting::Group::Device,
+        33,
+        true); //"Sets the platform for MockAdaptor, default is tgllp"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_STEPPING,
+        MediaUserSetting::Group::Device,
+        "a0",
+        true); //"Sets the platform stepping for MockAdaptor. (For example a0, b1, c0, etc)"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_DEVICE,
+        MediaUserSetting::Group::Device,
+        39497,
+        true); //"Device ID of mock device, default is 0x9A49"
+
     return MOS_STATUS_SUCCESS;
 }
+
 #endif
 
 MOS_STATUS MosUserSetting::DestroyMediaUserSetting()

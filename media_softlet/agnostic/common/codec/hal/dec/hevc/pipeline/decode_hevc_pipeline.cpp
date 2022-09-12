@@ -49,7 +49,6 @@ MOS_STATUS HevcPipeline::Initialize(void *settings)
 
     auto *codecSettings = (CodechalSetting*)settings;
     DECODE_CHK_NULL(codecSettings);
-    m_shortFormatInUse  = (codecSettings->shortFormatInUse) ? true : false;
 
     // Create basic GPU context
     DecodeScalabilityPars scalPars;
@@ -170,6 +169,10 @@ MOS_STATUS HevcPipeline::InitContexOption(HevcScalabilityPars& scalPars)
     scalPars.usingHcp = true;
     scalPars.enableVE = MOS_VE_SUPPORTED(m_osInterface);
     scalPars.disableScalability = m_hwInterface->IsDisableScalability();
+    if (m_osInterface->pfnIsMultipleCodecDevicesInUse(m_osInterface))
+    {
+        scalPars.disableScalability = true;
+    }
 #if (_DEBUG || _RELEASE_INTERNAL)
     if (m_osInterface->bHcpDecScalabilityMode == MOS_SCALABILITY_ENABLE_MODE_FALSE)
     {
@@ -234,7 +237,7 @@ MOS_STATUS HevcPipeline::CreatePhaseList(HevcBasicFeature &basicFeature, const S
     DECODE_FUNC_CALL();
     DECODE_ASSERT(m_phaseList.empty());
 
-    if (m_shortFormatInUse)
+    if (basicFeature.m_shortFormatInUse)
     {
         DECODE_CHK_STATUS(CreatePhase<HevcPhaseS2L>());
     }
@@ -299,7 +302,7 @@ MOS_STATUS HevcPipeline::HwStatusCheck(const DecodeStatusMfx &status)
 {
     DECODE_FUNC_CALL();
 
-    if (m_shortFormatInUse)
+    if (m_basicFeature->m_shortFormatInUse)
     {
         // Check HuC_status2 Imem loaded bit, if 0, return error
         if (((status.m_hucErrorStatus2 >> 32) && (m_hwInterface->GetHucInterface()->GetHucStatus2ImemLoadedMask())) == 0)
@@ -311,7 +314,6 @@ MOS_STATUS HevcPipeline::HwStatusCheck(const DecodeStatusMfx &status)
             }
             DECODE_ASSERTMESSAGE("Huc IMEM Loaded fails");
             MT_ERR1(MT_DEC_HEVC, MT_DEC_HUC_ERROR_STATUS2, (status.m_hucErrorStatus2 >> 32));
-            return MOS_STATUS_UNKNOWN;
         }
 
         // Check Huc_status None Critical Error bit, bit 15. If 0, return error.
@@ -324,7 +326,6 @@ MOS_STATUS HevcPipeline::HwStatusCheck(const DecodeStatusMfx &status)
             }
             DECODE_ASSERTMESSAGE("Huc Report Critical Error!");
             MT_ERR1(MT_DEC_HEVC, MT_DEC_HUC_STATUS_CRITICAL_ERROR, (status.m_hucErrorStatus >> 32));
-            return MOS_STATUS_UNKNOWN;
         }
     }
 
@@ -334,7 +335,7 @@ MOS_STATUS HevcPipeline::HwStatusCheck(const DecodeStatusMfx &status)
 
 bool HevcPipeline::IsShortFormat()
 {
-    return m_shortFormatInUse;
+    return m_basicFeature->m_shortFormatInUse;
 }
 
 HevcPipeline::HevcDecodeMode HevcPipeline::GetDecodeMode()

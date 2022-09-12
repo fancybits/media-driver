@@ -23,14 +23,30 @@
 ======================= end_copyright_notice ==================================*/
 //!
 //! \file       media_render_copy_xe_xpm_plus.cpp
-//! \brief      implementation of Gen11 hardware functions
+//! \brief      implementation of Gen12 hardware functions
 //! \details    Render functions
 //!
 
 #include "media_render_copy_xe_xpm_plus.h"
+#include "hal_kerneldll.h"
+#include "hal_kerneldll_next.h"
+#include "media_copy.h"
+#include "mhw_render.h"
+#include "mhw_state_heap.h"
+#include "mos_defs_specific.h"
+#include "mos_os.h"
+#include "mos_resource_defs.h"
+#include "mos_utilities.h"
+#include "renderhal.h"
+#include "umKmInc/UmKmDmaPerfTimer.h"
+#include "vp_common.h"
+#include "vphal.h"
+#include "vphal_render_common.h"
+#include "vpkrnheader.h"
 #if defined(ENABLE_KERNELS) && !defined(_FULL_OPEN_SOURCE)
 #include "igvpkrn_xe_xpm_plus.h"
 #endif
+class MhwInterfaces;
 
 RenderCopy_Xe_Xpm_Plus::RenderCopy_Xe_Xpm_Plus(PMOS_INTERFACE  osInterface, MhwInterfaces *mhwInterfaces):
     RenderCopyState(osInterface, mhwInterfaces)

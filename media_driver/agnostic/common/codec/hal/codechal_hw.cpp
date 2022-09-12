@@ -26,21 +26,6 @@
 #include "codechal_hw.h"
 #include "codechal_setting.h"
 
-#define VDBOX_HUC_VDENC_BRC_INIT_KERNEL_DESCRIPTOR 4
-
-//| HW parameter initializers
-const MOS_SYNC_PARAMS     g_cInitSyncParams =
-{
-    MOS_GPU_CONTEXT_RENDER,         // GpuContext
-    nullptr,                        // presSyncResource
-    1,                              // uiSemaphoreCount
-    0,                              // uiSemaphoreValue
-    0,                              // uiSemaphoreOffset
-    false,                          // bReadOnly
-    true,                           // bDisableDecodeSyncLock
-    false,                          // bDisableLockForTranscode
-};
-
 CodechalHwInterface::CodechalHwInterface(
     PMOS_INTERFACE    osInterface,
     CODECHAL_FUNCTION codecFunction,
@@ -104,7 +89,6 @@ CodechalHwInterface::CodechalHwInterface(
     m_cpInterface = mhwInterfacesNext->m_cpInterface;
     m_mfxInterface = mhwInterfacesNext->m_mfxInterface;
     m_hcpInterface = mhwInterfacesNext->m_hcpInterface;
-    m_hucInterface = mhwInterfacesNext->m_hucInterface;
     m_vdencInterface = mhwInterfacesNext->m_vdencInterface;
     m_veboxInterface = mhwInterfacesNext->m_veboxInterface;
     m_sfcInterface = mhwInterfacesNext->m_sfcInterface;

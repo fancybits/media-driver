@@ -24,13 +24,20 @@
 //! \brief    Helps with gen-specific factory creation.
 //!
 
+#include <stdint.h>
+#include "igfxfmid.h"
+#include "media_factory.h"
+#include "mhw_utilities_next.h"
+#include "mos_defs.h"
+#include "mos_os.h"
+#include "mos_os_specific.h"
+#include "mos_utilities.h"
 #include "mhw_cp_interface.h"
 
 #ifdef IGFX_MHW_INTERFACES_NEXT_SUPPORT
 #include "media_interfaces_mcpy_next.h"
 #include "media_interfaces_mmd_next.h"
 #include "media_interfaces_mhw_next.h"
-#include "media_interfaces_hwinfo_device.h"
 
 template class MediaFactory<uint32_t, MhwInterfacesNext>;
 template class MediaFactory<uint32_t, McpyDeviceNext>;
@@ -86,16 +93,10 @@ void MhwInterfacesNext::Destroy()
 
     Delete_MhwCpInterface(m_cpInterface);
     m_cpInterface = nullptr;
-    MOS_Delete(m_miInterface);
-    MOS_Delete(m_renderInterface);
-    MOS_Delete(m_sfcInterface);
     MOS_Delete(m_stateHeapInterface);
-    MOS_Delete(m_veboxInterface);
     MOS_Delete(m_mfxInterface);
     MOS_Delete(m_hcpInterface);
-    MOS_Delete(m_hucInterface);
     MOS_Delete(m_vdencInterface);
-    MOS_Delete(m_bltInterface);
 }
 
 void* McpyDeviceNext::CreateFactory(

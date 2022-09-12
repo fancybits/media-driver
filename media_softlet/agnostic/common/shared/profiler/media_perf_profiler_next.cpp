@@ -25,7 +25,17 @@
 //! \details
 //!
 
+#include <stddef.h>
 #include "media_perf_profiler_next.h"
+#include "media_skuwa_specific.h"
+#include "mhw_itf.h"
+#include "mhw_mi.h"
+#include "mhw_mi_cmdpar.h"
+#include "mhw_mi_itf.h"
+#include "mos_resource_defs.h"
+#include "mos_util_debug.h"
+#include "mos_utilities.h"
+#include "mos_utilities_common.h"
 
 #define UMD_PERF_LOG            8
 #define NAME_LEN                60
@@ -84,6 +94,14 @@ struct NodeHeader
     if ((_ptr) == nullptr)                         \
     {                                              \
         return MOS_STATUS_NULL_POINTER;            \
+    }                                              \
+}
+
+#define CHK_NULL_NO_STATUS_RETURN(_ptr)            \
+{                                                  \
+    if ((_ptr) == nullptr)                         \
+    {                                              \
+        return;                                    \
     }                                              \
 }
 
@@ -157,6 +175,9 @@ MediaPerfProfilerNext* MediaPerfProfilerNext::Instance()
 void MediaPerfProfilerNext::Destroy(MediaPerfProfilerNext* profiler, void* context, MOS_INTERFACE *osInterface)
 {
     PERF_UTILITY_PRINT;
+
+    CHK_NULL_NO_STATUS_RETURN(profiler);
+    CHK_NULL_NO_STATUS_RETURN(osInterface);
 
     if (profiler->m_profilerEnabled == 0 || profiler->m_mutex == nullptr)
     {
@@ -388,6 +409,7 @@ MOS_STATUS MediaPerfProfilerNext::StoreRegister(
     uint32_t offset,
     uint32_t reg)
 {
+    CHK_NULL_RETURN(osInterface);
     CHK_NULL_RETURN(miItf);
 
     auto& storeRegMemParams           = miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
@@ -453,18 +475,18 @@ MOS_STATUS MediaPerfProfilerNext::AddPerfCollectStartCmd(void* context,
 {
     MOS_STATUS status = MOS_STATUS_SUCCESS;
 
-    PMOS_CONTEXT pOsContext = osInterface->pOsContext;
-    CHK_NULL_RETURN(pOsContext);
-
-    if (m_initializedMap[pOsContext] == false)
-    {
-        return status;
-    }
-
     CHK_NULL_RETURN(osInterface);
     CHK_NULL_RETURN(miItf);
     CHK_NULL_RETURN(cmdBuffer);
     CHK_NULL_RETURN(m_mutex);
+
+    PMOS_CONTEXT pOsContext = osInterface->pOsContext;
+    CHK_NULL_RETURN(pOsContext);
+
+    if (m_profilerEnabled == 0 || m_initializedMap[pOsContext] == false)
+    {
+        return status;
+    }
 
     uint32_t perfDataIndex = 0;
 
@@ -575,17 +597,17 @@ MOS_STATUS MediaPerfProfilerNext::AddPerfCollectEndCmd(void* context,
 {
     MOS_STATUS       status        = MOS_STATUS_SUCCESS;
 
-    PMOS_CONTEXT pOsContext = osInterface->pOsContext;
-    CHK_NULL_RETURN(pOsContext);
-
-    if (m_initializedMap[pOsContext] == false)
-    {
-        return status;
-    }
-
     CHK_NULL_RETURN(osInterface);
     CHK_NULL_RETURN(miItf);
     CHK_NULL_RETURN(cmdBuffer);
+
+    PMOS_CONTEXT pOsContext = osInterface->pOsContext;
+    CHK_NULL_RETURN(pOsContext);
+
+    if (m_profilerEnabled == 0 || m_initializedMap[pOsContext] == false)
+    {
+        return status;
+    }
 
     MOS_GPU_CONTEXT  gpuContext;
     bool             rcsEngineUsed = false;

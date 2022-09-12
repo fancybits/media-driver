@@ -126,36 +126,55 @@ public:
     //!
     //! \brief    Init Function for MOS utilitiesNext
     //! \details  Initial MOS utilitiesNext related structures, and only execute once for multiple entries
-    //! \param    [in] mosCtx
-    //!           os device ctx handle
+    //! \param    [in] userSettingPtr
+    //!           user setting ptr
     //! \return   MOS_STATUS
     //!           Returns one of the MOS_STATUS error codes if failed,
     //!           else MOS_STATUS_SUCCESS
     //!
-    static MOS_STATUS MosUtilitiesInit(MOS_CONTEXT_HANDLE mosCtx);
+    static MOS_STATUS MosUtilitiesInit(MediaUserSettingSharedPtr userSettingPtr);
 
     //!
     //! \brief    Close Function for MOS utilitiesNext
     //! \details  close/remove MOS utilitiesNext related structures, and only execute once for multiple entries
-    //! \param    [in] mosCtx
-    //!           os device ctx handle
+    //! \param    [in] userSettingPtr
+    //!           MediaUserSettingSharedPtr
     //! \return   MOS_STATUS
     //!           Returns one of the MOS_STATUS error codes if failed,
     //!           else MOS_STATUS_SUCCESS
     //!
-    static MOS_STATUS MosUtilitiesClose(MOS_CONTEXT_HANDLE mosCtx);
+    static MOS_STATUS MosUtilitiesClose(MediaUserSettingSharedPtr userSettingPtr);
 
 private:
+
+    //!
+    //! \brief    Init user feature
+    //! \details  Initial MOS OS specific utilitiesNext related structures, and only execute once for multiple entries
+    //! \return   MOS_STATUS
+    //!           Returns one of the MOS_STATUS error codes if failed,
+    //!           else MOS_STATUS_SUCCESS
+    //!
+    static MOS_STATUS MosDeclareUserFeature();
+
     //!
     //! \brief    Init Function for MOS OS specific utilitiesNext
     //! \details  Initial MOS OS specific utilitiesNext related structures, and only execute once for multiple entries
-    //! \param    [in] mosCtx
-    //!           os device ctx handle
+    //! \param    [in] userSettingPtr
+    //!           MediaUserSettingSharedPtr
     //! \return   MOS_STATUS
     //!           Returns one of the MOS_STATUS error codes if failed,
     //!           else MOS_STATUS_SUCCESS
     //!
-    static MOS_STATUS MosOsUtilitiesInit(MOS_CONTEXT_HANDLE mosCtx);
+    static MOS_STATUS MosOsUtilitiesInit(MediaUserSettingSharedPtr userSettingPtr);
+
+    //!
+    //! \brief    Init user feature
+    //! \details  Initial MOS OS specific utilitiesNext related structures, and only execute once for multiple entries
+    //! \return   MOS_STATUS
+    //!           Returns one of the MOS_STATUS error codes if failed,
+    //!           else MOS_STATUS_SUCCESS
+    //!
+    static MOS_STATUS MosDestroyUserFeature();
 
     //!
     //! \brief    Close Function for MOS OS utilitiesNext
@@ -164,18 +183,18 @@ private:
     //!           Returns one of the MOS_STATUS error codes if failed,
     //!           else MOS_STATUS_SUCCESS
     //!
-    static MOS_STATUS MosOsUtilitiesClose(MOS_CONTEXT_HANDLE mosCtx);
+    static MOS_STATUS MosOsUtilitiesClose(MediaUserSettingSharedPtr userSettingPtr);
 
 #if (_DEBUG || _RELEASE_INTERNAL)
     //!
     //! \brief    Init simulate random memory allocation fail flag
     //! \details  init MosSimulateRandomAllocMemoryFailFlag according user feature value:
     //!           __MEDIA_USER_FEATURE_VALUE_SIMULATE_RANDOM_ALLOC_MEMORY_FAIL
-    //! \param    [in] mosCtx
-    //!           os device ctx handle
+    //! \param    [in] userSettingPtr
+    //!           MediaUserSettingSharedPtr
     //! \return   void
     //!
-    static void MosInitAllocMemoryFailSimulateFlag(MOS_CONTEXT_HANDLE mosCtx);
+    static void MosInitAllocMemoryFailSimulateFlag(MediaUserSettingSharedPtr userSettingPtr);
 
     static bool MosSimulateAllocMemoryFail(
         size_t      size,
@@ -1289,19 +1308,14 @@ public:
     //!           type of data stored in the specified value.
     //! \param    [out] data
     //!           Buffer that receives the value's data.
-    //! \param    [out] size
-    //!           A pointer to a variable that specifies the size of the buffer
-    //!           pointed to by the data parameter, in bytes.
     //! \return   MOS_STATUS
     //!           If the function succeeds, the return value is MOS_STATUS_SUCCESS.
     //!           If the function fails, the return value is a error code.
     //!
     static MOS_STATUS MosReadEnvVariable(
-        UFKEY_NEXT keyHandle,
         const std::string &valueName,
-        uint32_t *type,
-        std::string &data,
-        uint32_t *size);
+        MOS_USER_FEATURE_VALUE_TYPE type,
+        MediaUserSetting::Value &data);
 
     //!
     //! \brief    Retrieves the type and data for the specified reg value.
@@ -1327,9 +1341,8 @@ public:
     static MOS_STATUS MosGetRegValue(
         UFKEY_NEXT keyHandle,
         const std::string &valueName,
-        uint32_t *type,
-        std::string &data,
-        uint32_t *size,
+        MOS_USER_FEATURE_VALUE_TYPE defaultType,
+        MediaUserSetting::Value &data,
         RegBufferMap &regBufferMap);
 
     //!
@@ -1350,8 +1363,7 @@ public:
     static MOS_STATUS MosSetRegValue(
         UFKEY_NEXT keyHandle,
         const std::string &valueName,
-        uint32_t type,
-        const std::string &data,
+        const MediaUserSetting::Value  &data,
         RegBufferMap &regBufferMap);
 
     //------------------------------------------------------------------------------
@@ -2162,6 +2174,19 @@ public:
     //!
     static bool MosIsProfilerDumpEnabled();
 
+    static const uint32_t GetRegAccessDataType(MOS_USER_FEATURE_VALUE_TYPE type);
+
+    static MOS_STATUS StrToMediaUserSettingValue(
+        std::string &strValue,
+        MOS_USER_FEATURE_VALUE_TYPE type,
+        MediaUserSetting::Value &dstValue);
+
+    static MOS_STATUS DataToMediaUserSettingValue(
+        uint8_t                     *data,
+        size_t                      dataSize,
+        MediaUserSetting::Value     &dstValue,
+        MOS_USER_FEATURE_VALUE_TYPE type);
+
 private:
 
     //!
@@ -2651,7 +2676,6 @@ public:
     static MOS_USER_FEATURE_VALUE       m_mosUserFeatureDescFields[__MOS_USER_FEATURE_KEY_MAX_ID];
 private:
     static MosMutex                     m_mutexLock;
-    static char                         m_xmlFilePath[MOS_USER_CONTROL_MAX_DATA_SIZE];
     static uint32_t                     m_mosUtilInitCount; // number count of mos utilities init
 #if _MEDIA_RESERVED
     static MediaUserSettingsMgr*        m_codecUserFeatureExt;
