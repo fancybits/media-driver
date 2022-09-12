@@ -1058,6 +1058,10 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE              pOsInterface,
         PMOS_RESOURCE               pResource);
 
+    MOS_STATUS (* pfnSetDecompSyncRes) (
+        PMOS_INTERFACE              pOsInterface,
+        PMOS_RESOURCE               syncResource);
+
     MOS_STATUS(*pfnDoubleBufferCopyResource) (
         PMOS_INTERFACE        pOsInterface,
         PMOS_RESOURCE         pInputOsResource,
@@ -1411,6 +1415,16 @@ typedef struct _MOS_INTERFACE
     //! \return   void
     //!
     void (*pfnNotifyStreamIndexSharing)(
+        PMOS_INTERFACE              pOsInterface);
+
+    //!
+    //! \brief   Get User Setting instance
+    //!
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] OS Interface
+    //! \return   MediaUserSettingSharedPtr
+    //!
+    MediaUserSettingSharedPtr (*pfnGetUserSettingInstance)(
         PMOS_INTERFACE              pOsInterface);
 
     // Virtual Engine related
