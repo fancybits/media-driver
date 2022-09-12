@@ -232,7 +232,7 @@ target_include_directories(${LIB_NAME}_mos BEFORE PRIVATE
 
 ######################################################
 
-add_library(${LIB_NAME} SHARED
+add_library(${LIB_NAME} STATIC
     $<TARGET_OBJECTS:${LIB_NAME}_mos>
     $<TARGET_OBJECTS:${LIB_NAME}_COMMON>
     $<TARGET_OBJECTS:${LIB_NAME}_CODEC>
