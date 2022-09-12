@@ -159,7 +159,123 @@ namespace decode
         DECODE_FUNC_CALL()
         DECODE_CHK_NULL(m_av1PicParams);
 
-        // Profile and subsampling
+        // Frame Width/Frame Height, valid range is [15, 16383]
+        if (m_av1PicParams->m_frameWidthMinus1 < 15 || m_av1PicParams->m_frameHeightMinus1 < 15)
+        {
+            DECODE_ASSERTMESSAGE(" Frame Width/Height is invalid, out of [15, 16383].");
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+
+        // Current FrameIdx
+        if (m_av1PicParams->m_currPic.FrameIdx >= CODECHAL_MAX_DPB_NUM_LST_AV1)
+        {
+            DECODE_ASSERTMESSAGE("CurrPic.FrameIdx is invalid.");
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+
+        // Mono Chrome
+        if (m_av1PicParams->m_seqInfoFlags.m_fields.m_monoChrome != 0)
+        {
+            DECODE_ASSERTMESSAGE("AV1 doesn't support monoChrome!");
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+        
+        // Reference Frame
+        if (m_av1PicParams->m_picInfoFlags.m_fields.m_frameType != keyFrame && 
+            m_av1PicParams->m_picInfoFlags.m_fields.m_frameType != intraOnlyFrame)
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                if (m_av1PicParams->m_refFrameMap[i].FrameIdx >= CODECHAL_MAX_DPB_NUM_LST_AV1)
+                {
+                    DECODE_ASSERTMESSAGE("ref_frame_map index is invalid!");
+                    return MOS_STATUS_INVALID_PARAMETER;
+                }
+            }
+            for (int i = 0; i < 7; i++)
+            {
+                if (m_av1PicParams->m_refFrameIdx[i] > av1TotalRefsPerFrame - 1)
+                {
+                    DECODE_ASSERTMESSAGE("ref_frame_list index is invalid!");
+                    return MOS_STATUS_INVALID_PARAMETER;
+                }
+            }
+        }
+
+        // Primary Ref Frame
+        if (m_av1PicParams->m_primaryRefFrame > av1TotalRefsPerFrame - 1)
+        {
+            DECODE_ASSERTMESSAGE("primary ref index (should be in [0,7]) is invald!");
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+
+        // Superres Scale Denominator
+        if (m_av1PicParams->m_picInfoFlags.m_fields.m_useSuperres && (m_av1PicParams->m_superresScaleDenominator != av1ScaleNumerator))
+        {
+            if ((m_av1PicParams->m_superresScaleDenominator < 9) || (m_av1PicParams->m_superresScaleDenominator > 16))
+            {
+                DECODE_ASSERTMESSAGE("Invalid superres denominator (should be in [9, 16]) in pic parameter!");
+                return MOS_STATUS_INVALID_PARAMETER;
+            }
+        }
+
+        // Deblocking Filter
+        m_av1PicParams->m_interpFilter   = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_interpFilter,   0, 4);
+        m_av1PicParams->m_filterLevel[0] = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_filterLevel[0], 0, 63);
+        m_av1PicParams->m_filterLevel[1] = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_filterLevel[1], 0, 63);
+        m_av1PicParams->m_filterLevelU   = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_filterLevelU,   0, 63);
+        m_av1PicParams->m_filterLevelV   = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_filterLevelV,   0, 63);
+
+        // Ref & Mode Deltas
+        for (int i = 0; i < 8; i++)
+        {
+            m_av1PicParams->m_refDeltas[i]  = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_refDeltas[i],  -64, 63);
+        }
+        for (int j = 0; j < 2; j++)
+        {
+            m_av1PicParams->m_modeDeltas[j] = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_modeDeltas[j], -64, 63);
+        }
+
+        // QMatrix
+        m_av1PicParams->m_yDcDeltaQ = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_yDcDeltaQ, -64, 63);
+        m_av1PicParams->m_uDcDeltaQ = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_uDcDeltaQ, -64, 63);
+        m_av1PicParams->m_uAcDeltaQ = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_uAcDeltaQ, -64, 63);
+        m_av1PicParams->m_vDcDeltaQ = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_vDcDeltaQ, -64, 63);
+        m_av1PicParams->m_vAcDeltaQ = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_vAcDeltaQ, -64, 63);
+
+        // Segment Data
+        if (!m_av1PicParams->m_av1SegData.m_enabled)
+        {
+            // Error concealment for segmentation
+            m_av1PicParams->m_av1SegData.m_segmentInfoFlags = 0;
+            memset(m_av1PicParams->m_av1SegData.m_featureMask, 0, 8);
+            memset(&m_av1PicParams->m_av1SegData.m_featureData, 0, 8 * 8 * sizeof(int16_t));
+        }
+
+        // Tile Col & Row Number
+        if (m_av1PicParams->m_tileCols > av1MaxTileRow || m_av1PicParams->m_tileRows > av1MaxTileColumn)
+        {
+            DECODE_ASSERTMESSAGE("tile row_num or col_num is invald!");
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+
+        // CDF Bits & Strength
+        if (m_av1PicParams->m_cdefBits > 3)
+        {
+            DECODE_ASSERTMESSAGE("Invalid cdef_bits (should be in [0, 3]) in pic parameter!");
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+
+        for (auto i = 0; i < (1 << m_av1PicParams->m_cdefBits); i++)
+        {
+            m_av1PicParams->m_cdefYStrengths[i]  = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_cdefYStrengths[i],  0, 63);
+            m_av1PicParams->m_cdefUvStrengths[i] = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_cdefUvStrengths[i], 0, 63);
+        }
+
+        // LR Unit Shift
+        m_av1PicParams->m_loopRestorationFlags.m_fields.m_lrUnitShift = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_loopRestorationFlags.m_fields.m_lrUnitShift, 0, 2);
+
+        // Profile and Subsampling
         if (m_av1PicParams->m_seqInfoFlags.m_fields.m_monoChrome ||
             m_av1PicParams->m_profile != 0 ||
             !(m_av1PicParams->m_seqInfoFlags.m_fields.m_subsamplingX ==1 &&
@@ -179,7 +295,7 @@ namespace decode
             return MOS_STATUS_INVALID_PARAMETER;
         }
 
-        //Tx Mode
+        // Tx Mode
         if(m_av1PicParams->m_losslessMode &&
             m_av1PicParams->m_modeControlFlags.m_fields.m_txMode != (uint32_t)CodecAv1TxType::ONLY_4X4)
         {
@@ -205,7 +321,7 @@ namespace decode
             return MOS_STATUS_INVALID_PARAMETER;
         }
 
-        //Order Hint
+        // Order Hint
         if (!m_av1PicParams->m_seqInfoFlags.m_fields.m_enableOrderHint &&
             (m_av1PicParams->m_seqInfoFlags.m_fields.m_enableJntComp ||
                 m_av1PicParams->m_picInfoFlags.m_fields.m_useRefFrameMvs))
@@ -214,7 +330,7 @@ namespace decode
             return MOS_STATUS_INVALID_PARAMETER;
         }
 
-        //CDF Upate
+        // CDF Upate
         if (!m_av1PicParams->m_picInfoFlags.m_fields.m_disableFrameEndUpdateCdf &&
             m_av1PicParams->m_picInfoFlags.m_fields.m_disableCdfUpdate)
         {
@@ -222,7 +338,7 @@ namespace decode
             return MOS_STATUS_INVALID_PARAMETER;
         }
 
-        //Reference Mode
+        // Reference Mode
         if ((m_av1PicParams->m_picInfoFlags.m_fields.m_frameType == keyFrame ||
             m_av1PicParams->m_picInfoFlags.m_fields.m_frameType == intraOnlyFrame) &&
                 (m_av1PicParams->m_modeControlFlags.m_fields.m_referenceMode != singleReference))
@@ -231,7 +347,7 @@ namespace decode
             return MOS_STATUS_INVALID_PARAMETER;
         }
 
-        //Skip Mode
+        // Skip Mode
         if (((m_av1PicParams->m_picInfoFlags.m_fields.m_frameType == keyFrame ||
                 m_av1PicParams->m_picInfoFlags.m_fields.m_frameType == intraOnlyFrame ||
                 m_av1PicParams->m_modeControlFlags.m_fields.m_referenceMode == singleReference) ||
@@ -258,7 +374,58 @@ namespace decode
             return MOS_STATUS_INVALID_PARAMETER;
         }
 
-        //Error Concealment for CDEF
+        // Film grain parameter check
+        if (m_av1PicParams->m_seqInfoFlags.m_fields.m_filmGrainParamsPresent &&
+            m_av1PicParams->m_filmGrainParams.m_filmGrainInfoFlags.m_fields.m_applyGrain)
+        {
+            // Check film grain parameter of the luma component
+            if (m_av1PicParams->m_filmGrainParams.m_numYPoints > 14)
+            {
+                DECODE_ASSERTMESSAGE("Invalid film grain num_y_points (should be in [0, 14]) in pic parameter!");
+                return MOS_STATUS_INVALID_PARAMETER;
+            }
+            for (auto i = 1; i < m_av1PicParams->m_filmGrainParams.m_numYPoints; i++)
+            {
+                if (m_av1PicParams->m_filmGrainParams.m_pointYValue[i] <= m_av1PicParams->m_filmGrainParams.m_pointYValue[i - 1])
+                {
+                    DECODE_ASSERTMESSAGE("Invalid film grain point_y_value (point_y_value[%d] should be greater than point_y_value[%d]) in pic parameter!", i, i - 1);
+                    return MOS_STATUS_INVALID_PARAMETER;
+                }
+            }
+            // Check film grain parameter of the cb component
+            if (m_av1PicParams->m_filmGrainParams.m_numCbPoints > 10)
+            {
+                DECODE_ASSERTMESSAGE("Invalid film grain num_cb_points (should be in [0, 10]) in pic parameter!");
+                return MOS_STATUS_INVALID_PARAMETER;
+            }
+            for (auto i = 1; i < m_av1PicParams->m_filmGrainParams.m_numCbPoints; i++)
+            {
+                if (m_av1PicParams->m_filmGrainParams.m_pointCbValue[i] <= m_av1PicParams->m_filmGrainParams.m_pointCbValue[i - 1])
+                {
+                    DECODE_ASSERTMESSAGE("Invalid film grain point_cb_value (point_cb_value[%d] should be greater than point_cb_value[%d]) in pic parameter!", i, i - 1);
+                    return MOS_STATUS_INVALID_PARAMETER;
+                }
+            }
+            // Check film grain parameter of the cr component
+            if (m_av1PicParams->m_filmGrainParams.m_numCrPoints > 10)
+            {
+                DECODE_ASSERTMESSAGE("Invalid film grain num_cr_points (should be in [0, 10]) in pic parameter!");
+                return MOS_STATUS_INVALID_PARAMETER;
+            }
+            for (auto i = 1; i < m_av1PicParams->m_filmGrainParams.m_numCrPoints; i++)
+            {
+                if (m_av1PicParams->m_filmGrainParams.m_pointCrValue[i] <= m_av1PicParams->m_filmGrainParams.m_pointCrValue[i - 1])
+                {
+                    DECODE_ASSERTMESSAGE("Invalid film grain point_cr_value (point_cr_value[%d] should be greater than point_cr_value[%d]) in pic parameter!", i, i - 1);
+                    return MOS_STATUS_INVALID_PARAMETER;
+                }
+            }
+
+            m_av1PicParams->m_filmGrainParams.m_cbOffset = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_filmGrainParams.m_cbOffset, 0, 512);
+            m_av1PicParams->m_filmGrainParams.m_crOffset = MOS_CLAMP_MIN_MAX(m_av1PicParams->m_filmGrainParams.m_crOffset, 0, 512);
+        }
+
+        // Error Concealment for CDEF
         if (m_av1PicParams->m_losslessMode ||
             m_av1PicParams->m_picInfoFlags.m_fields.m_allowIntrabc ||
             !m_av1PicParams->m_seqInfoFlags.m_fields.m_enableCdef)
@@ -269,7 +436,7 @@ namespace decode
             m_av1PicParams->m_cdefDampingMinus3   = 0;
         }
 
-        //Error Concealment for Loop Filter
+        // Error Concealment for Loop Filter
         if (m_av1PicParams->m_losslessMode ||
             m_av1PicParams->m_picInfoFlags.m_fields.m_allowIntrabc)
         {
@@ -330,6 +497,12 @@ namespace decode
               m_av1PicParams->m_picInfoFlags.m_fields.m_showableFrame))
         {
             memset(&m_av1PicParams->m_filmGrainParams, 0, sizeof(CodecAv1FilmGrainParams));
+        }
+
+        // Error Concealment for Reference List
+        if (m_av1PicParams->m_picInfoFlags.m_fields.m_frameType != keyFrame && m_av1PicParams->m_picInfoFlags.m_fields.m_frameType != intraOnlyFrame)
+        {
+            DECODE_CHK_STATUS(m_refFrames.ErrorConcealment(*m_av1PicParams));
         }
 
         return MOS_STATUS_SUCCESS;

@@ -437,11 +437,18 @@ MOS_STATUS Policy::GetExecutionCapsForSingleFeature(FeatureType featureType, SwF
         break;
     }
 
-    if (feature->GetFilterEngineCaps().value == 0)
+    VP_EngineEntry& engineCaps = feature->GetFilterEngineCaps();
+
+    if (engineCaps.value == 0)
     {
         // Return success after all feature enabled and fully switched to APO path.
         VP_PUBLIC_NORMALMESSAGE("No engine being assigned for feature %d. Will bypass it.", featureType);
     }
+
+    MT_LOG7(MT_VP_HAL_POLICY_GET_EXTCAPS4FTR, MT_NORMAL, MT_VP_HAL_FEATUERTYPE, featureType,
+        MT_VP_HAL_ENGINECAPS, engineCaps.value, MT_VP_HAL_ENGINECAPS_EN, engineCaps.bEnabled, MT_VP_HAL_ENGINECAPS_VE_NEEDED,
+        engineCaps.VeboxNeeded, MT_VP_HAL_ENGINECAPS_SFC_NEEDED, engineCaps.SfcNeeded, MT_VP_HAL_ENGINECAPS_RENDER_NEEDED, engineCaps.RenderNeeded,
+        MT_VP_HAL_ENGINECAPS_FC_SUPPORT, engineCaps.fcSupported);
 
     return MOS_STATUS_SUCCESS;
 }
@@ -579,11 +586,24 @@ MOS_STATUS Policy::GetCSCExecutionCaps(SwFilter* feature)
         cscParams->input.chromaSiting   == cscParams->output.chromaSiting   &&
         nullptr                         == cscParams->pIEFParams)
     {
-        if (disableVeboxOutput)
+        bool veboxSupported = m_hwCaps.m_veboxHwEntry[cscParams->formatInput].inputSupported;
+        bool sfcSupported = veboxSupported && m_hwCaps.m_sfcHwEntry[cscParams->formatInput].inputSupported;
+
+        if (!veboxSupported)
+        {
+            VP_PUBLIC_NORMALMESSAGE("Format %d not supported by vebox. Force to render.", cscParams->formatInput);
+            cscEngine->bEnabled     = 1;
+            cscEngine->SfcNeeded    = 0;
+            cscEngine->VeboxNeeded  = 0;
+            cscEngine->RenderNeeded = 1;
+            cscEngine->fcSupported  = 1;
+            cscEngine->sfcNotSupported = 1;
+        }
+        else if (disableVeboxOutput)
         {
             VP_PUBLIC_NORMALMESSAGE("Non-csc cases. Still keep csc filter to avoid output from vebox.");
             cscEngine->bEnabled             = 1;
-            cscEngine->SfcNeeded            = disableSfc ? 0 : 1;
+            cscEngine->SfcNeeded            = (disableSfc || !sfcSupported) ? 0 : 1;
             cscEngine->VeboxNeeded          = 0;
             cscEngine->RenderNeeded         = 1;
             cscEngine->fcSupported          = 1;
@@ -595,7 +615,14 @@ MOS_STATUS Policy::GetCSCExecutionCaps(SwFilter* feature)
             cscEngine->SfcNeeded            = 0;
             cscEngine->VeboxNeeded          = 0;
             cscEngine->RenderNeeded         = 0;
-            cscEngine->forceEnableForSfc    = 1;
+            if (sfcSupported)
+            {
+                cscEngine->forceEnableForSfc = 1;
+            }
+            else
+            {
+                cscEngine->sfcNotSupported = 1;
+            }
         }
 
         PrintFeatureExecutionCaps(__FUNCTION__, *cscEngine);
@@ -717,6 +744,20 @@ MOS_STATUS Policy::GetScalingExecutionCaps(SwFilter* feature)
         return MOS_STATUS_SUCCESS;
     }
 
+    if (!m_hwCaps.m_veboxHwEntry[scalingParams->formatInput].inputSupported)
+    {
+        VP_PUBLIC_NORMALMESSAGE("Input format %d is not support vebox, force to use fc.", scalingParams->formatInput);
+        scalingEngine->bEnabled             = 1;
+        scalingEngine->SfcNeeded            = 0;
+        scalingEngine->VeboxNeeded          = 0;
+        scalingEngine->RenderNeeded         = 1;
+        scalingEngine->fcSupported          = 1;
+        scalingEngine->forceEnableForSfc    = 0;
+        scalingEngine->forceEnableForRender = 0;
+        PrintFeatureExecutionCaps(__FUNCTION__, *scalingEngine);
+        return MOS_STATUS_SUCCESS;
+    }
+
     veboxMinWidth  = m_hwCaps.m_veboxHwEntry[scalingParams->formatInput].minResolution;
     veboxMaxWidth  = m_hwCaps.m_veboxHwEntry[scalingParams->formatInput].maxResolution;
     veboxMinHeight = m_hwCaps.m_veboxHwEntry[scalingParams->formatInput].minResolution;
@@ -807,6 +848,17 @@ MOS_STATUS Policy::GetScalingExecutionCaps(SwFilter* feature)
             scalingEngine->sfcNotSupported      = 1;
             VP_PUBLIC_NORMALMESSAGE("The surface resolution is not supported by sfc.");
         }
+        else if (scalingParams->input.rcDst.left > 0    ||
+                 scalingParams->input.rcDst.top  > 0)
+        {
+            // for dst left and top non zero cases, should go SFC or Render Pipe
+            scalingEngine->bEnabled             = 1;
+            scalingEngine->SfcNeeded            = 1;
+            scalingEngine->VeboxNeeded          = 0;
+            scalingEngine->RenderNeeded         = 1;
+            scalingEngine->fcSupported          = 1;
+            VP_PUBLIC_NORMALMESSAGE("The dst left and top non zero is not supported by vebox ");
+        }
         else
         {
             // for non-Scaling cases, all engine supported
@@ -818,6 +870,7 @@ MOS_STATUS Policy::GetScalingExecutionCaps(SwFilter* feature)
             scalingEngine->forceEnableForRender = 1;
             scalingEngine->fcSupported          = 1;
         }
+
         PrintFeatureExecutionCaps(__FUNCTION__, *scalingEngine);
         return MOS_STATUS_SUCCESS;
     }
@@ -1564,6 +1617,15 @@ MOS_STATUS Policy::InitExecuteCaps(VP_EXECUTE_CAPS &caps, VP_EngineEntry &engine
         caps.bForceCscToRender, caps.bDiProcess2ndField);
     PrintFeatureExecutionCaps("engineCapsInputPipe", engineCapsInputPipe);
     PrintFeatureExecutionCaps("engineCapsOutputPipe", engineCapsOutputPipe);
+    
+    MT_LOG7(MT_VP_HAL_POLICY_INIT_EXECCAPS, MT_NORMAL, MT_VP_HAL_EXECCAPS, (int64_t)caps.value, MT_VP_HAL_EXECCAPS_VE, (int64_t)caps.bVebox, MT_VP_HAL_EXECCAPS_SFC, (int64_t)caps.bSFC, MT_VP_HAL_EXECCAPS_RENDER,
+        (int64_t)caps.bRender, MT_VP_HAL_EXECCAPS_COMP, (int64_t)caps.bComposite, MT_VP_HAL_EXECCAPS_OUTPIPE_FTRINUSE, (int64_t)caps.bOutputPipeFeatureInuse, MT_VP_HAL_EXECCAPS_IECP, (int64_t)caps.bIECP);
+    MT_LOG7(MT_VP_HAL_POLICY_GET_INPIPECAPS, MT_NORMAL, MT_VP_HAL_ENGINECAPS, engineCapsInputPipe.value, MT_VP_HAL_ENGINECAPS_EN, engineCapsInputPipe.bEnabled, MT_VP_HAL_ENGINECAPS_VE_NEEDED, 
+        engineCapsInputPipe.VeboxNeeded, MT_VP_HAL_ENGINECAPS_SFC_NEEDED, engineCapsInputPipe.SfcNeeded, MT_VP_HAL_ENGINECAPS_RENDER_NEEDED, engineCapsInputPipe.RenderNeeded,
+        MT_VP_HAL_ENGINECAPS_FC_SUPPORT, engineCapsInputPipe.fcSupported, MT_VP_HAL_ENGINECAPS_ISOLATED, engineCapsInputPipe.isolated);
+    MT_LOG7(MT_VP_HAL_POLICY_GET_OUTPIPECAPS, MT_NORMAL, MT_VP_HAL_ENGINECAPS, engineCapsOutputPipe.value, MT_VP_HAL_ENGINECAPS_EN, engineCapsOutputPipe.bEnabled, MT_VP_HAL_ENGINECAPS_VE_NEEDED,
+        engineCapsOutputPipe.VeboxNeeded, MT_VP_HAL_ENGINECAPS_SFC_NEEDED, engineCapsOutputPipe.SfcNeeded, MT_VP_HAL_ENGINECAPS_RENDER_NEEDED, engineCapsOutputPipe.RenderNeeded, 
+        MT_VP_HAL_ENGINECAPS_FC_SUPPORT, engineCapsOutputPipe.fcSupported, MT_VP_HAL_ENGINECAPS_ISOLATED, engineCapsOutputPipe.isolated);
 
     return MOS_STATUS_SUCCESS;
 }
@@ -1607,6 +1669,10 @@ MOS_STATUS Policy::GetOutputPipeEngineCaps(SwFilterPipe& featurePipe, VP_EngineE
     }
 
     PrintFeatureExecutionCaps(__FUNCTION__, engineCapsOutputPipe);
+    MT_LOG7(MT_VP_HAL_POLICY_GET_OUTPIPECAPS, MT_NORMAL, MT_VP_HAL_ENGINECAPS, engineCapsOutputPipe.value, MT_VP_HAL_ENGINECAPS_EN, engineCapsOutputPipe.bEnabled, MT_VP_HAL_ENGINECAPS_VE_NEEDED,
+        engineCapsOutputPipe.VeboxNeeded, MT_VP_HAL_ENGINECAPS_SFC_NEEDED, engineCapsOutputPipe.SfcNeeded, MT_VP_HAL_ENGINECAPS_RENDER_NEEDED, engineCapsOutputPipe.RenderNeeded, 
+        MT_VP_HAL_ENGINECAPS_FC_SUPPORT, engineCapsOutputPipe.fcSupported, MT_VP_HAL_ENGINECAPS_ISOLATED, engineCapsOutputPipe.isolated);
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -1771,6 +1837,10 @@ MOS_STATUS Policy::GetInputPipeEngineCaps(SwFilterPipe& featurePipe, VP_EngineEn
     }
 
     PrintFeatureExecutionCaps(__FUNCTION__, engineCapsInputPipe);
+    MT_LOG7(MT_VP_HAL_POLICY_GET_INPIPECAPS, MT_NORMAL, MT_VP_HAL_ENGINECAPS, engineCapsInputPipe.value, MT_VP_HAL_ENGINECAPS_EN, engineCapsInputPipe.bEnabled,
+        MT_VP_HAL_ENGINECAPS_VE_NEEDED, engineCapsInputPipe.VeboxNeeded, MT_VP_HAL_ENGINECAPS_SFC_NEEDED, engineCapsInputPipe.SfcNeeded, MT_VP_HAL_ENGINECAPS_RENDER_NEEDED,
+        engineCapsInputPipe.RenderNeeded, MT_VP_HAL_ENGINECAPS_FC_SUPPORT, engineCapsInputPipe.fcSupported, MT_VP_HAL_ENGINECAPS_ISOLATED, engineCapsInputPipe.isolated);
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -1814,7 +1884,6 @@ MOS_STATUS Policy::BuildExecuteCaps(SwFilterPipe& featurePipe, VP_EXECUTE_CAPS &
 
     VP_PUBLIC_CHK_STATUS_RETURN(GetInputPipeEngineCaps(featurePipe, engineCapsInputPipe,
                                                     singlePipeSelected, isSingleSubPipe, selectedPipeIndex));
-
     VP_PUBLIC_CHK_STATUS_RETURN(GetOutputPipeEngineCaps(featurePipe, engineCapsOutputPipe, singlePipeSelected));
 
     if (engineCapsInputPipe.bypassVeboxFeatures)
@@ -2384,6 +2453,7 @@ MOS_STATUS Policy::SetupFilterResource(SwFilterPipe& featurePipe, std::vector<in
         auto outputSurfaceExePipe = params.executedFilters->GetSurface(false, 0);
         VP_PUBLIC_CHK_NULL_RETURN(outputSurfaceExePipe);
         auto outputSurface = featurePipe.GetSurface(false, 0);
+        VP_PUBLIC_CHK_NULL_RETURN(outputSurface);
         bool outputSurfaceInuse =
             outputSurfaceExePipe->GetAllocationHandle(osInterface) == outputSurface->GetAllocationHandle(osInterface);
 

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2020, Intel Corporation
+* Copyright (c) 2019-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -58,7 +58,7 @@ double MosUtilities::MosGetTime()
 }
 
 //!
-//! \brief Linux specific user feature define, used in MOS_UserFeature_ParsePath
+//! \brief Linux specific user feature define, used in MosUtilities::MosUserFeatureParsePath
 //!        They can be unified with the win definitions, since they are identical.
 //!
 #define MOS_UF_SEPARATOR  "\\"
@@ -70,6 +70,7 @@ double MosUtilities::MosGetTime()
 //!
 const char *const MosUtilitiesSpecificNext::m_mosTracePath  = "/sys/kernel/debug/tracing/trace_marker_raw";
 int32_t           MosUtilitiesSpecificNext::m_mosTraceFd    = -1;
+MosMutex          MosUtilitiesSpecificNext::m_userSettingMutex;
 
 std::map<std::string, std::map<std::string, std::string>> MosUtilitiesSpecificNext::m_regBuffer;
 
@@ -617,20 +618,22 @@ MOS_STATUS MosUtilitiesSpecificNext::UserFeatureSet(MOS_PUF_KEYLIST *pKeyList, M
     {
          return MOS_STATUS_NO_SPACE;
     }
-    MOS_AtomicIncrement(&MosUtilities::m_mosMemAllocFakeCounter);  //ulValueBuf does not count it, because it is freed after the MEMNJA final report.
+    MosUtilities::MosAtomicIncrement(&MosUtilities::m_mosMemAllocFakeCounter);  //ulValueBuf does not count it, because it is freed after the MEMNJA final report.
     MOS_OS_NORMALMESSAGE("ulValueBuf %p for key %s", ulValueBuf, NewKey.pValueArray[0].pcValueName);
 
+    m_userSettingMutex.Lock();
     if ((iPos = UserFeatureFindValue(*Key, NewKey.pValueArray[0].pcValueName)) == NOT_FOUND)
     {
         //not found, add a new value to key struct.
         //reallocate memory for appending this value.
-        iPos = MOS_AtomicIncrement(&Key->valueNum);
+        iPos = MosUtilities::MosAtomicIncrement(&Key->valueNum);
         iPos = iPos - 1;
         if (iPos >= UF_CAPABILITY)
         {
             MOS_OS_ASSERTMESSAGE("user setting requires iPos (%d) < UF_CAPABILITY(64)", iPos);
             Key->valueNum = UF_CAPABILITY;
             MOS_SafeFreeMemory(ulValueBuf);
+            m_userSettingMutex.Unlock();
             return MOS_STATUS_USER_FEATURE_KEY_READ_FAILED;
         }
         MosUtilities::MosSecureStrcpy(Key->pValueArray[iPos].pcValueName,
@@ -641,7 +644,7 @@ MOS_STATUS MosUtilitiesSpecificNext::UserFeatureSet(MOS_PUF_KEYLIST *pKeyList, M
     {
         //if found, the previous value buffer needs to be freed before reallocating
         MOS_FreeMemory(Key->pValueArray[iPos].ulValueBuf);
-        MOS_AtomicDecrement(&MosUtilities::m_mosMemAllocFakeCounter);
+        MosUtilities::MosAtomicDecrement(&MosUtilities::m_mosMemAllocFakeCounter);
         MOS_OS_NORMALMESSAGE("ulValueBuf %p for key %s", ulValueBuf, NewKey.pValueArray[0].pcValueName);
     }
 
@@ -656,6 +659,7 @@ MOS_STATUS MosUtilitiesSpecificNext::UserFeatureSet(MOS_PUF_KEYLIST *pKeyList, M
                      NewKey.pValueArray[0].ulValueBuf,
                      NewKey.pValueArray[0].ulValueLen);
 
+    m_userSettingMutex.Unlock();
     return MOS_STATUS_SUCCESS;
 }
 
@@ -1372,6 +1376,7 @@ MOS_STATUS MosUtilities::MosOsUtilitiesClose(MOS_CONTEXT_HANDLE mosCtx)
     if (m_mosUtilInitCount == 0)
     {
         MosTraceEventClose();
+        DestroyMediaUserSetting();
         m_mosMemAllocCounter -= m_mosMemAllocFakeCounter;
         MemoryCounter = m_mosMemAllocCounter + m_mosMemAllocCounterGfx;
         m_mosMemAllocCounterNoUserFeature    = m_mosMemAllocCounter;
@@ -1642,6 +1647,32 @@ MOS_STATUS MosUtilities::MosCloseRegKey(
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS MosUtilities::MosReadEnvVariable(
+    UFKEY_NEXT keyHandle,
+    const std::string &valueName,
+    uint32_t *type,
+    std::string &data,
+    uint32_t *size)
+{
+    MOS_OS_CHK_NULL_RETURN(size);
+    MOS_UNUSED(type);
+
+    MOS_STATUS status = MOS_STATUS_SUCCESS;
+
+    std::string name = valueName;
+    std::replace(name.begin(), name.end(), ' ', '_');
+    char *retVal = getenv(name.c_str());
+    if (retVal != nullptr)
+    {
+        std::string strData = retVal;
+        *size               = strData.length();
+        data                = strData;
+        return MOS_STATUS_SUCCESS;
+    }
+
+    return MOS_STATUS_INVALID_PARAMETER;
+}
+
 MOS_STATUS MosUtilities::MosGetRegValue(
     UFKEY_NEXT keyHandle,
     const std::string &valueName,
@@ -1663,18 +1694,6 @@ MOS_STATUS MosUtilities::MosGetRegValue(
 
     try
     {
-        // Read the value from ENV. variable as first
-        std::string name = valueName;
-        std::replace(name.begin(),name.end(),' ','_');
-        char* retVal = getenv(name.c_str());
-        if (retVal != nullptr)
-        {
-            std::string strData = retVal;
-            *size = strData.length();
-            data = strData;
-            return MOS_STATUS_SUCCESS;
-        }
-
         auto keys = util::m_regBuffer[keyHandle];
         auto it = keys.find(valueName);
         if (it == keys.end())

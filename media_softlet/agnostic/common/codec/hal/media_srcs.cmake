@@ -64,3 +64,4 @@ media_add_curr_to_include_path()
 
 media_include_subdirectory(dec)
 media_include_subdirectory(enc)
+media_include_subdirectory(shared)

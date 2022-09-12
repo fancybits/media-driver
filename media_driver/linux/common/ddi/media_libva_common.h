@@ -292,7 +292,7 @@ typedef struct _DDI_MEDIA_SURFACE
     int32_t                 iRefCount;
     uint8_t                *pData;
     uint32_t                data_size;
-    uint32_t                isTiled; 
+    uint32_t                isTiled;
     uint32_t                TileType;
     uint32_t                bMapped;
     MOS_LINUX_BO           *bo;
@@ -485,6 +485,9 @@ struct DDI_MEDIA_CONTEXT
     // Media copy data structure
     void               *pMediaCopyState;
 
+    // Perf tag
+    PERF_DATA          *perfData;
+
     // Media reset enable flag
     bool                bMediaResetEnable;
 
@@ -535,8 +538,6 @@ struct DDI_MEDIA_CONTEXT
     MediaLibvaCaps     *m_caps;
 
     GMM_CLIENT_CONTEXT  *pGmmClientContext;
-
-    GmmExportEntries   GmmFuncs;
 
     // Aux Table Manager
     AuxTableMgr         *m_auxTableMgr;

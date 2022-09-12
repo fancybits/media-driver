@@ -177,6 +177,14 @@ public:
     //!           else MOS_STATUS_SUCCESS
     //!
     static MOS_STATUS MosUtilitiesClose(MOS_CONTEXT_HANDLE mosCtx);
+    //!
+    //! \brief    Close MediaUserSetting context
+    //! \details  througt MediaUserSetting's destroy method reset ptr
+    //! \return   MOS_STATUS
+    //!           Returns one of the MOS_STATUS error codes if failed,
+    //!           else MOS_STATUS_SUCCESS
+    //!
+    static MOS_STATUS DestroyMediaUserSetting();
 
 private:
     //!
@@ -998,11 +1006,11 @@ public:
     //! \param    [in/out] strToken
     //!           String containing token or tokens
     //!           Pass nullptr for this parameter in subsequent calls
-    //!           to MOS_SecureStrtok to find the remaining tokens
+    //!           to MosSecureStrtok to find the remaining tokens
     //! \param    [in] strDelimit
     //!           Set of delimiter characters
     //! \param    [in/out] contex
-    //!           Used to store position information between calls to MOS_SecureStrtok
+    //!           Used to store position information between calls to MosSecureStrtok
     //! \return   char *
     //!           Returns tokens else nullptr
     //!
@@ -1303,6 +1311,32 @@ public:
     //!
     static MOS_STATUS MosCloseRegKey(
         UFKEY_NEXT keyHandle);
+
+    //!
+    //! \brief    Retrieves the type and data for the specified env variable.
+    //! \details  Retrieves the type and data for the specified env variable.
+    //! \param    [in] keyHandle
+    //!           A handle to an open reg key.
+    //! \param    [in] valueName
+    //!           The name of the reg value.
+    //! \param    [in] type
+    //!           A pointer to a variable that receives a code indicating the
+    //!           type of data stored in the specified value.
+    //! \param    [out] data
+    //!           Buffer that receives the value's data.
+    //! \param    [out] size
+    //!           A pointer to a variable that specifies the size of the buffer
+    //!           pointed to by the data parameter, in bytes.
+    //! \return   MOS_STATUS
+    //!           If the function succeeds, the return value is MOS_STATUS_SUCCESS.
+    //!           If the function fails, the return value is a error code.
+    //!
+    static MOS_STATUS MosReadEnvVariable(
+        UFKEY_NEXT keyHandle,
+        const std::string &valueName,
+        uint32_t *type,
+        std::string &data,
+        uint32_t *size);
 
     //!
     //! \brief    Retrieves the type and data for the specified reg value.
@@ -1624,7 +1658,7 @@ public:
     //! \return   uint32_t
     //!           Return the current thread id
     //!
-    uint32_t MosGetCurrentThreadId();
+    static uint32_t MosGetCurrentThreadId();
 
     //!
     //! \brief    Wait for thread to terminate

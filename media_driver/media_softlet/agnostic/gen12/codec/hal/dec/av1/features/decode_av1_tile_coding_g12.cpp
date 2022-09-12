@@ -68,6 +68,8 @@ namespace decode
             m_tileGroupId       = -1;
             m_isTruncatedTile   = false;
             m_decPassNum        = 1;
+            m_hasTileMissing    = false;
+            m_hasDuplicateTile  = false;
         }
 
         if (m_numTiles > av1MaxTileNum)
@@ -83,11 +85,17 @@ namespace decode
         }
 
         uint16_t tileNumLimit = (picParams.m_picInfoFlags.m_fields.m_largeScaleTile) ? av1MaxTileNum : (picParams.m_tileCols * picParams.m_tileRows);
-        if (nullptr != m_tileDesc &&
-            (m_prevFrmTileNum < tileNumLimit))
+        if (nullptr != m_tileDesc)
         {
-            free(m_tileDesc);
-            m_tileDesc = nullptr;
+            if (m_prevFrmTileNum < tileNumLimit)
+            {
+                free(m_tileDesc);
+                m_tileDesc = nullptr;
+            }
+            else
+            {
+                memset(m_tileDesc, 0, (sizeof(TileDesc) * m_prevFrmTileNum));
+            }
         }
         if (nullptr == m_tileDesc)
         {
@@ -109,12 +117,16 @@ namespace decode
     {
         DECODE_FUNC_CALL()
         DECODE_CHK_NULL(m_tileDesc);
+        uint64_t datasize = 0;
 
         // Error Concealment for Tile size
-        // m_numTiles means the total number of tile, m_lastTileId means the last tile index
-        for (uint32_t i = 0; i < m_numTiles; i++)
+        // m_numTiles means the tile number from application
+        // m_totalTileNum means the total number of tile, m_lastTileId means the last tile index
+        for (uint32_t i = 0; i < m_totalTileNum; i++)
         {
-            if (m_tileDesc[i].m_size + m_tileDesc[i].m_offset > m_basicFeature->m_dataSize)
+            // m_tileDesc[i].m_size + m_tileDesc[i].m_offset could oversize the maximum of uint32_t
+            datasize = (uint64_t)m_tileDesc[i].m_size + (uint64_t)m_tileDesc[i].m_offset;
+            if (datasize > m_basicFeature->m_dataSize)
             {
                 if (i == m_lastTileId)
                 {
@@ -125,6 +137,19 @@ namespace decode
                 {
                     DECODE_ASSERTMESSAGE("The non-last tile size is oversize! Skip Frame!");
                     return MOS_STATUS_INVALID_PARAMETER;
+                }
+            }
+            // For tile missing scenario
+            if (m_tileDesc[i].m_size == 0)
+            {
+                DECODE_ASSERTMESSAGE("The %d tile is missing, set 4 byte dummy WL!\n", i);
+                m_tileDesc[i].m_size       = 4;
+                m_tileDesc[i].m_offset     = 0;
+                m_tileDesc[i].m_tileRow    = i / m_basicFeature->m_av1PicParams->m_tileCols;
+                m_tileDesc[i].m_tileColumn = i % m_basicFeature->m_av1PicParams->m_tileCols;
+                if (!m_hasTileMissing)
+                {
+                    m_hasTileMissing = true;
                 }
             }
         }
@@ -147,6 +172,13 @@ namespace decode
             DECODE_ASSERT(tileParams[i].m_badBSBufferChopping == 0);//this is to assume the whole tile is in one single bitstream buffer
             DECODE_ASSERT(tileParams[i].m_bsTileBytesInBuffer == tileParams[i].m_bsTilePayloadSizeInBytes);//this is to assume the whole tile is in one single bitstream buffer
 
+            // Check invalid tile column and tile row
+            if (tileParams[i].m_tileColumn > picParams.m_tileCols || tileParams[i].m_tileRow > picParams.m_tileRows)
+            {
+                DECODE_ASSERTMESSAGE("Invalid tile column or tile row\n");
+                return MOS_STATUS_INVALID_PARAMETER;
+            }
+
             if (!picParams.m_picInfoFlags.m_fields.m_largeScaleTile)
             {
                 //record info
@@ -162,11 +194,26 @@ namespace decode
                 }
             }
 
-            auto index                     = (picParams.m_picInfoFlags.m_fields.m_largeScaleTile) ? i : tileId;
-            m_tileDesc[index].m_offset     = tileParams[i].m_bsTileDataLocation;
-            m_tileDesc[index].m_size       = tileParams[i].m_bsTileBytesInBuffer;
-            m_tileDesc[index].m_tileRow    = tileParams[i].m_tileRow;
-            m_tileDesc[index].m_tileColumn = tileParams[i].m_tileColumn;
+            // check duplicate tile
+            auto index = (picParams.m_picInfoFlags.m_fields.m_largeScaleTile) ? i : tileId; 
+            if (m_tileDesc[index].m_tileIndexCount > 0 )
+            {
+                if (tileParams[i].m_bsTileBytesInBuffer > m_tileDesc[index].m_size)
+                {
+                    m_tileDesc[index].m_offset = tileParams[i].m_bsTileDataLocation;
+                    m_tileDesc[index].m_size   = tileParams[i].m_bsTileBytesInBuffer;
+                }
+                m_tileDesc[index].m_tileIndexCount++;
+                m_hasDuplicateTile = true;
+            }
+            else
+            {
+                m_tileDesc[index].m_offset     = tileParams[i].m_bsTileDataLocation;
+                m_tileDesc[index].m_size       = tileParams[i].m_bsTileBytesInBuffer;
+                m_tileDesc[index].m_tileRow    = tileParams[i].m_tileRow;
+                m_tileDesc[index].m_tileColumn = tileParams[i].m_tileColumn;
+                m_tileDesc[index].m_tileIndexCount++;
+            }
 
             if (!picParams.m_picInfoFlags.m_fields.m_largeScaleTile)
             {

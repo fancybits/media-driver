@@ -32,6 +32,10 @@
 #include "mos_utilities.h"
 #include "mos_os.h"
 #include "mhw_vdbox_avp_itf.h"
+#include "mhw_vdbox_vdenc_itf.h"
+#include "mhw_vdbox_huc_itf.h"
+#include "mhw_mi_itf.h"
+#include "mhw_vdbox_hcp_itf.h"
 
 // forward declarations
 class MhwCpInterface;
@@ -106,7 +110,11 @@ public:
     MhwBltInterface *m_bltInterface = nullptr;
 
     /* New mhw sub interfaces*/
-    std::shared_ptr<mhw::vdbox::avp::Itf> m_avpItf = nullptr;
+    std::shared_ptr<mhw::vdbox::avp::Itf>   m_avpItf   = nullptr;
+    std::shared_ptr<mhw::vdbox::vdenc::Itf> m_vdencItf = nullptr;
+    std::shared_ptr<mhw::vdbox::huc::Itf>   m_hucItf   = nullptr;
+    std::shared_ptr<mhw::mi::Itf>           m_miItf    = nullptr;
+    std::shared_ptr<mhw::vdbox::hcp::Itf>   m_hcpItf   = nullptr;
 
     //!
     //! \brief    Calls the factory function to initialize all requested interfaces.
