@@ -1227,7 +1227,7 @@ static MOS_STATUS _UserFeature_SetValue(
 
     if ( (eStatus = _UserFeature_DumpFile(szUserFeatureFile, &pKeyList)) != MOS_STATUS_SUCCESS )
     {
-        MOS_FreeMemory(pKeyList);
+        _UserFeature_FreeKeyList(pKeyList);
         return eStatus;
     }
 
@@ -1330,7 +1330,7 @@ static MOS_STATUS _UserFeature_GetKeyIdbyName(const char  *pcKeyName, void **pUF
     if ( (eStatus = _UserFeature_DumpFile(szUserFeatureFile, &pKeyList)) !=
         MOS_STATUS_SUCCESS )
     {
-        MOS_FreeMemory(pKeyList);
+        _UserFeature_FreeKeyList(pKeyList);
         return eStatus;
     }
 
@@ -1383,7 +1383,7 @@ static MOS_STATUS _UserFeature_GetKeyNamebyId(void  *UFKey, char  *pcKeyName)
         if ( (eStatus = _UserFeature_DumpFile(szUserFeatureFile, &pKeyList)) !=
             MOS_STATUS_SUCCESS )
         {
-            MOS_FreeMemory(pKeyList);
+            _UserFeature_FreeKeyList(pKeyList);
             return eStatus;
         }
 
