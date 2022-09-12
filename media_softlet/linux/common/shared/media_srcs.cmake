@@ -1,4 +1,4 @@
-# Copyright (c) 2017-2019, Intel Corporation
+# Copyright (c) 2022, Intel Corporation
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -18,6 +18,9 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
+media_include_subdirectory(user_setting)
+
+if(NOT CMAKE_WDDM_LINUX)
 set(TMP_SOURCES_
     ${CMAKE_CURRENT_LIST_DIR}/hal_oca_interface_next.cpp
 )
@@ -38,3 +41,4 @@ set(SOURCES_
 
 
 #media_add_curr_to_include_path()
+endif()

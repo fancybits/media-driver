@@ -521,11 +521,11 @@ public:
             auto& par = miItf->MHW_GETPAR_F(MI_LOAD_REGISTER_IMM)();
             par = {};
             par.dwData     = (auxTableBaseAddr & 0xffffffff);
-            par.dwRegister = MhwMiInterfaceG12::m_mmioVe0AuxTableBaseLow;
+            par.dwRegister        = miItf->GetMmioInterfaces(mhw::mi::MHW_MMIO_VE0_AUX_TABLE_BASE_LOW);
             miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(CmdBuffer);
 
             par.dwData     = ((auxTableBaseAddr >> 32) & 0xffffffff);
-            par.dwRegister = MhwMiInterfaceG12::m_mmioVe0AuxTableBaseHigh;
+            par.dwRegister = miItf->GetMmioInterfaces(mhw::mi::MHW_MMIO_VE0_AUX_TABLE_BASE_HIGH);
             miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(CmdBuffer);
         }
 
@@ -893,6 +893,11 @@ public:
     bool IsVeboxScalabilitywith4K()
     {
         return m_veboxScalabilitywith4K;
+    }
+
+    MOS_STATUS Add1DLutState(void *&surface, PMHW_1DLUT_PARAMS p1DLutParams)
+    {
+        return MOS_STATUS_SUCCESS;
     }
 
     _MHW_SETCMD_OVERRIDE_DECL(VEBOX_SURFACE_STATE)

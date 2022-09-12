@@ -28,7 +28,7 @@
 #include "vp_vebox_cmd_packet.h"
 #include "vp_utils.h"
 #include "mos_resource_defs.h"
-#include "hal_oca_interface.h"
+#include "hal_oca_interface_next.h"
 #include "vp_render_sfc_m12.h"
 #include "vp_render_ief.h"
 #include "vp_feature_caps.h"
@@ -749,6 +749,7 @@ MOS_STATUS VpVeboxCmdPacket::SetDnParams(
     pRenderData->GetDNDIParams().bProgressiveDN  = pDnParams->bDnEnabled && pDnParams->bProgressive;
     pRenderData->GetHVSParams().QP               = pDnParams->HVSDenoise.QP;
     pRenderData->GetHVSParams().Mode             = pDnParams->HVSDenoise.Mode;
+    pRenderData->GetHVSParams().Strength         = pDnParams->HVSDenoise.Strength;
 
     GetDnLumaParams(pDnParams->bDnEnabled, pDnParams->bAutoDetect, pDnParams->fDenoiseFactor, m_PacketCaps.bRefValid, &lumaParams);
     GetDnChromaParams(pDnParams->bChromaDenoise, pDnParams->bAutoDetect, pDnParams->fDenoiseFactor, &chromaParams);
@@ -1407,11 +1408,9 @@ MOS_STATUS VpVeboxCmdPacket::SetVeboxProCmd(
     PMHW_MI_INTERFACE     pMhwMiInterface,
     MOS_COMMAND_BUFFER*   CmdBuffer)
 {
-    std::shared_ptr<mhw::mi::Itf> miItf = nullptr;
     VP_RENDER_CHK_NULL_RETURN(m_veboxItf);
 
-    miItf = std::static_pointer_cast<mhw::mi::Itf>(pMhwMiInterface->GetNewMiInterface());
-    VP_RENDER_CHK_STATUS_RETURN(m_veboxItf->setVeboxPrologCmd(miItf, CmdBuffer));
+    VP_RENDER_CHK_STATUS_RETURN(m_veboxItf->setVeboxPrologCmd(m_miItf, CmdBuffer));
 
     return MOS_STATUS_SUCCESS;
 }
@@ -1493,9 +1492,10 @@ MOS_STATUS VpVeboxCmdPacket::RenderVeboxCmd(
 
     VP_RENDER_CHK_NULL_RETURN(m_hwInterface->m_renderHal);
     VP_RENDER_CHK_NULL_RETURN(m_hwInterface->m_mhwMiInterface);
+    VP_RENDER_CHK_NULL_RETURN(m_miItf);
     VP_RENDER_CHK_NULL_RETURN(m_hwInterface->m_osInterface);
     VP_RENDER_CHK_NULL_RETURN(m_hwInterface->m_osInterface->pOsContext);
-    VP_RENDER_CHK_NULL_RETURN(m_hwInterface->m_mhwMiInterface->GetMmioRegisters());
+    VP_RENDER_CHK_NULL_RETURN(m_miItf->GetMmioRegisters());
     VP_RENDER_CHK_NULL_RETURN(pRenderData);
     VP_RENDER_CHK_NULL_RETURN(CmdBuffer);
     VP_RENDER_CHK_NULL_RETURN(m_veboxItf);
@@ -1505,7 +1505,7 @@ MOS_STATUS VpVeboxCmdPacket::RenderVeboxCmd(
     pOsInterface    = m_hwInterface->m_osInterface;
     pPerfProfiler   = pRenderHal->pPerfProfiler;
     pOsContext      = m_hwInterface->m_osInterface->pOsContext;
-    pMmioRegisters  = pMhwMiInterface->GetMmioRegisters();
+    pMmioRegisters  = m_miItf->GetMmioRegisters();
     pCmdBufferInUse = CmdBuffer;
 
     auto scalability = GetMediaScalability();
@@ -1515,8 +1515,6 @@ MOS_STATUS VpVeboxCmdPacket::RenderVeboxCmd(
 
     VP_RENDER_CHK_STATUS_RETURN(m_veboxItf->GetVeboxHeapInfo(&pVeboxHeap));
     VP_RENDER_CHK_NULL_RETURN(pVeboxHeap);
-
-    m_miItf = std::static_pointer_cast<mhw::mi::Itf>(m_hwInterface->m_mhwMiInterface->GetNewMiInterface());
 
 #ifdef _MMC_SUPPORTED
 
@@ -1575,15 +1573,15 @@ MOS_STATUS VpVeboxCmdPacket::RenderVeboxCmd(
 
         VP_RENDER_CHK_STATUS_RETURN(SetVeboxIndex(curPipe, numPipe, m_IsSfcUsed));
 
-        HalOcaInterface::On1stLevelBBStart(*pCmdBufferInUse, *pOsContext, pOsInterface->CurrentGpuContextHandle, *pMhwMiInterface, *pMmioRegisters);
+        HalOcaInterfaceNext::On1stLevelBBStart(*pCmdBufferInUse, *pOsContext, pOsInterface->CurrentGpuContextHandle, m_miItf, *pMmioRegisters);
 
         char ocaMsg[] = "VP APG Vebox Packet";
-        HalOcaInterface::TraceMessage(*pCmdBufferInUse, *pOsContext, ocaMsg, sizeof(ocaMsg));
+        HalOcaInterfaceNext::TraceMessage(*pCmdBufferInUse, *pOsContext, ocaMsg, sizeof(ocaMsg));
 
-        HalOcaInterface::TraceOcaSkuValue(*pCmdBufferInUse, *pOsInterface);
+        HalOcaInterfaceNext::TraceOcaSkuValue(*pCmdBufferInUse, *pOsInterface);
 
         // Add vphal param to log.
-        HalOcaInterface::DumpVphalParam(*pCmdBufferInUse, *pOsContext, pRenderHal->pVphalOcaDumper);
+        HalOcaInterfaceNext::DumpVphalParam(*pCmdBufferInUse, *pOsContext, pRenderHal->pVphalOcaDumper);
 
         VP_RENDER_CHK_STATUS_RETURN(pPerfProfiler->AddPerfCollectStartCmd((void *)pRenderHal, pOsInterface, pRenderHal->pMhwMiInterface, pCmdBufferInUse));
 
@@ -1594,7 +1592,7 @@ MOS_STATUS VpVeboxCmdPacket::RenderVeboxCmd(
         {
             std::string info   = "in_comps = " + std::to_string(int(this->m_currentSurface->osSurface->bCompressible)) + ", out_comps = " + std::to_string(int(VeboxSurfaceStateCmdParams.pSurfOutput->osSurface->bCompressible));
             const char *ocaLog = info.c_str();
-            HalOcaInterface::TraceMessage(*pCmdBufferInUse, *pOsContext, ocaLog, info.size());
+            HalOcaInterfaceNext::TraceMessage(*pCmdBufferInUse, *pOsContext, ocaLog, info.size());
         }
 
         if (bMultipipe)
@@ -1616,7 +1614,7 @@ MOS_STATUS VpVeboxCmdPacket::RenderVeboxCmd(
             VP_RENDER_CHK_STATUS_RETURN(scalability->SyncPipe(syncAllPipes, 0, pCmdBufferInUse));
 
             // Enable Watchdog Timer
-            VP_RENDER_CHK_STATUS_RETURN(pMhwMiInterface->AddWatchdogTimerStartCmd(pCmdBufferInUse));
+            VP_RENDER_CHK_STATUS_RETURN(m_miItf->AddWatchdogTimerStartCmd(pCmdBufferInUse));
 
 #if (_DEBUG || _RELEASE_INTERNAL)
             // Add noop for simu no output issue
@@ -1666,7 +1664,7 @@ MOS_STATUS VpVeboxCmdPacket::RenderVeboxCmd(
                 pCmdBufferInUse));
         }
 
-        HalOcaInterface::OnDispatch(*pCmdBufferInUse, *pOsContext, *pMhwMiInterface, *pMmioRegisters);
+        HalOcaInterfaceNext::OnDispatch(*pCmdBufferInUse, *pOsContext, m_miItf, *pMmioRegisters);
 
         //---------------------------------
         // Send CMD: Vebox_DI_IECP
@@ -1680,9 +1678,10 @@ MOS_STATUS VpVeboxCmdPacket::RenderVeboxCmd(
         if (skuTable && MEDIA_IS_SKU(skuTable, FtrEnablePPCFlush))
         {
             // Add PPC fulsh
-            MOS_ZeroMemory(&FlushDwParams, sizeof(FlushDwParams));
-            FlushDwParams.bEnablePPCFlush = true;
-            VP_RENDER_CHK_STATUS_RETURN(pMhwMiInterface->AddMiFlushDwCmd(pCmdBufferInUse, &FlushDwParams));
+            auto &miFlushDwParams           = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
+            miFlushDwParams                 = {};
+            miFlushDwParams.bEnablePPCFlush = true;
+            VP_RENDER_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(pCmdBufferInUse));
         }
 
         if (bMultipipe)
@@ -1727,11 +1726,11 @@ MOS_STATUS VpVeboxCmdPacket::RenderVeboxCmd(
             VP_RENDER_CHK_STATUS_RETURN(m_miItf->AddWatchdogTimerStopCmd(pCmdBufferInUse));
         }
 
-        VP_RENDER_CHK_STATUS_RETURN(NullHW::StopPredicate(pRenderHal->pMhwMiInterface, pCmdBufferInUse));
+        VP_RENDER_CHK_STATUS_RETURN(NullHW::StopPredicateNext(m_miItf, pCmdBufferInUse));
 
         VP_RENDER_CHK_STATUS_RETURN(pPerfProfiler->AddPerfCollectEndCmd((void *)pRenderHal, pOsInterface, pRenderHal->pMhwMiInterface, pCmdBufferInUse));
 
-        HalOcaInterface::On1stLevelBBEnd(*pCmdBufferInUse, *pOsInterface);
+        HalOcaInterfaceNext::On1stLevelBBEnd(*pCmdBufferInUse, *pOsInterface);
 
         if (pOsInterface->bNoParsingAssistanceInKmd)
         {
@@ -1865,7 +1864,6 @@ MOS_STATUS VpVeboxCmdPacket::SendVecsStatusTag(
                                   true,
                                   true));
 
-    m_miItf = std::static_pointer_cast<mhw::mi::Itf>(pMhwMiInterface->GetNewMiInterface());
     VP_RENDER_CHK_NULL_RETURN(m_miItf);
 
     auto &params             = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
@@ -2189,18 +2187,12 @@ VpVeboxCmdPacket::VpVeboxCmdPacket(
     MediaTask * task,
     PVP_MHWINTERFACE hwInterface,
     PVpAllocator &allocator,
-    VPMediaMemComp *mmc):
+    VPMediaMemComp *mmc) :
     CmdPacket(task),
     VpVeboxCmdPacketBase(task, hwInterface, allocator, mmc)
 {
-    if (m_hwInterface && m_hwInterface->m_veboxInterface)
-    {
-        m_veboxItf = std::static_pointer_cast<mhw::vebox::Itf>(m_hwInterface->m_veboxInterface->GetNewVeboxInterface());
-    }
-    if (nullptr == m_veboxItf)
-    {
-        VP_RENDER_ASSERTMESSAGE("Invalid vebox mhw interface");
-    }
+    m_veboxItf = hwInterface->m_vpPlatformInterface->GetMhwVeboxItf();
+    m_miItf = hwInterface->m_vpPlatformInterface->GetMhwMiItf();
 }
 
 VpVeboxCmdPacket:: ~VpVeboxCmdPacket()
@@ -2400,7 +2392,6 @@ MOS_STATUS VpVeboxCmdPacket::AddVeboxHdrState()
 {
     VP_FUNC_CALL();
 
-    PMHW_VEBOX_INTERFACE  pVeboxInterface = m_hwInterface->m_veboxInterface;
     VpVeboxRenderData    *renderData      = GetLastExecRenderData();
     VP_PUBLIC_CHK_NULL_RETURN(m_veboxItf);
     VP_PUBLIC_CHK_NULL_RETURN(renderData);

@@ -185,7 +185,7 @@ MOS_STATUS VpPipeline::CreateUserFeatureControl()
     VP_FUNC_CALL();
 
     VP_PUBLIC_CHK_NULL_RETURN(m_osInterface);
-    m_userFeatureControl = MOS_New(VpUserFeatureControl, *m_osInterface, this);
+    m_userFeatureControl = MOS_New(VpUserFeatureControl, *m_osInterface, m_vpMhwInterface.m_vpPlatformInterface, this);
     VP_PUBLIC_CHK_NULL_RETURN(m_userFeatureControl);
     return MOS_STATUS_SUCCESS;
 }
@@ -465,11 +465,7 @@ MOS_STATUS VpPipeline::GetSystemVeboxNumber()
     }
     else if (m_forceMultiplePipe == MOS_SCALABILITY_ENABLE_MODE_DEFAULT)
     {
-        std::shared_ptr<mhw::vebox::Itf> veboxItf = nullptr;
-        if (m_vpMhwInterface.m_veboxInterface)
-        {
-            veboxItf = std::static_pointer_cast<mhw::vebox::Itf>(m_vpMhwInterface.m_veboxInterface->GetNewVeboxInterface());
-        }
+        std::shared_ptr<mhw::vebox::Itf> veboxItf = m_vpMhwInterface.m_vpPlatformInterface->GetMhwVeboxItf();
 
         if (veboxItf && !(veboxItf->IsVeboxScalabilitywith4K()))
         {
