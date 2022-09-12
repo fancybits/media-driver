@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2021, Intel Corporation
+* Copyright (c) 2009-2022, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -104,7 +104,17 @@ MOS_STATUS Mos_OsFillResource(
 
     uint8_t *       pByte = nullptr;
     MOS_LOCK_PARAMS LockFlags;
-
+    uint32_t        size = 0;
+#ifndef VPSOLO_EMUL
+    if (pOsResource->pGmmResInfo)
+    {
+        size = (uint32_t)pOsResource->pGmmResInfo->GetSizeSurface();
+    }
+    if (dwSize > size)
+    {
+        MOS_OS_ASSERTMESSAGE("dwSize (%x)> size (%x)", dwSize, size);
+    }
+#endif
     // Lock the surface for writing
     MOS_ZeroMemory(&LockFlags, sizeof(MOS_LOCK_PARAMS));
 
@@ -1059,5 +1069,5 @@ MOS_STATUS Mos_CheckVirtualEngineSupported(
 }
 #endif // !SKIP_VE_DEFINE
 
-
+void *MosStreamState::pvSoloContext = nullptr; 
 

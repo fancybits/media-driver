@@ -1804,9 +1804,7 @@ MOS_STATUS VpResourceManager::Allocate3DLut(VP_EXECUTE_CAPS& caps)
             isAllocated,
             false,
             IsDeferredResourceDestroyNeeded(),
-            MOS_HW_RESOURCE_DEF_MAX,
-            MOS_TILE_UNSET_GMM,
-            MOS_MEMPOOL_SYSTEMMEMORY));
+            MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER));
     }
 
     return MOS_STATUS_SUCCESS;
@@ -1840,9 +1838,7 @@ MOS_STATUS VpResourceManager::AllocateResourceFor3DLutKernel(VP_EXECUTE_CAPS& ca
         isAllocated,
         false,
         IsDeferredResourceDestroyNeeded(),
-        MOS_HW_RESOURCE_DEF_MAX,
-        MOS_TILE_UNSET_GMM,
-        MOS_MEMPOOL_SYSTEMMEMORY));
+        MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER));
 
     if (isAllocated)
     {
@@ -2231,6 +2227,7 @@ MOS_STATUS VpResourceManager::Init3DLutSurface2D(VP_SURFACE *surf)
     uint32_t pitchInByte = surf->osSurface->dwPitch;
 
     uint8_t *lockedAddr = (uint8_t *)this->m_allocator.LockResourceForWrite(&surf->osSurface->OsResource);
+    VP_PUBLIC_CHK_NULL_RETURN(lockedAddr);
 
     uint32_t indexByte = 0;
     uint32_t indexByteInLine = 0;
