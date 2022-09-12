@@ -76,6 +76,8 @@ Policy::~Policy()
 
 MOS_STATUS Policy::Initialize()
 {
+    VP_FUNC_CALL();
+
     VpPlatformInterface *vpPlatformInterface = (VpPlatformInterface *)m_vpInterface.GetHwInterface()->m_vpPlatformInterface;
     VP_PUBLIC_CHK_NULL_RETURN(vpPlatformInterface);
     VP_PUBLIC_CHK_STATUS_RETURN(vpPlatformInterface->InitVpHwCaps(m_hwCaps));
@@ -86,6 +88,8 @@ MOS_STATUS Policy::Initialize()
 
 bool Policy::IsVeboxSfcFormatSupported(MOS_FORMAT  formatInput, MOS_FORMAT formatOutput)
 {
+    VP_FUNC_CALL();
+
     if (!m_initialized)
     {
         return false;
@@ -99,6 +103,39 @@ bool Policy::IsVeboxSfcFormatSupported(MOS_FORMAT  formatInput, MOS_FORMAT forma
     {
         return false;
     }
+}
+
+bool Policy::IsAlphaEnabled(FeatureParamScaling* scalingParams)
+{
+    VP_FUNC_CALL();
+
+    if (scalingParams == nullptr)
+    {
+        return false;
+    }
+
+    bool isAlphaEnabled = false;
+    isAlphaEnabled      =  scalingParams->pCompAlpha != nullptr &&
+                           scalingParams->pCompAlpha->AlphaMode == VPHAL_ALPHA_FILL_MODE_BACKGROUND;
+    return isAlphaEnabled;
+}
+
+bool Policy::IsColorfillEnabled(FeatureParamScaling* scalingParams)
+{
+    VP_FUNC_CALL();
+
+    if (scalingParams == nullptr)
+    {
+        return false;
+    }
+
+    bool isColorFill = false;
+    isColorFill      = (scalingParams->pColorFillParams &&
+                     (!RECT1_CONTAINS_RECT2(scalingParams->input.rcDst, scalingParams->output.rcDst)))
+                     ? true
+                     : false;
+
+    return isColorFill;
 }
 
 MOS_STATUS Policy::RegisterFeatures()
@@ -259,6 +296,8 @@ MOS_STATUS Policy::GetExecuteCaps(SwFilterPipe& subSwFilterPipe, HW_FILTER_PARAM
 
 MOS_STATUS Policy::GetExecutionCapsForSingleFeature(FeatureType featureType, SwFilterSubPipe& swFilterPipe)
 {
+    VP_FUNC_CALL();
+
     SwFilter* feature = swFilterPipe.GetSwFilter(featureType);
     SwFilter* diFilter = nullptr;
 
@@ -337,6 +376,8 @@ MOS_STATUS Policy::BuildExecutionEngines(SwFilterSubPipe& swFilterPipe)
 
 MOS_STATUS Policy::GetCSCExecutionCapsHdr(SwFilter *HDR, SwFilter *CSC)
 {
+    VP_FUNC_CALL();
+
     SwFilterHdr     *hdr       = nullptr;
     SwFilterCsc     *csc       = nullptr;
     FeatureParamHdr *hdrParams = nullptr;
@@ -389,6 +430,8 @@ MOS_STATUS Policy::GetCSCExecutionCapsHdr(SwFilter *HDR, SwFilter *CSC)
 
 MOS_STATUS Policy::GetCSCExecutionCapsDi(SwFilter* feature)
 {
+    VP_FUNC_CALL();
+
     VP_PUBLIC_CHK_NULL_RETURN(feature);
 
     SwFilterCsc* csc = dynamic_cast<SwFilterCsc*>(feature);
@@ -588,6 +631,10 @@ MOS_STATUS Policy::GetScalingExecutionCaps(SwFilter* feature)
     if (fScaleX == 1.0f && fScaleY == 1.0f &&
         // Only support vebox crop from left-top, which is to align with legacy path.
         0 == scalingParams->input.rcSrc.left && 0 == scalingParams->input.rcSrc.top &&
+        // If Alpha enabled, which should go SFC pipe.
+        !IsAlphaEnabled(scalingParams) &&
+        // If Colorfill enabled, which should go SFC pipe.
+        !IsColorfillEnabled(scalingParams) &&
         scalingParams->interlacedScalingType != ISCALING_INTERLEAVED_TO_FIELD &&
         scalingParams->interlacedScalingType != ISCALING_FIELD_TO_INTERLEAVED)
     {
@@ -652,6 +699,71 @@ MOS_STATUS Policy::GetScalingExecutionCaps(SwFilter* feature)
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS Policy::GetSFCRotationExecutionCaps(FeatureParamRotMir *rotationParams, VP_EngineEntry *rotationEngine)
+{
+    VP_FUNC_CALL();
+
+    if (m_hwCaps.m_sfcHwEntry[rotationParams->formatInput].inputSupported &&
+        m_hwCaps.m_sfcHwEntry[rotationParams->formatOutput].outputSupported)
+    {
+        bool isSfcRotationSupported = false;
+        if (VPHAL_ROTATION_IDENTITY == rotationParams->rotation)
+        {
+            isSfcRotationSupported = true;
+        }
+        else if (VPHAL_MIRROR_HORIZONTAL == rotationParams->rotation)
+        {
+            if (m_hwCaps.m_sfcHwEntry[rotationParams->formatInput].mirrorSupported)
+            {
+                isSfcRotationSupported = true;
+            }
+        }
+        else if (rotationParams->rotation <= VPHAL_ROTATION_270)
+        {
+            // Rotation w/o mirror case
+            if (m_hwCaps.m_sfcHwEntry[rotationParams->formatInput].rotationSupported &&
+                rotationParams->surfInfo.tileOutput == MOS_TILE_Y)
+            {
+                isSfcRotationSupported = true;
+            }
+        }
+        else
+        {
+            // Rotation w/ mirror case
+            if (m_hwCaps.m_sfcHwEntry[rotationParams->formatInput].mirrorSupported &&
+                m_hwCaps.m_sfcHwEntry[rotationParams->formatInput].rotationSupported &&
+                rotationParams->surfInfo.tileOutput == MOS_TILE_Y)
+            {
+                isSfcRotationSupported = true;
+            }
+        }
+
+        if (isSfcRotationSupported)
+        {
+            rotationEngine->bEnabled  = 1;
+            rotationEngine->SfcNeeded = 1;
+            VP_PUBLIC_NORMALMESSAGE("SFC support rotation");
+        }
+        else
+        {
+            // Render FC Path  for Rotation
+            rotationEngine->bEnabled     = 1;
+            rotationEngine->RenderNeeded = 1;
+            rotationEngine->SfcNeeded    = 0;
+            VP_PUBLIC_NORMALMESSAGE("SFC can not support rotation, fall back to render");
+        }
+    }
+    else
+    {
+        // Render FC Path  for Rotation
+        rotationEngine->bEnabled     = 1;
+        rotationEngine->RenderNeeded = 1;
+        rotationEngine->SfcNeeded    = 0;
+        VP_PUBLIC_NORMALMESSAGE("The format can not support rotation, fall back to render");
+    }
+    return MOS_STATUS_SUCCESS;
+}
+
 MOS_STATUS Policy::GetRotationExecutionCaps(SwFilter* feature)
 {
     VP_FUNC_CALL();
@@ -681,31 +793,7 @@ MOS_STATUS Policy::GetRotationExecutionCaps(SwFilter* feature)
     }
 
     // SFC Rotation/Mirror enabling check
-    if (m_hwCaps.m_sfcHwEntry[rotationParams->formatInput].inputSupported &&
-        m_hwCaps.m_sfcHwEntry[rotationParams->formatOutput].outputSupported)
-    {
-        if (rotationParams->rotation > VPHAL_ROTATION_270               &&
-            (!m_hwCaps.m_sfcHwEntry[rotationParams->formatInput].mirrorSupported ||
-             rotationParams->surfInfo.tileOutput != MOS_TILE_Y))
-        {
-            // Render FC Path  for Rotation
-            rotationEngine->bEnabled = 1;
-            rotationEngine->RenderNeeded = 1;
-            rotationEngine->SfcNeeded = 0;
-        }
-        else
-        {
-            rotationEngine->bEnabled = 1;
-            rotationEngine->SfcNeeded = 1;
-        }
-    }
-    else
-    {
-        // Render FC Path  for Rotation
-        rotationEngine->bEnabled = 1;
-        rotationEngine->RenderNeeded = 1;
-        rotationEngine->SfcNeeded = 0;
-    }
+    GetSFCRotationExecutionCaps(rotationParams, rotationEngine);
 
     return MOS_STATUS_SUCCESS;
 }
@@ -969,6 +1057,8 @@ MOS_STATUS Policy::GetHdrExecutionCaps(SwFilter *feature)
 
 MOS_STATUS Policy::GetExecutionCaps(SwFilter* feature)
 {
+    VP_FUNC_CALL();
+
     VP_PUBLIC_CHK_NULL_RETURN(feature);
 
     VP_EngineEntry defaultEngine = feature->GetFilterEngineCaps();
@@ -1588,6 +1678,8 @@ MOS_STATUS Policy::AssignExecuteResource(VP_EXECUTE_CAPS& caps, HW_FILTER_PARAMS
 
 MOS_STATUS Policy::BuildVeboxSecureFilters(SwFilterPipe& featurePipe, VP_EXECUTE_CAPS& caps, HW_FILTER_PARAMS& params)
 {
+    VP_FUNC_CALL();
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -1642,6 +1734,8 @@ MOS_STATUS Policy::AddFiltersBasedOnCaps(
     VP_EXECUTE_CAPS& caps,
     SwFilterPipe& executedFilters)
 {
+    VP_FUNC_CALL();
+
     //Create and Add CSC filter for VEBOX IECP chromasiting config
     if (caps.bSFC && !caps.bBeCSC && (caps.bIECP || caps.bDI))
     {
@@ -1656,6 +1750,8 @@ MOS_STATUS Policy::AddNewFilterOnVebox(
     SwFilterPipe& executedFilters,
     FeatureType featureType)
 {
+    VP_FUNC_CALL();
+
     PVP_SURFACE pSurfInput = featurePipe.GetSurface(true, 0);
     PVP_SURFACE pSurfOutput = featurePipe.GetSurface(false, 0);
     VP_PUBLIC_CHK_NULL_RETURN(pSurfInput);

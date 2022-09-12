@@ -60,6 +60,12 @@ MOS_STATUS CodechalDecodeVc1G12::AllocateStandard(
     CODECHAL_DECODE_CHK_STATUS_RETURN(CodechalDecodeVc1::AllocateStandard(settings));
 
 #ifdef _MMC_SUPPORTED
+    // Disable Decode MMC for IGFX
+    if (!MEDIA_IS_SKU(m_hwInterface->GetSkuTable(), FtrFlatPhysCCS))
+    {
+        m_mmc->SetMmcDisabled();
+    }
+
     // To WA invalid aux data caused HW issue when MMC on
     if (m_mmc->IsMmcEnabled() && (MEDIA_IS_WA(m_waTable, Wa_1408785368) || MEDIA_IS_WA(m_waTable, Wa_22010493002)))
     {
@@ -167,13 +173,11 @@ MOS_STATUS CodechalDecodeVc1G12::DecodeStateLevel()
 
     CODECHAL_DECODE_FUNCTION_ENTER;
 #ifdef _MMC_SUPPORTED
-    // To WA invalid aux data caused HW issue when MMC on
-    if (m_mmc->IsMmcEnabled() && (MEDIA_IS_WA(m_waTable, Wa_1408785368) || MEDIA_IS_WA(m_waTable, Wa_22010493002)) &&
-        !Mos_ResourceIsNull(&m_destSurface.OsResource) && m_destSurface.OsResource.bConvertedFromDDIResource &&
-        !(!CodecHal_PictureIsField(m_vc1PicParams->CurrPic) &&
-            m_vc1PicParams->picture_fields.picture_type == vc1SkippedFrame))
+    // To make sure aux table is clear when MMC off(IGFX)
+    // Can not clear aux table for DGFX because of stolen memory
+    if (!m_mmc->IsMmcEnabled() && !Mos_ResourceIsNull(&m_destSurface.OsResource) && m_destSurface.OsResource.bConvertedFromDDIResource)
     {
-        CODECHAL_DECODE_VERBOSEMESSAGE("Clear CCS by VE resolve before frame %d submission", m_frameNum);
+        CODECHAL_DECODE_VERBOSEMESSAGE("Clear CCS by Huc Copy before frame %d submission", m_frameNum);
         CODECHAL_DECODE_CHK_STATUS_RETURN(static_cast<CodecHalMmcStateG12 *>(m_mmc)->ClearAuxSurf(
             this, m_miInterface, &m_destSurface.OsResource, m_veState));
     }
@@ -1352,13 +1356,6 @@ MOS_STATUS CodechalDecodeVc1G12::PerformVc1Olp()
 
     CodecHalGetResourceInfo(m_osInterface, &m_deblockSurface);  // DstSurface
 
-#ifdef _MMC_SUPPORTED
-    if (m_mmc && !m_mmc->IsMmcEnabled())
-    {
-        CODECHAL_DECODE_CHK_STATUS_RETURN(m_mmc->DisableSurfaceMmcState(&m_deblockSurface));
-    }
-#endif
-
     CODECHAL_DECODE_CHK_STATUS_RETURN(stateHeapInterface->pfnRequestSshSpaceForCmdBuf(
         stateHeapInterface,
         kernelState->KernelParams.iBTCount));
@@ -1423,6 +1420,8 @@ MOS_STATUS CodechalDecodeVc1G12::PerformVc1Olp()
     surfaceParamsSrc.dwHeightToUse[MHW_U_PLANE] = surfaceParamsSrc.psSurface->dwHeight / 2;
     surfaceParamsSrc.dwYOffset[MHW_U_PLANE] =
         (m_destSurface.UPlaneOffset.iYOffset % MOS_YTILE_H_ALIGNMENT);
+    surfaceParamsSrc.dwCacheabilityControl  =
+        m_hwInterface->GetCacheabilitySettings()[MOS_CODEC_RESOURCE_USAGE_PRE_DEBLOCKING_CODEC].Value;
 
 #ifdef _MMC_SUPPORTED
     if (m_mmc)
@@ -1441,6 +1440,8 @@ MOS_STATUS CodechalDecodeVc1G12::PerformVc1Olp()
     surfaceParamsDst.psSurface->dwDepth = 1;    // depth needs to be 0 for codec 2D surface
     surfaceParamsDst.dwBindingTableOffset[MHW_Y_PLANE] = CODECHAL_DECODE_VC1_OLP_DST_Y;
     surfaceParamsDst.dwBindingTableOffset[MHW_U_PLANE] = CODECHAL_DECODE_VC1_OLP_DST_UV;
+    surfaceParamsDst.dwCacheabilityControl =
+        m_hwInterface->GetCacheabilitySettings()[MOS_CODEC_RESOURCE_USAGE_POST_DEBLOCKING_CODEC].Value;
 
 #ifdef _MMC_SUPPORTED
     if (m_mmc)
@@ -1473,6 +1474,11 @@ MOS_STATUS CodechalDecodeVc1G12::PerformVc1Olp()
     stateBaseAddrParams.dwDynamicStateSize = kernelState->m_dshRegion.GetHeapSize();
     stateBaseAddrParams.presInstructionBuffer = ish;
     stateBaseAddrParams.dwInstructionBufferSize = kernelState->m_ishRegion.GetHeapSize();
+    stateBaseAddrParams.mocs4GeneralState = m_hwInterface->GetCacheabilitySettings()[MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED].Gen12.Index;
+    stateBaseAddrParams.mocs4DynamicState = m_hwInterface->GetCacheabilitySettings()[MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED].Gen12.Index;
+    stateBaseAddrParams.mocs4SurfaceState       = m_hwInterface->GetCacheabilitySettings()[MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED].Gen12.Index;
+    stateBaseAddrParams.mocs4IndirectObjectBuffer = m_hwInterface->GetCacheabilitySettings()[MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED].Gen12.Index;
+    stateBaseAddrParams.mocs4StatelessDataport = m_hwInterface->GetCacheabilitySettings()[MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED].Gen12.Index;
     CODECHAL_DECODE_CHK_STATUS_RETURN(renderEngineInterface->AddStateBaseAddrCmd(&cmdBuffer, &stateBaseAddrParams));
 
     MHW_VFE_PARAMS_G12 vfeParams= {};

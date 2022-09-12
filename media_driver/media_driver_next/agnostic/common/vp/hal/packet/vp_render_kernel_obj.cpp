@@ -217,11 +217,15 @@ MOS_STATUS VpRenderKernelObj::GetCurbeState(void*& curbe, uint32_t& curbeLength)
 
 uint32_t VpRenderKernelObj::GetKernelBinaryID()
 {
+    VP_FUNC_CALL();
+
     return m_kernelBinaryID;
 }
 
 MOS_STATUS VpRenderKernelObj::GetKernelEntry(Kdll_CacheEntry &entry)
 {
+    VP_FUNC_CALL();
+
     // Set Parameters for Kernel Entry
     entry.iKUID         = m_kernelBinaryID;
     entry.iKCID         = -1;
@@ -234,11 +238,15 @@ MOS_STATUS VpRenderKernelObj::GetKernelEntry(Kdll_CacheEntry &entry)
 
 uint32_t VpRenderKernelObj::GetKernelIndex()
 {
+    VP_FUNC_CALL();
+
     return m_kernelIndex;
 }
 
 MOS_STATUS VpRenderKernelObj::GetWalkerSetting(KERNEL_WALKER_PARAMS& walkerParam)
 {
+    VP_FUNC_CALL();
+
     walkerParam = m_walkerParam;
     return MOS_STATUS_SUCCESS;
 }
@@ -310,6 +318,8 @@ MOS_STATUS VpRenderKernelObj::SetSamplerStates(KERNEL_SAMPLER_STATE_GROUP& sampl
 
 KERNEL_SAMPLER_STATES& VpRenderKernelObj::GetSamplerStates()
 {
+    VP_FUNC_CALL();
+
     return m_samplerStates;
 }
 
@@ -387,17 +397,23 @@ MOS_STATUS VpRenderKernelObj::SetKernelConfigs(
 
 MOS_STATUS VpRenderKernelObj::SetKernelConfigs(KERNEL_CONFIGS& kernelConfigs)
 {
+    VP_FUNC_CALL();
+
     //For legacy kernel usage
     return MOS_STATUS_SUCCESS;
 }
 
 MOS_STATUS VpRenderKernelObj::GetInlineState(void** inlineData, uint32_t& inlineLength)
 {
+    VP_FUNC_CALL();
+
     return MOS_STATUS_SUCCESS;
 }
 
 MOS_STATUS VpRenderKernelObj::InitKernel(void* binary, uint32_t size, KERNEL_CONFIGS& kernelConfigs, VP_SURFACE_GROUP& surfacesGroup)
 {
+    VP_FUNC_CALL();
+
     VP_RENDER_CHK_NULL_RETURN(binary);
     m_kernelBinary = binary;
     m_kernelSize = size;
@@ -412,7 +428,6 @@ void VpRenderKernelObj::DumpSurface(VP_SURFACE* pSurface, PCCHAR fileName)
 {
     uint8_t* pData;
     char                    sPath[MAX_PATH];
-    char                    sOsPath[MAX_PATH];
     uint8_t* pDst;
     uint8_t* pTmpDst;
     uint8_t* pTmpSrc;
@@ -429,7 +444,6 @@ void VpRenderKernelObj::DumpSurface(VP_SURFACE* pSurface, PCCHAR fileName)
 
     pDst = nullptr;
     MOS_ZeroMemory(sPath, MAX_PATH);
-    MOS_ZeroMemory(sOsPath, MAX_PATH);
 
     // get bits per pixel for the format
     pOsInterface->pfnGetBitsPerPixel(pOsInterface, pSurface->osSurface->Format, &iBpp);
@@ -448,6 +462,12 @@ void VpRenderKernelObj::DumpSurface(VP_SURFACE* pSurface, PCCHAR fileName)
         &pSurface->osSurface->OsResource,
         &LockFlags);
 
+    if (pData == nullptr)
+    {
+        VP_RENDER_ASSERTMESSAGE("pData == nullptr");
+        return;
+    }
+
     MOS_SecureStringPrint(
         sPath,
         MAX_PATH,
@@ -460,12 +480,10 @@ void VpRenderKernelObj::DumpSurface(VP_SURFACE* pSurface, PCCHAR fileName)
         pSurface->osSurface->dwPitch,
         VP_GET_FORMAT_STRING(pSurface->osSurface->Format));
 
-    MOS_SecureMemcpy(sOsPath, MAX_PATH, sPath, strlen(sPath));
-
     // Write the data to file
     if (pSurface->osSurface->dwPitch == iWidthInBytes)
     {
-        MOS_WriteFileFromPtr((const char*)sOsPath, pData, iSize);
+        MOS_WriteFileFromPtr((const char*)sPath, pData, iSize);
     }
     else
     {
@@ -480,7 +498,7 @@ void VpRenderKernelObj::DumpSurface(VP_SURFACE* pSurface, PCCHAR fileName)
             pTmpDst += iWidthInBytes;
         }
 
-        MOS_WriteFileFromPtr((const char*)sOsPath, pDst, iSize);
+        MOS_WriteFileFromPtr((const char*)sPath, pDst, iSize);
     }
 
     if (pDst)

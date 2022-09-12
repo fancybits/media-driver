@@ -760,7 +760,7 @@ public:
         VP_SURFACE                          *outputSurface,
         VP_SURFACE                          *previousSurface,
         VP_SURFACE_SETTING                  &surfSetting,
-        VP_EXECUTE_CAPS                     packetCaps) override;
+        VP_EXECUTE_CAPS                     packetCaps)override;
 
 
     //!
@@ -1052,7 +1052,8 @@ protected:
     static const uint32_t       m_satS0Table[MHW_STE_FACTOR_MAX + 1];
     static const uint32_t       m_satS1Table[MHW_STE_FACTOR_MAX + 1];
 
-    MediaScalability           *m_scalability              = nullptr;               //!< scalability
+    MediaScalability           *m_scalability              = nullptr;            //!< scalability
+    bool                        m_useKernelResource        = false;               //!< Use Vebox Kernel Resource 
 
 };
 

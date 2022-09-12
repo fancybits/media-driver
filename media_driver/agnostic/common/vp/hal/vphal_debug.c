@@ -133,6 +133,7 @@ MOS_STATUS VphalSurfaceDumper::GetPlaneDefs(
     case Format_IRW7:
     case Format_RAW:
     case Format_Y8:
+    case Format_R8UN:
         *pdwNumPlanes = 1;
 
         pPlanes[0].dwWidth  = pSurface->dwWidth;
@@ -4129,6 +4130,11 @@ void VphalDumperTool::WriteFrame(
         pOsInterface,
         &pSurface->OsResource,
         &LockFlags);
+    if (pData == nullptr)
+    {
+        VPHAL_DEBUG_ASSERTMESSAGE("pData == nullptr.");
+        return;
+    }
 
     MOS_SecureStringPrint(
         sPath,

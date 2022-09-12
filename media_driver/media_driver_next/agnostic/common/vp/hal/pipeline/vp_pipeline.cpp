@@ -104,6 +104,8 @@ MOS_STATUS VpPipeline::Destroy()
 #if (_DEBUG || _RELEASE_INTERNAL)
 MOS_STATUS VpPipeline::DestroySurface()
 {
+    VP_FUNC_CALL();
+
     if (m_tempTargetSurface)
     {
         m_allocator->FreeResource(&m_tempTargetSurface->OsResource);
@@ -163,6 +165,8 @@ MOS_STATUS VpPipeline::UserFeatureReport()
 
 MOS_STATUS VpPipeline::CreatePacketSharedContext()
 {
+    VP_FUNC_CALL();
+
     m_packetSharedContext = MOS_New(VP_PACKET_SHARED_CONTEXT);
     VP_PUBLIC_CHK_NULL_RETURN(m_packetSharedContext);
     return MOS_STATUS_SUCCESS;
@@ -195,7 +199,7 @@ MOS_STATUS VpPipeline::Init(void *mhwInterface)
 
     VP_PUBLIC_CHK_STATUS_RETURN(CreateFeatureManager());
     VP_PUBLIC_CHK_NULL_RETURN(m_featureManager);
-
+    VP_PUBLIC_CHK_STATUS_RETURN(InitUserFeatureSetting());
 #if (_DEBUG || _RELEASE_INTERNAL)
     VP_DEBUG_INTERFACE_CREATE(m_debugInterface)
     SkuWaTable_DUMP_XML(m_skuTable, m_waTable)
@@ -227,6 +231,8 @@ MOS_STATUS VpPipeline::Init(void *mhwInterface)
 
 bool VpPipeline::IsVeboxSfcFormatSupported(MOS_FORMAT formatInput, MOS_FORMAT formatOutput)
 {
+    VP_FUNC_CALL();
+
     VpFeatureManagerNext *featureManagerNext = dynamic_cast<VpFeatureManagerNext *>(m_featureManager);
     if (nullptr == featureManagerNext)
     {
@@ -315,6 +321,8 @@ finish:
 
 MOS_STATUS VpPipeline::UpdateExecuteStatus()
 {
+    VP_FUNC_CALL();
+
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
     if (PIPELINE_PARAM_TYPE_LEGACY == m_pvpParams.type)
     {
@@ -361,6 +369,8 @@ finish:
 
 MOS_STATUS VpPipeline::CreateSwFilterPipe(VP_PARAMS &params, std::vector<SwFilterPipe*> &swFilterPipe)
 {
+    VP_FUNC_CALL();
+
     switch (m_pvpParams.type)
     {
     case PIPELINE_PARAM_TYPE_LEGACY:
@@ -385,6 +395,8 @@ MOS_STATUS VpPipeline::CreateSwFilterPipe(VP_PARAMS &params, std::vector<SwFilte
 
 MOS_STATUS VpPipeline::GetSystemVeboxNumber()
 {
+    VP_FUNC_CALL();
+
     // Check whether scalability being disabled.
     MOS_USER_FEATURE_VALUE_DATA userFeatureData;
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -498,6 +510,8 @@ MOS_STATUS VpPipeline::CreateVpKernelSets()
 //!
 MOS_STATUS VpPipeline::CreateResourceManager()
 {
+    VP_FUNC_CALL();
+
     if (nullptr == m_resourceManager)
     {
         m_resourceManager = MOS_New(VpResourceManager, *m_osInterface, *m_allocator, *m_reporting, *m_vpMhwInterface.m_vpPlatformInterface);
@@ -508,12 +522,16 @@ MOS_STATUS VpPipeline::CreateResourceManager()
 
 MOS_STATUS VpPipeline::CheckFeatures(void *params, bool &bapgFuncSupported)
 {
+    VP_FUNC_CALL();
+
     VP_PUBLIC_CHK_NULL_RETURN(m_paramChecker);
     return m_paramChecker->CheckFeatures(params, bapgFuncSupported);
 }
 
 MOS_STATUS VpPipeline::CreateFeatureReport()
 {
+    VP_FUNC_CALL();
+
     if (m_vpMhwInterface.m_reporting)
     {
         if (m_reporting && m_reporting->owner == this && m_vpMhwInterface.m_reporting != m_reporting)
@@ -538,6 +556,8 @@ MOS_STATUS VpPipeline::CreateFeatureReport()
 #if (_DEBUG || _RELEASE_INTERNAL)
 VPHAL_SURFACE *VpPipeline::AllocateTempTargetSurface(VPHAL_SURFACE *m_tempTargetSurface)
 {
+    VP_FUNC_CALL();
+
     m_tempTargetSurface = (VPHAL_SURFACE *)MOS_AllocAndZeroMemory(sizeof(VPHAL_SURFACE));
     if (!m_tempTargetSurface)
     {
@@ -547,24 +567,46 @@ VPHAL_SURFACE *VpPipeline::AllocateTempTargetSurface(VPHAL_SURFACE *m_tempTarget
 }
 #endif
 
-#if (_DEBUG || _RELEASE_INTERNAL)
-MOS_STATUS VpPipeline::SurfaceReplace(PVP_PIPELINE_PARAMS params)
+MOS_STATUS VpPipeline::InitUserFeatureSetting()
 {
+    VP_FUNC_CALL();
+
     MOS_STATUS                  eStatus = MOS_STATUS_SUCCESS;
-    bool                        allocated;
     MOS_USER_FEATURE_VALUE_DATA userFeatureData = {0};
 
-    MEDIA_FEATURE_TABLE *skuTable = nullptr;
-    skuTable                      = m_vpMhwInterface.m_osInterface->pfnGetSkuTable(m_vpMhwInterface.m_osInterface);
-    VP_PUBLIC_CHK_NULL_RETURN(skuTable);
-
+#if (_DEBUG || _RELEASE_INTERNAL)
+    //SFC NV12/P010 Linear Output.
+    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
     MOS_UserFeature_ReadValue_ID(
         nullptr,
         __VPHAL_ENABLE_SFC_NV12_P010_LINEAR_OUTPUT_ID,
         &userFeatureData,
         m_vpMhwInterface.m_osInterface->pOsContext);
+    m_userFeatureSetting.enableSFCNv12P010LinearOutput = userFeatureData.bData;
 
-    if (userFeatureData.bData                       &&
+    //SFC RGBP Linear/Tile RGB24 Linear Output.
+    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+    MOS_UserFeature_ReadValue_ID(
+        nullptr,
+        __VPHAL_ENABLE_SFC_RGBP_RGB24_OUTPUT_ID,
+        &userFeatureData,
+        m_vpMhwInterface.m_osInterface->pOsContext);
+    m_userFeatureSetting.enableSFCRGBPRGB24Output = userFeatureData.u32Data;
+#endif
+    return eStatus;
+}
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+MOS_STATUS VpPipeline::SurfaceReplace(PVP_PIPELINE_PARAMS params)
+{
+    MOS_STATUS                  eStatus = MOS_STATUS_SUCCESS;
+    bool                        allocated;
+
+    MEDIA_FEATURE_TABLE *skuTable = nullptr;
+    skuTable                      = m_vpMhwInterface.m_osInterface->pfnGetSkuTable(m_vpMhwInterface.m_osInterface);
+    VP_PUBLIC_CHK_NULL_RETURN(skuTable);
+
+    if (m_userFeatureSetting.enableSFCNv12P010LinearOutput &&
         MOS_TILE_LINEAR != params->pTarget[0]->TileType &&
         (Format_P010 == params->pTarget[0]->Format || Format_NV12 == params->pTarget[0]->Format) &&
         MEDIA_IS_SKU(skuTable, FtrSFCLinearOutputSupport))
@@ -596,6 +638,59 @@ MOS_STATUS VpPipeline::SurfaceReplace(PVP_PIPELINE_PARAMS params)
             params->pTarget[0] = m_tempTargetSurface;    //params is the copy of pcRenderParams which will not cause the memleak,
         }
     }
+
+    typedef struct _RGBFormatConfig
+    {
+        MOS_FORMAT      format;
+        MOS_TILE_TYPE   tielType;
+    } RGBFormatConfig;
+
+    static const RGBFormatConfig rgbCfg[VP_RGB_OUTPUT_OVERRIDE_ID_MAX] = {
+        {Format_Invalid, MOS_TILE_INVALID},
+        {Format_RGBP, MOS_TILE_LINEAR},
+        {Format_RGBP, MOS_TILE_Y},
+        {Format_R8G8B8, MOS_TILE_LINEAR},
+        {Format_BGRP, MOS_TILE_LINEAR},
+        {Format_BGRP, MOS_TILE_Y}
+    };
+
+    if (m_userFeatureSetting.enableSFCRGBPRGB24Output == VP_RGB_OUTPUT_OVERRIDE_ID_INVALID ||
+        m_userFeatureSetting.enableSFCRGBPRGB24Output >= VP_RGB_OUTPUT_OVERRIDE_ID_MAX)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+
+    if (rgbCfg[m_userFeatureSetting.enableSFCRGBPRGB24Output].format != params->pTarget[0]->Format &&
+        MEDIA_IS_SKU(skuTable, FtrSFCRGBPRGB24OutputSupport))
+    {
+        if (!m_tempTargetSurface)
+        {
+            m_tempTargetSurface = AllocateTempTargetSurface(m_tempTargetSurface);
+        }
+        VP_PUBLIC_CHK_NULL_RETURN(m_tempTargetSurface);
+        eStatus = m_allocator->ReAllocateSurface(
+            m_tempTargetSurface,
+            "TempTargetSurface",
+            rgbCfg[m_userFeatureSetting.enableSFCRGBPRGB24Output].format,
+            MOS_GFXRES_2D,
+            rgbCfg[m_userFeatureSetting.enableSFCRGBPRGB24Output].tielType,
+            params->pTarget[0]->dwWidth,
+            params->pTarget[0]->dwHeight,
+            false,
+            MOS_MMC_DISABLED,
+            &allocated);
+
+        m_tempTargetSurface->ColorSpace = params->pTarget[0]->ColorSpace;
+        m_tempTargetSurface->rcSrc      = params->pTarget[0]->rcSrc;
+        m_tempTargetSurface->rcDst      = params->pTarget[0]->rcDst;
+        m_tempTargetSurface->rcMaxSrc   = params->pTarget[0]->rcMaxSrc;
+
+        if (eStatus == MOS_STATUS_SUCCESS)
+        {
+            params->pTarget[0] = m_tempTargetSurface;  //params is the copy of pcRenderParams which will not cause the memleak,
+        }
+    }
+
     return eStatus;
 }
 #endif
@@ -738,15 +833,6 @@ MOS_STATUS VpPipeline::PrepareVpPipelineScalabilityParams(PVP_PIPELINE_PARAMS pa
     }
     else
     {
-        // Disable vesfc scalability when HDR was enabled if reg "Enable Vebox Scalability" was not set as true
-        if (params->pSrc[0]->pHDRParams || params->pTarget[0]->pHDRParams)
-        {
-            if (m_forceMultiplePipe != (MOS_SCALABILITY_ENABLE_MODE_USER_FORCE | MOS_SCALABILITY_ENABLE_MODE_DEFAULT))
-            {
-                m_numVebox = 1;
-            }
-        }
-
         if (((MOS_MIN(params->pSrc[0]->dwWidth, (uint32_t)params->pSrc[0]->rcSrc.right) > m_4k_content_width) &&
              (MOS_MIN(params->pSrc[0]->dwHeight, (uint32_t)params->pSrc[0]->rcSrc.bottom) > m_4k_content_height)) ||
             ((MOS_MIN(params->pTarget[0]->dwWidth, (uint32_t)params->pTarget[0]->rcSrc.right) > m_4k_content_width) &&

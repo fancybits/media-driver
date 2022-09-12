@@ -96,6 +96,7 @@ namespace decode{
             m_allocator->Destroy(m_decodedBlockDataStreamoutBuffer);
             m_allocator->Destroy(m_curMvBufferForDummyWL);
             m_allocator->Destroy(m_bwdAdaptCdfBufForDummyWL);
+            m_allocator->Destroy(m_resDataBufferForDummyWL);
         }
 
         return MOS_STATUS_SUCCESS;
@@ -167,7 +168,7 @@ namespace decode{
             rowstoreParams.Mode             = CODECHAL_DECODE_MODE_AV1VLD;
             rowstoreParams.ucBitDepthMinus8 = m_av1PicParams->m_bitDepthIdx << 1;
             rowstoreParams.ucChromaFormat   = m_av1BasicFeature->m_chromaFormat;
-            DECODE_CHK_STATUS(static_cast<CodechalHwInterfaceG12*>(m_hwInterface)->SetRowstoreCachingOffsets(&rowstoreParams));
+            DECODE_CHK_STATUS(m_hwInterface->SetRowstoreCachingOffsets(&rowstoreParams));
         }
 
         return MOS_STATUS_SUCCESS;
@@ -991,12 +992,6 @@ namespace decode{
         return MOS_STATUS_SUCCESS;
     }
 
-    void Av1DecodePicPkt::SetAvpPipeModeSelectParams(MHW_VDBOX_PIPE_MODE_SELECT_PARAMS_G12& pipeModeSelectParams)
-    {
-        DECODE_FUNC_CALL();
-        pipeModeSelectParams.bDeblockerStreamOutEnable = false;
-    }
-
     MOS_STATUS Av1DecodePicPkt::SetAvpDstSurfaceParams(MHW_VDBOX_SURFACE_PARAMS& dstSurfaceParams)
     {
         DECODE_FUNC_CALL();
@@ -1205,7 +1200,7 @@ namespace decode{
         if (m_av1PicParams->m_picInfoFlags.m_fields.m_frameType != keyFrame)
         {
             const std::vector<uint8_t> &activeRefList = refFrames.GetActiveReferenceList(*m_av1PicParams, m_av1BasicFeature->m_av1TileParams[m_av1BasicFeature->m_tileCoding.m_curTile]);
-            
+
             //set for INTRA_FRAME
             pipeBufAddrParams.m_references[0] = &m_av1BasicFeature->m_destSurface.OsResource;
             pipeBufAddrParams.m_colMvTemporalBuffer[0] = &(curMvBuffer->OsResource);
@@ -1402,11 +1397,12 @@ namespace decode{
     {
         DECODE_FUNC_CALL();
 
-        if (!m_isBsBufferWritten)
+        if (!m_dummyBsBufInited)
         {
-            m_resDataBufferForDummyWL= *m_allocator->AllocateBuffer(
+            m_resDataBufferForDummyWL= m_allocator->AllocateBuffer(
                 140, "BsBuffer for inserted Dummy WL", resourceInputBitstream, lockableVideoMem); //140 Bytes
-            auto data = (uint8_t *)m_allocator->LockResouceForWrite(&m_resDataBufferForDummyWL.OsResource);
+            DECODE_CHK_NULL(m_resDataBufferForDummyWL);
+            auto data = (uint8_t *)m_allocator->LockResouceForWrite(&m_resDataBufferForDummyWL->OsResource);
             DECODE_CHK_NULL(data);
 
             uint32_t bsBuffer[] =
@@ -1423,7 +1419,7 @@ namespace decode{
             };
 
             MOS_SecureMemcpy(data, sizeof(bsBuffer), bsBuffer, sizeof(bsBuffer));
-            m_isBsBufferWritten = true;
+            m_dummyBsBufInited = true;
         }
         MHW_VDBOX_IND_OBJ_BASE_ADDR_PARAMS indObjBaseAddrParams;
 
@@ -1431,7 +1427,7 @@ namespace decode{
         indObjBaseAddrParams.Mode            = CODECHAL_DECODE_MODE_AV1VLD;
         indObjBaseAddrParams.dwDataSize      = 140;
         indObjBaseAddrParams.dwDataOffset    = 0;
-        indObjBaseAddrParams.presDataBuffer  = &(m_resDataBufferForDummyWL.OsResource);
+        indObjBaseAddrParams.presDataBuffer  = &(m_resDataBufferForDummyWL->OsResource);
 
         DECODE_CHK_STATUS(m_avpInterface->AddAvpIndObjBaseAddrCmd(&cmdBuffer, &indObjBaseAddrParams));
 

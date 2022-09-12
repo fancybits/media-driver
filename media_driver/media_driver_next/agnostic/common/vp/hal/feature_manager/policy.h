@@ -82,6 +82,7 @@ protected:
     MOS_STATUS GetCSCExecutionCapsDi(SwFilter* feature);
     MOS_STATUS GetCSCExecutionCaps(SwFilter* feature);
     MOS_STATUS GetScalingExecutionCaps(SwFilter* feature);
+    MOS_STATUS GetSFCRotationExecutionCaps(FeatureParamRotMir *rotationParams, VP_EngineEntry *rotationEngine);
     MOS_STATUS GetRotationExecutionCaps(SwFilter* feature);
     MOS_STATUS GetDenoiseExecutionCaps(SwFilter* feature);
     MOS_STATUS GetSteExecutionCaps(SwFilter* feature);
@@ -140,6 +141,25 @@ protected:
     VP_HW_CAPS          m_hwCaps = {};
     uint32_t            m_bypassCompMode = 0;
     bool                m_initialized = false;
+
+    //!
+    //! \brief    Check whether Alpha Supported
+    //! \details  Check whether Alpha Supported.
+    //! \param    scalingParams
+    //!           [in] Params of Scaling
+    //! \return   bool
+    //!           Return true if enabled, otherwise failed
+    //!
+    virtual bool IsColorfillEnabled(FeatureParamScaling *scalingParams);
+    //!
+    //! \brief    Check whether Colorfill Supported
+    //! \details  Check whether Colorfill Supported.
+    //! \param    scalingParams
+    //!           [in] Params of Scaling
+    //! \return   bool
+    //!           Return true if enabled, otherwise failed
+    //!
+    virtual bool IsAlphaEnabled(FeatureParamScaling *scalingParams);
 };
 
 }

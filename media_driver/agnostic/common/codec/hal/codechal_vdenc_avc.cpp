@@ -5025,6 +5025,15 @@ MOS_STATUS CodechalVdencAvcState::HuCBrcInitReset()
         CODECHAL_ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMiBatchBufferEnd(&cmdBuffer, nullptr));
     }
 
+    if (!m_singleTaskPhaseSupported)
+    {
+        CODECHAL_DEBUG_TOOL(
+            CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpCmdBuffer(
+                &cmdBuffer,
+                CODECHAL_NUM_MEDIA_STATES,
+                "BRCINIT"));
+        )
+    }
     m_osInterface->pfnReturnCommandBuffer(m_osInterface, &cmdBuffer, 0);
 
     if (!m_singleTaskPhaseSupported)
@@ -5251,6 +5260,17 @@ MOS_STATUS CodechalVdencAvcState::HuCBrcUpdate()
 
     CODECHAL_DEBUG_TOOL(DumpHucBrcUpdate(true));
 
+    if (!m_singleTaskPhaseSupported)
+    {
+        std::string pak_pass = "BRCUPDATE_PASS" + std::to_string(static_cast<uint32_t>(m_currPass));
+        CODECHAL_DEBUG_TOOL(
+            CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpCmdBuffer(
+                &cmdBuffer,
+                CODECHAL_NUM_MEDIA_STATES,
+                pak_pass.data()));
+        )
+    }
+
     m_osInterface->pfnReturnCommandBuffer(m_osInterface, &cmdBuffer, 0);
 
     if (!m_singleTaskPhaseSupported)
@@ -5342,6 +5362,7 @@ MOS_STATUS CodechalVdencAvcState::SetConstDataHuCBrcUpdate()
     {
         MOS_LOCK_PARAMS lockFlagsWriteOnly;
         auto            hucConstData = (PAVCVdencBRCCostantData)m_osInterface->pfnLockResource(m_osInterface, &m_resVdencBrcConstDataBuffer, &lockFlagsWriteOnly);
+        CODECHAL_ENCODE_CHK_NULL_RETURN(hucConstData);
 
         // adjustment due to dirty ROI
         for (int j = 0; j < 42; j++)
@@ -6153,16 +6174,18 @@ MOS_STATUS CodechalVdencAvcState::ExecuteSliceLevel()
     auto avcSeqParams = m_avcSeqParams[avcPicParams->seq_parameter_set_id];
     auto slcData      = m_slcData;
 
-    // For use with the single task phase implementation
-    if (m_sliceStructCaps != CODECHAL_SLICE_STRUCT_ARBITRARYMBSLICE)
-    {
-        uint32_t numSlc = (m_frameFieldHeightInMb + m_sliceHeight - 1) / m_sliceHeight;
+    // *** Temporarily commented until ULT fully support multislice ROW mode
 
-        if (numSlc != m_numSlices)
-        {
-            return MOS_STATUS_INVALID_PARAMETER;
-        }
-    }
+    // For use with the single task phase implementation
+    //if (m_sliceStructCaps != CODECHAL_SLICE_STRUCT_ARBITRARYMBSLICE)
+    //{
+    //    uint32_t numSlc = (m_frameFieldHeightInMb + m_sliceHeight - 1) / m_sliceHeight;
+
+    //    if (numSlc != m_numSlices)
+    //    {
+    //        return MOS_STATUS_INVALID_PARAMETER;
+    //    }
+    //}
 
     bool useBatchBufferForPakSlices = false;
     if (m_singleTaskPhaseSupported && m_singleTaskPhaseSupportedInPak)
@@ -7709,6 +7732,7 @@ MOS_STATUS CodechalVdencAvcState::FillHucConstData(uint8_t *data)
 {
     auto hucConstData = (PAVCVdencBRCCostantData)data;
     auto avcSeqParams = m_avcSeqParam;
+    CODECHAL_ENCODE_CHK_NULL_RETURN(hucConstData);
 
     MOS_SecureMemcpy(hucConstData->UPD_GlobalRateQPAdjTabI_U8, 64 * sizeof(uint8_t), (void *)BRC_UPD_GlobalRateQPAdjTabI_U8, 64 * sizeof(uint8_t));
     if (avcSeqParams->FrameSizeTolerance == EFRAMESIZETOL_LOW)  // Sliding Window BRC
