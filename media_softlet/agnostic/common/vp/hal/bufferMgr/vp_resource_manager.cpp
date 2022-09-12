@@ -154,6 +154,7 @@ VpResourceManager::VpResourceManager(MOS_INTERFACE &osInterface, VpAllocator &al
     : m_osInterface(osInterface), m_allocator(allocator), m_reporting(reporting), m_vpPlatformInterface(vpPlatformInterface)
 {
     InitSurfaceConfigMap();
+    m_userSettingPtr = m_osInterface.pfnGetUserSettingInstance(&m_osInterface);
 }
 
 VpResourceManager::~VpResourceManager()
@@ -2416,10 +2417,12 @@ MOS_STATUS VpResourceManager::ReAllocateVeboxStatisticsSurface(VP_SURFACE *&stat
                 &(statisticsSurface->osSurface->OsResource),
                 dwWidth * dwHeight,
                 InitValue));
-            m_dwVeboxPerBlockStatisticsWidth  = dwWidth;
-            m_dwVeboxPerBlockStatisticsHeight = MOS_ROUNDUP_DIVIDE(inputSurface->osSurface->dwHeight, 4);
         }
     }
+
+    m_dwVeboxPerBlockStatisticsWidth  = dwWidth;
+    m_dwVeboxPerBlockStatisticsHeight = MOS_ROUNDUP_DIVIDE(inputSurface->osSurface->dwHeight, 4);
+
     return MOS_STATUS_SUCCESS;
 }
 };

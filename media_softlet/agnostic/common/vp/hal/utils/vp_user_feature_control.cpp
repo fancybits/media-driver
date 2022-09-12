@@ -33,15 +33,11 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
     m_owner(owner), m_osInterface(&osInterface), m_vpPlatformInterface(vpPlatformInterface)
 {
     MOS_STATUS status = MOS_STATUS_SUCCESS;
-    MOS_USER_FEATURE_VALUE_DATA userFeatureData = {};
+    uint32_t compBypassMode = VPHAL_COMP_BYPASS_ENABLED;    // Vebox Comp Bypass is on by default
     auto skuTable = m_osInterface->pfnGetSkuTable(m_osInterface);
 
     m_userSettingPtr = m_osInterface->pfnGetUserSettingInstance(m_osInterface);
     // Read user feature key to get the Composition Bypass mode
-    userFeatureData.i32DataFlag = MOS_USER_FEATURE_VALUE_DATA_FLAG_CUSTOM_DEFAULT_VALUE_TYPE;
-    // Vebox Comp Bypass is on by default
-    userFeatureData.u32Data = VPHAL_COMP_BYPASS_ENABLED;
-
     if (skuTable && (!MEDIA_IS_SKU(skuTable, FtrVERing)))
     {
         m_ctrlValDefault.disableVeboxOutput = true;
@@ -51,15 +47,17 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
     }
     else
     {
-        status = MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            __VPHAL_BYPASS_COMPOSITION_ID,
-            &userFeatureData,
-            m_osInterface->pOsContext);
+        status = ReadUserSetting(
+            m_userSettingPtr,
+            compBypassMode,
+            __VPHAL_BYPASS_COMPOSITION,
+            MediaUserSetting::Group::Sequence,
+            compBypassMode,
+            true);
 
         if (MOS_SUCCEEDED(status))
         {
-            m_ctrlValDefault.disableVeboxOutput = VPHAL_COMP_BYPASS_DISABLED == userFeatureData.u32Data;
+            m_ctrlValDefault.disableVeboxOutput = VPHAL_COMP_BYPASS_DISABLED == compBypassMode;
         }
         else
         {
@@ -103,16 +101,16 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
     if (skuTable && MEDIA_IS_SKU(skuTable, FtrCCSNode))
     {
 #if (_DEBUG || _RELEASE_INTERNAL)
-        MOS_USER_FEATURE_VALUE_DATA UserFeatureData = {};
-        status = MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            __VPHAL_ENABLE_COMPUTE_CONTEXT_ID,
-            &UserFeatureData,
-            m_osInterface->pOsContext);
+        bool computeContextEnabled = false;
+        status = ReadUserSettingForDebug(
+            m_userSettingPtr,
+            computeContextEnabled,
+            __VPHAL_ENABLE_COMPUTE_CONTEXT,
+            MediaUserSetting::Group::Sequence);
 
         if (MOS_SUCCEEDED(status))
         {
-            m_ctrlValDefault.computeContextEnabled = UserFeatureData.bData ? true : false;
+            m_ctrlValDefault.computeContextEnabled = computeContextEnabled ? true : false;
         }
         else
 #endif

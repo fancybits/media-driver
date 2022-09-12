@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021, Intel Corporation
+* Copyright (c) 2022, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -20,25 +20,40 @@
 * OTHER DEALINGS IN THE SOFTWARE.
 */
 //!
-//! \file     mhw_hwcmd_process_cmdfields.h
-//! \brief    process each field for a command
+//! \file     mhw_blt_itf.h
+//! \brief    MHW BLT interface common base
 //! \details
 //!
 
-#ifdef DO_FIELDS
-    #define DO_FIELD(dw, field, value) _MHW_CMD_ASSIGN_FIELD(dw, field, value)
-        DO_FIELDS();
-    #undef DO_FIELD
-    #if MHW_HWCMDPARSER_ENABLED
-        if (m_hwcmdParser->ParseFieldsLayoutEn())
-        {
-    #define DO_FIELD(dw, field, value) MHW_HWCMDPARSER_PARSEFIELDLAYOUT(dw, field)
-            DO_FIELDS();
-    #undef DO_FIELD
-        }
-    #endif  // MHW_HWCMDPARSER_ENABLED
-    #undef DO_FIELDS
-#endif  // DO_FIELDS
-#ifndef NO_RETURN
-        return MOS_STATUS_SUCCESS;
-#endif  // NO_RETURN
+#ifndef __MHW_BLT_ITF_H__
+#define __MHW_BLT_ITF_H__
+
+#include "mhw_itf.h"
+#include "mhw_blt_cmdpar.h"
+#include "mhw_mi.h"
+
+#define _BLT_CMD_DEF(DEF) \
+    DEF(XY_FAST_COPY_BLT); \
+    DEF(XY_BLOCK_COPY_BLT)
+
+namespace mhw
+{
+namespace blt
+{
+class Itf
+{
+public:
+    class ParSetting
+    {
+    public:
+        virtual ~ParSetting() = default;
+        _BLT_CMD_DEF(_MHW_SETPAR_DEF);
+    };
+
+    virtual ~Itf() = default;
+
+    _BLT_CMD_DEF(_MHW_CMD_ALL_DEF_FOR_ITF);
+};
+}  // namespace blt
+}  // namespace mhw
+#endif  // __MHW_BLT_ITF_H__
