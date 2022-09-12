@@ -129,6 +129,11 @@ PMOS_BUFFER Allocator::AllocateBuffer(MOS_ALLOC_GFXRES_PARAMS &param, bool zeroO
     }
 
     MOS_BUFFER *buffer = MOS_New(MOS_BUFFER);
+    if (nullptr == buffer)
+    {
+        return nullptr;
+    }
+
     memset(buffer, 0, sizeof(MOS_BUFFER));
     MOS_STATUS status = m_osInterface->pfnAllocateResource(m_osInterface, &param, &buffer->OsResource);
 
@@ -140,6 +145,12 @@ PMOS_BUFFER Allocator::AllocateBuffer(MOS_ALLOC_GFXRES_PARAMS &param, bool zeroO
 
 #if (_DEBUG || _RELEASE_INTERNAL)
     TraceInfo *info = MOS_New(TraceInfo);
+    if (nullptr == info)
+    {
+        MOS_Delete(buffer);
+        return nullptr;
+    }
+
     info->component = component;
     //Note, param.pBufName cannot be null.
     //This assignment statement will calcualte the string length and copy param.pBufName to info->name.

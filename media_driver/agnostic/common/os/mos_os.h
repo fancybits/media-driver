@@ -41,6 +41,7 @@
 #endif
 #endif
 
+#include "media_user_setting.h"
 #include "null_hardware.h"
 extern PerfUtility *g_perfutility;
 
@@ -433,6 +434,7 @@ typedef struct _MOS_GFXRES_FLAGS
     int32_t         bOverlay;
     int32_t         bFlipChain;
     int32_t         bSVM;
+    int32_t         bCacheable;
 } MOS_GFXRES_FLAGS, *PMOS_GFXRES_FLAGS;
 
 //!
@@ -1269,6 +1271,9 @@ typedef struct _MOS_INTERFACE
         PMOS_ALLOC_GFXRES_PARAMS    pParams);
 
     MOS_STATUS(*pfnSkipResourceSync)(
+        PMOS_RESOURCE               pOsResource);
+
+    MOS_STATUS(*pfnSetObjectCapture)(
         PMOS_RESOURCE               pOsResource);
 
     MOS_STATUS(*pfnSkipResourceSyncDynamic)(

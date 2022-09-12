@@ -290,6 +290,11 @@ struct mos_bo_gem {
     */
     bool exec_async;
 
+    /*
+    * Whether to remove the dependency of this bo in exebuf.
+    */
+    bool exec_capture;
+
     /**
      * Size in bytes of this buffer and its relocation descendents.
      *
@@ -537,6 +542,8 @@ mos_add_validate_buffer2(struct mos_linux_bo *bo, int need_fence)
         flags |= EXEC_OBJECT_PINNED;
     if (bo_gem->exec_async)
         flags |= EXEC_OBJECT_ASYNC;
+    if (bo_gem->exec_capture)
+        flags |= EXEC_OBJECT_CAPTURE;
 
     if (bo_gem->validate_index != -1) {
         bufmgr_gem->exec2_objects[bo_gem->validate_index].flags |= flags;
@@ -1912,37 +1919,6 @@ int mos_gem_bo_get_fake_offset(struct mos_linux_bo *bo)
     return ret;
 }
 
-drm_export int
-mos_gem_bo_subdata(struct mos_linux_bo *bo, unsigned long offset,
-             unsigned long size, const void *data)
-{
-    struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *) bo->bufmgr;
-    struct mos_bo_gem *bo_gem = (struct mos_bo_gem *) bo;
-    struct drm_i915_gem_pwrite pwrite;
-    int ret;
-
-    if (bo_gem->is_userptr)
-        return -EINVAL;
-
-    memclear(pwrite);
-    pwrite.handle = bo_gem->gem_handle;
-    pwrite.offset = offset;
-    pwrite.size = size;
-    pwrite.data_ptr = (uint64_t) (uintptr_t) data;
-
-    ret = drmIoctl(bufmgr_gem->fd,
-               DRM_IOCTL_I915_GEM_PWRITE,
-               &pwrite);
-    if (ret != 0) {
-        ret = -errno;
-        MOS_DBG("%s:%d: Error writing data to buffer %d: (%d %d) %s .\n",
-            __FILE__, __LINE__, bo_gem->gem_handle, (int)offset,
-            (int)size, strerror(errno));
-    }
-
-    return ret;
-}
-
 static int
 mos_gem_get_pipe_from_crtc_id(struct mos_bufmgr *bufmgr, int crtc_id)
 {
@@ -1966,36 +1942,6 @@ mos_gem_get_pipe_from_crtc_id(struct mos_bufmgr *bufmgr, int crtc_id)
     }
 
     return get_pipe_from_crtc_id.pipe;
-}
-
-static int
-mos_gem_bo_get_subdata(struct mos_linux_bo *bo, unsigned long offset,
-                 unsigned long size, void *data)
-{
-    struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *) bo->bufmgr;
-    struct mos_bo_gem *bo_gem = (struct mos_bo_gem *) bo;
-    struct drm_i915_gem_pread pread;
-    int ret;
-
-    if (bo_gem->is_userptr)
-        return -EINVAL;
-
-    memclear(pread);
-    pread.handle = bo_gem->gem_handle;
-    pread.offset = offset;
-    pread.size = size;
-    pread.data_ptr = (uint64_t) (uintptr_t) data;
-    ret = drmIoctl(bufmgr_gem->fd,
-               DRM_IOCTL_I915_GEM_PREAD,
-               &pread);
-    if (ret != 0) {
-        ret = -errno;
-        MOS_DBG("%s:%d: Error reading data from buffer %d: (%d %d) %s .\n",
-            __FILE__, __LINE__, bo_gem->gem_handle, (int)offset,
-            (int)size, strerror(errno));
-    }
-
-    return ret;
 }
 
 /** Waits for all GPU rendering with the object to have completed. */
@@ -2272,6 +2218,8 @@ do_bo_emit_reloc2(struct mos_linux_bo *bo, uint32_t offset,
         flags |= EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
     if (target_bo_gem->exec_async)
         flags |= EXEC_OBJECT_ASYNC;
+    if (target_bo_gem->exec_capture)
+        flags |= EXEC_OBJECT_CAPTURE;
 
     if (target_bo != bo)
         mos_gem_bo_reference(target_bo);
@@ -2330,6 +2278,16 @@ mos_gem_bo_set_exec_object_async(struct mos_linux_bo *bo, struct mos_linux_bo *t
     }
 }
 
+static void
+mos_gem_bo_set_object_capture(struct mos_linux_bo *bo)
+{
+    struct mos_bo_gem *bo_gem = (struct mos_bo_gem *)bo;
+    if (bo_gem != nullptr)
+    {
+        bo_gem->exec_capture = true;
+    }
+}
+
 static int
 mos_gem_bo_add_softpin_target(struct mos_linux_bo *bo, struct mos_linux_bo *target_bo, bool write_flag)
 {
@@ -2369,6 +2327,8 @@ mos_gem_bo_add_softpin_target(struct mos_linux_bo *bo, struct mos_linux_bo *targ
         flags |= EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
     if (target_bo_gem->exec_async)
         flags |= EXEC_OBJECT_ASYNC;
+    if (target_bo_gem->exec_capture)
+        flags |= EXEC_OBJECT_CAPTURE;
     if (write_flag)
         flags |= EXEC_OBJECT_WRITE;
 
@@ -3975,6 +3935,13 @@ mos_bufmgr_gem_init(int fd, int batch_size)
         bufmgr_gem->bufmgr.set_exec_object_async = mos_gem_bo_set_exec_object_async;
     }
 
+    gp.param = I915_PARAM_HAS_EXEC_CAPTURE;
+    ret      = drmIoctl(bufmgr_gem->fd, DRM_IOCTL_I915_GETPARAM, &gp);
+    if (ret == 0 && *gp.value > 0)
+    {
+        bufmgr_gem->bufmgr.set_object_capture      = mos_gem_bo_set_object_capture;
+    }
+
     struct drm_i915_gem_context_param context_param;
     memset(&context_param, 0, sizeof(context_param));
     context_param.param = I915_CONTEXT_PARAM_GTT_SIZE;
@@ -4003,8 +3970,6 @@ mos_bufmgr_gem_init(int fd, int batch_size)
     bufmgr_gem->bufmgr.bo_unreference = mos_gem_bo_unreference;
     bufmgr_gem->bufmgr.bo_map = mos_gem_bo_map;
     bufmgr_gem->bufmgr.bo_unmap = mos_gem_bo_unmap;
-    bufmgr_gem->bufmgr.bo_subdata = mos_gem_bo_subdata;
-    bufmgr_gem->bufmgr.bo_get_subdata = mos_gem_bo_get_subdata;
     bufmgr_gem->bufmgr.bo_wait_rendering = mos_gem_bo_wait_rendering;
     bufmgr_gem->bufmgr.bo_pad_to_size = mos_gem_bo_pad_to_size;
     bufmgr_gem->bufmgr.bo_emit_reloc = mos_gem_bo_emit_reloc;

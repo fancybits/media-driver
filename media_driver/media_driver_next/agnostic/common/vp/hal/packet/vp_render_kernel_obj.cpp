@@ -25,6 +25,8 @@
 //! \details  vp render kernel base object will provided interface where sub kernels processing ways
 //!
 #include "vp_render_kernel_obj.h"
+#include "vp_dumper.h"
+
 using namespace vp;
 
 vp::MEDIA_OBJECT_KA2_INLINE_DATA VpRenderKernelObj::g_cInit_VP_MEDIA_OBJECT_KA2_INLINE_DATA =
@@ -110,24 +112,15 @@ vp::MEDIA_OBJECT_KA2_INLINE_DATA VpRenderKernelObj::g_cInit_VP_MEDIA_OBJECT_KA2_
     0                                           // Reserved
 };
 
-VpRenderKernelObj::VpRenderKernelObj(PVP_MHWINTERFACE hwInterface) :
-    m_hwInterface(hwInterface)
+VpRenderKernelObj::VpRenderKernelObj(PVP_MHWINTERFACE hwInterface, PVpAllocator allocator) :
+    m_hwInterface(hwInterface),
+    m_allocator(allocator)
 {
 }
 
-VpRenderKernelObj::VpRenderKernelObj(PVP_MHWINTERFACE hwInterface, uint32_t kernelID, uint32_t kernelIndex) :
-    m_hwInterface(hwInterface)
+VpRenderKernelObj::VpRenderKernelObj(PVP_MHWINTERFACE hwInterface, VpKernelID kernelId, uint32_t kernelIndex) :
+    m_hwInterface(hwInterface), m_kernelId(kernelId), m_kernelIndex(kernelIndex)
 {
-    KernelId id = KernelId(kernelID);
-    switch(id)
-    {
-      case Kernel_Invalidate:
-      default:
-        m_kernelName.assign("");
-        break;
-    }
-    SetKernelID(id);
-    SetKernelIndex(kernelIndex);
 }
 
 VpRenderKernelObj::~VpRenderKernelObj()
@@ -222,24 +215,20 @@ MOS_STATUS VpRenderKernelObj::GetCurbeState(void*& curbe, uint32_t& curbeLength)
     return MOS_STATUS_SUCCESS;
 }
 
-MOS_STATUS VpRenderKernelObj::SetKernelID(uint32_t kid)
+uint32_t VpRenderKernelObj::GetKernelBinaryID()
 {
-    VP_FUNC_CALL();
-    m_kernelID = kid;
-
-    return MOS_STATUS_SUCCESS;
+    return m_kernelBinaryID;
 }
 
-uint32_t VpRenderKernelObj::GetKernelID()
+MOS_STATUS VpRenderKernelObj::GetKernelEntry(Kdll_CacheEntry &entry)
 {
-    return m_kernelID;
-}
-
-MOS_STATUS VpRenderKernelObj::SetKernelIndex(uint32_t kid)
-{
-    VP_FUNC_CALL();
-    m_kernelIndex = kid;
-
+    // Set Parameters for Kernel Entry
+    entry.iKUID         = m_kernelBinaryID;
+    entry.iKCID         = -1;
+    entry.iFilterSize   = 2;
+    entry.pFilter       = nullptr;
+    entry.iSize         = m_kernelSize;
+    entry.pBinary       = (uint8_t *)m_kernelBinary;
     return MOS_STATUS_SUCCESS;
 }
 
@@ -248,9 +237,10 @@ uint32_t VpRenderKernelObj::GetKernelIndex()
     return m_kernelIndex;
 }
 
-KERNEL_WALKER_PARAMS& VpRenderKernelObj::GetWalkerSetting()
+MOS_STATUS VpRenderKernelObj::GetWalkerSetting(KERNEL_WALKER_PARAMS& walkerParam)
 {
-    return m_walkerParam;
+    walkerParam = m_walkerParam;
+    return MOS_STATUS_SUCCESS;
 }
 
 MOS_STATUS VpRenderKernelObj::SetupSurfaceState()
@@ -378,7 +368,6 @@ MOS_STATUS VpRenderKernelObj::SetKernelArgs(KERNEL_ARGS& kernelArgs)
 }
 
 MOS_STATUS VpRenderKernelObj::SetKernelConfigs(
-    KERNEL_CONFIGS& kernelConfigs,
     KERNEL_PARAMS& kernelParams,
     VP_SURFACE_GROUP& surfaces,
     KERNEL_SAMPLER_STATE_GROUP& samplerStateGroup)
@@ -396,7 +385,7 @@ MOS_STATUS VpRenderKernelObj::SetKernelConfigs(
     return MOS_STATUS_SUCCESS;
 }
 
-MOS_STATUS VpRenderKernelObj::SetKernelConfigs(KERNEL_CONFIGS& kernelConfigs, uint32_t kernelExecuteID)
+MOS_STATUS VpRenderKernelObj::SetKernelConfigs(KERNEL_CONFIGS& kernelConfigs)
 {
     //For legacy kernel usage
     return MOS_STATUS_SUCCESS;
@@ -405,4 +394,99 @@ MOS_STATUS VpRenderKernelObj::SetKernelConfigs(KERNEL_CONFIGS& kernelConfigs, ui
 MOS_STATUS VpRenderKernelObj::GetInlineState(void** inlineData, uint32_t& inlineLength)
 {
     return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS VpRenderKernelObj::InitKernel(void* binary, uint32_t size, KERNEL_CONFIGS& kernelConfigs, VP_SURFACE_GROUP& surfacesGroup)
+{
+    VP_RENDER_CHK_NULL_RETURN(binary);
+    m_kernelBinary = binary;
+    m_kernelSize = size;
+
+    VP_RENDER_CHK_STATUS_RETURN(SetKernelConfigs(kernelConfigs));
+    VP_RENDER_CHK_STATUS_RETURN(SetProcessSurfaceGroup(surfacesGroup));
+
+    return MOS_STATUS_SUCCESS;
+}
+
+void VpRenderKernelObj::DumpSurface(VP_SURFACE* pSurface, PCCHAR fileName)
+{
+    uint8_t* pData;
+    char                    sPath[MAX_PATH];
+    char                    sOsPath[MAX_PATH];
+    uint8_t* pDst;
+    uint8_t* pTmpDst;
+    uint8_t* pTmpSrc;
+    uint32_t                iWidthInBytes;
+    uint32_t                iHeightInRows;
+    uint32_t                iBpp;
+    uint32_t                iSize;
+    uint32_t                iY;
+    MOS_LOCK_PARAMS         LockFlags;
+
+    VP_FUNC_CALL();
+
+    PMOS_INTERFACE        pOsInterface = m_hwInterface->m_osInterface;
+
+    pDst = nullptr;
+    MOS_ZeroMemory(sPath, MAX_PATH);
+    MOS_ZeroMemory(sOsPath, MAX_PATH);
+
+    // get bits per pixel for the format
+    pOsInterface->pfnGetBitsPerPixel(pOsInterface, pSurface->osSurface->Format, &iBpp);
+
+    iWidthInBytes = pSurface->osSurface->dwWidth;
+    iHeightInRows = pSurface->osSurface->dwHeight;
+
+    iSize = iWidthInBytes * iHeightInRows;
+
+    // Write original image to file
+    MOS_ZeroMemory(&LockFlags, sizeof(MOS_LOCK_PARAMS));
+
+    LockFlags.ReadOnly = 1;
+
+    pData = (uint8_t*)m_allocator->Lock(
+        &pSurface->osSurface->OsResource,
+        &LockFlags);
+
+    MOS_SecureStringPrint(
+        sPath,
+        MAX_PATH,
+        sizeof(sPath),
+        "c:\\dump\\f[%08I64x]_%s_w[%d]_h[%d]_p[%d].%s",
+        1,
+        fileName,
+        pSurface->osSurface->dwWidth,
+        pSurface->osSurface->dwHeight,
+        pSurface->osSurface->dwPitch,
+        VP_GET_FORMAT_STRING(pSurface->osSurface->Format));
+
+    MOS_SecureMemcpy(sOsPath, MAX_PATH, sPath, strlen(sPath));
+
+    // Write the data to file
+    if (pSurface->osSurface->dwPitch == iWidthInBytes)
+    {
+        MOS_WriteFileFromPtr((const char*)sOsPath, pData, iSize);
+    }
+    else
+    {
+        pDst = (uint8_t*)MOS_AllocAndZeroMemory(iSize);
+        pTmpSrc = pData;
+        pTmpDst = pDst;
+
+        for (iY = 0; iY < iHeightInRows; iY++)
+        {
+            MOS_SecureMemcpy(pTmpDst, iSize, pTmpSrc, iWidthInBytes);
+            pTmpSrc += pSurface->osSurface->dwPitch;
+            pTmpDst += iWidthInBytes;
+        }
+
+        MOS_WriteFileFromPtr((const char*)sOsPath, pDst, iSize);
+    }
+
+    if (pDst)
+    {
+        MOS_FreeMemory(pDst);
+    }
+
+    m_allocator->UnLock(&pSurface->osSurface->OsResource);
 }

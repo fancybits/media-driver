@@ -159,10 +159,6 @@ void mos_bo_unreference(struct mos_linux_bo *bo);
 int mos_bo_map(struct mos_linux_bo *bo, int write_enable);
 int mos_bo_unmap(struct mos_linux_bo *bo);
 
-int mos_bo_subdata(struct mos_linux_bo *bo, unsigned long offset,
-             unsigned long size, const void *data);
-int mos_bo_get_subdata(struct mos_linux_bo *bo, unsigned long offset,
-                 unsigned long size, void *data);
 void mos_bo_wait_rendering(struct mos_linux_bo *bo);
 
 void mos_bufmgr_set_debug(struct mos_bufmgr *bufmgr, int enable_debug);
@@ -198,6 +194,7 @@ int mos_bo_madvise(struct mos_linux_bo *bo, int madv);
 int mos_bo_use_48b_address_range(struct mos_linux_bo *bo, uint32_t enable);
 void mos_bo_set_object_async(struct mos_linux_bo *bo);
 void mos_bo_set_exec_object_async(struct mos_linux_bo *bo, struct mos_linux_bo *target_bo);
+void mos_bo_set_object_capture(struct mos_linux_bo *bo);
 int mos_bo_set_softpin(struct mos_linux_bo *bo);
 int mos_bo_add_softpin_target(struct mos_linux_bo *bo, struct mos_linux_bo *target_bo, bool write_flag);
 
@@ -404,8 +401,6 @@ drm_export void mos_gem_bo_unreference_final(struct mos_linux_bo *bo, time_t tim
 drm_export int mos_gem_bo_map(struct mos_linux_bo *bo, int write_enable);
 drm_export int map_gtt(struct mos_linux_bo *bo);
 drm_export int mos_gem_bo_unmap(struct mos_linux_bo *bo);
-drm_export int mos_gem_bo_subdata(struct mos_linux_bo *bo, unsigned long offset,
-             unsigned long size, const void *data);
 
 drm_export bool mos_gem_bo_is_softpin(struct mos_linux_bo *bo);
 drm_export bool mos_gem_bo_is_exec_object_async(struct mos_linux_bo *bo);

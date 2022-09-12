@@ -121,10 +121,6 @@ MOS_STATUS Policy::RegisterFeatures()
     VP_PUBLIC_CHK_NULL_RETURN(p);
     m_VeboxSfcFeatureHandlers.insert(std::make_pair(FeatureTypeDnOnVebox, p));
 
-    p = MOS_New(PolicyVeboxDiHandler, m_hwCaps);
-    VP_PUBLIC_CHK_NULL_RETURN(p);
-    m_VeboxSfcFeatureHandlers.insert(std::make_pair(FeatureTypeDiOnVebox, p));
-
     p = MOS_New(PolicyVeboxCscHandler, m_hwCaps);
     VP_PUBLIC_CHK_NULL_RETURN(p);
     m_VeboxSfcFeatureHandlers.insert(std::make_pair(FeatureTypeCscOnVebox, p));
@@ -144,6 +140,14 @@ MOS_STATUS Policy::RegisterFeatures()
     p = MOS_New(PolicyVeboxHdrHandler, m_hwCaps);
     VP_PUBLIC_CHK_NULL_RETURN(p);
     m_VeboxSfcFeatureHandlers.insert(std::make_pair(FeatureTypeHdrOnVebox, p));
+
+    p = MOS_New(PolicyDiHandler, m_hwCaps);
+    VP_PUBLIC_CHK_NULL_RETURN(p);
+    m_VeboxSfcFeatureHandlers.insert(std::make_pair(FeatureTypeDiOnVebox, p));
+
+    p = MOS_New(PolicyDiHandler, m_hwCaps);
+    VP_PUBLIC_CHK_NULL_RETURN(p);
+    m_RenderFeatureHandlers.insert(std::make_pair(FeatureTypeDiFmdOnRender, p));
 
     // Next step to add a table to trace all SW features based on platforms
     m_featurePool.clear();
@@ -448,9 +452,24 @@ MOS_STATUS Policy::GetCSCExecutionCaps(SwFilter* feature)
             (cscParams->output.colorSpace == CSpace_stRGB)              ||
             (cscParams->output.colorSpace == CSpace_sRGB))
         {
-            midFormat = Format_A8R8G8B8;
-            cscEngine->VeboxNeeded |= ENGINE_MUST(1); // Vebox Gamut compression is needed
+            midFormat = Format_A8R8G8B8; // Vebox Gamut compression is needed, Vebox output is ARGB as SFC input
         }
+        else
+        {
+            midFormat = Format_Any;
+        }
+    }
+
+    if (midFormat != Format_Any &&
+        m_hwCaps.m_sfcHwEntry[midFormat].cscSupported &&
+        m_hwCaps.m_sfcHwEntry[cscParams->formatOutput].outputSupported &&
+        m_hwCaps.m_sfcHwEntry[midFormat].inputSupported)
+    {
+        cscEngine->bEnabled    = 1;
+        cscEngine->SfcNeeded  |= 1;
+        cscEngine->VeboxNeeded = 0;
+
+        return MOS_STATUS_SUCCESS;
     }
 
     // SFC CSC enabling check
@@ -568,7 +587,9 @@ MOS_STATUS Policy::GetScalingExecutionCaps(SwFilter* feature)
 
     if (fScaleX == 1.0f && fScaleY == 1.0f &&
         // Only support vebox crop from left-top, which is to align with legacy path.
-        0 == scalingParams->input.rcSrc.left && 0 == scalingParams->input.rcSrc.top)
+        0 == scalingParams->input.rcSrc.left && 0 == scalingParams->input.rcSrc.top &&
+        scalingParams->interlacedScalingType != ISCALING_INTERLEAVED_TO_FIELD &&
+        scalingParams->interlacedScalingType != ISCALING_FIELD_TO_INTERLEAVED)
     {
         // for non-Scaling cases, all engine supported
         scalingEngine->bEnabled     = 1;
@@ -773,10 +794,22 @@ MOS_STATUS Policy::GetDeinterlaceExecutionCaps(SwFilter* feature)
         return MOS_STATUS_SUCCESS;
     }
 
+    if (m_vpInterface.GetResourceManager()->IsRefValid() &&
+        diParams.bEnableFMD)
+    {
+        diParams.bFmdExtraVariance = true;
+    }
+
     if (m_vpInterface.GetResourceManager()->IsRefValid()    &&
         m_vpInterface.GetResourceManager()->IsSameSamples())
     {
         diEngine.bypassVeboxFeatures = 1;
+    }
+    else if (diParams.bFmdExtraVariance && diParams.bFmdKernelEnable)
+    {
+        diEngine.bEnabled     = 1;
+        diEngine.VeboxNeeded  = 0;
+        diEngine.RenderNeeded = 1;
     }
     else if (m_hwCaps.m_veboxHwEntry[inputformat].deinterlaceSupported)
     {
@@ -1311,6 +1344,11 @@ MOS_STATUS Policy::SetupExecuteFilter(SwFilterPipe& featurePipe, VP_EXECUTE_CAPS
                     PolicyFeatureHandler *handler = m_VeboxSfcFeatureHandlers.find(feature->GetFeatureType())->second;
                     handler->UpdateFeaturePipe(caps, *feature, featurePipe, *params.executedFilters, true, 0);
                 }
+                else if (m_RenderFeatureHandlers.end() != m_RenderFeatureHandlers.find(feature->GetFeatureType()))
+                {
+                    PolicyFeatureHandler *handler = m_RenderFeatureHandlers.find(feature->GetFeatureType())->second;
+                    handler->UpdateFeaturePipe(caps, *feature, featurePipe, *params.executedFilters, true, 0);
+                }
                 else if (!engineCaps->bEnabled || !engineCaps->SfcNeeded && !engineCaps->VeboxNeeded && !engineCaps->RenderNeeded)
                 {
                     SwFilterFeatureHandler *handler = m_vpInterface.GetSwFilterHandler(feature->GetFeatureType());
@@ -1320,10 +1358,12 @@ MOS_STATUS Policy::SetupExecuteFilter(SwFilterPipe& featurePipe, VP_EXECUTE_CAPS
                         VP_PUBLIC_ASSERTMESSAGE("no Feature Handle, Return Pipe Init Error");
                         return MOS_STATUS_INVALID_HANDLE;
                     }
-                    // For feature which is force enabled on Sfc, just drop it if sfc not being used.
-                    featurePipe.RemoveSwFilter(feature);
-                    handler->Destory(feature);
-                    VP_PUBLIC_NORMALMESSAGE("filter missed packets generation");
+                    if (filterID != FeatureTypeLace)
+                    {
+                        featurePipe.RemoveSwFilter(feature);
+                        handler->Destory(feature);
+                        VP_PUBLIC_NORMALMESSAGE("filter missed packets generation");
+                    }
                 }
             }
         }
@@ -1348,7 +1388,15 @@ MOS_STATUS Policy::SetupFilterResource(SwFilterPipe& featurePipe, VP_EXECUTE_CAP
     VP_SURFACE* surfOutput = nullptr;
     uint32_t    index      = 0;
 
-    if (featurePipe.IsPrimaryEmpty())
+    if (caps.bLACE && !caps.bRender)
+    {
+        surfOutput = featurePipe.GetSurface(false, 0);
+        VP_PUBLIC_CHK_NULL_RETURN(surfOutput);
+        VP_SURFACE* surfOutput2 = m_vpInterface.GetAllocator().AllocateVpSurface(*surfOutput);
+        VP_PUBLIC_CHK_NULL_RETURN(surfOutput2);
+        VP_PUBLIC_CHK_STATUS_RETURN(params.executedFilters->AddSurface(surfOutput2, false, 0));
+    }
+    else if (featurePipe.IsPrimaryEmpty())
     {
         // Update the input feature surfaces
         surfOutput = featurePipe.RemoveSurface(false, 0);
@@ -1356,19 +1404,53 @@ MOS_STATUS Policy::SetupFilterResource(SwFilterPipe& featurePipe, VP_EXECUTE_CAP
         // surface should be added before swFilters, since empty feature pipe will be allocated accordingly when surface being added.
         VP_PUBLIC_CHK_STATUS_RETURN(params.executedFilters->AddSurface(surfOutput, false, 0));
     }
+    else if (caps.bDI && !caps.bRender)
+    {
+        surfOutput = featurePipe.GetSurface(false, 0);
+        VP_PUBLIC_CHK_NULL_RETURN(surfOutput);
+        VP_SURFACE *surfOutput2 = m_vpInterface.GetAllocator().AllocateVpSurface(*surfOutput);
+        VP_PUBLIC_CHK_NULL_RETURN(surfOutput2);
+        VP_PUBLIC_CHK_STATUS_RETURN(params.executedFilters->AddSurface(surfOutput2, false, 0));
+    }
+    else
+    {
+        if (IsSecureResourceNeeded(caps))
+        {
+            
+            VP_PUBLIC_CHK_STATUS_RETURN(UpdateSecureExecuteResource(featurePipe, caps, params));
+        }
+    }
 
     VP_PUBLIC_CHK_STATUS_RETURN(AssignExecuteResource(caps, params));
 
-    if (featurePipe.IsPrimaryEmpty())
+    if (caps.bLACE && !featurePipe.IsPrimaryEmpty())
+    {
+        surfInput = featurePipe.GetSurface(true, index);
+        VP_PUBLIC_CHK_NULL_RETURN(surfInput);
+        VP_SURFACE* input = m_vpInterface.GetAllocator().AllocateVpSurface(*surfInput);
+        VP_PUBLIC_CHK_NULL_RETURN(input);
+        input->SurfType = SURF_IN_PRIMARY;
+        featurePipe.ReplaceSurface(input, true, index);
+    }
+    else if (featurePipe.IsPrimaryEmpty())
     {
         // Update the input feature surfaces
         surfInput = featurePipe.RemoveSurface(true, index);
     }
-    else if (featurePipe.GetSecureProcessFlag())
+    else if (caps.bDI && !featurePipe.IsPrimaryEmpty())
     {
-        VP_PUBLIC_CHK_STATUS_RETURN(UpdateSecureExecuteResource(featurePipe, caps, params));
+        surfInput = featurePipe.GetSurface(true, index);
+        VP_PUBLIC_CHK_NULL_RETURN(surfInput);
+        VP_SURFACE *input = m_vpInterface.GetAllocator().AllocateVpSurface(*surfInput);
+        VP_PUBLIC_CHK_NULL_RETURN(input);
+        input->SurfType = SURF_IN_PRIMARY;
+        featurePipe.ReplaceSurface(input, true, index);
     }
-    else
+    else if (IsSecureResourceNeeded(caps))
+    {
+        VP_PUBLIC_NORMALMESSAGE("Secure Process Enabled, no need further process");
+    }
+    else if (!caps.bLACE)
     {
         VP_PUBLIC_NORMALMESSAGE("Output is not empty, featurePipe.IsPrimaryEmpty() = %d", featurePipe.IsPrimaryEmpty());
         VP_SURFACE *intermediaSurface = params.executedFilters->GetSurface(false, 0);
@@ -1450,6 +1532,10 @@ MOS_STATUS Policy::UpdateExeCaps(SwFilter* feature, VP_EXECUTE_CAPS& caps, Engin
             caps.bHDR3DLUT = 1;
             feature->SetFeatureType(FeatureType(FEATURE_TYPE_EXECUTE(Hdr, Vebox)));
             break;
+        case FeatureTypeLace:
+            caps.bLACE = 1;
+            feature->SetFeatureType(FeatureType(FEATURE_TYPE_EXECUTE(Lace, Vebox)));
+            break;
         default:
             break;
         }
@@ -1472,6 +1558,16 @@ MOS_STATUS Policy::UpdateExeCaps(SwFilter* feature, VP_EXECUTE_CAPS& caps, Engin
         case FeatureTypeSR:
             caps.bSR = 1;
             feature->SetFeatureType(FeatureType(FEATURE_TYPE_EXECUTE(SR, Render)));
+        case FeatureTypeLace:
+            caps.bLACE = 1;
+            caps.bRender = 1;
+            feature->SetFeatureType(FeatureType(FEATURE_TYPE_EXECUTE(Lace, Render)));
+            break;
+        case FeatureTypeDi:
+            caps.bDI          = 1;
+            caps.bRender      = 1;
+            caps.bDIFmdKernel = 1;
+            feature->SetFeatureType(FeatureType(FEATURE_TYPE_EXECUTE(DiFmd, Render)));
             break;
         default:
             break;

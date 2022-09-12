@@ -40,6 +40,7 @@ namespace vp
 {
 class VpInterface;
 class SwFilterSubPipe;
+
 enum FeatureType
 {
     FeatureTypeInvalid          = 0,
@@ -57,6 +58,7 @@ enum FeatureType
     FeatureTypeDnOnVebox,
     FeatureTypeDi               = 0x500,
     FeatureTypeDiOnVebox,
+    FeatureTypeDiFmdOnRender,
     FeatureTypeSte              = 0x600,
     FeatureTypeSteOnVebox,
     FeatureTypeAce              = 0x700,
@@ -79,8 +81,18 @@ enum FeatureType
     FeatureTypeSecureCopyOnRender,
     FeatureTypeSR               = 0x1100,
     FeatureTypeSROnRender,
+    FeatureTypeLace             = 0x1200,
+    FeatureTypeLaceOnVebox,
+    FeatureTypeLaceOnRender,
     // ...
     NumOfFeatureType
+};
+
+enum RenderTargetType
+{
+    RenderTargetTypeInvalid = 0,
+    RenderTargetTypeSurface,
+    RenderTargetTypeParameter
 };
 
 enum SurfaceType
@@ -94,8 +106,6 @@ enum SurfaceType
     SurfaceTypeScalar,
     SurfaceTypeSTMMIn,
     SurfaceTypeSTMMOut,
-    SurfaceTypeAutoDNNoiseLevel, // with kernel path needed
-    SurfaceTypeAutoDNSpatialConfig,
     SurfaceTypeACEHistory,
     SurfaceTypeFMDHistory,
     SurfaceTypeLaceAceRGBHistogram,
@@ -107,11 +117,20 @@ enum SurfaceType
     SurfaceTypeAlphaOrVignette,
     SurfaceTypeVeboxStateHeap_Drv,
     SurfaceTypeVeboxStateHeap_Knr,
+    SurfaceTypeAutoDNNoiseLevel, // with kernel path needed
+    SurfaceTypeAutoDNSpatialConfig,
     SurfaceTypeRenderInput,
     SurfaceTypeRenderOutput,
     SurfaceTypeRenderSRInput, //Super Resolution related Surface and Buffer index Reserved
     SurfaceTypeRenderSRBuffer = SurfaceTypeRenderSRInput + 0x100,
     SurfaceTypeRenderSRMax = SurfaceTypeRenderSRBuffer + 0x100,
+    SurfaceTypeAggregatedHistogram,
+    SurfaceTypeFrameHistogram,
+    SurfaceTypeStdStatistics,
+    SurfaceTypePwlfIn,
+    SurfaceTypePwlfOut,
+    SurfaceTypeWeitCoef,
+    SurfaceTypGlobalToneMappingCurveLUT,
     NumberOfSurfaceType
 };
 
@@ -123,6 +142,13 @@ struct VP_SURFACE_SETTING
     bool                isPastHistogramValid;
     uint32_t            imageWidthOfPastHistogram;
     uint32_t            imageHeightOfPastHistogram;
+    uint32_t            dwVeboxPerBlockStatisticsHeight;
+    uint32_t            dwVeboxPerBlockStatisticsWidth;
+    uint32_t            aggregateBlockSize;
+    bool                laceLutValid;
+    bool                updateGlobalToneMappingCurveLUTSurface;
+    bool                updateWeitCoefSurface;
+    bool                dumpLaceSurface;
 
     void Clean()
     {
@@ -130,6 +156,13 @@ struct VP_SURFACE_SETTING
         isPastHistogramValid        = false;
         imageWidthOfPastHistogram   = 0;
         imageHeightOfPastHistogram  = 0;
+        dwVeboxPerBlockStatisticsHeight = 0;
+        dwVeboxPerBlockStatisticsWidth  = 0;
+        aggregateBlockSize              = 0;
+        laceLutValid                    = false;
+        updateGlobalToneMappingCurveLUTSurface = true;
+        updateWeitCoefSurface                  = true;
+        dumpLaceSurface                        = false;
     }
 };
 
@@ -182,6 +215,10 @@ public:
     {
         return m_type;
     }
+    virtual RenderTargetType GetRenderTargetType()
+    {
+        return m_renderTargetType;
+    }
     virtual MOS_STATUS Configure(VP_PIPELINE_PARAMS &params, bool bInputSurf, int surfIndex) = 0;
     virtual MOS_STATUS Configure(PVP_SURFACE surfInput, PVP_SURFACE surfOutput, VP_EXECUTE_CAPS caps)
     {
@@ -201,6 +238,7 @@ public:
     virtual bool operator == (class SwFilter&) = 0;
     virtual MOS_STATUS Update(VP_SURFACE *inputSurf, VP_SURFACE *outputSurf, SwFilterSubPipe &pipe) = 0;
     virtual MOS_STATUS SetFeatureType(FeatureType type);
+    virtual MOS_STATUS SetRenderTargetType(RenderTargetType type);
     SwFilter* CreateSwFilter(FeatureType type);
     void DestroySwFilter(SwFilter* p);
 
@@ -238,6 +276,7 @@ protected:
     SwFilterSet *m_location = nullptr;
     VP_EngineEntry  m_EngineCaps = {};
     bool m_noNeedUpdate = false;
+    RenderTargetType m_renderTargetType = RenderTargetTypeSurface;
 };
 
 struct FeatureParamCsc : public FeatureParam
@@ -385,6 +424,8 @@ struct FeatureParamDeinterlace : public FeatureParam
     bool                    bEnableFMD;         //!< FMD
     bool                    b60fpsDi;           //!< Used in frame Recon - if 30fps (one call per sample pair)
     bool                    bSCDEnable;         //!< Scene change detection
+    bool                    bFmdExtraVariance;  //!< Check if extra FMD variances need to be calculated
+    bool                    bFmdKernelEnable;   //!< FMD kernel path enabled
 };
 
 class SwFilterDeinterlace : public SwFilter
@@ -526,6 +567,7 @@ public:
 
     std::vector<class SwFilterSet *> *GetLocation();
     void SetLocation(std::vector<class SwFilterSet *> *location);
+    RenderTargetType                  GetRenderTargetType();
 
 private:
     std::map<FeatureType, SwFilter *> m_swFilters;

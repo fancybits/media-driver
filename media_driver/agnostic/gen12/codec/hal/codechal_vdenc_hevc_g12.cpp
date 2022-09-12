@@ -4864,6 +4864,12 @@ MOS_STATUS CodechalVdencHevcStateG12::SetDmemHuCBrcUpdate()
             selectedSlot = oldestIdx;
         }
 
+        if (selectedSlot == -1)
+        {
+            CODECHAL_ENCODE_ASSERTMESSAGE("No valid ref slot index");
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+
         slotInfo[selectedSlot].age = 0;
         slotInfo[selectedSlot].poc = m_hevcPicParams->CurrPicOrderCnt;
         slotInfo[selectedSlot].isUsed = true;
@@ -8055,6 +8061,11 @@ MOS_STATUS CodechalVdencHevcStateG12::HuCLookaheadInit()
     dmem->statsRecords       = m_numLaDataEntry;
     dmem->avgFrameSizeInByte = m_averageFrameSize >> 3;
     dmem->downscaleRatio     = downscaleRatioIndicator;
+    dmem->enc_frame_width    = m_frameWidth;
+    dmem->enc_frame_height   = m_frameHeight;
+    dmem->codec_type         = 2;
+    dmem->mbr_ratio          = (m_hevcSeqParams->TargetBitRate > 0 && m_hevcSeqParams->MaxBitRate >= m_hevcSeqParams->TargetBitRate) ? 
+                               m_hevcSeqParams->MaxBitRate * 100 / m_hevcSeqParams->TargetBitRate : 100;
 
     if (m_hevcSeqParams->bLookAheadPhase)
     {
@@ -8068,8 +8079,15 @@ MOS_STATUS CodechalVdencHevcStateG12::HuCLookaheadInit()
             dmem->maxGop = m_hevcSeqParams->GopPicSize;
         }
 
-        dmem->maxGop      = m_hevcSeqParams->MaxAdaptiveGopPicSize;
-        dmem->minGop      = m_hevcSeqParams->MinAdaptiveGopPicSize;
+        dmem->GopOpt = m_hevcSeqParams->GopFlags.fields.StrictGop ? 2 : m_hevcSeqParams->GopFlags.fields.ClosedGop;
+        dmem->AGop = m_hevcSeqParams->GopFlags.fields.AdaptiveGop;
+        if (m_hevcSeqParams->GopFlags.fields.AdaptiveGop)
+        {
+            dmem->AGop_Threshold = 30;
+        }
+
+        dmem->maxGop = m_hevcSeqParams->MaxAdaptiveGopPicSize;
+        dmem->minGop = m_hevcSeqParams->MinAdaptiveGopPicSize;
         dmem->adaptiveIDR = (uint8_t)m_lookaheadAdaptiveI;
     }
 

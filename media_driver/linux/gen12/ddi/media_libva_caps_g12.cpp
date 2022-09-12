@@ -1717,7 +1717,7 @@ VAStatus MediaLibvaCapsG12::CreateEncAttributes(
     attrib.type = VAConfigAttribEncInterlaced;
     attrib.value = VA_ENC_INTERLACED_NONE;
 #ifndef ANDROID
-    if(IsAvcProfile(profile))
+    if(IsAvcProfile(profile) && (entrypoint != VAEntrypointEncSliceLP))
     {
         attrib.value = VA_ENC_INTERLACED_FIELD;
     }
@@ -1862,7 +1862,7 @@ VAStatus MediaLibvaCapsG12::CreateEncAttributes(
         VAConfigAttribValEncROI roi_attrib = {0};
         if (IsAvcProfile(profile))
         {
-            roi_attrib.bits.num_roi_regions = ENCODE_VDENC_AVC_MAX_ROI_NUMBER_G9;
+            roi_attrib.bits.num_roi_regions = ENCODE_VDENC_AVC_MAX_ROI_NUMBER_ADV;
         }
         else if (IsHevcProfile(profile))
         {
@@ -2333,6 +2333,22 @@ VAStatus MediaLibvaCapsG12::LoadAv1DecProfileEntrypoints()
         for (int32_t i = 0; i < 2; i++)
         {
             AddDecConfig(m_decSliceMode[i], VA_CENC_TYPE_NONE, VA_DEC_PROCESSING_NONE);
+            if (m_isEntryptSupported)
+            {
+                uint32_t encrytTypes[DDI_CP_ENCRYPT_TYPES_NUM];
+
+                int32_t numTypes = m_CapsCp->GetEncryptionTypes((VAProfile) VAProfileAV1Profile0,
+                        encrytTypes, DDI_CP_ENCRYPT_TYPES_NUM);
+
+                if (numTypes > 0)
+                {
+                    for (int32_t l = 0; l < numTypes; l++)
+                    {
+                        AddDecConfig(m_decSliceMode[i], encrytTypes[l],
+                                VA_DEC_PROCESSING_NONE);
+                    }
+                }
+            }
         }
 
         AddProfileEntry((VAProfile) VAProfileAV1Profile0, VAEntrypointVLD, attributeList,
@@ -2439,7 +2455,7 @@ VAStatus MediaLibvaCapsG12::QueryAVCROIMaxNum(uint32_t rcMode, bool isVdenc, uin
 
     if(isVdenc)
     {
-        *maxNum = ENCODE_VDENC_AVC_MAX_ROI_NUMBER;
+        *maxNum = ENCODE_VDENC_AVC_MAX_ROI_NUMBER_ADV;
     }
     else
     {

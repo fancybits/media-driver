@@ -24,7 +24,7 @@
 
 #include "mhw_vebox.h"
 #include "vphal_common.h"
-#include "renderhal_g12.h"
+#include "renderhal_g12_base.h"
 #include "vp_filter.h"
 
 typedef class VP_VEBOX_RENDER_DATA           *PVPHAL_VEBOX_RENDER_DATA;
@@ -247,8 +247,6 @@ public:
     virtual MOS_STATUS Init()
     {
         MHW_ACE_PARAMS aceParams = {};
-        bUseKernelUpdate         = false;
-        bVeboxStateCopyNeeded    = false;
         PerfTag                  = VPHAL_NONE;
 
         DN.value                 = 0;
@@ -274,6 +272,12 @@ public:
 
         return MOS_STATUS_SUCCESS;
     }
+
+    virtual VPHAL_HVSDENOISE_PARAMS &GetHVSParams()
+    {
+        return m_HvsParams;
+    }
+
     virtual MHW_VEBOX_DNDI_PARAMS &GetDNDIParams()
     {
         return m_veboxDNDIParams;
@@ -303,9 +307,10 @@ public:
     {
         struct
         {
-            uint32_t bDnEnabled             : 1;      // DN enabled;
+            uint32_t bDnEnabled             : 1;        // DN enabled;
             uint32_t bAutoDetect            : 1;        // Auto DN enabled
-            uint32_t bChromaDnEnabled       : 1;        // Chroma Dn Enabled
+            uint32_t bChromaDnEnabled       : 1;        // Chroma DN Enabled
+            uint32_t bHvsDnEnabled          : 1;        // HVS DN Enabled
         };
         uint32_t value = 0;
     } DN;
@@ -316,6 +321,8 @@ public:
         {
             uint32_t bDeinterlace           : 1;    // DN enabled;
             uint32_t bQueryVariance         : 1;    // DN enabled;
+            uint32_t bFmdEnabled            : 1;    // FMD enabled;
+            uint32_t bTFF                   : 1;
         };
         uint32_t value = 0;
     } DI;
@@ -405,9 +412,6 @@ public:
         }
     } IECP;
 
-    bool bUseKernelUpdate = false;
-    bool bVeboxStateCopyNeeded = false;
-
     // Perf
     VPHAL_PERFTAG                       PerfTag = VPHAL_NONE;
 
@@ -425,6 +429,7 @@ public:
         return MOS_STATUS_SUCCESS;
     }
 protected:
+    VPHAL_HVSDENOISE_PARAMS m_HvsParams = {};
     MHW_VEBOX_DNDI_PARAMS   m_veboxDNDIParams = {};
     MHW_VEBOX_IECP_PARAMS   m_veboxIecpParams = {};
     MHW_VEBOX_CHROMA_SAMPLING m_chromaSampling = {};

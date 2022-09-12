@@ -32,6 +32,7 @@
 #include "mhw_vebox.h"
 #include "mhw_sfc.h"
 #include "vp_render_ief.h"
+#include "mos_interface.h"
 
 namespace vp {
 
@@ -1112,7 +1113,19 @@ uint32_t SfcRenderBase::GetSfdLineBufferSize(bool lineTiledBuffer, MOS_FORMAT fo
 
 MOS_STATUS SfcRenderBase::AllocateLineBuffer(VP_SURFACE *&lineBuffer, uint32_t size, const char *bufName)
 {
-    bool allocated = false;
+    bool                allocated           = false;
+    MEDIA_FEATURE_TABLE *skuTable           = nullptr;
+    Mos_MemPool         memTypeSurfVideoMem = MOS_MEMPOOL_VIDEOMEMORY;
+
+    VP_PUBLIC_CHK_NULL_RETURN(m_osInterface)
+
+    skuTable = MosInterface::GetSkuTable(m_osInterface->osStreamState);
+
+    if (skuTable && MEDIA_IS_SKU(skuTable, FtrLimitedLMemBar))
+    {
+        memTypeSurfVideoMem = MOS_MEMPOOL_DEVICEMEMORY;
+    }
+
     if (size)
     {
         VP_RENDER_CHK_STATUS_RETURN(m_allocator->ReAllocateSurface(
@@ -1128,7 +1141,10 @@ MOS_STATUS SfcRenderBase::AllocateLineBuffer(VP_SURFACE *&lineBuffer, uint32_t s
                                       allocated,
                                       false,
                                       true,
-                                      MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_FF));
+                                      MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_FF,
+                                      MOS_TILE_UNSET_GMM,
+                                      memTypeSurfVideoMem,
+                                      MOS_MEMPOOL_DEVICEMEMORY == memTypeSurfVideoMem));
     }
     else if (lineBuffer)
     {

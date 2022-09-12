@@ -166,7 +166,11 @@ MOS_STATUS PacketPipe::AddPacket(HwFilter &hwFilter)
         return status;
     }
     m_Pipe.push_back(pPacket);
-    VP_PUBLIC_CHK_STATUS_RETURN(SetOutputPipeMode(hwFilter.GetEngineType()));
+    if (hwFilter.GetRenderTargetType() == RenderTargetTypeSurface)
+    {
+        VP_PUBLIC_CHK_STATUS_RETURN(SetOutputPipeMode(hwFilter.GetEngineType()));
+    }
+
     m_veboxFeatureInuse |= hwFilter.IsVeboxFeatureInuse();
 
     return MOS_STATUS_SUCCESS;
@@ -258,7 +262,7 @@ MOS_STATUS PacketPipe::Execute(MediaStatusReport *statusReport, MediaScalability
 #if (_DEBUG || _RELEASE_INTERNAL)
         for (auto& handle : pPacket->GetSurfSetting().surfGroup)
         {
-            if(handle.first)
+            if(handle.first && handle.second)
             {
                 VP_SURFACE_DUMP(m_PacketFactory.m_debugInterface,
                 handle.second,
@@ -266,7 +270,6 @@ MOS_STATUS PacketPipe::Execute(MediaStatusReport *statusReport, MediaScalability
                 handle.first,
                 VPHAL_DUMP_TYPE_POST_COMP);
             }
-            
         }
 #endif
     }

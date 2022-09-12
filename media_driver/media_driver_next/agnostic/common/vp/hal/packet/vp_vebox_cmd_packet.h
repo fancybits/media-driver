@@ -46,6 +46,12 @@
 #define VP_NUM_RGB_CHANNEL                   3
 #define VP_NUM_FRAME_PREVIOUS_CURRENT        2
 
+#define VP_VEBOX_MAX_SLICES_G12                           4
+
+#define VP_VEBOX_RGB_HISTOGRAM_SIZE_G12                   (VP_VEBOX_RGB_HISTOGRAM_SIZE_PER_SLICE * \
+                                                           VP_NUM_RGB_CHANNEL                    * \
+                                                           VP_VEBOX_MAX_SLICES_G12)
+
 #ifndef VEBOX_AUTO_DENOISE_SUPPORTED
 #define VEBOX_AUTO_DENOISE_SUPPORTED    1
 #endif
@@ -223,6 +229,19 @@
                                                                     LUT65_MUL_SIZE * sizeof(int64_t)
 
 //!
+//! \brief Vebox Statistics Surface definition
+//!
+#define VPHAL_VEBOX_STATISTICS_SIZE (32 * 8)
+#define VPHAL_VEBOX_STATISTICS_SURFACE_GNE_OFFSET 0x2C
+#define VPHAL_VEBOX_STATISTICS_SURFACE_STD_OFFSET 0x44
+#define VPHAL_VEBOX_STATISTICS_PER_FRAME_SIZE (32 * sizeof(uint32_t))
+#define VPHAL_VEBOX_STATISTICS_SURFACE_FMD_OFFSET 0
+
+//! \brief Number of LACE's PWLF surfaces
+//!
+#define VP_NUM_LACE_PWLF_SURFACES                                   2
+
+//!
 //! \brief  Chroma Denoise params
 //!
 typedef struct _VPHAL_DNUV_PARAMS
@@ -269,6 +288,7 @@ typedef struct _VEBOX_PACKET_SURFACE_PARAMS
     VP_SURFACE                      *pAlphaOrVignette;
     VP_SURFACE                      *pLaceOrAceOrRgbHistogram;
     VP_SURFACE                      *pSurfSkinScoreOutput;
+    VP_SURFACE                      *pFMDHistorySurface;
 }VEBOX_PACKET_SURFACE_PARAMS, *PVEBOX_PACKET_SURFACE_PARAMS;
 };
 
@@ -684,7 +704,7 @@ public:
     //! \return   MOS_STATUS
     //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
     //!
-    virtual MOS_STATUS ConfigFMDParams(bool bProgressive, bool bAutoDenoise);
+    virtual MOS_STATUS ConfigFMDParams(bool bProgressive, bool bAutoDenoise, bool bFmdEnabled);
 
     //!
     //! \brief    Setup Vebox_State Command parameter
@@ -710,6 +730,12 @@ public:
         bool                        bDiScdEnable,
         PMHW_VEBOX_DI_IECP_CMD_PARAMS   pVeboxDiIecpCmdParams);
 
+    //!
+    //! \brief    Check Vebox using kernel resource or not
+    //! \details  Check Vebox using kernel resource or not
+    //! \return   bool
+    //!           Return true if use kernel resource
+    //!
     virtual bool UseKernelResource();
 
     //!
@@ -983,6 +1009,13 @@ private:
     //!
     virtual MOS_STATUS SetSfcMmcParams();
     MOS_STATUS InitSfcRender();
+
+    //!
+    //! \brief    Dump Vebox State Heap
+    //! \details  Dump Vebox State Heap
+    //! \return   MOS_STATUS  MOS_STATUS_SUCCESS if succeeded, otherwise failure
+    //!
+    MOS_STATUS DumpVeboxStateHeap();
 
 protected:
 
