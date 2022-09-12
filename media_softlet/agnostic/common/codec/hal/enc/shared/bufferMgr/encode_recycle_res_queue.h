@@ -26,10 +26,12 @@
 
 #ifndef __ENCODE_RECYCLE_RES_QUEUE_H__
 #define __ENCODE_RECYCLE_RES_QUEUE_H__
-#include <stdint.h>
-#include <vector>
+
+#include "media_class_trace.h"
 #include "mos_defs.h"
 #include "mos_os.h"
+#include <stdint.h>
+#include <vector>
 
 namespace encode
 {
@@ -97,7 +99,7 @@ private:
     EncodeAllocator         *m_allocator = nullptr;  //!< encoder allocator
     std::vector<void *>     m_resources;      //<! All resources
 
-MEDIA_CLASS_DEFINE_END(RecycleQueue)
+MEDIA_CLASS_DEFINE_END(encode__RecycleQueue)
 };
 }  // namespace encode
 #endif  // !__ENCODE_RECYCLE_RES_QUEUE_H__

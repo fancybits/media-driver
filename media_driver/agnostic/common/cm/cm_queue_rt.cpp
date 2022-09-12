@@ -284,6 +284,7 @@ int32_t CmQueueRT::Initialize()
             }
 
             ctxCreateOption.RAMode = m_queueOption.RAMode;
+            ctxCreateOption.isRealTimePriority = m_queueOption.IsRealTimePrioriy;
 
             // Create render GPU context.
             CM_CHK_MOSSTATUS_GOTOFINISH_CMERROR(
@@ -320,6 +321,8 @@ int32_t CmQueueRT::Initialize()
 
                 m_usingVirtualEngine = true;
             }
+
+            ctxCreateOption.isRealTimePriority = m_queueOption.IsRealTimePrioriy;
 
             CM_CHK_MOSSTATUS_GOTOFINISH_CMERROR(
                 CreateGpuContext(cmHalState, MOS_GPU_CONTEXT_CM_COMPUTE,
@@ -897,6 +900,11 @@ CM_RT_API int32_t CmQueueRT::EnqueueWithGroup( CmTask* task, CmEvent* & event, c
     }
 
     CmTaskRT *taskRT = static_cast<CmTaskRT *>(task);
+    if(taskRT == nullptr)
+    {
+        CM_ASSERTMESSAGE("Error: Kernel array is NULL.");
+        return CM_NULL_POINTER;
+    }
     uint32_t count = 0;
     count = taskRT->GetKernelCount();
 
@@ -2586,8 +2594,8 @@ int32_t CmQueueRT::QueryFlushedTasks()
                 PCM_CONTEXT_DATA cmData = (PCM_CONTEXT_DATA)m_device->GetAccelData();
 
                 // Clear task status table in Cm Hal State
-                int32_t taskId;
-                CmEventRT*pTopTaskEvent;
+                int32_t taskId = 0;
+                CmEventRT*pTopTaskEvent = nullptr;
                 task->GetTaskEvent(pTopTaskEvent);
                 CM_CHK_NULL_GOTOFINISH_CMERROR(pTopTaskEvent);
 

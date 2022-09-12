@@ -27,17 +27,19 @@
 
 #ifndef __ENCODE_BUFFER_TRACKER_H__
 #define __ENCODE_BUFFER_TRACKER_H__
-#include <stdint.h>
-#include <map>
-#include <memory>
-#include <vector>
+
 #include "codec_def_common.h"
 #include "encode_tracked_buffer_queue.h"
 #include "encode_utils.h"
+#include "media_class_trace.h"
 #include "mos_defs.h"
 #include "mos_defs_specific.h"
 #include "mos_os.h"
 #include "mos_os_specific.h"
+#include <stdint.h>
+#include <map>
+#include <memory>
+#include <vector>
 
 namespace encode
 {
@@ -241,7 +243,7 @@ protected:
     std::map<BufferType, std::shared_ptr<BufferQueue> > m_bufferQueue = {};  //!< buffer queues
     std::map<BufferType, std::shared_ptr<BufferQueue> > m_oldQueue = {};     //!< old queues for resolution change
 
-MEDIA_CLASS_DEFINE_END(TrackedBuffer)
+MEDIA_CLASS_DEFINE_END(encode__TrackedBuffer)
 };
 }  // namespace encode
 #endif  // !__ENCODE_BUFFER_TRACKER_H__

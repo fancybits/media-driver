@@ -29,10 +29,10 @@
 #ifndef __MEDIA_ENCODE_MEM_COMPRESSION_H__
 #define __MEDIA_ENCODE_MEM_COMPRESSION_H__
 
-#include "media_mem_compression.h"
+#include "media_mem_compression_next.h"
 #include "codechal_utilities.h"
 
-class EncodeMemComp : public MediaMemComp
+class EncodeMemComp : public MediaMemCompNext
 {
 public:
     //!
@@ -62,9 +62,6 @@ public:
 protected:
 #if (_DEBUG || _RELEASE_INTERNAL)
     bool                    m_userFeatureUpdated = false; //!< Inidate if mmc user feature key for recon is updated
-
-    uint32_t                m_compressibleId  = 0;
-    uint32_t                m_compressModeId  = 0;
 #endif
 
     void InitEncodeMmc(CodechalHwInterface *hwInterface);

@@ -26,6 +26,8 @@
 
 #ifndef __ENCODE_SCALABILITY_OPTION_H__
 #define __ENCODE_SCALABILITY_OPTION_H__
+
+#include "media_class_trace.h"
 #include "media_scalability_option.h"
 #include "mos_defs.h"
 struct ScalabilityPars;
@@ -78,7 +80,7 @@ public:
 private:
     bool m_enabledVdenc = false;
 
-MEDIA_CLASS_DEFINE_END(EncodeScalabilityOption)
+MEDIA_CLASS_DEFINE_END(encode__EncodeScalabilityOption)
 };
 }
 #endif // !__ENCODE_SCALABILITY_OPTION_H__

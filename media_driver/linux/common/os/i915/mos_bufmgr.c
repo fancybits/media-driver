@@ -154,6 +154,7 @@ struct mos_bufmgr_gem {
     unsigned int has_ext_mmap : 1;
     unsigned int has_fence_reg : 1;
     unsigned int has_lmem : 1;
+    unsigned int has_mmap_offset : 1;
     bool fenced_relocs;
 
     struct {
@@ -1696,7 +1697,7 @@ map_wc(struct mos_linux_bo *bo)
         return -EINVAL;
 
     /* Get a mapping of the buffer if we haven't before. */
-    if (bo_gem->mem_wc_virtual == nullptr && bufmgr_gem->has_lmem) {
+    if (bo_gem->mem_wc_virtual == nullptr && bufmgr_gem->has_mmap_offset) {
         struct drm_i915_gem_mmap_offset mmap_arg;
 
         MOS_DBG("bo_map_wc: mmap_offset %d (%s), map_count=%d\n",
@@ -1705,7 +1706,14 @@ map_wc(struct mos_linux_bo *bo)
         memclear(mmap_arg);
         mmap_arg.handle = bo_gem->gem_handle;
         /* To indicate the uncached virtual mapping to KMD */
-        mmap_arg.flags = I915_MMAP_OFFSET_FIXED;
+        if (bufmgr_gem->has_lmem)
+        {
+            mmap_arg.flags = I915_MMAP_OFFSET_FIXED;
+        }
+        else
+        {
+           mmap_arg.flags = I915_MMAP_OFFSET_WC;
+        }
         ret = drmIoctl(bufmgr_gem->fd,
                    DRM_IOCTL_I915_GEM_MMAP_OFFSET,
                    &mmap_arg);
@@ -1862,7 +1870,7 @@ drm_export int mos_gem_bo_map(struct mos_linux_bo *bo, int write_enable)
 
     pthread_mutex_lock(&bufmgr_gem->lock);
 
-    if (bufmgr_gem->has_lmem) {
+    if (bufmgr_gem->has_mmap_offset) {
         struct drm_i915_gem_wait wait;
 
         if (!bo_gem->mem_virtual) {
@@ -1873,7 +1881,14 @@ drm_export int mos_gem_bo_map(struct mos_linux_bo *bo, int write_enable)
 
             memclear(mmap_arg);
             mmap_arg.handle = bo_gem->gem_handle;
-            mmap_arg.flags = I915_MMAP_OFFSET_FIXED;
+            if (bufmgr_gem->has_lmem)
+            {
+                mmap_arg.flags = I915_MMAP_OFFSET_FIXED;
+            }
+            else
+            {
+               mmap_arg.flags = I915_MMAP_OFFSET_WB;
+            }
             ret = drmIoctl(bufmgr_gem->fd,
                    DRM_IOCTL_I915_GEM_MMAP_OFFSET,
                    &mmap_arg);
@@ -1909,7 +1924,7 @@ drm_export int mos_gem_bo_map(struct mos_linux_bo *bo, int write_enable)
             MOS_DBG("%s:%d: DRM_IOCTL_I915_GEM_WAIT failed (%d)\n",
                 __FILE__, __LINE__, errno);
         }
-    } else { /*!has_lmem*/
+    } else { /*!has_mmap_offset*/
         struct drm_i915_gem_set_domain set_domain;
 
         if (!bo_gem->mem_virtual) {
@@ -4063,54 +4078,82 @@ mos_bufmgr_gem_set_aub_dump(struct mos_bufmgr *bufmgr, int enable)
         "See the intel_aubdump man page for more details.\n");
 }
 
-void initialiaze_recoverable_context(struct mos_bufmgr *bufmgr, uint32_t drmContextId, bool bEnableRecoverable)
+int mos_gem_ctx_set_user_ctx_params(struct mos_linux_context *context)
 {
-    struct drm_i915_gem_context_param contextParam = {};
-    struct mos_bufmgr_gem            *bufmgr_gem   = (struct mos_bufmgr_gem *)bufmgr;
-    if (bufmgr_gem == nullptr)
+    /*
+     * INTEL_I915_CTX_CONTROL=0, 1, 2, 3
+     * 0: default, do nothing
+     * 1: disable ctx recoverable
+     * 2: disable ctx bannable
+     * 3: disable both
+     * */
+
+    if (context == nullptr)
     {
-        return;
-    }
-    contextParam.ctx_id                            = drmContextId;
-    contextParam.param                             = I915_CONTEXT_PARAM_RECOVERABLE;
-    contextParam.value                             = 0;
-    contextParam.size                              = sizeof(struct drm_i915_gem_context_param);
-    uint64_t enableRecoverable                     = 0;
-    int      ret                                   = 0;
-    if (bEnableRecoverable)
-    {
-        enableRecoverable = 1;
+        return -EINVAL;
     }
 
-    // Get original recoverable context value.
-    ret                    = drmIoctl(bufmgr_gem->fd, DRM_IOCTL_I915_GEM_CONTEXT_GETPARAM, &contextParam);
-    uint64_t originalValue = contextParam.value;
+    int ret = 0;
+    char *user_ctx_env = getenv("INTEL_I915_CTX_CONTROL");
+    bool disable_recoverable = false;
+    bool disable_bannable = false;
+    struct mos_bufmgr_gem *bufmgr_gem = (struct mos_bufmgr_gem *)context->bufmgr;
 
-    if (ret != 0)
+    if (user_ctx_env != nullptr)
     {
-        fprintf(stderr, "Get original recoverable value fail, ret = %d", ret);
-        return;
-    }
-    // Compare with original value.
-    if (originalValue != enableRecoverable)
-    {
-        contextParam.value = enableRecoverable;
-        ret                = drmIoctl(bufmgr_gem->fd, DRM_IOCTL_I915_GEM_CONTEXT_SETPARAM, &contextParam);
-        if (ret != 0)
+        uint8_t  user_ctx_env_value = (uint8_t)atoi(user_ctx_env);
+        if(user_ctx_env_value > 3)
         {
-            fprintf(stderr, "Set recoverable value fail, ret = %d", ret);
-            return;
+            MOS_DBG("INTEL_I915_CTX_CONTROL: invalid value %u setting\n",
+                user_ctx_env_value);
         }
-        MOS_OS_NORMALMESSAGE("Set recoverable context value success, the original value is %d, the current value is %d",
-            originalValue,
-            contextParam.value);
+        else
+        {
+            if (user_ctx_env_value & 0x1)
+            {
+                disable_recoverable = true;
+            }
+
+            if(user_ctx_env_value & 0x2)
+            {
+                disable_bannable = true;
+            }
+        }
     }
-    else
+
+    if(disable_recoverable)
     {
-        MOS_OS_NORMALMESSAGE("the original value is %d, the current value is %d, no need to update",
-            originalValue,
-            contextParam.value);
+        ret = mos_set_context_param(context,
+                    0,
+                    I915_CONTEXT_PARAM_RECOVERABLE,
+                    0);
+        if(ret != 0) {
+            MOS_DBG("I915_CONTEXT_PARAM_RECOVERABLE failed: %s\n",
+                strerror(errno));
+        }
+        else
+        {
+            MOS_DBG("successfull to disable context recoverable\n");
+        }
     }
+
+    if(disable_bannable)
+    {
+        ret = mos_set_context_param(context,
+                    0,
+                    I915_CONTEXT_PARAM_BANNABLE,
+                    0);
+        if(ret != 0) {
+            MOS_DBG("I915_CONTEXT_PARAM_BANNABLE failed: %s\n",
+                strerror(errno));
+        }
+        else
+        {
+            MOS_DBG("successfull to disable context bannable\n");
+        }
+    }
+
+    return ret;
 }
 
 struct mos_linux_context *
@@ -4137,21 +4180,7 @@ mos_gem_context_create(struct mos_bufmgr *bufmgr)
     context->ctx_id = create.ctx_id;
     context->bufmgr = bufmgr;
 
-    char *disableRecoverableEnv = getenv("INTEL_DISABLE_RECOVERABLE_CONTEXT");
-    bool  bDisableRecoverable   = false;
-    if (disableRecoverableEnv != nullptr)
-    {
-        int disableRecoverableValue = atoi(disableRecoverableEnv);
-        if (disableRecoverableValue == 0)
-        {
-            bDisableRecoverable = false;
-        }
-        else
-        {
-            bDisableRecoverable = true;
-        }
-        initialiaze_recoverable_context(bufmgr, create.ctx_id, !bDisableRecoverable);
-    } 
+    ret = mos_gem_ctx_set_user_ctx_params(context);
 
     return context;
 }
@@ -4605,6 +4634,10 @@ mos_bufmgr_gem_init(int fd, int batch_size)
         bufmgr_gem->bufmgr.set_object_capture      = mos_gem_bo_set_object_capture;
     }
 
+    gp.param = I915_PARAM_MMAP_GTT_VERSION;
+    ret =  drmIoctl(fd, DRM_IOCTL_I915_GETPARAM, &gp);
+    bufmgr_gem->has_mmap_offset  =  (ret == 0) && (*gp.value >= 4);
+
     struct drm_i915_gem_context_param context_param;
     memset(&context_param, 0, sizeof(context_param));
     context_param.param = I915_CONTEXT_PARAM_GTT_SIZE;
@@ -4707,6 +4740,8 @@ mos_gem_context_create_ext(struct mos_bufmgr *bufmgr, __u32 flags)
     context->ctx_id = create.ctx_id;
     context->bufmgr = bufmgr;
 
+    ret = mos_gem_ctx_set_user_ctx_params(context);
+
     return context;
 }
 
@@ -4787,6 +4822,8 @@ mos_gem_context_create_shared(struct mos_bufmgr *bufmgr, mos_linux_context* ctx,
         free(context);
         return nullptr;
     }
+
+    ret = mos_gem_ctx_set_user_ctx_params(context);
 
     return context;
 }
@@ -5120,6 +5157,11 @@ mos_gem_bo_is_exec_object_async(struct mos_linux_bo *bo)
 
 
 int mos_query_device_blob(int fd, MEDIA_SYSTEM_INFO* gfx_info)
+{
+    return -1;
+}
+
+int mos_query_hw_ip_version(int fd, struct i915_engine_class_instance engine, void *ip_ver_info)
 {
     return -1;
 }

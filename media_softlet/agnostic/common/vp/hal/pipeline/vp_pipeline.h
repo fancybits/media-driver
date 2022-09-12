@@ -159,6 +159,11 @@ public:
     //!
     bool IsVeboxSfcFormatSupported(MOS_FORMAT formatInput, MOS_FORMAT formatOutput);
 
+    virtual MOS_STATUS ProcessBypassHandler(PVP_PIPELINE_PARAMS renderParams, bool &isBypassNeeded)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+
     //!
     //! \brief  replace output surface from Tile-Y to Linear
     //! \param  [in] params
@@ -339,6 +344,8 @@ protected:
         return (m_numVebox > 1) ? true : false;
     }
 
+    MOS_STATUS UpdateVeboxNumberforScalability();
+
 protected:
     VP_PARAMS              m_pvpParams              = {};   //!< vp Pipeline params
     VP_MHWINTERFACE        m_vpMhwInterface         = {};   //!< vp Pipeline Mhw Interface
@@ -378,7 +385,7 @@ protected:
     VP_SETTINGS           *m_vpSettings = nullptr;
     VpUserFeatureControl  *m_userFeatureControl = nullptr;
 
-    MEDIA_CLASS_DEFINE_END(VpPipeline)
+    MEDIA_CLASS_DEFINE_END(vp__VpPipeline)
 };
 
 struct _VP_SFC_PACKET_PARAMS
@@ -477,7 +484,7 @@ private:
     VpResourceManager* m_resourceManager;
     std::map<FeatureType, SwFilterFeatureHandler*>* m_swFilterHandler = nullptr;
 
-MEDIA_CLASS_DEFINE_END(VpInterface)
+MEDIA_CLASS_DEFINE_END(vp__VpInterface)
 };
 }  // namespace vp
 

@@ -132,7 +132,7 @@ protected:
 public:
     const static std::string          s_kernelNameNonAdvKernels;
 
-MEDIA_CLASS_DEFINE_END(VpRenderKernel)
+MEDIA_CLASS_DEFINE_END(vp__VpRenderKernel)
 };
 
 using KERNEL_POOL = std::map<std::string, VpRenderKernel>;
@@ -221,6 +221,21 @@ public:
         return true;
     }
 
+    virtual MOS_STATUS GetInputFrameWidthHeightAlignUnit(
+        PVP_MHWINTERFACE          pvpMhwInterface,
+        uint32_t                 &widthAlignUnit,
+        uint32_t                 &heightAlignUnit,
+        bool                      bVdbox,
+        CODECHAL_STANDARD         codecStandard,
+        CodecDecodeJpegChromaType jpegChromaType);
+
+    virtual bool VeboxScalabilitywith4K(
+        VP_MHWINTERFACE           vpMhwInterface);
+
+    virtual MOS_STATUS GetVeboxHeapInfo(
+        PVP_MHWINTERFACE          pvpMhwInterface,
+        const MHW_VEBOX_HEAP    **ppVeboxHeap);
+
     inline void SetMhwSfcItf(std::shared_ptr<mhw::sfc::Itf> sfcItf)
     {
         m_sfcItf = sfcItf;
@@ -305,7 +320,7 @@ protected:
     std::shared_ptr<mhw::render::Itf>       m_renderItf = nullptr;
     std::shared_ptr<mhw::mi::Itf>           m_miItf     = nullptr;
 
-    MEDIA_CLASS_DEFINE_END(VpPlatformInterface)
+    MEDIA_CLASS_DEFINE_END(vp__VpPlatformInterface)
 };
 
 }

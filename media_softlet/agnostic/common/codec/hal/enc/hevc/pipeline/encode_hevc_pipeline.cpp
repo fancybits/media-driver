@@ -66,12 +66,13 @@ MOS_STATUS HevcPipeline::UserFeatureReport()
     ENCODE_FUNC_CALL();
     ENCODE_CHK_STATUS_RETURN(EncodePipeline::UserFeatureReport());
 
-#if (_DEBUG || _RELEASE_INTERNAL)
     ReportUserSetting(
         m_userSettingPtr,
         "HEVC Encode Mode",
         m_codecFunction,
         MediaUserSetting::Group::Sequence);
+
+#if (_DEBUG || _RELEASE_INTERNAL)
     ReportUserSettingForDebug(
         m_userSettingPtr,
         "Simulation In Use",
@@ -98,15 +99,15 @@ MOS_STATUS HevcPipeline::Prepare(void *params)
         m_debugInterface->m_frameType          = basicFeature->m_pictureCodingType;
 
         if (basicFeature->m_newSeq) {
-            CODECHAL_ENCODE_CHK_STATUS_RETURN(DumpSeqParams(
+            ENCODE_CHK_STATUS_RETURN(DumpSeqParams(
                 basicFeature->m_hevcSeqParams));
         }
         
-        CODECHAL_ENCODE_CHK_STATUS_RETURN(DumpPicParams(
+        ENCODE_CHK_STATUS_RETURN(DumpPicParams(
             basicFeature->m_hevcPicParams));
         
         for (uint32_t i = 0; i < basicFeature->m_numSlices; i++) {
-            CODECHAL_ENCODE_CHK_STATUS_RETURN(DumpSliceParams(
+            ENCODE_CHK_STATUS_RETURN(DumpSliceParams(
                 &basicFeature->m_hevcSliceParams[i],
                 basicFeature->m_hevcPicParams));
         }

@@ -397,7 +397,8 @@ VAStatus MediaLibvaCapsDG2::GetPlatformSpecificAttrib(VAProfile profile,
         case VAConfigAttribDecProcessing:
         {
 #ifdef _DECODE_PROCESSING_SUPPORTED
-            if (IsAvcProfile(profile) || IsHevcProfile(profile) || IsJpegProfile(profile) || IsVp9Profile(profile))
+            if ((IsAvcProfile(profile) || IsHevcProfile(profile) || IsJpegProfile(profile) || IsVp9Profile(profile))
+                && !(MEDIA_IS_SKU(&(m_mediaCtx->SkuTable), FtrDisableVDBox2SFC)))
             {
                 *value = VA_DEC_PROCESSING;
             }
@@ -532,9 +533,66 @@ VAStatus MediaLibvaCapsDG2::GetPlatformSpecificAttrib(VAProfile profile,
         }
         case VAConfigAttribPredictionDirection:
         {
-            *value = VA_PREDICTION_DIRECTION_PREVIOUS | VA_PREDICTION_DIRECTION_FUTURE | VA_PREDICTION_DIRECTION_BI_NOT_EMPTY;
+            if (!IsHevcSccProfile(profile))
+            {
+                *value = VA_PREDICTION_DIRECTION_PREVIOUS | VA_PREDICTION_DIRECTION_FUTURE | VA_PREDICTION_DIRECTION_BI_NOT_EMPTY;
+            }
+            else
+            {
+                // Here we set
+                // VAConfigAttribPredictionDirection: VA_PREDICTION_DIRECTION_PREVIOUS | VA_PREDICTION_DIRECTION_BI_NOT_EMPTY together with
+                // VAConfigAttribEncMaxRefFrames: L0 != 0, L1 !=0
+                // to indicate SCC only supports I/low delay B
+                *value = VA_PREDICTION_DIRECTION_PREVIOUS | VA_PREDICTION_DIRECTION_BI_NOT_EMPTY;
+            }
             break;
         }
+#if VA_CHECK_VERSION(1, 12, 0)
+        case VAConfigAttribEncHEVCFeatures:
+        {
+            if (entrypoint == VAEntrypointEncSliceLP && IsHevcProfile(profile))
+            {
+                VAConfigAttribValEncHEVCFeatures hevcFeatures = {0};
+                hevcFeatures.bits.separate_colour_planes = VA_FEATURE_NOT_SUPPORTED;
+                hevcFeatures.bits.scaling_lists = VA_FEATURE_SUPPORTED;
+                hevcFeatures.bits.amp = VA_FEATURE_REQUIRED;
+                hevcFeatures.bits.sao = VA_FEATURE_SUPPORTED;
+                hevcFeatures.bits.pcm = VA_FEATURE_NOT_SUPPORTED;
+                hevcFeatures.bits.temporal_mvp = VA_FEATURE_SUPPORTED;
+                hevcFeatures.bits.strong_intra_smoothing = VA_FEATURE_NOT_SUPPORTED;
+                hevcFeatures.bits.dependent_slices = VA_FEATURE_NOT_SUPPORTED;
+                hevcFeatures.bits.sign_data_hiding = VA_FEATURE_NOT_SUPPORTED;
+                hevcFeatures.bits.constrained_intra_pred = VA_FEATURE_NOT_SUPPORTED;
+                hevcFeatures.bits.transform_skip = VA_FEATURE_SUPPORTED;
+                hevcFeatures.bits.cu_qp_delta = VA_FEATURE_REQUIRED;
+                hevcFeatures.bits.weighted_prediction = VA_FEATURE_SUPPORTED;
+                hevcFeatures.bits.transquant_bypass = VA_FEATURE_NOT_SUPPORTED;
+                hevcFeatures.bits.deblocking_filter_disable = VA_FEATURE_NOT_SUPPORTED;
+                *value = hevcFeatures.value;
+            }
+            break;
+        }
+        case VAConfigAttribEncHEVCBlockSizes:
+        {
+            if (entrypoint == VAEntrypointEncSliceLP && IsHevcProfile(profile))
+            {
+                VAConfigAttribValEncHEVCBlockSizes hevcBlockSize = {0};
+                hevcBlockSize.bits.log2_max_coding_tree_block_size_minus3     = 3;
+                hevcBlockSize.bits.log2_min_coding_tree_block_size_minus3     = 3;
+                hevcBlockSize.bits.log2_min_luma_coding_block_size_minus3     = 0;
+                hevcBlockSize.bits.log2_max_luma_transform_block_size_minus2  = 3;
+                hevcBlockSize.bits.log2_min_luma_transform_block_size_minus2  = 0;
+                hevcBlockSize.bits.max_max_transform_hierarchy_depth_inter    = 2;
+                hevcBlockSize.bits.min_max_transform_hierarchy_depth_inter    = 0;
+                hevcBlockSize.bits.max_max_transform_hierarchy_depth_intra    = 2;
+                hevcBlockSize.bits.min_max_transform_hierarchy_depth_intra    = 0;
+                hevcBlockSize.bits.log2_max_pcm_coding_block_size_minus3      = 0;
+                hevcBlockSize.bits.log2_min_pcm_coding_block_size_minus3      = 0;
+                *value = hevcBlockSize.value;
+            }
+            break;
+        }
+#endif
         default:
             status = VA_STATUS_ERROR_INVALID_PARAMETER;
             break;
@@ -635,7 +693,9 @@ VAStatus MediaLibvaCapsDG2::CreateEncAttributes(
     attrib.type = VAConfigAttribRateControl;
     attrib.value = VA_RC_CQP;
     if (entrypoint != VAEntrypointEncSliceLP ||
-            (entrypoint == VAEntrypointEncSliceLP && MEDIA_IS_SKU(&(m_mediaCtx->SkuTable), FtrEnableMediaKernels)))
+            (entrypoint == VAEntrypointEncSliceLP &&
+             MEDIA_IS_SKU(&(m_mediaCtx->SkuTable), FtrEnableMediaKernels) &&
+             !IsHevcSccProfile(profile))) // Currently, SCC doesn't support BRC
     {
         attrib.value |= VA_RC_CBR | VA_RC_VBR | VA_RC_MB;
         if (IsHevcProfile(profile))
@@ -916,8 +976,19 @@ VAStatus MediaLibvaCapsDG2::CreateEncAttributes(
     if (IsHevcProfile(profile))
     {
         attrib.type = (VAConfigAttribType) VAConfigAttribPredictionDirection;
-        attrib.value = VA_PREDICTION_DIRECTION_PREVIOUS | VA_PREDICTION_DIRECTION_FUTURE | VA_PREDICTION_DIRECTION_BI_NOT_EMPTY;
+        GetPlatformSpecificAttrib(profile, entrypoint,
+                (VAConfigAttribType)VAConfigAttribPredictionDirection, &attrib.value);
         (*attribList)[attrib.type] = attrib.value;
+#if VA_CHECK_VERSION(1, 12, 0)
+        attrib.type = (VAConfigAttribType)VAConfigAttribEncHEVCFeatures;
+        GetPlatformSpecificAttrib(profile, entrypoint,
+                (VAConfigAttribType)VAConfigAttribEncHEVCFeatures, &attrib.value);
+        (*attribList)[attrib.type] = attrib.value;
+        attrib.type = (VAConfigAttribType)VAConfigAttribEncHEVCBlockSizes;
+        GetPlatformSpecificAttrib(profile, entrypoint,
+                (VAConfigAttribType)VAConfigAttribEncHEVCBlockSizes, &attrib.value);
+        (*attribList)[attrib.type] = attrib.value;
+#endif
     }
 
     return status;

@@ -28,6 +28,8 @@
 
 #ifndef __ENCODE_ALLOCATOR_H__
 #define __ENCODE_ALLOCATOR_H__
+
+#include "media_class_trace.h"
 #include "mos_defs.h"
 #include "mos_os.h"
 #include "mos_os_hw.h"
@@ -202,7 +204,7 @@ protected:
     PMOS_INTERFACE m_osInterface = nullptr;  //!< PMOS_INTERFACE
     Allocator *m_allocator = nullptr;
 
-MEDIA_CLASS_DEFINE_END(EncodeAllocator)
+MEDIA_CLASS_DEFINE_END(encode__EncodeAllocator)
 };
 }
 #endif // !__ENCODE_ALLOCATOR_H__

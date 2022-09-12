@@ -1,4 +1,4 @@
-# Copyright (c) 2022, Intel Corporation
+# Copyright (c) 2017-2022, Intel Corporation
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -19,13 +19,25 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 set(TMP_SOURCES_
-    ${CMAKE_CURRENT_LIST_DIR}/mos_util_debug_specific.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/mos_utilities_specific.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/media_blt_copy.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/media_render_copy.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/media_vebox_copy.cpp
 )
-
+set(TMP_HEADERS_
+    ${CMAKE_CURRENT_LIST_DIR}/media_blt_copy.h
+    ${CMAKE_CURRENT_LIST_DIR}/media_render_copy.h
+    ${CMAKE_CURRENT_LIST_DIR}/media_vebox_copy.h
+)
 set(SOURCES_
     ${SOURCES_}
     ${TMP_SOURCES_}
- )
- source_group( "MOS" FILES ${TMP_SOURCES_} )
+)
+
+set(COMMON_SOURCES_
+    ${COMMON_SOURCES_}
+    ${TMP_SOURCES_})
+
+source_group( "Common Files" FILES ${TMP_SOURCES_} ${TMP_HEADERS_} )
+
+
 media_add_curr_to_include_path()

@@ -296,6 +296,7 @@ MOS_STATUS VpPipeline::ExecuteVpPipeline()
     PacketPipe                 *pPacketPipe = nullptr;
     std::vector<SwFilterPipe*> swFilterPipes;
     VpFeatureManagerNext       *featureManagerNext = dynamic_cast<VpFeatureManagerNext *>(m_featureManager);
+    bool                        isBypassNeeded     = false;
 
     VP_PUBLIC_CHK_NULL_RETURN(featureManagerNext);
     VP_PUBLIC_CHK_NULL_RETURN(m_pPacketPipeFactory);
@@ -321,6 +322,13 @@ MOS_STATUS VpPipeline::ExecuteVpPipeline()
         }
         // Predication
         SetPredicationParams(params);
+
+        eStatus = ProcessBypassHandler(params, isBypassNeeded);
+        VP_PUBLIC_CHK_STATUS_RETURN(eStatus);
+        if (isBypassNeeded)
+        {
+            return MOS_STATUS_SUCCESS;
+        }
 
     }
 
@@ -440,12 +448,20 @@ MOS_STATUS VpPipeline::CreateSwFilterPipe(VP_PARAMS &params, std::vector<SwFilte
     return MOS_STATUS_SUCCESS;
 }
 
-MOS_STATUS VpPipeline::GetSystemVeboxNumber()
+MOS_STATUS VpPipeline::UpdateVeboxNumberforScalability()
 {
     VP_FUNC_CALL();
 
+    VP_PUBLIC_CHK_NULL_RETURN(m_vpMhwInterface.m_vpPlatformInterface);
+
     // Check whether scalability being disabled.
     int32_t enableVeboxScalability = 0;
+
+    if (m_numVebox <= 0)
+    {
+        VP_PUBLIC_NORMALMESSAGE("Vebox Number of Enabled %d", m_numVebox);
+        return MOS_STATUS_SUCCESS;
+    }
 
     MOS_STATUS statusKey = MOS_STATUS_SUCCESS;
     statusKey = ReadUserSetting(
@@ -475,23 +491,25 @@ MOS_STATUS VpPipeline::GetSystemVeboxNumber()
     if (disableScalability == true)
     {
         m_numVebox = 1;
+        VP_PUBLIC_NORMALMESSAGE("DisableScalability Vebox Number of Enabled %d", m_numVebox);
         return MOS_STATUS_SUCCESS;
     }
     else if (m_forceMultiplePipe == MOS_SCALABILITY_ENABLE_MODE_DEFAULT)
     {
-        std::shared_ptr<mhw::vebox::Itf> veboxItf = m_vpMhwInterface.m_vpPlatformInterface->GetMhwVeboxItf();
-
-        if (veboxItf && !(veboxItf->IsVeboxScalabilitywith4K()))
+        if (m_vpMhwInterface.m_vpPlatformInterface->VeboxScalabilitywith4K(m_vpMhwInterface) == true)
         {
             m_numVebox = 1;
-            return MOS_STATUS_SUCCESS;
-        }
-        else if (m_vpMhwInterface.m_veboxInterface && !(m_vpMhwInterface.m_veboxInterface->m_veboxScalabilitywith4K))
-        {
-            m_numVebox = 1;
+            VP_PUBLIC_NORMALMESSAGE("ForceMultiplePipe Vebox Number of Enabled %d", m_numVebox);
             return MOS_STATUS_SUCCESS;
         }
     }
+
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS VpPipeline::GetSystemVeboxNumber()
+{
+    VP_FUNC_CALL();
 
     // Get vebox number from meida sys info.
     MEDIA_ENGINE_INFO mediaSysInfo = {};
@@ -515,6 +533,8 @@ MOS_STATUS VpPipeline::GetSystemVeboxNumber()
     {
         m_numVebox = 1;
     }
+
+    VP_PUBLIC_CHK_STATUS_RETURN(UpdateVeboxNumberforScalability());
 
     return MOS_STATUS_SUCCESS;
 }

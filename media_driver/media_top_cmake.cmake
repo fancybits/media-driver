@@ -62,8 +62,22 @@ set(SOURCES_ "")
 set(COMMON_SOURCES_ "")
 set(CODEC_SOURCES_ "")
 set(VP_SOURCES_ "")
+set(CP_COMMON_SOURCES_ "")        # legacy source group
+set(CP_COMMON_SHARED_SOURCES_ "") # legacy and softlet shared source group
+set(CP_COMMON_NEXT_SOURCES_ "")   # softlet source group
+set(CP_SOURCES_ "")               # common + os part
 set (SHARED_SOURCES_ "")
 set (UPDATED_SOURCES_ "")
+
+######################################################
+#MOS LIB
+set (MOS_COMMON_SOURCES_ "")
+set (MOS_COMMON_HEADERS_ "")
+set (MOS_PUBLIC_INCLUDE_DIRS_ "")
+set (MOS_PRIVATE_INCLUDE_DIRS_ "")
+set (MOS_PREPEND_INCLUDE_DIRS_ "")
+set (MOS_EXT_INCLUDE_DIRS_ "")
+######################################################
 
 # add source
 # first
@@ -96,14 +110,27 @@ set_source_files_properties(${COMMON_SOURCES_} PROPERTIES LANGUAGE "CXX")
 set_source_files_properties(${CODEC_SOURCES_} PROPERTIES LANGUAGE "CXX")
 set_source_files_properties(${VP_SOURCES_} PROPERTIES LANGUAGE "CXX")
 
+set_source_files_properties(${CP_COMMON_SOURCES_} PROPERTIES LANGUAGE "CXX")
+set_source_files_properties(${CP_COMMON_SHARED_SOURCES_} PROPERTIES LANGUAGE "CXX")
+set_source_files_properties(${CP_COMMON_NEXT_SOURCES_} PROPERTIES LANGUAGE "CXX")
+set_source_files_properties(${CP_SOURCES_} PROPERTIES LANGUAGE "CXX")
+
 set_source_files_properties(${SOURCES_SSE2} PROPERTIES LANGUAGE "CXX")
 set_source_files_properties(${SOURCES_SSE4} PROPERTIES LANGUAGE "CXX")
+
+set (CP_SOURCES_
+    ${CP_SOURCES_}
+    ${CP_COMMON_SOURCES_}
+    ${CP_COMMON_SHARED_SOURCES_}
+    ${CP_COMMON_NEXT_SOURCES_})
 
 set (SHARED_SOURCES_
     ${SHARED_SOURCES_}
     ${COMMON_SOURCES_}
     ${CODEC_SOURCES_}
-    ${VP_SOURCES_})
+    ${VP_SOURCES_}
+    ${CP_SOURCES_})
+
 FOREACH(SRC1 ${SOURCES_})
     set (FOUND 0)
     FOREACH(SRC2 ${SHARED_SOURCES_})
@@ -125,30 +152,69 @@ set (COMMON_SOURCES_
 
 add_library(${LIB_NAME}_SSE2 OBJECT ${SOURCES_SSE2})
 target_compile_options(${LIB_NAME}_SSE2 PRIVATE -msse2)
+target_include_directories(${LIB_NAME}_SSE2 BEFORE PRIVATE ${MOS_PREPEND_INCLUDE_DIRS_} ${MOS_PUBLIC_INCLUDE_DIRS_})
 
 add_library(${LIB_NAME}_SSE4 OBJECT ${SOURCES_SSE4})
 target_compile_options(${LIB_NAME}_SSE4 PRIVATE -msse4.1)
+target_include_directories(${LIB_NAME}_SSE4 BEFORE PRIVATE ${MOS_PREPEND_INCLUDE_DIRS_} ${MOS_PUBLIC_INCLUDE_DIRS_})
 
 add_library(${LIB_NAME}_COMMON OBJECT ${COMMON_SOURCES_})
 set_property(TARGET ${LIB_NAME}_COMMON PROPERTY POSITION_INDEPENDENT_CODE 1)
+MediaAddCommonTargetDefines(${LIB_NAME}_COMMON)
+target_include_directories(${LIB_NAME}_COMMON  BEFORE PRIVATE ${MOS_PREPEND_INCLUDE_DIRS_} ${MOS_PUBLIC_INCLUDE_DIRS_})
 
 add_library(${LIB_NAME}_CODEC OBJECT ${CODEC_SOURCES_})
 set_property(TARGET ${LIB_NAME}_CODEC PROPERTY POSITION_INDEPENDENT_CODE 1)
+MediaAddCommonTargetDefines(${LIB_NAME}_CODEC)
+target_include_directories(${LIB_NAME}_CODEC BEFORE PRIVATE ${MOS_PREPEND_INCLUDE_DIRS_} ${MOS_PUBLIC_INCLUDE_DIRS_})
 
 add_library(${LIB_NAME}_VP OBJECT ${VP_SOURCES_})
 set_property(TARGET ${LIB_NAME}_VP PROPERTY POSITION_INDEPENDENT_CODE 1)
+MediaAddCommonTargetDefines(${LIB_NAME}_VP)
+target_include_directories(${LIB_NAME}_VP BEFORE PRIVATE ${MOS_PREPEND_INCLUDE_DIRS_} ${MOS_PUBLIC_INCLUDE_DIRS_})
 
-add_library(${LIB_NAME} STATIC
+add_library(${LIB_NAME}_CP OBJECT ${CP_SOURCES_})
+set_property(TARGET ${LIB_NAME}_CP PROPERTY POSITION_INDEPENDENT_CODE 1)
+MediaAddCommonTargetDefines(${LIB_NAME}_CP)
+target_include_directories(${LIB_NAME}_CP BEFORE PRIVATE ${MOS_PREPEND_INCLUDE_DIRS_} ${MOS_PUBLIC_INCLUDE_DIRS_})
+
+######################################################
+#MOS LIB
+
+set_source_files_properties(${MOS_COMMON_SOURCES_} PROPERTIES LANGUAGE "CXX")
+
+# This is to include drm_device.h in cmrtlib, no cpp file needed.
+set (MOS_EXT_INCLUDE_DIRS_
+${BS_DIR_MEDIA}/cmrtlib/linux/hardware
+)
+
+add_library(${LIB_NAME}_mos OBJECT ${MOS_COMMON_SOURCES_})
+set_property(TARGET ${LIB_NAME}_mos PROPERTY POSITION_INDEPENDENT_CODE 1)
+MediaAddCommonTargetDefines(${LIB_NAME}_mos)
+target_include_directories(${LIB_NAME}_mos BEFORE PRIVATE
+    ${MOS_PREPEND_INCLUDE_DIRS_}
+    ${MOS_PUBLIC_INCLUDE_DIRS_}
+    ${MOS_EXT_INCLUDE_DIRS_}
+)
+
+
+######################################################
+
+add_library(${LIB_NAME} SHARED
+    $<TARGET_OBJECTS:${LIB_NAME}_mos>
     $<TARGET_OBJECTS:${LIB_NAME}_COMMON>
     $<TARGET_OBJECTS:${LIB_NAME}_CODEC>
     $<TARGET_OBJECTS:${LIB_NAME}_VP>
+    $<TARGET_OBJECTS:${LIB_NAME}_CP>
     $<TARGET_OBJECTS:${LIB_NAME}_SSE2>
     $<TARGET_OBJECTS:${LIB_NAME}_SSE4>)
 
 add_library(${LIB_NAME_STATIC} STATIC
+    $<TARGET_OBJECTS:${LIB_NAME}_mos>
     $<TARGET_OBJECTS:${LIB_NAME}_COMMON>
     $<TARGET_OBJECTS:${LIB_NAME}_CODEC>
     $<TARGET_OBJECTS:${LIB_NAME}_VP>
+    $<TARGET_OBJECTS:${LIB_NAME}_CP>
     $<TARGET_OBJECTS:${LIB_NAME}_SSE2>
     $<TARGET_OBJECTS:${LIB_NAME}_SSE4>)
 
@@ -159,6 +225,8 @@ if(MEDIA_BUILD_FATAL_WARNINGS)
     set_target_properties(${LIB_NAME}_COMMON PROPERTIES COMPILE_FLAGS "-Werror")
     set_target_properties(${LIB_NAME}_CODEC PROPERTIES COMPILE_FLAGS "-Werror")
     set_target_properties(${LIB_NAME}_VP PROPERTIES COMPILE_FLAGS "-Werror")
+    set_target_properties(${LIB_NAME}_CP PROPERTIES COMPILE_FLAGS "-Werror")
+    set_target_properties(${LIB_NAME}_mos PROPERTIES COMPILE_FLAGS "-Werror")
 endif()
 
 set(MEDIA_LINK_FLAGS "-Wl,--no-as-needed -Wl,--gc-sections -z relro -z now -fPIC")
@@ -170,10 +238,6 @@ set_target_properties(${LIB_NAME} PROPERTIES LINK_FLAGS ${MEDIA_LINK_FLAGS})
 
 set_target_properties(${LIB_NAME}        PROPERTIES PREFIX "")
 set_target_properties(${LIB_NAME_STATIC} PROPERTIES PREFIX "")
-
-MediaAddCommonTargetDefines(${LIB_NAME}_COMMON)
-MediaAddCommonTargetDefines(${LIB_NAME}_CODEC)
-MediaAddCommonTargetDefines(${LIB_NAME}_VP)
 
 bs_ufo_link_libraries_noBsymbolic(
     ${LIB_NAME}

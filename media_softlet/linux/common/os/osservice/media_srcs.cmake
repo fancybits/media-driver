@@ -19,25 +19,27 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 set(TMP_SOURCES_
-    ${CMAKE_CURRENT_LIST_DIR}/mos_util_debug_specific_next.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/mos_utilities_specific_next.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/mos_util_debug_specific.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/mos_utilities_specific.cpp
 )
 
 set(TMP_HEADERS_
-    ${CMAKE_CURRENT_LIST_DIR}/mos_utilities_specific_next.h
-    ${CMAKE_CURRENT_LIST_DIR}/mos_util_debug_specific_next.h
+    ${CMAKE_CURRENT_LIST_DIR}/mos_utilities_specific.h
+    ${CMAKE_CURRENT_LIST_DIR}/mos_util_debug_specific.h
 )
 
-set(SOURCES_
-    ${SOURCES_}
+set(MOS_COMMON_SOURCES_
+    ${MOS_COMMON_SOURCES_}
     ${TMP_SOURCES_}
  )
 
-set(HEADERS_
-    ${HEADERS_}
+set(MOS_COMMON_HEADERS_
+    ${MOS_COMMON_HEADERS_}
     ${TMP_HEADERS_}
 )
 
+set(MOS_PUBLIC_INCLUDE_DIRS_
+    ${MOS_PUBLIC_INCLUDE_DIRS_}
+    ${CMAKE_CURRENT_LIST_DIR}
+)
 source_group( "MOSNext" FILES ${TMP_SOURCES_} ${TMP_HEADERS_} )
-
-media_add_curr_to_include_path()

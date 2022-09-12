@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020, Intel Corporation
+* Copyright (c) 2020-2022, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -616,6 +616,11 @@ bool VeboxCopyState::IsFormatSupported(PMOS_SURFACE surface)
     {
         surface->Format   = Format_P8;
         surface->dwHeight = surface->dwSize / surface->dwPitch;
+    }
+
+    if (IS_RGB64_FLOAT_FORMAT(surface->Format))
+    {
+        surface->Format = Format_Y416;
     }
 
     // Check if Sample Format is supported for decompression

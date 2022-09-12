@@ -69,10 +69,15 @@ public:
         const PMOS_RESOURCE *presReferences,
         uint8_t             &mmcSkipMask);
 
+    MOS_STATUS SetRefSurfaceCompressionFormat(
+        HevcBasicFeature    &hevcBasicFeature,
+        const PMOS_RESOURCE *presReferences,
+        uint32_t            &compressionFormat);
+
 protected:
     PMOS_INTERFACE m_osInterface = nullptr;
 
-MEDIA_CLASS_DEFINE_END(HevcDecodeMemComp)
+MEDIA_CLASS_DEFINE_END(decode__HevcDecodeMemComp)
 };
 
 }

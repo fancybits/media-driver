@@ -30,6 +30,7 @@
 #include "mhw_vdbox.h"
 #include "mhw_vdbox_vdenc_itf.h"
 #include "mhw_vdbox_hcp_itf.h"
+#include "encode_mem_compression.h"
 
 namespace encode
 {
@@ -168,6 +169,10 @@ public:
 
     MHW_SETPAR_DECL_HDR(HCP_PIPE_BUF_ADDR_STATE);
 
+    MHW_SETPAR_DECL_HDR(HCP_SURFACE_STATE);
+
+    EncodeMemComp *m_mmcState = nullptr;
+
     static constexpr uint8_t m_numMaxVdencL0Ref = 3;                                //!< Max number of reference frame list0
     static constexpr uint8_t m_numMaxVdencL1Ref = 3;                                //!< Max number of reference frame list1
 
@@ -224,7 +229,7 @@ protected:
     HevcBasicFeature        *m_basicFeature = nullptr;                              //!<  HEVC paramter
     EncodeAllocator         *m_allocator = nullptr;                                 //!< Encode allocator
 
-MEDIA_CLASS_DEFINE_END(HevcReferenceFrames)
+MEDIA_CLASS_DEFINE_END(encode__HevcReferenceFrames)
 };
 
 }  // namespace encode

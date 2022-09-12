@@ -31,6 +31,10 @@
 #define __ENCODE_AV1_VDENC_CONST_SETTINGS_XE_HPM_H__
 
 #include "encode_av1_vdenc_const_settings.h"
+#include "media_class_trace.h"
+#include "mos_defs.h"
+#include "mos_os.h"
+#include "mos_os_specific.h"
 
 namespace encode
 {
@@ -56,7 +60,7 @@ public:
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     //!
     virtual MOS_STATUS SetVdencCmd2Settings() override;
-MEDIA_CLASS_DEFINE_END(EncodeAv1VdencConstSettingsXe_Hpm)
+MEDIA_CLASS_DEFINE_END(encode__EncodeAv1VdencConstSettingsXe_Hpm)
 };
 
 }

@@ -28,10 +28,9 @@
 #define __MOS_OS_H__
 
 #include "mos_defs.h"
-#include "media_skuwa_specific.h"
 #include "mos_utilities.h"
-#include "mos_utilities_next.h"
-#include "mos_util_debug_next.h"
+#include "media_skuwa_specific.h"
+#include "mos_util_debug.h"
 #include "mos_os_hw.h"         //!< HW specific details that flow through OS pathes
 #ifndef MEDIA_SOFTLET
 #include "mos_os_cp_interface_specific.h"         //!< CP specific OS functionality
@@ -528,11 +527,14 @@ struct _MOS_GPUCTX_CREATOPTIONS
         uint32_t SSEUValue;
     };
 
+    uint8_t isRealTimePriority;  // 1 if context is created from real time priority command queue (run GT at higher frequency)
+
     _MOS_GPUCTX_CREATOPTIONS() : CmdBufferNumScale(MOS_GPU_CONTEXT_CREATE_DEFAULT),
         RAMode(0),
         ProtectMode(0),
         gpuNode(0),
-        SSEUValue(0){}
+        SSEUValue(0),
+        isRealTimePriority(0){}
 
     virtual ~_MOS_GPUCTX_CREATOPTIONS(){}
 };
@@ -1183,12 +1185,6 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE              pOsInterface,
         PMOS_COMMAND_BUFFER         pCmdBuffer);
 
-    MOS_FORMAT (* pfnFmt_OsToMos) (
-        MOS_OS_FORMAT               format);
-
-    MOS_OS_FORMAT (* pfnFmt_MosToOs) (
-        MOS_FORMAT                  format);
-
     GMM_RESOURCE_FORMAT (* pfnFmt_MosToGmm) (
         MOS_FORMAT                  format);
 
@@ -1409,6 +1405,13 @@ typedef struct _MOS_INTERFACE
     //!
     void (*pfnNotifyStreamIndexSharing)(
         PMOS_INTERFACE              pOsInterface);
+
+    //!
+    //! \brief    Check if mismatch order programming model supported in current device
+    //!
+    //! \return   bool
+    //!
+    bool (*pfnIsMismatchOrderProgrammingSupported)();
 
     //!
     //! \brief   Get User Setting instance

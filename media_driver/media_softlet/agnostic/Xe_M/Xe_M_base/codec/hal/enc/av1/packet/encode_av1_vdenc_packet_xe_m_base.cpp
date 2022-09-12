@@ -27,6 +27,7 @@
 #include "mos_solo_generic.h"
 #include "media_user_settings_mgr_g12_plus.h"
 #include "mhw_mi_itf.h"
+#include "mhw_vdbox_g12_X.h"
 
 namespace encode
 {
@@ -686,7 +687,7 @@ namespace encode
         ENCODE_FUNC_CALL();
         MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
-        CODECHAL_HW_FUNCTION_ENTER;
+        CODEC_HW_FUNCTION_ENTER;
 
         ENCODE_CHK_NULL_RETURN(statusReport);
         ENCODE_CHK_NULL_RETURN(m_hwInterface);
@@ -1121,10 +1122,6 @@ namespace encode
         miMathParams.dwNumAluParams  = aluCount;
         miMathParams.pAluPayload     = aluParams;
         ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_MATH)(cmdBuffer));
-        ENCODE_CHK_STATUS_RETURN(Mos_AddCommand(
-            cmdBuffer,
-            &miMathParams.pAluPayload[0],
-            sizeof(mhw::mi::MHW_MI_ALU_PARAMS) * miMathParams.dwNumAluParams));
 
         auto &miStoreRegMemParams           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
         miStoreRegMemParams                 = {};

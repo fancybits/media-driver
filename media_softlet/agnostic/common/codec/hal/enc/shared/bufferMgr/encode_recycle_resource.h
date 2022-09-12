@@ -27,12 +27,14 @@
 
 #ifndef __ENCODE_RECYCLE_RESOURCE_H__
 #define __ENCODE_RECYCLE_RESOURCE_H__
-#include <stdint.h>
-#include <map>
-#include <utility>
+
+#include "media_class_trace.h"
 #include "mos_defs.h"
 #include "mos_os.h"
 #include "mos_os_specific.h"
+#include <stdint.h>
+#include <map>
+#include <utility>
 
 namespace encode
 {
@@ -137,7 +139,7 @@ protected:
 
     std::map<RecycleResId, RecycleQueue *> m_resourceQueues{};  //!< resource queues
 
-MEDIA_CLASS_DEFINE_END(RecycleResource)
+MEDIA_CLASS_DEFINE_END(encode__RecycleResource)
 };
 }  // namespace encode
 #endif  // !__ENCODE_RECYCLE_RESOURCE_H__

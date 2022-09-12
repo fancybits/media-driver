@@ -19,6 +19,7 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 media_include_subdirectory(user_setting)
+media_include_subdirectory(mediacopy)
 
 set(TMP_SOURCES_
     ${CMAKE_CURRENT_LIST_DIR}/mediamemdecomp.cpp

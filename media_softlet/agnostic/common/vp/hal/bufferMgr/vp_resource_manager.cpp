@@ -221,6 +221,10 @@ VpResourceManager::~VpResourceManager()
         m_allocator.DestroyVpSurface(m_vebox1DLookUpTables);
     }
 
+    if (m_temperalInput)
+    {
+        m_allocator.DestroyVpSurface(m_temperalInput);
+    }
     while (!m_intermediaSurfaces.empty())
     {
         VP_SURFACE * surf = m_intermediaSurfaces.back();
@@ -1874,25 +1878,22 @@ MOS_STATUS VpResourceManager::AllocateResourceFor3DLutKernel(VP_EXECUTE_CAPS& ca
         VP_PUBLIC_CHK_STATUS_RETURN(Init3DLutSurface2D(m_vebox3DLookUpTables2D));
     }
 
-    uint32_t coefWidth     = 8;
-    uint32_t coefHeight    = 8;
+    uint32_t size_coef     = 8 * 8 * 4;
 
     VP_PUBLIC_CHK_STATUS_RETURN(m_allocator.ReAllocateSurface(
         m_3DLutKernelCoefSurface,
         "3DLutKernelCoefSurface",
-        Format_A8R8G8B8,
-        MOS_GFXRES_2D,
-        MOS_TILE_Y,
-        coefWidth,
-        coefHeight,
+        Format_Buffer,
+        MOS_GFXRES_BUFFER,
+        MOS_TILE_LINEAR,
+        size_coef,
+        1,
         false,
         MOS_MMC_DISABLED,
         isAllocated,
         false,
         IsDeferredResourceDestroyNeeded(),
-        MOS_HW_RESOURCE_DEF_MAX,
-        MOS_TILE_UNSET_GMM,
-        MOS_MEMPOOL_SYSTEMMEMORY));
+        MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER));
 
     return MOS_STATUS_SUCCESS;
 }
@@ -2081,7 +2082,15 @@ MOS_STATUS VpResourceManager::AssignVeboxResource(VP_EXECUTE_CAPS& caps, VP_SURF
     }
     else
     {
-        surfGroup.insert(std::make_pair(SurfaceTypeVeboxInput, inputSurface));
+        if (caps.bTemperalInputInuse)
+        {
+            VP_PUBLIC_CHK_NULL_RETURN(m_temperalInput);
+            surfGroup.insert(std::make_pair(SurfaceTypeVeboxInput, m_temperalInput));
+        }
+        else
+        {
+            surfGroup.insert(std::make_pair(SurfaceTypeVeboxInput, inputSurface));
+        }
         surfGroup.insert(std::make_pair(SurfaceTypeVeboxCurrentOutput, GetVeboxOutputSurface(caps, outputSurface)));
 
         if (caps.bDN)

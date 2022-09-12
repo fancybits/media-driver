@@ -214,6 +214,7 @@ namespace encode
         MHW_SETPAR_DECL_HDR(HUC_IMEM_STATE);
         MHW_SETPAR_DECL_HDR(HUC_DMEM_STATE);
         MHW_SETPAR_DECL_HDR(HUC_VIRTUAL_ADDR_STATE);
+        MHW_SETPAR_DECL_HDR(HCP_PIC_STATE);
 
         virtual MOS_STATUS AllocateResources() override;
 
@@ -292,7 +293,7 @@ namespace encode
         std::shared_ptr<mhw::mi::Itf>           m_miItf    = nullptr;
         std::shared_ptr<MediaFeatureManager::ManagerLite> m_featureManager = nullptr;
 
-    MEDIA_CLASS_DEFINE_END(HucBrcUpdatePkt)
+    MEDIA_CLASS_DEFINE_END(encode__HucBrcUpdatePkt)
     };
 
 }  // namespace encode

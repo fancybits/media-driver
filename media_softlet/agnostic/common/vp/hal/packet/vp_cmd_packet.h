@@ -94,6 +94,11 @@ public:
         return m_surfSetting;
     }
 
+    virtual bool ExtraProcessing()
+    {
+        return false;
+    }
+
 protected:
     virtual MOS_STATUS VpCmdPacketInit();
     bool IsOutputPipeVebox()
@@ -120,7 +125,7 @@ protected:
 private:
     MediaScalability *          m_scalability = nullptr;
 
-MEDIA_CLASS_DEFINE_END(VpCmdPacket)
+MEDIA_CLASS_DEFINE_END(vp__VpCmdPacket)
 };
 }
 #endif // !__VP_CMD_PACKET_H__

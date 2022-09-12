@@ -387,6 +387,7 @@ MOS_STATUS Vp9DecodePicPktXe_M_Base::SetHcpRefSurfaceParams(MHW_VDBOX_SURFACE_PA
 #ifdef _MMC_SUPPORTED
     Vp9DecodeMemComp *vp9DecodeMemComp = dynamic_cast<Vp9DecodeMemComp *>(m_mmcState);
     DECODE_CHK_STATUS(vp9DecodeMemComp->SetRefSurfaceMask(*m_vp9BasicFeature, refSurfaceParams));
+    DECODE_CHK_STATUS(vp9DecodeMemComp->SetRefSurfaceCompressionFormat(*m_vp9BasicFeature, refSurfaceParams));
 #endif
     return MOS_STATUS_SUCCESS;
 }
@@ -512,12 +513,12 @@ MOS_STATUS Vp9DecodePicPktXe_M_Base::SetHcpPipeBufAddrParams(MHW_VDBOX_PIPE_BUF_
     CODECHAL_DEBUG_TOOL(DumpRefResources(pipeBufAddrParams, m_vp9BasicFeature->m_resVp9MvTemporalBuffer[0]->size));
    
 #if MOS_EVENT_TRACE_DUMP_SUPPORTED
-    if (MOS_GetTraceEventKeyword() & EVENT_DECODE_MV_KEYWORD)
+    if (MOS_TraceKeyEnabled(TR_KEY_DECODE_MV))
     {
         TraceDataDumpMV(pipeBufAddrParams, m_vp9BasicFeature->m_resVp9MvTemporalBuffer[0]->size);
     }
 
-    if (MOS_GetTraceEventKeyword() & EVENT_DECODE_REFYUV_KEYWORD)
+    if (MOS_TraceKeyEnabled(TR_KEY_DECODE_REFYUV))
     {
         TraceDataDumpReferences(pipeBufAddrParams);
     }
