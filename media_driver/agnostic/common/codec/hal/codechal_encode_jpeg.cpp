@@ -598,6 +598,10 @@ MOS_STATUS CodechalEncodeJpegState::ExecutePictureLevel()
     MHW_VDBOX_PIPE_BUF_ADDR_PARAMS pipeBufAddrParams;
     pipeBufAddrParams.Mode          = m_mode;
     pipeBufAddrParams.psRawSurface  = &m_rawSurface; // original picture to be encoded
+    pipeBufAddrParams.pRawSurfParam = &surfaceParams;
+
+    CODECHAL_ENCODE_CHK_NULL_RETURN(m_mmcState);
+    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_mmcState->SetPipeBufAddr(&pipeBufAddrParams, &cmdBuffer));
 
     CODECHAL_DEBUG_TOOL(
         CODECHAL_ENCODE_CHK_STATUS_RETURN(m_debugInterface->DumpYUVSurface(
@@ -1411,7 +1415,7 @@ MOS_STATUS CodechalEncodeJpegState::DumpPicParams(
     CodecEncodeJpegPictureParams *picParams)
 {
     CODECHAL_DEBUG_FUNCTION_ENTER;
-    if (m_debugInterface->DumpIsEnabled(CodechalDbgAttr::attrPicParams))
+    if (!m_debugInterface->DumpIsEnabled(CodechalDbgAttr::attrPicParams))
     {
         return MOS_STATUS_SUCCESS;
     }

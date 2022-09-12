@@ -63,6 +63,7 @@
 #include "media_libva_interface.h"
 #include "media_libva_interface_next.h"
 #include "media_libva_apo_decision.h"
+#include "mos_oca_interface_specific.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -1318,10 +1319,12 @@ VAStatus DdiMedia_MediaMemoryDecompress(PDDI_MEDIA_CONTEXT mediaCtx, DDI_MEDIA_S
         else
         {
             DdiMediaUtil_LockMutex(&mediaCtx->SurfaceMutex);
+            DdiMediaUtil_LockMutex(&mediaCtx->MemDecompMutex);
 
             DdiMedia_MediaSurfaceToMosResource(mediaSurface, &surface);
             DdiMedia_MediaMemoryDecompressInternal(&mosCtx, &surface);
 
+            DdiMediaUtil_UnLockMutex(&mediaCtx->MemDecompMutex);
             DdiMediaUtil_UnLockMutex(&mediaCtx->SurfaceMutex);
 
             if (pCpDdiInterface)
@@ -1667,6 +1670,7 @@ VAStatus DdiMedia_InitMediaContext (
         mosCtx.m_apoMosEnabled = mediaCtx->m_apoMosEnabled;
 
         MosInterface::InitOsUtilities(&mosCtx);
+        MosOcaInterfaceSpecific::InitInterface();
 
         mediaCtx->pGtSystemInfo = (MEDIA_SYSTEM_INFO *)MOS_AllocAndZeroMemory(sizeof(MEDIA_SYSTEM_INFO));
         if (nullptr == mediaCtx->pGtSystemInfo)
@@ -2033,6 +2037,7 @@ VAStatus DdiMedia_Terminate (
         MosInterface::DestroyOsDeviceContext(mediaCtx->m_osDeviceContext);
         mediaCtx->m_osDeviceContext = MOS_INVALID_HANDLE;
         MOS_FreeMemory(mediaCtx->pGtSystemInfo);
+        MosOcaInterfaceSpecific::UninitInterface();
         MosInterface::CloseOsUtilities(nullptr);
     }
     else if (mediaCtx->modularizedGpuCtxEnabled)
@@ -5734,15 +5739,16 @@ VAStatus DdiMedia_QueryDisplayAttributes(
     VADisplayAttribute *attr_list,
     int32_t            *num_attributes)
 {
-    DDI_UNUSED(ctx);
-    DDI_UNUSED(attr_list);
-
     DDI_FUNCTION_ENTER();
 
-    if (num_attributes)
-        *num_attributes = 0;
+    PDDI_MEDIA_CONTEXT mediaCtx = DdiMedia_GetMediaContext(ctx);
+    DDI_CHK_NULL(mediaCtx, "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(mediaCtx->m_caps, "nullptr m_caps", VA_STATUS_ERROR_INVALID_CONTEXT);
 
-    return VA_STATUS_SUCCESS;
+    DDI_CHK_NULL(attr_list, "nullptr attr_list", VA_STATUS_ERROR_INVALID_PARAMETER);
+    DDI_CHK_NULL(num_attributes, "nullptr num_attributes", VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    return mediaCtx->m_caps->QueryDisplayAttributes(attr_list, num_attributes);
 }
 
 //!
@@ -5766,13 +5772,15 @@ VAStatus DdiMedia_GetDisplayAttributes(
     VADisplayAttribute *attr_list,
     int32_t             num_attributes)
 {
-    DDI_UNUSED(ctx);
-    DDI_UNUSED(attr_list);
-    DDI_UNUSED(num_attributes);
-
     DDI_FUNCTION_ENTER();
 
-    return VA_STATUS_ERROR_UNIMPLEMENTED;
+    PDDI_MEDIA_CONTEXT mediaCtx = DdiMedia_GetMediaContext(ctx);
+    DDI_CHK_NULL(mediaCtx, "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(mediaCtx->m_caps, "nullptr m_caps", VA_STATUS_ERROR_INVALID_CONTEXT);
+
+    DDI_CHK_NULL(attr_list, "nullptr attr_list", VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    return mediaCtx->m_caps->GetDisplayAttributes(attr_list, num_attributes);
 }
 
 //!
@@ -6915,41 +6923,13 @@ VAStatus DdiMedia_ExportSurfaceHandle(
     desc->objects[0].fd   = mediaSurface->name;
     desc->objects[0].size = mediaSurface->pGmmResourceInfo->GetSizeSurface();
 
-    // Prepare Compression info for export surface handle
-    GMM_RESOURCE_FLAG       GmmFlags    = {0};
-    bool                    bMmcEnabled = false;
-    GmmFlags = mediaSurface->pGmmResourceInfo->GetResFlags();
+    DDI_CHK_NULL(mediaCtx->m_caps, "nullptr m_caps", VA_STATUS_ERROR_INVALID_CONTEXT);
 
-    if ((GmmFlags.Gpu.MMC               ||
-        GmmFlags.Gpu.CCS)               &&
-        (GmmFlags.Info.MediaCompressed ||
-         GmmFlags.Info.RenderCompressed))
+    if(VA_STATUS_SUCCESS != mediaCtx->m_caps->GetSurfaceModifier(mediaSurface, desc->objects[0].drm_format_modifier))
     {
-        bMmcEnabled = true;
-    }
-    else
-    {
-        bMmcEnabled = false;
-    }
-
-    switch (mediaSurface->TileType) {
-    case I915_TILING_X:
-        desc->objects[0].drm_format_modifier = I915_FORMAT_MOD_X_TILED;
-        break;
-    case I915_TILING_Y:
-        if (mediaCtx->m_auxTableMgr && bMmcEnabled)
-        {
-            desc->objects[0].drm_format_modifier = GmmFlags.Info.MediaCompressed ? I915_FORMAT_MOD_Y_TILED_GEN12_MC_CCS :
-             (GmmFlags.Info.RenderCompressed ? I915_FORMAT_MOD_Y_TILED_GEN12_RC_CCS : I915_FORMAT_MOD_Y_TILED);
-        }else
-        {
-            desc->objects[0].drm_format_modifier = I915_FORMAT_MOD_Y_TILED;
-        }
-        break;
-    case I915_TILING_NONE:
-    default:
-        desc->objects[0].drm_format_modifier = DRM_FORMAT_MOD_NONE;
-    }
+        DDI_ASSERTMESSAGE("could not find related modifier values");
+        return VA_STATUS_ERROR_UNSUPPORTED_RT_FORMAT;
+    }    
 
     int composite_object = flags & VA_EXPORT_SURFACE_COMPOSED_LAYERS;
 

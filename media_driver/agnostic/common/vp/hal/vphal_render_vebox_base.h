@@ -64,6 +64,12 @@
 #define NOISE_TEMPORALPIXELDIFF_THRESHOLD_DEFAULT       12
 #define NOISE_SUMABSTEMPORALDIFF_THRESHOLD_DEFAULT      128
 
+//!
+//! \brief Spatial Denoise Definitions
+//!
+#define NOSIE_GNE_CHROMA_THRESHOLD                  1850
+#define NOSIE_GNE_LUMA_THRESHOLD                    32000
+
 // Pixel Range Threshold Array Denoise Definitions for SKL+ 5x5 Bilateral Filter
 #define NOISE_BLF_RANGE_THRESHOLD_ADP_NLVL          1
 #define NOISE_BLF_RANGE_THRESHOLD_ADP_NLVL_MIN      65536
@@ -1792,6 +1798,24 @@ protected:
     MOS_STATUS VeboxGetStatisticsSurfaceOffsets(
         int32_t*                            pStatSlice0Offset,
         int32_t*                            pStatSlice1Offset);
+
+    //!
+    //! \brief    Vebox get statistics surface base
+    //! \details  Calculate address of statistics surface address based on the
+    //!           functions which were enabled in the previous call.
+    //! \param    uint8_t* pStat
+    //!           [in] Pointer to Statistics surface
+    //! \param    uint8_t* * pStatSlice0Base
+    //!           [out] Statistics surface Slice 0 base pointer
+    //! \param    uint8_t* * pStatSlice1Base
+    //!           [out] Statistics surface Slice 1 base pointer
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS VeboxGetStatisticsSurfaceBase(
+        uint8_t * pStat,
+        uint8_t **pStatSlice0Base,
+        uint8_t **pStatSlice1Base);
 
     //!
     //! \brief    Check if 2 passes CSC are supported on the platform

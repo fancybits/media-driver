@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2020, Intel Corporation
+* Copyright (c) 2017-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -633,4 +633,14 @@ static __inline int32_t CodecHal_Clip3(int x, int y, int z)
 
     return ret;
 }
+
+static __inline uint32_t CeilLog2(uint32_t value)
+{
+    uint32_t res = 0;
+
+    while (value > (uint32_t)(1 << res)) res++;
+
+    return res;
+}
+
 #endif  // __CODEC_DEF_COMMON_H__

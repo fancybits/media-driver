@@ -682,8 +682,8 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::AllocateResources()
             if (bAllocated)
             {
                 // Report Compress Status
-                m_reporting->FFDICompressible = bSurfCompressible;
-                m_reporting->FFDICompressMode = (uint8_t)(SurfCompressionMode);
+                m_reporting->GetFeatures().ffdiCompressible = bSurfCompressible;
+                m_reporting->GetFeatures().ffdiCompressMode = (uint8_t)(SurfCompressionMode);
             }
         }
     }
@@ -787,8 +787,8 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::AllocateResources()
             if (bAllocated)
             {
                 // Report Compress Status
-                m_reporting->FFDNCompressible = bFFDNSurfCompressible;
-                m_reporting->FFDNCompressMode = (uint8_t)(FFDNSurfCompressionMode);
+                m_reporting->GetFeatures().ffdnCompressible = bFFDNSurfCompressible;
+                m_reporting->GetFeatures().ffdnCompressMode = (uint8_t)(FFDNSurfCompressionMode);
             }
         }
     }
@@ -846,8 +846,8 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::AllocateResources()
                 VPHAL_RENDER_CHK_STATUS(VeboxInitSTMMHistory(i));
 
                 // Report Compress Status
-                m_reporting->STMMCompressible = bSurfCompressible;
-                m_reporting->STMMCompressMode = (uint8_t)(SurfCompressionMode);
+                m_reporting->GetFeatures().stmmCompressible = bSurfCompressible;
+                m_reporting->GetFeatures().stmmCompressMode = (uint8_t)(SurfCompressionMode);
             }
         }
     }
@@ -1052,15 +1052,6 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::AllocateResources()
 #endif
             }
         }
-    }
-    else
-    {
-        // Free 3DLook Up table surface for VEBOX
-        pOsInterface->pfnFreeResource(
-            pOsInterface,
-            &pVeboxState->Vebox3DLookUpTables.OsResource);
-
-        MOS_Delete(m_hdr3DLutGenerator);
     }
 
 finish:
@@ -2398,6 +2389,9 @@ VPHAL_OUTPUT_PIPE_MODE VPHAL_VEBOX_STATE_G12_BASE::GetOutputPipe(
     VPHAL_RENDER_CHK_NULL_NO_STATUS(pcRenderParams);
     VPHAL_RENDER_CHK_NULL_NO_STATUS(pRenderData);
     VPHAL_RENDER_CHK_NULL_NO_STATUS(pSrcSurface);
+    VPHAL_RENDER_CHK_NULL_NO_STATUS(pcRenderParams->pTarget[0]);
+
+    pTarget             = pcRenderParams->pTarget[0];
 
     bCompBypassFeasible = IS_COMP_BYPASS_FEASIBLE(pRenderData->bCompNeeded, pcRenderParams, pSrcSurface);
 
@@ -2420,6 +2414,15 @@ VPHAL_OUTPUT_PIPE_MODE VPHAL_VEBOX_STATE_G12_BASE::GetOutputPipe(
         goto finish;
     }
 
+    // Let Kernel to output P010 instead of VEBOX output
+    if (pSrcSurface->p3DLutParams &&
+        (pTarget->Format == Format_P010 ||
+         pTarget->Format == Format_P016))
+    {
+        OutputPipe = VPHAL_OUTPUT_PIPE_MODE_COMP;
+        goto finish;
+    }
+
     bOutputPipeVeboxFeasible = IS_OUTPUT_PIPE_VEBOX_FEASIBLE(pVeboxState, pcRenderParams, pSrcSurface);
     if (bOutputPipeVeboxFeasible)
     {
@@ -2432,9 +2435,6 @@ VPHAL_OUTPUT_PIPE_MODE VPHAL_VEBOX_STATE_G12_BASE::GetOutputPipe(
         OutputPipe = VPHAL_OUTPUT_PIPE_MODE_COMP;
         goto finish;
     }
-
-    pTarget             = pcRenderParams->pTarget[0];
-    VPHAL_RENDER_CHK_NULL_NO_STATUS(pcRenderParams->pTarget[0]);
 
     bHDRToneMappingNeed = (pSrcSurface->pHDRParams || pTarget->pHDRParams);
     // Check if SFC can be the output pipe
@@ -2578,6 +2578,7 @@ bool VPHAL_VEBOX_STATE_G12_BASE::IsNeeded(
             (uint32_t)pSrcSurface->rcSrc.right < pSrcSurface->dwWidth))
     {
         pSrcSurface->bVEBOXCroppingUsed = true;
+        pRenderTarget->bVEBOXCroppingUsed = true;
         VPHAL_RENDER_NORMALMESSAGE("bVEBOXCroppingUsed = true, pSrcSurface->rcSrc.bottom: %d, pSrcSurface->rcSrc.right: %d; pSrcSurface->dwHeight: %d, pSrcSurface->dwHeight: %d;",
             (uint32_t)pSrcSurface->rcSrc.bottom,
             (uint32_t)pSrcSurface->rcSrc.right,
@@ -2587,6 +2588,7 @@ bool VPHAL_VEBOX_STATE_G12_BASE::IsNeeded(
     else
     {
         pSrcSurface->bVEBOXCroppingUsed = false;
+        pRenderTarget->bVEBOXCroppingUsed = false;
     }
 
     // Set MMC State

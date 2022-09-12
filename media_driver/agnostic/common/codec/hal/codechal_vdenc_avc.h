@@ -377,15 +377,18 @@ public:
     virtual MOS_STATUS ValidateNumReferences( PCODECHAL_ENCODE_AVC_VALIDATE_NUM_REFS_PARAMS params);
 
     //!
-    //! \brief    Get inter rounding value.
+    //! \brief    Set intra/inter rounding value.
     //!
-    //! \param    [in] sliceState
+    //! \param    [in] rounding
+    //!           Pointer to CODECHAL_ENCODE_AVC_ROUNDING_PARAMS
+    //!
+    //! \param    [out] sliceState
     //!           Pointer to MHW_VDBOX_AVC_SLICE_STATE
     //!
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    virtual MOS_STATUS GetInterRounding( PMHW_VDBOX_AVC_SLICE_STATE sliceState);
+    virtual MOS_STATUS SetRounding(PCODECHAL_ENCODE_AVC_ROUNDING_PARAMS param, PMHW_VDBOX_AVC_SLICE_STATE sliceState);
 
     //!
     //! \brief    Get Skip Bias Adjustment.
@@ -1140,6 +1143,17 @@ protected:
     {
         return MOS_STATUS_SUCCESS;
     }
+
+    //!
+    //! \brief  Modify the frame and slice header size with fake header size
+    //!
+    //! \param  [in] cmdBuffer
+    //!         command buffer
+    //!
+    //! \return MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS ModifyEncodedFrameSizeWithFakeHeaderSize( PMOS_COMMAND_BUFFER cmdBuffer);
 #endif
 };
 

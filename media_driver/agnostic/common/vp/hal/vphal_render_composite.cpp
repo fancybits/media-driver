@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2016-2020, Intel Corporation
+* Copyright (c) 2016-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -6073,7 +6073,6 @@ MOS_STATUS CompositeState::RenderPhase(
     //============================
     pFilter = m_SearchFilter;
     MOS_ZeroMemory(pFilter, sizeof(m_SearchFilter));
-    pCompParams->bComputeWlaker = pRenderHal->bComputeContextInUse;
 
     if (!BuildFilter(
              pCompParams,
@@ -7284,9 +7283,9 @@ bool CompositeState::IsMultipleStreamSupported()
 //!
 void CompositeState::SetReporting(PVPHAL_SURFACE pSource)
 {
-    m_reporting->IEF                   = pSource->bIEF;
-    m_reporting->ScalingMode           = pSource->ScalingMode;
-    m_reporting->DeinterlaceMode       =
+    m_reporting->GetFeatures().ief             = pSource->bIEF;
+    m_reporting->GetFeatures().scalingMode     = pSource->ScalingMode;
+    m_reporting->GetFeatures().deinterlaceMode =
                 (IsBobDiEnabled(pSource)) ? VPHAL_DI_REPORT_BOB :
                                                 VPHAL_DI_REPORT_PROGRESSIVE;
 }
@@ -7301,12 +7300,12 @@ void CompositeState::CopyReporting(VphalFeatureReport* pReporting)
 {
     VPHAL_RENDER_ASSERT(pReporting);
 
-    pReporting->IEF         = m_reporting->IEF;
-    pReporting->ScalingMode = m_reporting->ScalingMode;
+    pReporting->GetFeatures().ief         = m_reporting->GetFeatures().ief;
+    pReporting->GetFeatures().scalingMode = m_reporting->GetFeatures().scalingMode;
 
-    if (m_reporting->DeinterlaceMode != VPHAL_DI_REPORT_PROGRESSIVE)
+    if (m_reporting->GetFeatures().deinterlaceMode != VPHAL_DI_REPORT_PROGRESSIVE)
     {
-        pReporting->DeinterlaceMode = m_reporting->DeinterlaceMode;
+        pReporting->GetFeatures().deinterlaceMode = m_reporting->GetFeatures().deinterlaceMode;
     }
 }
 

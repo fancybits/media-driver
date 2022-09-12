@@ -316,6 +316,43 @@ public:
             uint32_t *numAttribs);
 
     //!
+    //! \brief    Query display attributes
+    //!
+    //! \param    [in, out] attribList
+    //!           it returns the supported display attributes
+    //!
+    //!
+    //! \param    [in, out] numAttribs
+    //!           it returns the actual number of supported attributes
+    //!
+    //! \return   VAStatus
+    //!           VA_STATUS_SUCCESS if success
+    //!           VA_STATUS_ERROR_MAX_NUM_EXCEEDED if size of attribList is too small
+    //!
+    virtual VAStatus QueryDisplayAttributes(
+            VADisplayAttribute *attribList,
+            int32_t *numAttribs);
+
+    //!
+    //! \brief    Get display attributes
+    //!           returns the current attributes values in "attribList"
+    //!
+    //! \param    [in, out] attribList
+    //!           the attrib type should be filled.
+    //!           returns the supported display attributes
+    //!
+    //! \param    [in] numAttribs
+    //!           the number of supported attributes
+    //!
+    //! \return   VAStatus
+    //!           VA_STATUS_SUCCESS if success
+    //!           VA_STATUS_ERROR_MAX_NUM_EXCEEDED if size of attribList is too small
+    //!
+    virtual VAStatus GetDisplayAttributes(
+            VADisplayAttribute *attribList,
+            int32_t numAttribs);
+  
+    //!
     //! \brief    Check if the resolution is valid for a given decode codec mode
     //!
     //! \param    [in] codecMode
@@ -695,6 +732,18 @@ public:
         return VA_STATUS_SUCCESS;
     }
 
+    //! \brief Get surface drm modifier
+    //!
+    //! \param    [in] mediaSurface
+    //!           Pointer to the media surface
+    //! \param    [out] modifier
+    //!           reference of the modifier
+    //!
+    //! \return   VAStatus
+    //!           VA_STATUS_SUCCESS if success
+    //!
+    virtual VAStatus GetSurfaceModifier(DDI_MEDIA_SURFACE* mediaSurface, uint64_t &modifier);
+
 protected:
     //!
     //! \class    ProfileEntrypoint
@@ -778,7 +827,7 @@ protected:
 #endif
     static const uint16_t m_maxProfiles = 17; //!< Maximum number of supported profiles
     static const uint16_t m_maxProfileEntries = 64; //!< Maximum number of supported profile & entrypoint combinations
-    static const uint32_t m_numVpSurfaceAttr = 18; //!< Number of VP surface attributes
+    static const uint32_t m_numVpSurfaceAttr = 20; //!< Number of VP surface attributes
     static const uint32_t m_numJpegSurfaceAttr = 7; //!< Number of JPEG surface attributes
     static const uint32_t m_numJpegEncSurfaceAttr = 4; //!< Number of JPEG encode surface attributes
     static const uint16_t m_maxEntrypoints = 7; //!<  Maximum number of supported entrypoints
@@ -1393,5 +1442,6 @@ protected:
     //!           VA_STATUS_SUCCESS if success
     //!
     VAStatus GetGeneralConfigAttrib(VAConfigAttrib* attrib);
+
 };
 #endif

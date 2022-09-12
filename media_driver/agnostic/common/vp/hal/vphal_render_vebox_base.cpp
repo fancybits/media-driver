@@ -697,11 +697,11 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxSetDiOutput(
     //----------------------------
     // VEBOX feature reporting
     //----------------------------
-    m_reporting->IECP    = IsIECPEnabled();
-    m_reporting->Denoise = pRenderData->bDenoise;
+     m_reporting->GetFeatures().iecp    = IsIECPEnabled();
+     m_reporting->GetFeatures().denoise = pRenderData->bDenoise;
     if (pRenderData->bDeinterlace)
     {
-        m_reporting->DeinterlaceMode =
+        m_reporting->GetFeatures().deinterlaceMode =
             (pRenderData->bSingleField && !pRenderData->bRefValid ) ?
             VPHAL_DI_REPORT_ADI_BOB :    // VEBOX BOB
             VPHAL_DI_REPORT_ADI;         // ADI
@@ -1531,6 +1531,40 @@ finish:
     return eStatus;
 }
 
+//! \brief    Vebox get statistics surface base
+//! \details  Calculate address of statistics surface address based on the
+//!           functions which were enabled in the previous call.
+//! \param    uint8_t* pStat
+//!           [in] Pointer to Statistics surface
+//! \param    uint8_t* * pStatSlice0Base
+//!           [out] Statistics surface Slice 0 base pointer
+//! \param    uint8_t* * pStatSlice1Base
+//!           [out] Statistics surface Slice 1 base pointer
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+//!
+MOS_STATUS VPHAL_VEBOX_STATE::VeboxGetStatisticsSurfaceBase(
+    uint8_t * pStat,
+    uint8_t **pStatSlice0Base,
+    uint8_t **pStatSlice1Base)
+{
+    int32_t    iOffsetSlice0, iOffsetSlice1;
+    MOS_STATUS eStatus;
+
+    eStatus = MOS_STATUS_UNKNOWN;
+
+    // Calculate the offsets of Slice0 and Slice1
+    VPHAL_RENDER_CHK_STATUS(VeboxGetStatisticsSurfaceOffsets(
+        &iOffsetSlice0,
+        &iOffsetSlice1));
+
+    *pStatSlice0Base = pStat + iOffsetSlice0;  // Slice 0 current frame
+    *pStatSlice1Base = pStat + iOffsetSlice1;  // Slice 1 current frame
+
+finish:
+    return eStatus;
+}
+
 //!
 //! \brief    Vebox state heap update for auto mode features
 //! \details  Update Vebox indirect states for auto mode features
@@ -1952,6 +1986,8 @@ MOS_STATUS VPHAL_VEBOX_STATE::VeboxRenderVeboxCmd(
 
     HalOcaInterface::On1stLevelBBStart(CmdBuffer, *pOsContext, pOsInterface->CurrentGpuContextHandle,
         *pRenderHal->pMhwMiInterface, *pMmioRegisters);
+
+    HalOcaInterface::TraceOcaSkuValue(CmdBuffer, *pOsInterface);
 
     // Add vphal param to log.
     HalOcaInterface::DumpVphalParam(CmdBuffer, *pOsContext, pRenderHal->pVphalOcaDumper);
@@ -2499,10 +2535,12 @@ void VPHAL_VEBOX_STATE::VeboxSetRenderingFlags(
     // Need to refine later
     // Actually, behind CSC can do nothing which is related to degamma/gamma
     pRenderData->bBeCsc             = (IS_VPHAL_OUTPUT_PIPE_VEBOX(pRenderData) &&
-                                        pSrc->ColorSpace != pRenderTarget->ColorSpace);
+                                       pSrc->ColorSpace != pRenderTarget->ColorSpace &&
+                                       !pSrc->p3DLutParams);
 
     pRenderData->bProcamp           = ((IS_VPHAL_OUTPUT_PIPE_VEBOX(pRenderData) ||
-                                        IS_VPHAL_OUTPUT_PIPE_SFC(pRenderData))  &&
+                                        IS_VPHAL_OUTPUT_PIPE_SFC(pRenderData)   ||
+                                        pRenderData->b2PassesCSC)               && // 2pass CSC goes into VEBOX + render. In this case, need to anable procamp.
                                         pSrc->pProcampParams                    &&
                                         pSrc->pProcampParams->bEnabled);
 
@@ -3698,12 +3736,12 @@ sfc_sample_out:
     }
 
     // Feature reporting
-    m_reporting->IECP    = pRenderData->bIECP;
-    m_reporting->Denoise = pRenderData->bDenoise;
+    m_reporting->GetFeatures().iecp    = pRenderData->bIECP;
+    m_reporting->GetFeatures().denoise = pRenderData->bDenoise;
 
     if (pRenderData->bDeinterlace)
     {
-        m_reporting->DeinterlaceMode =
+        m_reporting->GetFeatures().deinterlaceMode =
             (pRenderData->bSingleField &&
                 (!pRenderData->bRefValid  ||
                 pSrcSurface->pDeinterlaceParams->DIMode == DI_MODE_BOB)) ?
@@ -3752,9 +3790,9 @@ finish:
     {   //set 2passcsc outputpipe to VPHAL_OUTPUT_PIPE_MODE_COMP for final report.
         SET_VPHAL_OUTPUT_PIPE(pRenderData, VPHAL_OUTPUT_PIPE_MODE_COMP);
     }
-    m_reporting->OutputPipeMode = pRenderData->OutputPipe;
-    m_reporting->VEFeatureInUse = !pRenderData->bVeboxBypass;
-    m_reporting->DiScdMode      = pRenderData->VeboxDNDIParams.bSyntheticFrame;
+    m_reporting->GetFeatures().outputPipeMode = pRenderData->OutputPipe;
+    m_reporting->GetFeatures().veFeatureInUse = !pRenderData->bVeboxBypass;
+    m_reporting->GetFeatures().diScdMode      = pRenderData->VeboxDNDIParams.bSyntheticFrame;
 
     return eStatus;
 }
@@ -3887,7 +3925,7 @@ bool VPHAL_VEBOX_STATE::VeboxIs2PassesCSCNeeded(
             (pRenderTarget->ColorSpace == CSpace_stRGB)           ||
             (pRenderTarget->ColorSpace == CSpace_sRGB))
         {
-            b2PassesCSCNeeded = (pRenderData->bHdr3DLut) ? false : true;
+            b2PassesCSCNeeded = (pRenderData->bHdr3DLut || pSrc->p3DLutParams) ? false : true;
         }
     }
 
@@ -3910,12 +3948,12 @@ finish:
 //!
 void VPHAL_VEBOX_STATE::CopyFeatureReporting(VphalFeatureReport* pReporting)
 {
-    pReporting->IECP            = m_reporting->IECP;
-    pReporting->Denoise         = m_reporting->Denoise;
-    pReporting->DeinterlaceMode = m_reporting->DeinterlaceMode;
-    pReporting->OutputPipeMode  = m_reporting->OutputPipeMode;
-    pReporting->VPMMCInUse      = bEnableMMC;
-    pReporting->VEFeatureInUse  = m_reporting->VEFeatureInUse;
+    pReporting->GetFeatures().iecp                  = m_reporting->GetFeatures().iecp;
+    pReporting->GetFeatures().denoise               = m_reporting->GetFeatures().denoise;
+    pReporting->GetFeatures().deinterlaceMode       = m_reporting->GetFeatures().deinterlaceMode;
+    pReporting->GetFeatures().outputPipeMode        = m_reporting->GetFeatures().outputPipeMode;
+    pReporting->GetFeatures().vpMMCInUse            = bEnableMMC;
+    pReporting->GetFeatures().veFeatureInUse        = m_reporting->GetFeatures().veFeatureInUse;
 }
 
 //!
@@ -3927,15 +3965,15 @@ void VPHAL_VEBOX_STATE::CopyFeatureReporting(VphalFeatureReport* pReporting)
 void VPHAL_VEBOX_STATE::CopyResourceReporting(VphalFeatureReport* pReporting)
 {
     // Report Vebox intermediate surface
-    pReporting->FFDICompressible   = m_reporting->FFDICompressible;
-    pReporting->FFDICompressMode   = m_reporting->FFDICompressMode;
-    pReporting->FFDNCompressible   = m_reporting->FFDNCompressible;
-    pReporting->FFDNCompressMode   = m_reporting->FFDNCompressMode;
-    pReporting->STMMCompressible   = m_reporting->STMMCompressible;
-    pReporting->STMMCompressMode   = m_reporting->STMMCompressMode;
-    pReporting->ScalerCompressible = m_reporting->ScalerCompressible;
-    pReporting->ScalerCompressMode = m_reporting->ScalerCompressMode;
-    pReporting->DiScdMode          = m_reporting->DiScdMode;
+    pReporting->GetFeatures().ffdiCompressible   = m_reporting->GetFeatures().ffdiCompressible;
+    pReporting->GetFeatures().ffdiCompressMode   = m_reporting->GetFeatures().ffdiCompressMode;
+    pReporting->GetFeatures().ffdnCompressible   = m_reporting->GetFeatures().ffdnCompressible;
+    pReporting->GetFeatures().ffdnCompressMode   = m_reporting->GetFeatures().ffdnCompressMode;
+    pReporting->GetFeatures().stmmCompressible   = m_reporting->GetFeatures().stmmCompressible;
+    pReporting->GetFeatures().stmmCompressMode   = m_reporting->GetFeatures().stmmCompressMode;
+    pReporting->GetFeatures().scalerCompressible = m_reporting->GetFeatures().scalerCompressible;
+    pReporting->GetFeatures().scalerCompressMode = m_reporting->GetFeatures().scalerCompressMode;
+    pReporting->GetFeatures().diScdMode          = m_reporting->GetFeatures().diScdMode;
 }
 
 //!
@@ -4231,6 +4269,12 @@ MOS_STATUS VpHal_VeboxAllocateTempSurfaces(
     dwSurfaceHeight     = pInSurface->dwHeight;
     surfaceFormat       = pOutSurface->Format;
     surfaceColorSpace   = pOutSurface->ColorSpace;
+
+    if (IS_YUV_FORMAT(pOutSurface->Format))
+    {
+        surfaceFormat       = Format_R10G10B10A2;
+        surfaceColorSpace   = (IS_COLOR_SPACE_BT2020(pOutSurface->ColorSpace)) ? CSpace_BT2020_RGB : CSpace_sRGB;
+    }
 
     // Hdr intermediate surface should be Y tile for best performance
     VPHAL_RENDER_CHK_STATUS(VpHal_ReAllocateSurface(
@@ -4643,7 +4687,7 @@ MOS_STATUS VpHal_RndrRenderVebox(
 
 finish:
     VPHAL_RENDER_NORMALMESSAGE("VPOutputPipe = %d, VEFeatureInUse = %d", 
-        pRenderer->GetReport()->OutputPipeMode, pRenderer->GetReport()->VEFeatureInUse);    
+        pRenderer->GetReport()->GetFeatures().outputPipeMode, pRenderer->GetReport()->GetFeatures().veFeatureInUse);
 
     return eStatus;
 }
@@ -5048,15 +5092,15 @@ bool VPHAL_VEBOX_STATE::IS_OUTPUT_PIPE_VEBOX_FEASIBLE(PVPHAL_VEBOX_STATE _pVebox
          RECT1_CONTAINS_RECT2(rcMaxSrc, rcSrc) %d, \
          rcSrc.top %d \
          rcSrc.left %d \
-         SAME_SIZE_RECT(rcDst, pTarget[0]->rcDst) %p, \
+         SAME_SIZE_RECT(rcDst, pTarget[0]->rcDst) %d, \
          pIEFParams %d, \
          SampleType %d, \
-         Rotation %p, \
+         Rotation %d, \
          bQueryVariance %d, \
-         IsFormatSupported %p, \
+         IsFormatSupported %d, \
          IsRTFormatSupported %d, \
          VeboxIs2PassesCSCNeeded %d, \
-         AlphaMode %p, \
+         AlphaMode %d, \
          rcDst.top %d, \
          rcDst.left %d",
         _pVeboxState->dwCompBypassMode,

@@ -474,8 +474,8 @@ MOS_STATUS VPHAL_VEBOX_STATE_G9_BASE::AllocateResources()
             if (bAllocated)
             {
                 // Report Compress Status
-                m_reporting->FFDICompressible = bSurfCompressible;
-                m_reporting->FFDICompressMode = (uint8_t)(SurfCompressionMode);
+                m_reporting->GetFeatures().ffdiCompressible = bSurfCompressible;
+                m_reporting->GetFeatures().ffdiCompressMode = (uint8_t)(SurfCompressionMode);
             }
         }
     }
@@ -568,8 +568,8 @@ MOS_STATUS VPHAL_VEBOX_STATE_G9_BASE::AllocateResources()
             if (bAllocated)
             {
                 // Report Compress Status
-                m_reporting->FFDNCompressible = bFFDNSurfCompressible;
-                m_reporting->FFDNCompressMode = (uint8_t)(FFDNSurfCompressionMode);
+                m_reporting->GetFeatures().ffdnCompressible = bFFDNSurfCompressible;
+                m_reporting->GetFeatures().ffdnCompressMode = (uint8_t)(FFDNSurfCompressionMode);
             }
         }
     }
@@ -627,8 +627,8 @@ MOS_STATUS VPHAL_VEBOX_STATE_G9_BASE::AllocateResources()
                 VPHAL_RENDER_CHK_STATUS(VeboxInitSTMMHistory(i));
 
                 // Report Compress Status
-                m_reporting->STMMCompressible = bSurfCompressible;
-                m_reporting->STMMCompressMode = (uint8_t)(SurfCompressionMode);
+                m_reporting->GetFeatures().stmmCompressible = bSurfCompressible;
+                m_reporting->GetFeatures().stmmCompressMode = (uint8_t)(SurfCompressionMode);
             }
         }
     }
@@ -1770,6 +1770,7 @@ bool VPHAL_VEBOX_STATE_G9_BASE::IsNeeded(
             (uint32_t)pSrcSurface->rcSrc.right < pSrcSurface->dwWidth))
     {
         pSrcSurface->bVEBOXCroppingUsed = true;
+        pRenderTarget->bVEBOXCroppingUsed = true;
         VPHAL_RENDER_NORMALMESSAGE("bVEBOXCroppingUsed = true, pSrcSurface->rcSrc.bottom: %d, pSrcSurface->rcSrc.right: %d; pSrcSurface->dwHeight: %d, pSrcSurface->dwHeight: %d;",
             (uint32_t)pSrcSurface->rcSrc.bottom,
             (uint32_t)pSrcSurface->rcSrc.right,
@@ -1779,6 +1780,7 @@ bool VPHAL_VEBOX_STATE_G9_BASE::IsNeeded(
     else
     {
         pSrcSurface->bVEBOXCroppingUsed = false;
+        pRenderTarget->bVEBOXCroppingUsed = false;
     }
 
     // Set MMC State

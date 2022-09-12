@@ -130,6 +130,7 @@ MOS_STATUS VpSurfaceDumper::GetPlaneDefs(
     case Format_R16F:
     case Format_Y16S:
     case Format_Y16U:
+    case Format_R16UN:
         *pdwNumPlanes = 1;
 
         pPlanes[0].dwWidth  = pSurface->dwWidth * 2;
@@ -1002,7 +1003,7 @@ MOS_STATUS VpSurfaceDumper::DumpSurfaceToFile(
         psPathPrefix,
         iCounter,
         pSurface->dwWidth,
-        pSurface->dwHeight,
+        planes[0].dwHeight,
         pSurface->dwPitch,
         VpDumperTool::GetFormatStr(pSurface->Format));
 

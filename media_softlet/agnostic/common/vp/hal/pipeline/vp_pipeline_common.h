@@ -82,6 +82,7 @@ struct VP_SURFACE
     bool                        bVEBOXCroppingUsed; //!<Vebox crop case need use rcSrc as vebox input.
     uint32_t                    bufferWidth;        //!< 1D buffer Width, n/a if 2D surface
     uint32_t                    bufferHeight;       //!< 1D buffer Height, n/a if 2D surface
+
     // Return true if no resource assigned to current vp surface.
     bool        IsEmpty();
     // Clean the vp surface to empty state. Only valid for false == isResourceOwner case.
@@ -102,45 +103,18 @@ struct _VP_SETTINGS
 
 using VP_SETTINGS = _VP_SETTINGS;
 
-struct _VP_MHWINTERFACE
-{
-    // Internals
-    PLATFORM                    m_platform;
-    MEDIA_FEATURE_TABLE         *m_skuTable;
-    MEDIA_WA_TABLE              *m_waTable;
-
-    // States
-    PMOS_INTERFACE              m_osInterface;
-    PRENDERHAL_INTERFACE        m_renderHal;
-    PMHW_VEBOX_INTERFACE        m_veboxInterface;
-    MhwCpInterface             *m_cpInterface;
-    PMHW_SFC_INTERFACE          m_sfcInterface;
-    VphalRenderer              *m_renderer;
-    PMHW_MI_INTERFACE           m_mhwMiInterface;
-    vp::VpPlatformInterface    *m_vpPlatformInterface;
-    void                       *m_settings;
-    VphalFeatureReport         *m_reporting;
-
-    // Render GPU context/node
-    MOS_GPU_NODE                m_renderGpuNode;
-    MOS_GPU_CONTEXT             m_renderGpuContext;
-
-    // vp Pipeline workload status report
-    PVPHAL_STATUS_TABLE        m_statusTable;
-
-    void                      *m_debugInterface;
-};
-
 // To define the features enabling on different engines
 struct _VP_EXECUTE_CAPS
 {
     union {
-        uint64_t value;
         struct {
             uint64_t bVebox         : 1;   // Vebox needed
             uint64_t bSFC           : 1;   // SFC needed
             uint64_t bRender        : 1;   // Render Only needed
             uint64_t bSecureVebox   : 1;   // Vebox in Secure Mode
+
+            uint64_t bOutputPipeFeatureInuse : 1; // Output surface of pipeline is in use.
+
             // Vebox Features
             uint64_t bDN            : 1;   // Vebox DN needed
             uint64_t bDI            : 1;   // Vebox DI enabled
@@ -163,6 +137,7 @@ struct _VP_EXECUTE_CAPS
             uint64_t bHDR3DLUT      : 1;  // Vebox 3DLUT needed
             uint64_t bDV            : 1;
             uint64_t b3DlutOutput   : 1;
+            uint64_t bCappipe       : 1;
 
             // SFC features
             uint64_t bSfcCsc        : 1;   // Sfc Csc enabled
@@ -174,10 +149,12 @@ struct _VP_EXECUTE_CAPS
             // Render Features
             uint64_t bComposite     : 1;
             uint64_t bSR            : 1;
-            uint64_t reserved       : 33;   // Reserved
         };
+        uint64_t value;
     };
 };
+
+C_ASSERT(sizeof(_VP_EXECUTE_CAPS) == sizeof(uint64_t));
 
 typedef struct _VP_EngineEntry
 {
@@ -186,23 +163,33 @@ typedef struct _VP_EngineEntry
         struct
         {
             uint32_t bEnabled : 1;
-            uint32_t SfcNeeded : 2;
-            uint32_t VeboxNeeded : 2;
-            uint32_t RenderNeeded : 2;
+            uint32_t SfcNeeded : 1;
+            uint32_t VeboxNeeded : 1;
+            uint32_t RenderNeeded : 1;
+            uint32_t fcSupported : 1;           // Supported by fast composition
+            uint32_t isolated : 1;              // Only support single feature.
+            uint32_t bypassIfVeboxSfcInUse : 1; // Bypass the feature if vebox or sfc in use. In such case, VeboxNeeded and
+                                                // SfcNeeded are 0 but it should not block vebox or sfc being selected. 
+            uint32_t forceEnableForSfc : 1;     // Force enabled when sfc being selected.
+            uint32_t forceEnableForRender : 1;  // Force enabled when render being selected.
+            uint32_t nonFcFeatureExists : 1;    // The feature exists, which do not support fc
+            uint32_t nonVeboxFeatureExists : 1; // The feature exists, which do not support vebox
+            uint32_t fcOnlyFeatureExists : 1;   // The feature exists, which only support render fc, and not support vebox/sfc.
+            uint32_t multiPassNeeded : 1;       // If true, multi-pass for frame processing is needed.
             uint32_t VeboxARGBOut : 1;
             uint32_t VeboxARGB10bitOutput : 1;
             uint32_t VeboxIECPNeeded : 1;
-            uint32_t DisableVeboxSFCMode : 1;
-            uint32_t FurtherProcessNeeded : 1;
-            uint32_t CompositionNeeded : 1;
             uint32_t bypassVeboxFeatures : 1;
+            uint32_t diProcess2ndField : 1;
             uint32_t sfc2PassScalingNeededX : 1;
             uint32_t sfc2PassScalingNeededY : 1;
-            uint32_t reserve : 16;
+            uint32_t usedForNextPass : 1;       // true if current feature should be bypassed for current pass and be processed during next pass.
         };
         uint32_t value;
     };
 }VP_EngineEntry;
+
+C_ASSERT(sizeof(_VP_EngineEntry) == sizeof(uint32_t));
 
 enum _VP_PACKET_ENGINE
 {
@@ -239,7 +226,6 @@ union RESOURCE_ASSIGNMENT_HINT
     uint32_t value[RESOURCE_ASSIGNMENT_HINT_SIZE];
 };
 
-using VP_MHWINTERFACE  = _VP_MHWINTERFACE;
 using PVP_MHWINTERFACE = VP_MHWINTERFACE * ;
 using VP_EXECUTE_CAPS  = _VP_EXECUTE_CAPS;
 using VP_PACKET_ENGINE = _VP_PACKET_ENGINE;

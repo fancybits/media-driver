@@ -34,10 +34,10 @@
 #include "media_libva.h"
 #include "mos_utilities.h"
 #include "media_interfaces_mmd.h"
-#include "media_libva_caps.h"
-#include "media_libva_putsurface_linux.h"
+#include "media_libva_caps_next.h"
 #include "media_ddi_prot.h"
 #include "media_interfaces_hwinfo_device.h"
+#include "mos_oca_interface_specific.h"
 
 #include "media_libva_caps.h"
 #include "ddi_cp_functions.h"
@@ -318,8 +318,8 @@ VAStatus MediaLibvaInterfaceNext::MediaMemoryTileConvertInternal(
 VAStatus MediaLibvaInterfaceNext::Initialize (
     VADriverContextP ctx,
     int32_t          devicefd,
-    int32_t         *major_version,
-    int32_t         *minor_version
+    int32_t          *major_version,
+    int32_t          *minor_version
 )
 {
     DDI_FUNCTION_ENTER();
@@ -377,6 +377,10 @@ VAStatus MediaLibvaInterfaceNext::Initialize (
     mosCtx.fd              = mediaCtx->fd;
 
     MosInterface::InitOsUtilities(&mosCtx);
+    if (mediaCtx->m_apoMosEnabled)
+    {
+        MosOcaInterfaceSpecific::InitInterface();
+    }
 
     mediaCtx->pGtSystemInfo = (MEDIA_SYSTEM_INFO *)MOS_AllocAndZeroMemory(sizeof(MEDIA_SYSTEM_INFO));
     if (nullptr == mediaCtx->pGtSystemInfo)
@@ -420,9 +424,9 @@ VAStatus MediaLibvaInterfaceNext::Initialize (
         return VA_STATUS_ERROR_ALLOCATION_FAILED;
     }
 
-    //Caps need platform and sku table, especially in MediaLibvaCapsCp::IsDecEncryptionSupported
-    mediaCtx->m_caps = MediaLibvaCaps::CreateMediaLibvaCaps(mediaCtx);
-    if (!mediaCtx->m_caps)
+    mediaCtx->m_hwInfo = MediaInterfacesHwInfoDevice::CreateFactory(mediaCtx->platform);
+    mediaCtx->m_capsNext = MediaLibvaCapsNext::CreateCaps(mediaCtx);
+    if (!mediaCtx->m_capsNext)
     {
         DDI_ASSERTMESSAGE("Caps create failed. Not supported GFX device.");
         DestroyMediaContextMutex(mediaCtx);
@@ -430,16 +434,7 @@ VAStatus MediaLibvaInterfaceNext::Initialize (
         return VA_STATUS_ERROR_ALLOCATION_FAILED;
     }
 
-    if (mediaCtx->m_caps->Init() != VA_STATUS_SUCCESS)
-    {
-        DDI_ASSERTMESSAGE("Caps init failed. Not supported GFX device.");
-        MOS_Delete(mediaCtx->m_caps);
-        mediaCtx->m_caps = nullptr;
-        DestroyMediaContextMutex(mediaCtx);
-        FreeForMediaContext(mediaCtx);
-        return VA_STATUS_ERROR_ALLOCATION_FAILED;
-    }
-    ctx->max_image_formats = mediaCtx->m_caps->GetImageFormatsMaxNum();
+    ctx->max_image_formats = mediaCtx->m_capsNext->GetImageFormatsMaxNum();
 
 #if !defined(ANDROID) && defined(X11_FOUND)
     DdiMediaUtil_InitMutex(&mediaCtx->PutSurfaceRenderMutex);
@@ -466,15 +461,13 @@ VAStatus MediaLibvaInterfaceNext::Initialize (
     if (InitCompList(mediaCtx) != VA_STATUS_SUCCESS)
     {
         DDI_ASSERTMESSAGE("Caps init failed. Not supported GFX device.");
-        MOS_Delete(mediaCtx->m_caps);
-        mediaCtx->m_caps = nullptr;
+        MOS_Delete(mediaCtx->m_capsNext);
+        mediaCtx->m_capsNext = nullptr;
         DestroyMediaContextMutex(mediaCtx);
         ReleaseCompList(mediaCtx);
         FreeForMediaContext(mediaCtx);
         return VA_STATUS_ERROR_ALLOCATION_FAILED;
     }
-
-    mediaCtx->m_hwInfo = MediaInterfacesHwInfoDevice::CreateFactory(mediaCtx->platform);
 
     DdiMediaUtil_UnLockMutex(&m_GlobalMutex);
 
@@ -763,7 +756,7 @@ VAStatus MediaLibvaInterfaceNext::Terminate(VADriverContextP ctx)
     DdiMediaUtil_DestroyMutex(&mediaCtx->PutSurfaceRenderMutex);
     DdiMediaUtil_DestroyMutex(&mediaCtx->PutSurfaceSwapBufferMutex);
 
-    if (mediaCtx->m_caps)
+    if (mediaCtx->m_capsNext)
     {
         if (mediaCtx->dri_output != nullptr)
         {
@@ -778,10 +771,10 @@ VAStatus MediaLibvaInterfaceNext::Terminate(VADriverContextP ctx)
     }
 #endif
 
-    if (mediaCtx->m_caps)
+    if (mediaCtx->m_capsNext)
     {
-        MOS_Delete(mediaCtx->m_caps);
-        mediaCtx->m_caps = nullptr;
+        MOS_Delete(mediaCtx->m_capsNext);
+        mediaCtx->m_capsNext = nullptr;
     }
     //destory resources
     FreeSurfaceHeapElements(mediaCtx);
@@ -795,6 +788,7 @@ VAStatus MediaLibvaInterfaceNext::Terminate(VADriverContextP ctx)
     MosInterface::DestroyOsDeviceContext(mediaCtx->m_osDeviceContext);
     mediaCtx->m_osDeviceContext = MOS_INVALID_HANDLE;
     MOS_FreeMemory(mediaCtx->pGtSystemInfo);
+    MosOcaInterfaceSpecific::UninitInterface();
     MosInterface::CloseOsUtilities(nullptr);
 
     ReleaseCompList(mediaCtx);
@@ -968,7 +962,7 @@ struct dso_handle* MediaLibvaInterfaceNext::DsoOpen(const char *path)
 bool MediaLibvaInterfaceNext::DsoGetSymbols(
     struct dso_handle          *h,
     void                       *vtable,
-    uint32_t                    vtable_length,
+    uint32_t                   vtable_length,
     const struct dso_symbol    *symbols
 )
 {
@@ -1043,9 +1037,20 @@ VAStatus MediaLibvaInterfaceNext::LoadFunction(VADriverContextP ctx)
     ctx->max_entrypoints                     = DDI_CODEC_GEN_MAX_ENTRYPOINTS;
     ctx->max_attributes                      = (int32_t)VAConfigAttribTypeMax;
     ctx->max_subpic_formats                  = DDI_CODEC_GEN_MAX_SUBPIC_FORMATS;
-    ctx->max_display_attributes              = DDI_CODEC_GEN_MAX_DISPLAY_ATTRIBUTES ;
+    ctx->max_display_attributes              = DDI_MEDIA_GEN_MAX_DISPLAY_ATTRIBUTES ;
     ctx->str_vendor                          = DDI_CODEC_GEN_STR_VENDOR;
     ctx->vtable_tpi                          = nullptr;
+
+    pVTable->vaTerminate                     = Terminate;
+
+    pVTable->vaQueryConfigEntrypoints        = QueryConfigEntrypoints;
+    pVTable->vaQueryConfigProfiles           = QueryConfigProfiles;
+    pVTable->vaQueryConfigAttributes         = QueryConfigAttributes;
+    pVTable->vaCreateConfig                  = CreateConfig;
+    pVTable->vaDestroyConfig                 = DestroyConfig;
+    pVTable->vaGetConfigAttributes           = GetConfigAttributes;
+    pVTable->vaQuerySurfaceAttributes        = QuerySurfaceAttributes;
+    pVTable->vaQueryImageFormats             = QueryImageFormats;
 
     pVTable->vaCreateConfig                  = CreateConfig;
     pVTable->vaCreateContext                 = CreateContext;
@@ -1260,7 +1265,70 @@ VAStatus MediaLibvaInterfaceNext::EndPicture (
     return vaStatus;
 }
 
-VAStatus MediaLibvaInterfaceNext::CreateConfig (
+VAStatus MediaLibvaInterfaceNext::QueryConfigEntrypoints(
+    VADriverContextP ctx,
+    VAProfile        profile,
+    VAEntrypoint     *entrypointList,
+    int32_t          *entrypointsNum)
+{
+    DDI_FUNCTION_ENTER();
+
+    PERF_UTILITY_START_ONCE("First Frame Time", PERF_MOS, PERF_LEVEL_DDI);
+
+    DDI_CHK_NULL(ctx,                  "nullptr Ctx",      VA_STATUS_ERROR_INVALID_CONTEXT);
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
+    DDI_CHK_NULL(mediaCtx,             "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(mediaCtx->m_capsNext, "nullptr m_caps",   VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    DDI_CHK_NULL(entrypointList, "nullptr entrypointList", VA_STATUS_ERROR_INVALID_PARAMETER);
+    DDI_CHK_NULL(entrypointsNum, "nullptr entrypointsNum", VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    return mediaCtx->m_capsNext->QueryConfigEntrypoints(profile, entrypointList, entrypointsNum);
+}
+
+VAStatus MediaLibvaInterfaceNext::QueryConfigProfiles(
+    VADriverContextP  ctx,
+    VAProfile         *profileList,
+    int32_t           *profilesNum)
+{
+    DDI_FUNCTION_ENTER();
+
+    DDI_CHK_NULL(ctx,                  "nullptr Ctx",      VA_STATUS_ERROR_INVALID_CONTEXT);
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
+    DDI_CHK_NULL(mediaCtx,             "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(mediaCtx->m_capsNext, "nullptr m_caps",   VA_STATUS_ERROR_INVALID_CONTEXT);
+
+    DDI_CHK_NULL(profileList, "nullptr profileList", VA_STATUS_ERROR_INVALID_PARAMETER);
+    DDI_CHK_NULL(profilesNum, "nullptr profilesNum", VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    return mediaCtx->m_capsNext->QueryConfigProfiles(profileList, profilesNum);
+}
+
+VAStatus MediaLibvaInterfaceNext::QueryConfigAttributes(
+    VADriverContextP  ctx,
+    VAConfigID        configId,
+    VAProfile         *profile,
+    VAEntrypoint      *entrypoint,
+    VAConfigAttrib    *attribList,
+    int32_t           *attribsNum)
+{
+    DDI_FUNCTION_ENTER();
+
+    DDI_CHK_NULL(profile,     "nullptr profile",     VA_STATUS_ERROR_INVALID_PARAMETER);
+    DDI_CHK_NULL(entrypoint,  "nullptr entrypoint",  VA_STATUS_ERROR_INVALID_PARAMETER);
+    DDI_CHK_NULL(ctx,         "nullptr ctx",         VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(attribList,  "nullptr attribList",  VA_STATUS_ERROR_INVALID_PARAMETER);
+    DDI_CHK_NULL(attribsNum,  "nullptr attribsNum",  VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
+    DDI_CHK_NULL(mediaCtx,             "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(mediaCtx->m_capsNext, "nullptr m_caps",   VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    return mediaCtx->m_capsNext->QueryConfigAttributes(
+                configId, profile, entrypoint, attribList, attribsNum);
+}
+
+VAStatus MediaLibvaInterfaceNext::CreateConfig(
     VADriverContextP  ctx,
     VAProfile         profile,
     VAEntrypoint      entrypoint,
@@ -1274,7 +1342,106 @@ VAStatus MediaLibvaInterfaceNext::CreateConfig (
     PDDI_MEDIA_CONTEXT mediaCtx   = GetMediaContext(ctx);
     DDI_CHK_NULL(mediaCtx, "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
 
-    return VA_STATUS_ERROR_UNIMPLEMENTED;
+    CompType componentIndex = MapCompTypeFromEntrypoint(entrypoint);
+    DDI_CHK_NULL(mediaCtx->m_compList[componentIndex],  "nullptr complist",  VA_STATUS_ERROR_INVALID_CONTEXT);
+
+    return mediaCtx->m_compList[componentIndex]->CreateConfig(
+        ctx, profile, entrypoint, attribList, attribsNum, configId);
+}
+
+VAStatus MediaLibvaInterfaceNext::DestroyConfig(
+    VADriverContextP ctx,
+    VAConfigID       configId)
+{
+    DDI_FUNCTION_ENTER();
+
+    DDI_CHK_NULL(ctx,       "nullptr ctx",       VA_STATUS_ERROR_INVALID_CONTEXT);
+
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
+    DDI_CHK_NULL(mediaCtx,             "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(mediaCtx->m_capsNext, "nullptr m_caps",   VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    return mediaCtx->m_capsNext->DestroyConfig(configId);
+}
+
+VAStatus MediaLibvaInterfaceNext::GetConfigAttributes(
+    VADriverContextP  ctx,
+    VAProfile         profile,
+    VAEntrypoint      entrypoint,
+    VAConfigAttrib    *attribList,
+    int32_t           attribsNum)
+{
+    DDI_FUNCTION_ENTER();
+
+    DDI_CHK_NULL(ctx,        "nullptr ctx",        VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(attribList, "nullptr attribList", VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
+    DDI_CHK_NULL(mediaCtx,             "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(mediaCtx->m_capsNext, "nullptr m_caps",   VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    return mediaCtx->m_capsNext->GetConfigAttributes(profile, entrypoint, attribList, attribsNum);
+}
+
+VAStatus MediaLibvaInterfaceNext::QuerySurfaceAttributes(
+    VADriverContextP  ctx,
+    VAConfigID        configId,
+    VASurfaceAttrib   *attribList,
+    uint32_t          *attribsNum)
+{
+    DDI_FUNCTION_ENTER();
+
+    DDI_CHK_NULL(ctx,        "nullptr ctx",         VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(attribsNum, "nullptr attribsNum",  VA_STATUS_ERROR_INVALID_PARAMETER);
+    DDI_CHK_NULL(attribList, "nullptr attribList",  VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
+    DDI_CHK_NULL(mediaCtx,             "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(mediaCtx->m_capsNext, "nullptr m_caps",   VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    return mediaCtx->m_capsNext->QuerySurfaceAttributes(configId, attribList, attribsNum);
+}
+
+VAStatus MediaLibvaInterfaceNext::QueryImageFormats(
+    VADriverContextP  ctx,
+    VAImageFormat     *formatList,
+    int32_t           *formatsNum)
+{
+    DDI_FUNCTION_ENTER();
+
+    DDI_CHK_NULL(ctx,        "nullptr ctx",         VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(formatList, "nullptr formatList",  VA_STATUS_ERROR_INVALID_PARAMETER);
+    DDI_CHK_NULL(formatsNum, "nullptr formatsNum",  VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
+    DDI_CHK_NULL(mediaCtx,             "nullptr mediaCtx",  VA_STATUS_ERROR_INVALID_CONTEXT);
+    DDI_CHK_NULL(mediaCtx->m_capsNext, "nullptr caps",      VA_STATUS_ERROR_INVALID_PARAMETER);
+
+    return mediaCtx->m_capsNext->QueryImageFormats(formatList, formatsNum);
+}
+
+CompType MediaLibvaInterfaceNext::MapCompTypeFromEntrypoint(VAEntrypoint entrypoint)
+{
+    DDI_FUNCTION_ENTER();
+
+    switch(entrypoint)
+    {
+        case VAEntrypointEncSlice:
+        case VAEntrypointEncSliceLP:
+        case VAEntrypointEncPicture:
+        case VAEntrypointFEI:
+        case VAEntrypointStats:
+            return CompEncode;
+        case VAEntrypointVLD:
+            return CompDecode;
+        case VAEntrypointVideoProc:
+            return CompVp;
+        case VAEntrypointProtectedContent:
+        case VAEntrypointProtectedTEEComm:
+            return CompCp;
+        default:
+            return CompCommon;
+    }
 }
 
 VAStatus MediaLibvaInterfaceNext::QueryVideoProcFilters(
@@ -1333,7 +1500,7 @@ VAStatus MediaLibvaInterfaceNext::CreateProtectedSession(
 {
     DDI_FUNCTION_ENTER();
     DDI_CHK_NULL(ctx,                          "nullptr ctx",       VA_STATUS_ERROR_INVALID_CONTEXT);
-    PDDI_MEDIA_CONTEXT mediaCtx = DdiMedia_GetMediaContext(ctx);
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
     DDI_CHK_NULL(mediaCtx,                     "nullptr mediaCtx",  VA_STATUS_ERROR_INVALID_CONTEXT);
     DDI_CHK_NULL(mediaCtx->m_compList[CompCp], "nullptr complist",  VA_STATUS_ERROR_INVALID_CONTEXT);
 
@@ -1346,7 +1513,7 @@ VAStatus MediaLibvaInterfaceNext::DestroyProtectedSession(
 {
     DDI_FUNCTION_ENTER();
     DDI_CHK_NULL(ctx,                          "nullptr ctx",       VA_STATUS_ERROR_INVALID_CONTEXT);
-    PDDI_MEDIA_CONTEXT mediaCtx = DdiMedia_GetMediaContext(ctx);
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
     DDI_CHK_NULL(mediaCtx,                     "nullptr mediaCtx",  VA_STATUS_ERROR_INVALID_CONTEXT);
     DDI_CHK_NULL(mediaCtx->m_compList[CompCp], "nullptr complist",  VA_STATUS_ERROR_INVALID_CONTEXT);
 
@@ -1360,7 +1527,7 @@ VAStatus MediaLibvaInterfaceNext::AttachProtectedSession(
 {
     DDI_FUNCTION_ENTER();
     DDI_CHK_NULL(ctx,                          "nullptr ctx",       VA_STATUS_ERROR_INVALID_CONTEXT);
-    PDDI_MEDIA_CONTEXT mediaCtx = DdiMedia_GetMediaContext(ctx);
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
     DDI_CHK_NULL(mediaCtx,                     "nullptr mediaCtx",  VA_STATUS_ERROR_INVALID_CONTEXT);
     DDI_CHK_NULL(mediaCtx->m_compList[CompCp], "nullptr complist",  VA_STATUS_ERROR_INVALID_CONTEXT);
 
@@ -1373,7 +1540,7 @@ VAStatus MediaLibvaInterfaceNext::DetachProtectedSession(
 {
     DDI_FUNCTION_ENTER();
     DDI_CHK_NULL(ctx,                          "nullptr ctx",       VA_STATUS_ERROR_INVALID_CONTEXT);
-    PDDI_MEDIA_CONTEXT mediaCtx = DdiMedia_GetMediaContext(ctx);
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
     DDI_CHK_NULL(mediaCtx,                     "nullptr mediaCtx",  VA_STATUS_ERROR_INVALID_CONTEXT);
     DDI_CHK_NULL(mediaCtx->m_compList[CompCp], "nullptr complist",  VA_STATUS_ERROR_INVALID_CONTEXT);
 
@@ -1387,7 +1554,7 @@ VAStatus MediaLibvaInterfaceNext::ProtectedSessionExecute(
 {
     DDI_FUNCTION_ENTER();
     DDI_CHK_NULL(ctx,                          "nullptr ctx",       VA_STATUS_ERROR_INVALID_CONTEXT);
-    PDDI_MEDIA_CONTEXT mediaCtx = DdiMedia_GetMediaContext(ctx);
+    PDDI_MEDIA_CONTEXT mediaCtx = GetMediaContext(ctx);
     DDI_CHK_NULL(mediaCtx,                     "nullptr mediaCtx",  VA_STATUS_ERROR_INVALID_CONTEXT);
     DDI_CHK_NULL(mediaCtx->m_compList[CompCp], "nullptr complist",  VA_STATUS_ERROR_INVALID_CONTEXT);
 

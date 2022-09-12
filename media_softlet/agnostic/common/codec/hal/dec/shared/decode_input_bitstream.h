@@ -30,11 +30,13 @@
 #define __DECODE_INPUT_BITSTREAM_H__
 
 #include "decode_packet_id.h"
-#include "decode_huc_copy_packet.h"
 #include "decode_resource_array.h"
 #include "decode_sub_pipeline.h"
 #include "codec_def_decode.h"
 #include "media_feature_manager.h"
+#include "decode_basic_feature.h"
+#include "decode_huc_copy_packet_itf.h"
+#include "decode_status_report.h"
 
 namespace decode {
 
@@ -84,7 +86,7 @@ public:
     //! \return bool
     //!         Ture if input bitstream is complete, else return false
     //!
-    bool IsComplete();
+    virtual bool IsComplete();
 
     //!
     //! \brief  Get media function for context switch
@@ -108,7 +110,7 @@ protected:
     //! \return MOS_STATUS
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS Append(const CodechalDecodeParams &decodeParams);
+    virtual MOS_STATUS Append(const CodechalDecodeParams &decodeParams);
 
     //!
     //! \brief  Add new segment to segment list
@@ -135,11 +137,11 @@ protected:
     //!
     MOS_STATUS AllocateCatenatedBuffer();
 
-private:
+protected:
     DecodeBasicFeature*  m_basicFeature   = nullptr; //!< Decode basic feature
     DecodeAllocator *    m_allocator      = nullptr; //!< Resource allocator
 
-    HucCopyPkt *    m_concatPkt         = nullptr;   //!< Bitstream concat packet
+    HucCopyPktItf * m_concatPkt         = nullptr;   //!< Bitstream concat packet
     PMOS_BUFFER     m_catenatedBuffer   = nullptr;   //!< Catenated bitstream for decode
     uint32_t        m_requiredSize      = 0;         //!< Size of bitstream in bytes of current frame
     uint32_t        m_segmentsTotalSize = 0;         //!< Total size of segments in m_segments

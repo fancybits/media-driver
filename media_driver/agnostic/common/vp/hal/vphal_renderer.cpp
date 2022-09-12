@@ -994,8 +994,8 @@ void VphalRenderer::UpdateReport(
 
     if (pRenderPassData->pPrimarySurface && pRenderPassData->pPrimarySurface->bCompressible)
     {
-        m_reporting->PrimaryCompressible = true;
-        m_reporting->PrimaryCompressMode = (uint8_t)(pRenderPassData->pPrimarySurface->CompressionMode);
+        m_reporting->GetFeatures().primaryCompressible = true;
+        m_reporting->GetFeatures().primaryCompressMode = (uint8_t)(pRenderPassData->pPrimarySurface->CompressionMode);
     }
 
     if (pRenderParams->pTarget[0]->bCompressible)
@@ -1003,8 +1003,8 @@ void VphalRenderer::UpdateReport(
         MOS_ZeroMemory(&Info, sizeof(VPHAL_GET_SURFACE_INFO));
 
         VpHal_GetSurfaceInfo(m_pOsInterface, &Info, pRenderParams->pTarget[0]);
-        m_reporting->RTCompressible = true;
-        m_reporting->RTCompressMode = (uint8_t)(pRenderParams->pTarget[0]->CompressionMode);
+        m_reporting->GetFeatures().rtCompressible = true;
+        m_reporting->GetFeatures().rtCompressMode = (uint8_t)(pRenderParams->pTarget[0]->CompressionMode);
     }
 }
 
@@ -1131,6 +1131,7 @@ MOS_STATUS VphalRenderer::Render(
     RenderParams = *pcRenderParams;
 
     VPHAL_DBG_PARAMETERS_DUMPPER_DUMP_XML(&RenderParams);
+    VPHAL_DBG_OCA_DUMPER_SET_RENDER_PARAM(pRenderHal, &RenderParams);
 
     // Get resource information for render target
     MOS_ZeroMemory(&Info, sizeof(VPHAL_GET_SURFACE_INFO));
@@ -1233,7 +1234,7 @@ MOS_STATUS VphalRenderer::UpdateRenderGpuContext(MOS_GPU_CONTEXT currentGpuConte
     PVPHAL_VEBOX_STATE      pVeboxState = nullptr;
     int                     i           = 0;
 
-    if (MEDIA_IS_SKU(m_pSkuTable, FtrRAMode) &&
+    if ((MEDIA_IS_SKU(m_pSkuTable, FtrRAMode) || MEDIA_IS_SKU(m_pSkuTable, FtrProtectedEnableBitRequired)) &&
         m_pOsInterface->osCpInterface->IsCpEnabled() &&
         (m_pOsInterface->osCpInterface->IsHMEnabled() || m_pOsInterface->osCpInterface->IsSMEnabled()))
     {
@@ -1248,7 +1249,8 @@ MOS_STATUS VphalRenderer::UpdateRenderGpuContext(MOS_GPU_CONTEXT currentGpuConte
             renderGpuContext = MOS_GPU_CONTEXT_RENDER_RA;
             renderGpuNode    = MOS_GPU_NODE_3D;
         }
-        createOption.RAMode = 1;
+        createOption.RAMode = MEDIA_IS_SKU(m_pSkuTable, FtrRAMode);
+        createOption.ProtectMode = MEDIA_IS_SKU(m_pSkuTable, FtrProtectedEnableBitRequired);
     }
     else
     {
@@ -1264,6 +1266,7 @@ MOS_STATUS VphalRenderer::UpdateRenderGpuContext(MOS_GPU_CONTEXT currentGpuConte
             renderGpuNode    = MOS_GPU_NODE_3D;
         }
         createOption.RAMode = 0;
+        createOption.ProtectMode = 0;
     }
 
     // no gpucontext will be created if the gpu context has been created before.
@@ -1588,6 +1591,8 @@ VphalRenderer::~VphalRenderer()
 
     // Destroy vphal parameter dump
     VPHAL_DBG_PARAMETERS_DUMPPER_DESTORY(m_parameterDumper);
+
+    VPHAL_DBG_OCA_DUMPER_DESTORY(m_pRenderHal);
 
 finish:
     return;
@@ -2160,6 +2165,15 @@ MOS_STATUS VphalRenderer::AllocateDebugDumper()
 
 #endif
 
+    // vphal oca dumper object should also be created for release driver.
+    VPHAL_DBG_OCA_DUMPER_CREATE(pRenderHal)
+    if (nullptr == pRenderHal->pVphalOcaDumper)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("Invalid null pointer!");
+        eStatus = MOS_STATUS_NULL_POINTER;
+        goto finish;
+    }
+
 finish:
     if (eStatus != MOS_STATUS_SUCCESS)
     {
@@ -2181,6 +2195,7 @@ finish:
             VPHAL_DBG_STATE_DUMPPER_DESTORY(pRenderHal->pStateDumper)
         }
 #endif
+        VPHAL_DBG_OCA_DUMPER_DESTORY(pRenderHal)
 
     }
 

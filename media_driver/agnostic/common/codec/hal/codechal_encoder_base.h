@@ -1131,7 +1131,10 @@ enum
     CODECHAL_ENCODE_PERFTAG_CALL_PREPROC_KERNEL,
     CODECHAL_ENCODE_PERFTAG_CALL_DS_CONVERSION_KERNEL,
     CODECHAL_ENCODE_PERFTAG_CALL_SCOREBOARD,
-    CODECHAL_ENCODE_PERFTAG_CALL_SFD_KERNEL
+    CODECHAL_ENCODE_PERFTAG_CALL_SFD_KERNEL,
+    CODECHAL_ENCODE_PERFTAG_CALL_PAK_ENGINE_SECOND_PASS,
+    CODECHAL_ENCODE_PERFTAG_CALL_BRC_UPDATE_SECOND_PASS,
+    CODECHAL_ENCODE_PERFTAG_CALL_HEVC_LA_UPDATE
 };
 
 class CodechalEncodeWP;
@@ -1492,7 +1495,8 @@ public:
     bool                            m_forceSinglePakPass = false;                   //!< Flag to enable forcing single pak pass
     bool                            m_useCmScalingKernel = false;                   //!< Flag to use cm scaling kernel
     bool                            m_useMwWlkrForAsmScalingKernel = false;         //!< Use media walker for ASM scaling kernel flag
-    bool                            m_combinedDownScaleAndDepthConversion = false;   //!< Combied downscale and depth conversion
+    bool                            m_combinedDownScaleAndDepthConversion = false;  //!< Combied downscale and depth conversion
+    bool                            m_bRenderOcaEnabled = false;                    //!< Should encoder support OCA for RCS
     uint32_t                        m_brcPakStatisticsSize = 0;                     //!< Bitrate control PAK statistics size
     uint32_t                        m_brcHistoryBufferSize = 0;                     //!< Bitrate control history buffer size
     uint32_t                        m_mbencBrcBufferSize = 0;                       //!< Mbenc bitrate control buffer size
@@ -2054,15 +2058,12 @@ public:
     //!         cmdbuffer to send cmds
     //! \param  [in] params
     //!         Parameters for send cmds
-    //! \param  [in] bEnableRenderOCA
-    //!         Enable/Disable OCA support for Render Command Streamer
     //! \return MOS_STATUS
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS SendGenericKernelCmds(
         PMOS_COMMAND_BUFFER   cmdBuffer,
-        SendKernelCmdsParams *params,
-        bool                  bEnableRenderOCA = false);
+        SendKernelCmdsParams *params);
 
     //!
     //! \brief  Start Status Report
@@ -2496,6 +2497,30 @@ public:
         uint32_t                    offset,
         uint32_t                    value,
         bool                        bAdd);
+
+    //!
+    //! \brief  Set a 16 bit value to specified gfx memory dword
+    //!
+    //! \param  [in] cmdBuffer
+    //!         command buffer
+    //! \param  [in] presStoreBuffer
+    //!         buffer to modify
+    //! \param  [in] offset
+    //!         member offset in the buffer
+    //! \param  [in] value
+    //!         value to set
+    //! \param  [in] bSecond
+    //!         second or first word in dword
+    //!
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS SetBufferWithIMMValueU16(
+        PMOS_COMMAND_BUFFER cmdBuffer,
+        PMOS_RESOURCE       presStoreBuffer,
+        uint32_t            offset,
+        uint32_t            value,
+        bool                bSecond);
 
     bool          m_enableFakeHrdSize   = false;
     int32_t       m_fakeIFrameHrdSize   = 0;

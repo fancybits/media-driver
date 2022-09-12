@@ -64,6 +64,7 @@
 #include "mos_os_virtualengine_scalability_next.h"
 
 #include "memory_policy_manager.h"
+#include "mos_oca_interface_specific.h"
 
 //!
 //! \brief DRM VMAP patch
@@ -2605,17 +2606,29 @@ MOS_STATUS Mos_Specific_AllocateResource(
     pOsResource->bMapped = false;
     if (bo)
     {
-        pOsResource->Format       = pParams->Format;
-        pOsResource->iWidth       = pParams->dwWidth;
-        pOsResource->iHeight      = iHeight;
-        pOsResource->iPitch       = iPitch;
-        pOsResource->iCount       = 0;
-        pOsResource->bufname      = bufname;
-        pOsResource->bo           = bo;
-        pOsResource->TileType     = tileformat;
-        pOsResource->TileModeGMM       = (MOS_TILE_MODE_GMM)pGmmResourceInfo->GetTileModeSurfaceState();
-        pOsResource->bGMMTileEnabled   = true;
-        pOsResource->pData        = (uint8_t*) bo->virt; //It is useful for batch buffer to fill commands
+        pOsResource->Format          = pParams->Format;
+        pOsResource->iWidth          = pParams->dwWidth;
+        pOsResource->iHeight         = iHeight;
+        pOsResource->iPitch          = iPitch;
+        pOsResource->iCount          = 0;
+        pOsResource->bufname         = bufname;
+        pOsResource->bo              = bo;
+        pOsResource->TileType        = tileformat;
+        pOsResource->TileModeGMM     = (MOS_TILE_MODE_GMM)pGmmResourceInfo->GetTileModeSurfaceState();
+        pOsResource->bGMMTileEnabled = true;
+        pOsResource->pData           = (uint8_t *)bo->virt;  //It is useful for batch buffer to fill commands
+        if (pParams->ResUsageType == MOS_CODEC_RESOURCE_USAGE_BEGIN_CODEC ||
+            pParams->ResUsageType >= MOS_HW_RESOURCE_USAGE_MEDIA_BATCH_BUFFERS)
+        {
+            pOsResource->memObjCtrlState = MosInterface::GetCachePolicyMemoryObject(pOsInterface->pOsContext->pGmmClientContext, MOS_MP_RESOURCE_USAGE_DEFAULT);
+            pOsResource->mocsMosResUsageType = MOS_MP_RESOURCE_USAGE_DEFAULT;
+        }
+        else
+        {
+            pOsResource->memObjCtrlState = MosInterface::GetCachePolicyMemoryObject(pOsInterface->pOsContext->pGmmClientContext, pParams->ResUsageType);
+            pOsResource->mocsMosResUsageType = pParams->ResUsageType;
+        }
+
         MOS_OS_VERBOSEMESSAGE("Alloc %7d bytes (%d x %d resource).",iSize, pParams->dwWidth, iHeight);
     }
     else
@@ -6220,6 +6233,23 @@ MOS_STATUS Mos_Specific_WaitAllCmdCompletion_Os(
 }
 
 //!
+//! \brief    Get interface version
+//! \details  Get interface version
+//!
+//! \param    PMOS_INTERFACE pOsInterface
+//!           [in] OS Interface
+//!
+//! \return   uint32_t
+//!           Read-only OS runtime interface version, it's meaning diff from OS and API
+//!
+uint32_t Mos_Specific_GetInterfaceVersion(
+    PMOS_INTERFACE        pOsInterface)
+{
+    MOS_UNUSED(pOsInterface);
+    return 0;
+}
+
+//!
 //! \brief    Determines if the resource should be CPU cacheable during allocation
 //! \param    PMOS_INTERFACE pOsInterface
 //!           [in] Pointer to OS Interface
@@ -7001,7 +7031,7 @@ MEMORY_OBJECT_CONTROL_STATE Mos_Specific_CachePolicyGetMemoryObject(
     GMM_CLIENT_CONTEXT          *pGmmClientContext)
 {
    // Force convert to stream handle for wrapper
-    return MosInterface::GetCachePolicyMemoryObject((MOS_STREAM_HANDLE)pGmmClientContext, MosUsage);
+    return MosInterface::GetCachePolicyMemoryObject(pGmmClientContext, MosUsage);
 }
 
 //!
@@ -7286,7 +7316,6 @@ static MOS_STATUS Mos_Specific_InitInterface_Ve(
             osInterface->bGucSubmission = true;
         }
 
-#if (_DEBUG || _RELEASE_INTERNAL)
         //Read Scalable/Legacy Decode mode on Gen11+
         //1:by default for scalable decode mode
         //0:for legacy decode mode
@@ -7304,6 +7333,7 @@ static MOS_STATUS Mos_Specific_InitInterface_Ve(
             osInterface->bHcpDecScalabilityMode = MOS_SCALABILITY_ENABLE_MODE_USER_FORCE;
         }
 
+#if (_DEBUG || _RELEASE_INTERNAL)
         osInterface->frameSplit                  = false;
         MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
         MOS_UserFeature_ReadValue_ID(
@@ -7594,6 +7624,7 @@ MOS_STATUS Mos_Specific_InitInterface(
     pOsInterface->pfnGetIndirectState                       = Mos_Specific_GetIndirectState;
     pOsInterface->pfnGetIndirectStatePointer                = Mos_Specific_GetIndirectStatePointer;
     pOsInterface->pfnSetPatchEntry                          = Mos_Specific_SetPatchEntry;
+    pOsInterface->pfnGetInterfaceVersion                    = Mos_Specific_GetInterfaceVersion;
 
     pOsInterface->pfnLoadLibrary                            = Mos_Specific_LoadLibrary;
     pOsInterface->pfnFreeLibrary                            = Mos_Specific_FreeLibrary;

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2018, Intel Corporation
+* Copyright (c) 2017-2021, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -625,6 +625,8 @@ protected:
     uint8_t                     m_numVdbox = 1; //!< vdbox num
     uint32_t                    m_brcNumPakPasses = 4; //!< Number of brc pak passes
 
+    std::shared_ptr<void>       m_mfxItfNew       = nullptr;
+
     MmioRegistersMfx            m_mmioRegisters[MHW_VDBOX_NODE_MAX] = {};  //!< mfx mmio registers
 
     //!
@@ -855,6 +857,14 @@ public:
     //! \brief    Destructor
     //!
     virtual ~MhwVdboxMfxInterface() {}
+
+    //!
+    //! \brief    Get new MFX interface, temporal solution before switching from
+    //!           old interface to new one
+    //!
+    //! \return   pointer to new MFX interface
+    //!
+    virtual std::shared_ptr<void> GetNewMfxInterface() { return nullptr; }
 
     //!
     //! \brief    Judge if decode is in use

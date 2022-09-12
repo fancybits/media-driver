@@ -6314,6 +6314,16 @@ MOS_STATUS CodechalVdencHevcStateG12::Initialize(CodechalSetting * settings)
         m_osInterface->pOsContext);
     m_CaptureModeEnable = userFeatureData.i32Data ? true : false;
 
+#if (_DEBUG || _RELEASE_INTERNAL)
+    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+    MOS_UserFeature_ReadValue_ID(
+        nullptr,
+        __MEDIA_USER_FEATURE_VALUE_HEVC_VDENC_TCBRC_ARB_DISABLE_ID,
+        &userFeatureData,
+        m_osInterface->pOsContext);
+    m_brcAdaptiveRegionBoostSupported = userFeatureData.i32Data ? false : m_brcAdaptiveRegionBoostSupported;
+#endif
+
     // common initilization
     CODECHAL_ENCODE_CHK_STATUS_RETURN(CodechalVdencHevcState::Initialize(settings));
 
@@ -8973,7 +8983,10 @@ void CodechalVdencHevcStateG12::SetStreaminDataPerLcu(
         else
         {
             data->DW7.QpEnable = 0xf;
-            data->DW14.ForceQp_0 = data->DW14.ForceQp_1 = data->DW14.ForceQp_2 = data->DW14.ForceQp_3 = streaminParams->forceQp;
+            data->DW14.ForceQp_0 = streaminParams->forceQp[0];
+            data->DW14.ForceQp_1 = streaminParams->forceQp[1];
+            data->DW14.ForceQp_2 = streaminParams->forceQp[2];
+            data->DW14.ForceQp_3 = streaminParams->forceQp[3];
         }
     }
     else

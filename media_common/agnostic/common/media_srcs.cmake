@@ -19,3 +19,5 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 
 media_include_subdirectory(os)
+media_include_subdirectory(codec)
+media_include_subdirectory(hw)

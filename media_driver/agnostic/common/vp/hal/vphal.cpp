@@ -34,34 +34,6 @@
 #include "media_interfaces_vphal.h"
 #include "media_interfaces_mhw.h"
 
-void VphalFeatureReport::InitReportValue()
-{
-    IECP                =   false;
-    IEF                 =   false;
-    Denoise             =   false;
-    ChromaDenoise       =   false;
-    DeinterlaceMode     =   VPHAL_DI_REPORT_PROGRESSIVE;
-    ScalingMode         =   VPHAL_SCALING_NEAREST;
-    OutputPipeMode      =   VPHAL_OUTPUT_PIPE_MODE_COMP;
-    VPMMCInUse          =   false;
-    RTCompressible      =   false;
-    RTCompressMode      =   0;
-    FFDICompressible    =   false;
-    FFDICompressMode    =   0;
-    FFDNCompressible    =   false;
-    FFDNCompressMode    =   0;
-    STMMCompressible    =   false;
-    STMMCompressMode    =   0;
-    ScalerCompressible  =   false;
-    ScalerCompressMode  =   0;
-    PrimaryCompressible =   false;
-    PrimaryCompressMode =   0;
-    CompositionMode     =   VPHAL_NO_COMPOSITION;
-    DiScdMode           =   false;
-    VEFeatureInUse      =   false;
-    HDRMode             =   VPHAL_HDR_MODE_NONE;
-}
-
 //!
 //! \brief    Allocate VPHAL Resources
 //! \details  Allocate VPHAL Resources
@@ -814,9 +786,9 @@ MOS_STATUS VphalState::GetStatusReport(
         }
 
 #if (LINUX || ANDROID)
-        dwGpuTag           = pOsContext->GetGPUTag(m_osInterface, pStatusEntry->GpuContextOrdinal);
+        dwGpuTag    = pOsContext->GetGPUTag(m_osInterface, pStatusEntry->GpuContextOrdinal);
 #else
-        dwGpuTag           = pOsContext->GetGPUTag(pOsContext->GetGpuContextHandle(pStatusEntry->GpuContextOrdinal, m_osInterface->streamIndex));
+        dwGpuTag    = m_osInterface->pfnGetGpuStatusSyncTag(m_osInterface, pStatusEntry->GpuContextOrdinal);
 #endif
         bDoneByGpu         = (dwGpuTag >= pStatusEntry->dwTag);
         bFailedOnSubmitCmd = (pStatusEntry->dwStatus == VPREP_ERROR);
@@ -904,5 +876,24 @@ finish:
 #else
     MOS_UNUSED(puiLength);
 #endif
+    return eStatus;
+}
+
+MOS_STATUS VphalState::GetVpMhwInterface(
+    VP_MHWINTERFACE &vpMhwinterface)
+{
+    MOS_STATUS eStatus              = MOS_STATUS_SUCCESS;
+
+    vpMhwinterface.m_platform       = m_platform;
+    vpMhwinterface.m_waTable        = m_waTable;
+    vpMhwinterface.m_skuTable       = m_skuTable;
+    vpMhwinterface.m_osInterface    = m_osInterface;
+    vpMhwinterface.m_renderHal      = m_renderHal;
+    vpMhwinterface.m_veboxInterface = m_veboxInterface;
+    vpMhwinterface.m_sfcInterface   = m_sfcInterface;
+    vpMhwinterface.m_cpInterface    = m_cpInterface;
+    vpMhwinterface.m_mhwMiInterface = m_renderHal->pMhwMiInterface;
+    vpMhwinterface.m_statusTable    = &m_statusTable;
+
     return eStatus;
 }

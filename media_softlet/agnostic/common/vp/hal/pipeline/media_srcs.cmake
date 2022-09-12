@@ -21,12 +21,16 @@
 set(TMP_SOURCES_
     ${CMAKE_CURRENT_LIST_DIR}/vp_pipeline.cpp
     ${CMAKE_CURRENT_LIST_DIR}/vp_pipeline_adapter.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/vp_pipeline_adapter_base.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/vp_feature_report.cpp
 )
 
 set(TMP_HEADERS_
     ${CMAKE_CURRENT_LIST_DIR}/vp_pipeline.h
     ${CMAKE_CURRENT_LIST_DIR}/vp_pipeline_common.h
     ${CMAKE_CURRENT_LIST_DIR}/vp_pipeline_adapter.h
+    ${CMAKE_CURRENT_LIST_DIR}/vp_pipeline_adapter_base.h
+    ${CMAKE_CURRENT_LIST_DIR}/vp_feature_report.h
 )
 
 set(SOURCES_
