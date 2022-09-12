@@ -5241,7 +5241,7 @@ bool CompositeState::RenderBuffer(
     PMHW_BATCH_BUFFER               pBatchBuffer,
     PVPHAL_RENDERING_DATA_COMPOSITE pRenderingData)
 {
-    PRENDERHAL_INTERFACE                pRenderHal;
+    PRENDERHAL_INTERFACE_LEGACY         pRenderHal;
     PMHW_MI_INTERFACE                   pMhwMiInterface;
     MOS_STATUS                          eStatus;
     PVPHAL_BB_COMP_ARGS                 pBbArgs;
@@ -6628,15 +6628,10 @@ bool CompositeState::BuildFilter(
         }
 
         //--------------------------------
-        // Composition path does not support conversion from BT2020 RGB to BT2020 YUV, BT2020->BT601/BT709, BT601/BT709 -> BT2020
+        // Composition path does not support conversion from BT2020->BT601/BT709, BT601/BT709 -> BT2020
         //--------------------------------
-        if (IS_COLOR_SPACE_BT2020_RGB(pSrc->ColorSpace)   &&
-            IS_COLOR_SPACE_BT2020_YUV(pCompParams->Target[0].ColorSpace))  //BT2020 RGB->BT2020 YUV
-        {
-            eStatus = MOS_STATUS_UNIMPLEMENTED;
-        }
-        else if (IS_COLOR_SPACE_BT2020(pSrc->ColorSpace) &&
-                 !IS_COLOR_SPACE_BT2020(pCompParams->Target[0].ColorSpace)) //BT2020->BT601/BT709
+        if (IS_COLOR_SPACE_BT2020(pSrc->ColorSpace) &&
+            !IS_COLOR_SPACE_BT2020(pCompParams->Target[0].ColorSpace)) //BT2020->BT601/BT709
         {
             eStatus = MOS_STATUS_UNIMPLEMENTED;
         }

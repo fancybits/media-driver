@@ -73,8 +73,9 @@ VpPipeline::~VpPipeline()
         MOS_Delete(m_reporting);
         m_vpMhwInterface.m_reporting = nullptr;
     }
+#if ((_DEBUG || _RELEASE_INTERNAL) && !EMUL)
     VP_DEBUG_INTERFACE_DESTROY(m_debugInterface);
-
+#endif
     if (m_mediaContext)
     {
         MOS_Delete(m_mediaContext);
@@ -190,6 +191,17 @@ MOS_STATUS VpPipeline::CreateUserFeatureControl()
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS VpPipeline::CreateVPDebugInterface()
+{
+    VP_FUNC_CALL();
+
+#if ((_DEBUG || _RELEASE_INTERNAL) && !EMUL)
+    VP_DEBUG_INTERFACE_CREATE(m_debugInterface);
+    SkuWaTable_DUMP_XML(m_skuTable, m_waTable);
+#endif
+    return MOS_STATUS_SUCCESS;
+}
+
 MOS_STATUS VpPipeline::Init(void *mhwInterface)
 {
     VP_FUNC_CALL();
@@ -220,10 +232,7 @@ MOS_STATUS VpPipeline::Init(void *mhwInterface)
     VP_PUBLIC_CHK_STATUS_RETURN(CreateFeatureManager());
     VP_PUBLIC_CHK_NULL_RETURN(m_featureManager);
     VP_PUBLIC_CHK_STATUS_RETURN(InitUserFeatureSetting());
-#if (_DEBUG || _RELEASE_INTERNAL)
-    VP_DEBUG_INTERFACE_CREATE(m_debugInterface)
-    SkuWaTable_DUMP_XML(m_skuTable, m_waTable)
-#endif
+    VP_PUBLIC_CHK_STATUS_RETURN(CreateVPDebugInterface());
 
     m_vpMhwInterface.m_debugInterface = (void*)m_debugInterface;
 
@@ -308,6 +317,7 @@ MOS_STATUS VpPipeline::ExecuteVpPipeline()
         // Set Pipeline status Table
         m_statusReport->SetPipeStatusReportParams(params, m_vpMhwInterface.m_statusTable);
 
+#if ((_DEBUG || _RELEASE_INTERNAL) && !EMUL)
         VP_PARAMETERS_DUMPPER_DUMP_XML(m_debugInterface,
             params,
             m_frameCounter);
@@ -320,6 +330,7 @@ MOS_STATUS VpPipeline::ExecuteVpPipeline()
                 uiLayer,
                 VPHAL_DUMP_TYPE_PRE_ALL);
         }
+#endif
         // Predication
         SetPredicationParams(params);
 
@@ -380,6 +391,7 @@ MOS_STATUS VpPipeline::UpdateExecuteStatus()
     VP_FUNC_CALL();
 
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+#if ((_DEBUG || _RELEASE_INTERNAL) && !EMUL)
     if (PIPELINE_PARAM_TYPE_LEGACY == m_pvpParams.type)
     {
         PVP_PIPELINE_PARAMS params = m_pvpParams.renderParams;
@@ -391,7 +403,6 @@ MOS_STATUS VpPipeline::UpdateExecuteStatus()
             m_frameCounter,
             VPHAL_DUMP_TYPE_POST_ALL);
 
-#if ((_DEBUG || _RELEASE_INTERNAL) && !EMUL)
         // Decompre output surface for debug
         bool uiForceDecompressedOutput = false;
         bool forceDecompressedOutput   = false;
@@ -416,9 +427,9 @@ MOS_STATUS VpPipeline::UpdateExecuteStatus()
             VP_PUBLIC_NORMALMESSAGE("uiForceDecompressedOutput: %d", uiForceDecompressedOutput);
             m_mmc->DecompressVPResource(params->pTarget[0]);
         }
-#endif
     }
 finish:
+#endif
     return eStatus;
 }
 
@@ -468,7 +479,7 @@ MOS_STATUS VpPipeline::UpdateVeboxNumberforScalability()
         m_userSettingPtr,
         enableVeboxScalability,
         __MEDIA_USER_FEATURE_VALUE_ENABLE_VEBOX_SCALABILITY_MODE,
-        MediaUserSetting::Group::Sequence);
+        MediaUserSetting::Group::Device);
 
     bool disableScalability = false;
     if (statusKey == MOS_STATUS_SUCCESS)

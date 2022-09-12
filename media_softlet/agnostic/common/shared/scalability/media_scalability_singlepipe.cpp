@@ -28,6 +28,7 @@
 //!
 #include <typeinfo>
 #include <iostream>
+#include "mos_os.h"
 #include "mos_os_virtualengine_scalability.h"
 #include "media_scalability_defs.h"
 #include "media_scalability_singlepipe.h"
@@ -59,13 +60,16 @@ MOS_STATUS MediaScalabilitySinglePipe::SubmitCmdBuffer(PMOS_COMMAND_BUFFER cmdBu
 
     SCALABILITY_CHK_STATUS_RETURN(GetCmdBuffer(cmdBuffer));
 
-    if (m_miItf)
+    if (!m_osInterface->pfnIsMismatchOrderProgrammingSupported())
     {
-        SCALABILITY_CHK_STATUS_RETURN(m_miItf->AddMiBatchBufferEnd(cmdBuffer, nullptr));
-    }
-    else
-    {
-        SCALABILITY_CHK_STATUS_RETURN(m_miInterface->AddMiBatchBufferEnd(cmdBuffer, nullptr));
+        if (m_miItf)
+        {
+            SCALABILITY_CHK_STATUS_RETURN(m_miItf->AddMiBatchBufferEnd(cmdBuffer, nullptr));
+        }
+        else
+        {
+            SCALABILITY_CHK_STATUS_RETURN(m_miInterface->AddMiBatchBufferEnd(cmdBuffer, nullptr));
+        }
     }
 
     SCALABILITY_CHK_STATUS_RETURN(Oca1stLevelBBEnd(*cmdBuffer));

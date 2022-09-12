@@ -134,7 +134,7 @@ public:
 //! \return   MOS_STATUS
 //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
 //!
-    MOS_STATUS RenderCopyComputerWalker(
+   virtual MOS_STATUS RenderCopyComputerWalker(
      PMHW_GPGPU_WALKER_PARAMS    pWalkerParams);
 
     //!
@@ -162,7 +162,7 @@ public:
     PMOS_INTERFACE               m_osInterface     = nullptr;
     MhwInterfaces               *m_mhwInterfaces   = nullptr;
     MhwRenderInterface          *m_renderInterface = nullptr;
-    RENDERHAL_INTERFACE         *m_renderHal       = nullptr;
+    RENDERHAL_INTERFACE_LEGACY  *m_renderHal       = nullptr;
     MhwCpInterface              *m_cpInterface     = nullptr;
     void                        *m_pKernelBin      = nullptr;
     Kdll_State                  *m_pKernelDllState = nullptr;//!< Kernel DLL state 

@@ -1707,7 +1707,7 @@ void *Mos_Specific_GetGpuContextbyHandle(
 
     if (pOsInterface->apoMosEnabled)
     {
-        return MosInterface::GetGpuContextbyHandle(pOsInterface->osStreamState, gpuContextHandle);
+        return MosInterface::GetGpuContext(pOsInterface->osStreamState, gpuContextHandle);
     }
 
     OsContextSpecific *pOsContextSpecific = static_cast<OsContextSpecific *>(pOsInterface->osContextPtr);
@@ -2227,68 +2227,6 @@ void Mos_Specific_ResetOsStates(
  }
 
 //!
-//! \brief    Convert MOS format to gmm format
-//! \details  convert MOS format to gmm format
-//! \param    MOS_FORMAT format
-//!           [in] Surface
-//! \return   MEDIA_WA_TABLE *
-//!           Returns the pointer to WA table
-//!
-GMM_RESOURCE_FORMAT Mos_Specific_ConvertMosFmtToGmmFmt(
-    MOS_FORMAT format)
-{
-    switch (format)
-    {
-        case Format_Buffer      : return GMM_FORMAT_GENERIC_8BIT;
-        case Format_Buffer_2D   : return GMM_FORMAT_GENERIC_8BIT;               // matching size as format
-        case Format_L8          : return GMM_FORMAT_GENERIC_8BIT;               // matching size as format
-        case Format_L16         : return GMM_FORMAT_L16_UNORM_TYPE;
-        case Format_STMM        : return GMM_FORMAT_R8_UNORM_TYPE;              // matching size as format
-        case Format_AI44        : return GMM_FORMAT_GENERIC_8BIT;               // matching size as format
-        case Format_IA44        : return GMM_FORMAT_GENERIC_8BIT;               // matching size as format
-        case Format_R5G6B5      : return GMM_FORMAT_B5G6R5_UNORM_TYPE;
-        case Format_R8G8B8      : return GMM_FORMAT_R8G8B8_UNORM;
-        case Format_X8R8G8B8    : return GMM_FORMAT_B8G8R8X8_UNORM_TYPE;
-        case Format_A8R8G8B8    : return GMM_FORMAT_B8G8R8A8_UNORM_TYPE;
-        case Format_X8B8G8R8    : return GMM_FORMAT_R8G8B8X8_UNORM_TYPE;
-        case Format_A8B8G8R8    : return GMM_FORMAT_R8G8B8A8_UNORM_TYPE;
-        case Format_R32F        : return GMM_FORMAT_R32_FLOAT_TYPE;
-        case Format_V8U8        : return GMM_FORMAT_GENERIC_16BIT;              // matching size as format
-        case Format_YUY2        : return GMM_FORMAT_YUY2;
-        case Format_UYVY        : return GMM_FORMAT_UYVY;
-        case Format_P8          : return GMM_FORMAT_RENDER_8BIT_TYPE;           // matching size as format
-        case Format_A8          : return GMM_FORMAT_A8_UNORM_TYPE;
-        case Format_AYUV        : return GMM_FORMAT_R8G8B8A8_UINT_TYPE;
-        case Format_NV12        : return GMM_FORMAT_NV12_TYPE;
-        case Format_NV21        : return GMM_FORMAT_NV21_TYPE;
-        case Format_YV12        : return GMM_FORMAT_YV12_TYPE;
-        case Format_R32U        : return GMM_FORMAT_R32_UINT_TYPE;
-        case Format_R32S        : return GMM_FORMAT_R32_SINT_TYPE;
-        case Format_RAW         : return GMM_FORMAT_GENERIC_8BIT;
-        case Format_444P        : return GMM_FORMAT_MFX_JPEG_YUV444_TYPE;
-        case Format_422H        : return GMM_FORMAT_MFX_JPEG_YUV422H_TYPE;
-        case Format_422V        : return GMM_FORMAT_MFX_JPEG_YUV422V_TYPE;
-        case Format_IMC3        : return GMM_FORMAT_IMC3_TYPE;
-        case Format_411P        : return GMM_FORMAT_MFX_JPEG_YUV411_TYPE;
-        case Format_411R        : return GMM_FORMAT_MFX_JPEG_YUV411R_TYPE;
-        case Format_RGBP        : return GMM_FORMAT_RGBP_TYPE;
-        case Format_BGRP        : return GMM_FORMAT_BGRP_TYPE;
-        case Format_R8U         : return GMM_FORMAT_R8_UINT_TYPE;
-        case Format_R8UN        : return GMM_FORMAT_R8_UNORM;
-        case Format_R16U        : return GMM_FORMAT_R16_UINT_TYPE;
-        case Format_R16F        : return GMM_FORMAT_R16_FLOAT_TYPE;
-        case Format_P010        : return GMM_FORMAT_P010_TYPE;
-        case Format_P016        : return GMM_FORMAT_P016_TYPE;
-        case Format_Y216        : return GMM_FORMAT_Y216_TYPE;
-        case Format_Y416        : return GMM_FORMAT_Y416_TYPE;
-        case Format_P208        : return GMM_FORMAT_P208_TYPE;
-        case Format_Y210        : return GMM_FORMAT_Y210_TYPE;
-        case Format_Y410        : return GMM_FORMAT_Y410_TYPE;
-        default                 : return GMM_FORMAT_INVALID;
-    }
-}
-
-//!
 //! \brief    Allocate resource
 //! \details  To Allocate Buffer, pass Format as Format_Buffer and set the iWidth as size of the buffer.
 //! \param    PMOS_INTERFACE pOsInterface
@@ -2499,7 +2437,7 @@ MOS_STATUS Mos_Specific_AllocateResource(
     GmmParams.BaseHeight            = iAlignedHeight;
     GmmParams.ArraySize             = 1;
     GmmParams.Type                  = resourceType;
-    GmmParams.Format                = Mos_Specific_ConvertMosFmtToGmmFmt(pParams->Format);
+    GmmParams.Format                = MosInterface::MosFmtToGmmFmt(pParams->Format);
 
     MOS_OS_CHECK_CONDITION(GmmParams.Format == GMM_FORMAT_INVALID,
                          "Unsupported format",
@@ -6857,18 +6795,41 @@ MOS_STATUS Mos_Specific_CheckVirtualEngineSupported(
     return MOS_STATUS_SUCCESS;
 }
 
+MediaUserSettingSharedPtr Mos_Specific_GetUserSettingInstance(
+    PMOS_INTERFACE osInterface)
+{
+    MOS_OS_FUNCTION_ENTER;
+    PMOS_CONTEXT mosContext = nullptr;
+    if (!osInterface)
+    {
+        MOS_OS_ASSERTMESSAGE("Invalid mosContext ptr");
+        return nullptr;
+    }
+
+    if (osInterface->apoMosEnabled)
+    {
+        return MosInterface::MosGetUserSettingInstance(osInterface->osStreamState);
+    }
+
+    return nullptr;
+}
+
 static MOS_STATUS Mos_Specific_InitInterface_Ve(
     PMOS_INTERFACE osInterface)
 {
     PLATFORM                            Platform;
     MOS_STATUS                          eStatus;
-    MOS_USER_FEATURE_VALUE_DATA         userFeatureData;
     MOS_STATUS                          eStatusUserFeature;
+    uint32_t                            regValue = 0;
+    MediaUserSettingSharedPtr           userSettingPtr = nullptr;
 
     MOS_OS_FUNCTION_ENTER;
 
     eStatus = MOS_STATUS_SUCCESS;
     eStatusUserFeature = MOS_STATUS_SUCCESS;
+
+    MOS_OS_CHK_NULL_RETURN(osInterface);
+    userSettingPtr = osInterface->pfnGetUserSettingInstance(osInterface);
 
     // Get platform information
     memset(&Platform, 0, sizeof(PLATFORM));
@@ -6895,13 +6856,14 @@ static MOS_STATUS Mos_Specific_InitInterface_Ve(
         //Read Scalable/Legacy Decode mode on Gen11+
         //1:by default for scalable decode mode
         //0:for legacy decode mode
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        eStatusUserFeature = MOS_UserFeature_ReadValue_ID(
-            NULL,
-            __MEDIA_USER_FEATURE_VALUE_ENABLE_HCP_SCALABILITY_DECODE_ID,
-            &userFeatureData,
-            (MOS_CONTEXT_HANDLE)osInterface->pOsContext);
-        osInterface->bHcpDecScalabilityMode = userFeatureData.u32Data ? MOS_SCALABILITY_ENABLE_MODE_DEFAULT : MOS_SCALABILITY_ENABLE_MODE_FALSE;
+        regValue = 0;
+        eStatusUserFeature = ReadUserSetting(
+            userSettingPtr,
+            regValue,
+            __MEDIA_USER_FEATURE_VALUE_ENABLE_HCP_SCALABILITY_DECODE,
+            MediaUserSetting::Group::Device);
+
+        osInterface->bHcpDecScalabilityMode = regValue ? MOS_SCALABILITY_ENABLE_MODE_DEFAULT : MOS_SCALABILITY_ENABLE_MODE_FALSE;
         if(osInterface->bHcpDecScalabilityMode
             && (eStatusUserFeature == MOS_STATUS_SUCCESS))
         {
@@ -6911,52 +6873,49 @@ static MOS_STATUS Mos_Specific_InitInterface_Ve(
 
 #if (_DEBUG || _RELEASE_INTERNAL)
         osInterface->frameSplit                  = false;
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        MOS_UserFeature_ReadValue_ID(
-            NULL,
-            __MEDIA_USER_FEATURE_VALUE_ENABLE_LINUX_FRAME_SPLIT_ID,
-            &userFeatureData,
-            (MOS_CONTEXT_HANDLE)osInterface->pOsContext);
-        osInterface->frameSplit = (uint32_t)userFeatureData.i32Data;
+        ReadUserSetting(
+            userSettingPtr,
+            osInterface->frameSplit,
+            __MEDIA_USER_FEATURE_VALUE_ENABLE_LINUX_FRAME_SPLIT,
+            MediaUserSetting::Group::Device);
 
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        MOS_UserFeature_ReadValue_ID(
-            NULL,
-            __MEDIA_USER_FEATURE_VALUE_ENABLE_GUC_SUBMISSION_ID,
-            &userFeatureData,
-            (MOS_CONTEXT_HANDLE)osInterface->pOsContext);
-        osInterface->bGucSubmission = osInterface->bGucSubmission && ((uint32_t)userFeatureData.i32Data);
+        regValue = 0;
+        ReadUserSettingForDebug(
+            userSettingPtr,
+            regValue,
+            __MEDIA_USER_FEATURE_VALUE_ENABLE_GUC_SUBMISSION,
+            MediaUserSetting::Group::Device);
+        osInterface->bGucSubmission = osInterface->bGucSubmission && regValue;
 
         // read the "Force VEBOX" user feature key
         // 0: not force
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        MOS_UserFeature_ReadValue_ID(
-            NULL,
-            __MEDIA_USER_FEATURE_VALUE_FORCE_VEBOX_ID,
-            &userFeatureData,
-            (MOS_CONTEXT_HANDLE)osInterface->pOsContext);
-        osInterface->eForceVebox = (MOS_FORCE_VEBOX)userFeatureData.u32Data;
+        regValue = 0;
+        ReadUserSettingForDebug(
+            userSettingPtr,
+            regValue,
+            __MEDIA_USER_FEATURE_VALUE_FORCE_VEBOX,
+            MediaUserSetting::Group::Device);
+        osInterface->eForceVebox = (MOS_FORCE_VEBOX)regValue;
 
         //KMD Virtual Engine DebugOverride
         // 0: not Override
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        MOS_UserFeature_ReadValue_ID(
-            NULL,
-            __MEDIA_USER_FEATURE_VALUE_ENABLE_VE_DEBUG_OVERRIDE_ID,
-            &userFeatureData,
-            (MOS_CONTEXT_HANDLE)osInterface->pOsContext);
-        osInterface->bEnableDbgOvrdInVE = userFeatureData.u32Data ? true : false;
+        ReadUserSettingForDebug(
+            userSettingPtr,
+            osInterface->bEnableDbgOvrdInVE,
+            __MEDIA_USER_FEATURE_VALUE_ENABLE_VE_DEBUG_OVERRIDE,
+            MediaUserSetting::Group::Device);
 #endif
 
         // UMD Vebox Virtual Engine Scalability Mode
         // 0: disable. can set to 1 only when KMD VE is enabled.
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        eStatusUserFeature = MOS_UserFeature_ReadValue_ID(
-            NULL,
-            __MEDIA_USER_FEATURE_VALUE_ENABLE_VEBOX_SCALABILITY_MODE_ID,
-            &userFeatureData,
-            (MOS_CONTEXT_HANDLE)osInterface->pOsContext);
-        osInterface->bVeboxScalabilityMode = userFeatureData.u32Data ? MOS_SCALABILITY_ENABLE_MODE_DEFAULT : MOS_SCALABILITY_ENABLE_MODE_FALSE;
+        regValue = 0;
+        eStatusUserFeature = ReadUserSetting(
+            userSettingPtr,
+            regValue,
+            __MEDIA_USER_FEATURE_VALUE_ENABLE_VEBOX_SCALABILITY_MODE,
+            MediaUserSetting::Group::Device);
+
+        osInterface->bVeboxScalabilityMode = regValue ? MOS_SCALABILITY_ENABLE_MODE_DEFAULT : MOS_SCALABILITY_ENABLE_MODE_FALSE;
 
 #if (_DEBUG || _RELEASE_INTERNAL)
         if(osInterface->bVeboxScalabilityMode
@@ -6978,36 +6937,17 @@ static MOS_STATUS Mos_Specific_InitInterface_Ve(
 
         // read the "Force VEBOX" user feature key
         // 0: not force
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        MOS_UserFeature_ReadValue_ID(
-            NULL,
-            __MEDIA_USER_FEATURE_VALUE_FORCE_VEBOX_ID,
-            &userFeatureData,
-            (MOS_CONTEXT_HANDLE)osInterface->pOsContext);
-        osInterface->eForceVebox = (MOS_FORCE_VEBOX)userFeatureData.u32Data;
+        regValue = 0;
+        ReadUserSettingForDebug(
+            userSettingPtr,
+            regValue,
+            __MEDIA_USER_FEATURE_VALUE_FORCE_VEBOX,
+            MediaUserSetting::Group::Device);
+        osInterface->eForceVebox = (MOS_FORCE_VEBOX)regValue;
 #endif
     }
 
     return eStatus;
-}
-
-MediaUserSettingSharedPtr Mos_Specific_GetUserSettingInstance(
-    PMOS_INTERFACE osInterface)
-{
-    MOS_OS_FUNCTION_ENTER;
-    PMOS_CONTEXT mosContext = nullptr;
-    if (!osInterface)
-    {
-        MOS_OS_ASSERTMESSAGE("Invalid mosContext ptr");
-        return nullptr;
-    }
-
-    if (osInterface->apoMosEnabled)
-    {
-        return MosInterface::MosGetUserSettingInstance(osInterface->osStreamState);
-    }
-
-    return nullptr;
 }
 
 bool Mos_Specific_IsMismatchOrderProgrammingSupported()
@@ -7036,6 +6976,10 @@ MOS_STATUS Mos_Specific_InitInterface(
     uint32_t                        dwResetCount = 0;
     int32_t                         ret = 0;
     bool                            modularizedGpuCtxEnabled = false;
+    MediaUserSettingSharedPtr       userSettingPtr = nullptr;
+    bool                            bSimIsActive = false;
+    bool                            useCustomerValue = false;
+
     char *pMediaWatchdog = nullptr;
     long int watchdog = 0;
 
@@ -7044,126 +6988,6 @@ MOS_STATUS Mos_Specific_InitInterface(
     eStatus                 = MOS_STATUS_UNKNOWN;
     MOS_OS_CHK_NULL(pOsInterface);
     MOS_OS_CHK_NULL(pOsDriverContext);
-    pOsContext              = nullptr;
-    pOsUserFeatureInterface = (PMOS_USER_FEATURE_INTERFACE)&pOsInterface->UserFeatureInterface;
-    MOS_OS_CHK_NULL(pOsUserFeatureInterface);
-
-    MOS_OS_NORMALMESSAGE("mm:Mos_Specific_InitInterface called.");
-
-    pOsInterface->modularizedGpuCtxEnabled  = true;
-    pOsInterface->veDefaultEnable           = true;
-    pOsInterface->phasedSubmission          = true;
-
-    pOsInterface->apoMosEnabled             = pOsDriverContext->m_apoMosEnabled;
-    if (pOsInterface->apoMosEnabled)
-    {
-        pOsInterface->streamStateIniter = true;
-        MOS_OS_CHK_STATUS(MosInterface::CreateOsStreamState(
-            &pOsInterface->osStreamState,
-            (MOS_DEVICE_HANDLE)pOsDriverContext->m_osDeviceContext,
-            (MOS_INTERFACE_HANDLE)pOsInterface,
-            pOsInterface->Component,
-            pOsDriverContext));
-
-        // Set interface functions for legacy HAL
-        pOsContext                          = (PMOS_OS_CONTEXT)pOsInterface->osStreamState->perStreamParameters;
-        MOS_OS_CHK_NULL_RETURN(pOsContext);
-
-        pOsContext->GetGPUTag                  = Linux_GetGPUTag;
-    }
-    else
-    {
-        // Create Linux OS Context
-        pOsContext = (PMOS_OS_CONTEXT)MOS_AllocAndZeroMemory(sizeof(MOS_OS_CONTEXT));
-        MOS_OS_CHK_NULL_RETURN(pOsContext);
-    }
-
-    if (pOsInterface->modulizedMosEnabled && !Mos_Solo_IsEnabled(nullptr))
-    {
-        OsContext *osContextPtr = OsContext::GetOsContextObject();
-        if (osContextPtr == nullptr)
-        {
-            MOS_OS_ASSERTMESSAGE("Unable to get the active OS context.");
-            eStatus = MOS_STATUS_INVALID_PARAMETER;
-            goto finish;
-        }
-
-        pOsInterface->osContextPtr = osContextPtr;
-
-        if (pOsInterface->osContextPtr->GetOsContextValid() == false)
-        {
-            eStatus = pOsInterface->osContextPtr->Init(pOsDriverContext);
-            if (MOS_STATUS_SUCCESS != eStatus)
-            {
-                MOS_OS_ASSERTMESSAGE("Unable to initialize MODS context.");
-                eStatus = MOS_STATUS_INVALID_PARAMETER;
-                goto finish;
-            }
-        }
-
-        //ApoMos do it in CreateOsStreamState
-        if (!pOsInterface->apoMosEnabled)
-        {
-            OsContextSpecific *pOsContextSpecific = static_cast<OsContextSpecific *>(pOsInterface->osContextPtr);
-            pOsContext->intel_context             = pOsContextSpecific->GetDrmContext();
-            pOsContext->pGmmClientContext         = pOsDriverContext->pGmmClientContext;
-        }
-    }
-    else
-    {
-        pOsContext->pGmmClientContext = pOsDriverContext->pGmmClientContext;
-    }
-
-    MOS_ZeroMemory(&UserFeatureData, sizeof(UserFeatureData));
-#if MOS_MEDIASOLO_SUPPORTED
-    if (pOsInterface->bSoloInUse)
-    {
-        UserFeatureData.i32Data = pOsInterface->bSimIsActive;
-        UserFeatureData.i32DataFlag = MOS_USER_FEATURE_VALUE_DATA_FLAG_CUSTOM_DEFAULT_VALUE_TYPE;
-    }
-#endif
-#if (_DEBUG || _RELEASE_INTERNAL)
-    MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_SIM_ENABLE_ID,
-        &UserFeatureData,
-        (MOS_CONTEXT_HANDLE)pOsContext);
-#endif
-    pOsInterface->bSimIsActive = (int32_t)UserFeatureData.i32Data;
-    if (!pOsInterface->apoMosEnabled)
-    {
-        pOsContext->bSimIsActive = pOsInterface->bSimIsActive;
-    }
-
-    // Initialize
-    if (!pOsInterface->apoMosEnabled)
-    {
-        modularizedGpuCtxEnabled = pOsInterface->modularizedGpuCtxEnabled && !Mos_Solo_IsEnabled(pOsContext);
-        eStatus = Linux_InitContext(pOsContext, pOsDriverContext, pOsInterface->modulizedMosEnabled && !Mos_Solo_IsEnabled(pOsContext), modularizedGpuCtxEnabled);
-        if( MOS_STATUS_SUCCESS != eStatus )
-        {
-            MOS_OS_ASSERTMESSAGE("Unable to initialize context.");
-            goto finish;
-        }
-
-        pOsContext->bFreeContext = true;
-
-        //Added by Ben for video memory allocation
-        pOsContext->bufmgr = pOsDriverContext->bufmgr;
-        mos_bufmgr_gem_enable_reuse(pOsDriverContext->bufmgr);
-    }
-
-    pOsInterface->pOsContext                  = pOsContext;
-
-    pOsInterface->bUsesPatchList              = true;
-    pOsInterface->bUsesGfxAddress             = false;
-    pOsInterface->bNoParsingAssistanceInKmd   = true;
-    pOsInterface->bUsesCmdBufHeaderInResize   = false;
-    pOsInterface->bUsesCmdBufHeader           = false;
-    pOsInterface->dwNumNalUnitBytesIncluded   = MOS_NAL_UNIT_LENGTH - MOS_NAL_UNIT_STARTCODE_LENGTH;
-
-    pOsInterface->bInlineCodecStatusUpdate    = true;
-    pOsInterface->bAllowExtraPatchToSameLoc   = false;
 
     // Initialize OS interface functions
     pOsInterface->pfnSetGpuContext                          = Mos_Specific_SetGpuContext;
@@ -7204,7 +7028,6 @@ MOS_STATUS Mos_Specific_InitInterface(
     pOsInterface->pfnWaitAndReleaseCmdBuffer                = Mos_Specific_WaitAndReleaseCmdBuffer;
     pOsInterface->pfnVerifyCommandBufferSize                = Mos_Specific_VerifyCommandBufferSize;
     pOsInterface->pfnResizeCommandBufferAndPatchList        = Mos_Specific_ResizeCommandBufferAndPatchList;
-    pOsInterface->pfnFmt_MosToGmm                           = Mos_Specific_ConvertMosFmtToGmmFmt;
     pOsInterface->pfnSetPerfTag                             = Mos_Specific_SetPerfTag;
     pOsInterface->pfnResetPerfBufferID                      = Mos_Specific_ResetPerfBufferID;
     pOsInterface->pfnIncPerfFrameID                         = Mos_Specific_IncPerfFrameID;
@@ -7292,6 +7115,128 @@ MOS_STATUS Mos_Specific_InitInterface(
 
     pOsInterface->pfnIsMismatchOrderProgrammingSupported    = Mos_Specific_IsMismatchOrderProgrammingSupported;
 
+    pOsContext              = nullptr;
+    pOsUserFeatureInterface = (PMOS_USER_FEATURE_INTERFACE)&pOsInterface->UserFeatureInterface;
+
+    MOS_OS_NORMALMESSAGE("mm:Mos_Specific_InitInterface called.");
+
+    pOsInterface->modularizedGpuCtxEnabled  = true;
+    pOsInterface->veDefaultEnable           = true;
+    pOsInterface->phasedSubmission          = true;
+
+    pOsInterface->apoMosEnabled             = pOsDriverContext->m_apoMosEnabled;
+    if (pOsInterface->apoMosEnabled)
+    {
+        pOsInterface->streamStateIniter = true;
+        MOS_OS_CHK_STATUS(MosInterface::CreateOsStreamState(
+            &pOsInterface->osStreamState,
+            (MOS_DEVICE_HANDLE)pOsDriverContext->m_osDeviceContext,
+            (MOS_INTERFACE_HANDLE)pOsInterface,
+            pOsInterface->Component,
+            pOsDriverContext));
+
+        // Set interface functions for legacy HAL
+        pOsContext                          = (PMOS_OS_CONTEXT)pOsInterface->osStreamState->perStreamParameters;
+        MOS_OS_CHK_NULL_RETURN(pOsContext);
+
+        pOsContext->GetGPUTag                  = Linux_GetGPUTag;
+    }
+    else
+    {
+        // Create Linux OS Context
+        pOsContext = (PMOS_OS_CONTEXT)MOS_AllocAndZeroMemory(sizeof(MOS_OS_CONTEXT));
+        MOS_OS_CHK_NULL_RETURN(pOsContext);
+    }
+
+    if (pOsInterface->modulizedMosEnabled && !Mos_Solo_IsEnabled(nullptr))
+    {
+        OsContext *osContextPtr = OsContext::GetOsContextObject();
+        if (osContextPtr == nullptr)
+        {
+            MOS_OS_ASSERTMESSAGE("Unable to get the active OS context.");
+            eStatus = MOS_STATUS_INVALID_PARAMETER;
+            goto finish;
+        }
+
+        pOsInterface->osContextPtr = osContextPtr;
+
+        if (pOsInterface->osContextPtr->GetOsContextValid() == false)
+        {
+            eStatus = pOsInterface->osContextPtr->Init(pOsDriverContext);
+            if (MOS_STATUS_SUCCESS != eStatus)
+            {
+                MOS_OS_ASSERTMESSAGE("Unable to initialize MODS context.");
+                eStatus = MOS_STATUS_INVALID_PARAMETER;
+                goto finish;
+            }
+        }
+
+        //ApoMos do it in CreateOsStreamState
+        if (!pOsInterface->apoMosEnabled)
+        {
+            OsContextSpecific *pOsContextSpecific = static_cast<OsContextSpecific *>(pOsInterface->osContextPtr);
+            pOsContext->intel_context             = pOsContextSpecific->GetDrmContext();
+            pOsContext->pGmmClientContext         = pOsDriverContext->pGmmClientContext;
+        }
+    }
+    else
+    {
+        pOsContext->pGmmClientContext = pOsDriverContext->pGmmClientContext;
+    }
+
+    userSettingPtr = Mos_Specific_GetUserSettingInstance(pOsInterface);
+
+#if MOS_MEDIASOLO_SUPPORTED
+    if (pOsInterface->bSoloInUse)
+    {
+        bSimIsActive = pOsInterface->bSimIsActive;
+        useCustomerValue = true;
+    }
+#endif
+#if (_DEBUG || _RELEASE_INTERNAL)
+    ReadUserSettingForDebug(
+        userSettingPtr,
+        pOsInterface->bSimIsActive,
+        __MEDIA_USER_FEATURE_VALUE_SIM_ENABLE,
+        MediaUserSetting::Group::Device,
+        bSimIsActive,
+        useCustomerValue);
+#endif
+    if (!pOsInterface->apoMosEnabled)
+    {
+        pOsContext->bSimIsActive = pOsInterface->bSimIsActive;
+    }
+
+    // Initialize
+    if (!pOsInterface->apoMosEnabled)
+    {
+        modularizedGpuCtxEnabled = pOsInterface->modularizedGpuCtxEnabled && !Mos_Solo_IsEnabled(pOsContext);
+        eStatus = Linux_InitContext(pOsContext, pOsDriverContext, pOsInterface->modulizedMosEnabled && !Mos_Solo_IsEnabled(pOsContext), modularizedGpuCtxEnabled);
+        if( MOS_STATUS_SUCCESS != eStatus )
+        {
+            MOS_OS_ASSERTMESSAGE("Unable to initialize context.");
+            goto finish;
+        }
+
+        pOsContext->bFreeContext = true;
+
+        //Added by Ben for video memory allocation
+        pOsContext->bufmgr = pOsDriverContext->bufmgr;
+        mos_bufmgr_gem_enable_reuse(pOsDriverContext->bufmgr);
+    }
+
+    pOsInterface->pOsContext                  = pOsContext;
+
+    pOsInterface->bUsesPatchList              = true;
+    pOsInterface->bUsesGfxAddress             = false;
+    pOsInterface->bNoParsingAssistanceInKmd   = true;
+    pOsInterface->bUsesCmdBufHeaderInResize   = false;
+    pOsInterface->bUsesCmdBufHeader           = false;
+    pOsInterface->dwNumNalUnitBytesIncluded   = MOS_NAL_UNIT_LENGTH - MOS_NAL_UNIT_STARTCODE_LENGTH;
+
+    pOsInterface->bInlineCodecStatusUpdate    = true;
+    pOsInterface->bAllowExtraPatchToSameLoc   = false;
+
     pOsUserFeatureInterface->bIsNotificationSupported   = false;
     pOsUserFeatureInterface->pOsInterface               = pOsInterface;
 
@@ -7340,33 +7285,28 @@ MOS_STATUS Mos_Specific_InitInterface(
 #if (_DEBUG || _RELEASE_INTERNAL)
     // read the "Force VDBOX" user feature key
     // 0: not force
-    MOS_ZeroMemory(&UserFeatureData, sizeof(UserFeatureData));
-    MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_FORCE_VDBOX_ID,
-        &UserFeatureData,
-        (MOS_CONTEXT_HANDLE)pOsContext);
-    pOsInterface->eForceVdbox = UserFeatureData.u32Data;
+    ReadUserSettingForDebug(
+        userSettingPtr,
+        pOsInterface->eForceVdbox,
+        __MEDIA_USER_FEATURE_VALUE_FORCE_VDBOX,
+        MediaUserSetting::Group::Device);
 
     // Force TileYf/Ys
     // 0: Tile Y  1: Tile Yf   2 Tile Ys
-    MOS_ZeroMemory(&UserFeatureData, sizeof(UserFeatureData));
-    MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_FORCE_YFYS_ID,
-        &UserFeatureData,
-        (MOS_CONTEXT_HANDLE)pOsContext);
-    pOsInterface->dwForceTileYfYs = (uint32_t)UserFeatureData.i32Data;
+    ReadUserSettingForDebug(
+        userSettingPtr,
+        pOsInterface->dwForceTileYfYs,
+        __MEDIA_USER_FEATURE_VALUE_FORCE_YFYS,
+        MediaUserSetting::Group::Device);
 
     // Null HW Driver
     // 0: Disable
-    MOS_ZeroMemory(&UserFeatureData, sizeof(UserFeatureData));
-    MOS_USER_FEATURE_INVALID_KEY_ASSERT(MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_NULL_HW_ACCELERATION_ENABLE_ID,
-        &UserFeatureData,
-        (MOS_CONTEXT_HANDLE)pOsContext));
-    pOsInterface->NullHWAccelerationEnable.Value = UserFeatureData.u32Data;
+    ReadUserSettingForDebug(
+        userSettingPtr,
+        pOsInterface->NullHWAccelerationEnable.Value,
+        __MEDIA_USER_FEATURE_VALUE_NULL_HW_ACCELERATION_ENABLE,
+        MediaUserSetting::Group::Device);
+
 #endif // (_DEBUG || _RELEASE_INTERNAL)
 
 #if MOS_MEDIASOLO_SUPPORTED
@@ -7406,58 +7346,6 @@ finish:
         MOS_FreeMemAndSetNull(pOsContext);
     }
     return eStatus;
-}
-
-//!
-//! \brief    Check if OS resource is nullptr
-//! \details  Check if OS resource is nullptr
-//! \param    PMOS_RESOURCE pOsResource
-//!           [in] Pointer to OS Resource
-//! \return   int32_t
-//!           Return true if nullptr, otherwise false
-//!
-int32_t Mos_ResourceIsNull(
-    PMOS_RESOURCE   pOsResource)
-{
-    //---------------------
-    if( nullptr == pOsResource )
-    {
-        MOS_OS_ASSERTMESSAGE("found pOsResource nullptr\n");
-        return true;
-    }
-    //---------------------
-
-    return ((pOsResource->bo == nullptr)
-#if (_DEBUG || _RELEASE_INTERNAL)
-         && ((pOsResource->pData == nullptr) )
-#endif // (_DEBUG || _RELEASE_INTERNAL)
-    );
-
-}
-
-//!
-//! \brief    OS reset resource
-//! \details  Resets the OS resource
-//! \param    PMOS_RESOURCE pOsResource
-//!           [in] Pointer to OS Resource
-//! \return   void
-//!           Return NONE
-//!
-void Mos_ResetResource(
-    PMOS_RESOURCE   pOsResource)
-{
-    int32_t i;
-
-    MOS_OS_FUNCTION_ENTER;
-
-    MOS_OS_ASSERT(pOsResource);
-
-    MOS_ZeroMemory(pOsResource, sizeof(MOS_RESOURCE));
-    pOsResource->Format  = Format_None;
-    for (i = 0; i < MOS_GPU_CONTEXT_MAX; i++)
-    {
-        pOsResource->iAllocationIndex[i] = MOS_INVALID_ALLOC_INDEX;
-    }
 }
 
 //!

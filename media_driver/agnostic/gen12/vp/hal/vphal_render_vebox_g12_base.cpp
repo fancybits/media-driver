@@ -720,7 +720,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::AllocateResources()
 
     tileModeByForce = MOS_TILE_UNSET_GMM;
     //DN output surface must be tile64 only when input format is bayer
-    if (MEDIA_IS_SKU(pVeboxState->m_pSkuTable, FtrMediaTile64) &&
+    if (!MEDIA_IS_SKU(pVeboxState->m_pSkuTable, FtrTileY) &&
         IS_BAYER_FORMAT(pVeboxState->m_currentSurface->Format))
     {
         VPHAL_RENDER_NORMALMESSAGE("tilemode: media support tile encoding 1");
@@ -813,7 +813,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::AllocateResources()
     }
 
     tileModeByForce = MOS_TILE_UNSET_GMM;
-    if (MEDIA_IS_SKU(pVeboxState->m_pSkuTable, FtrMediaTile64))
+    if (!MEDIA_IS_SKU(pVeboxState->m_pSkuTable, FtrTileY))
     {
         VPHAL_RENDER_NORMALMESSAGE("tilemode: media support tile encoding 1");
         tileModeByForce = MOS_TILE_64_GMM;
@@ -3010,6 +3010,7 @@ void VPHAL_VEBOX_STATE_G12_BASE::VeboxSetRenderingFlags(
     pRenderData->bHdr3DLut = bToneMapping;
     pRenderData->bHdr3DLut |= (pSrc->p3DLutParams != nullptr);
     VPHAL_RENDER_NORMALMESSAGE("Enable 3DLut for HDR ToneMapping %d or 3DLUT filter %d.", bToneMapping, (pSrc->p3DLutParams != nullptr));
+    MT_LOG1(MT_VP_HAL_RENDER_VE, MT_NORMAL, MT_VP_RENDERDATA_HDR3DLUT, pRenderData->bHdr3DLut);
 
     VPHAL_VEBOX_STATE::VeboxSetRenderingFlags(pSrc, pRenderTarget);
 

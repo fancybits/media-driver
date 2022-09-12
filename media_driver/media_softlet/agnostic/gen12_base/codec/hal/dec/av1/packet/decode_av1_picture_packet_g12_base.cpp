@@ -1081,14 +1081,17 @@ namespace decode{
             }
 
 #ifdef _MMC_SUPPORTED
-            for (auto i = 0; i < av1TotalRefsPerFrame; i++)
+            if (m_mmcState->IsMmcEnabled())
             {
-                // Set each refSurfaceParams mmcState as MOS_MEMCOMP_MC to satisfy MmcEnable in AddAvpSurfaceCmd
-                // Compression type/enable should be the same for all reference surface state
-                // The actual refSurfac mmcstate is recorded by skipMask
-                refSurfaceParams[i].mmcState            = MOS_MEMCOMP_MC;
-                refSurfaceParams[i].mmcSkipMask         = skipMask;
-                refSurfaceParams[i].dwCompressionFormat = compressionFormat;
+                for (auto i = 0; i < av1TotalRefsPerFrame; i++)
+                {
+                    // Set each refSurfaceParams mmcState as MOS_MEMCOMP_MC to satisfy MmcEnable in AddAvpSurfaceCmd
+                    // Compression type/enable should be the same for all reference surface state
+                    // The actual refSurfac mmcstate is recorded by skipMask
+                    refSurfaceParams[i].mmcState            = MOS_MEMCOMP_MC;
+                    refSurfaceParams[i].mmcSkipMask         = skipMask;
+                    refSurfaceParams[i].dwCompressionFormat = compressionFormat;
+                }
             }
 #endif
         }
@@ -1805,7 +1808,7 @@ namespace decode{
                                 m_tempRefSurf->UPlaneOffset.iSurfaceOffset,
                                 m_tempRefSurf->VPlaneOffset.iSurfaceOffset,
                             };
-                            MOS_TraceEvent(EVENT_DECODE_REF_DUMPINFO, EVENT_TYPE_INFO, &eventData, sizeof(eventData), NULL, 0);
+                            MOS_TraceEvent(EVENT_DECODE_DUMPINFO_REF, EVENT_TYPE_INFO, &eventData, sizeof(eventData), NULL, 0);
 
                             bReport = true;
                         }

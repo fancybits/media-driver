@@ -115,6 +115,7 @@ MOS_STATUS HevcDecodeRealTilePktM12::Submit(
         DECODE_CHK_STATUS(PackSliceLevelCmds(*cmdBuffer));
     }
 
+    HalOcaInterface::DumpCodechalParam(*cmdBuffer, *m_osInterface->pOsContext, m_hevcPipeline->GetCodechalOcaDumper(), CODECHAL_HEVC);
     HalOcaInterface::On1stLevelBBEnd(*cmdBuffer, *m_osInterface);
 
     DECODE_CHK_STATUS(m_allocator->SyncOnResource(&m_hevcBasicFeature->m_resDataBuffer, false));
@@ -229,6 +230,7 @@ MOS_STATUS HevcDecodeRealTilePktM12::PackSliceLevelCmds(MOS_COMMAND_BUFFER &cmdB
 
     ResourceAutoLock resLock(m_allocator, &batchBuffer->OsResource);
     uint8_t *batchBufBase = (uint8_t *)resLock.LockResourceForWrite();
+    DECODE_CHK_NULL(batchBufBase);
     DECODE_CHK_STATUS(InitSliceLevelCmdBuffer(*batchBuffer, batchBufBase, tileColNum));
 
     for (uint32_t i = 0; i < m_hevcBasicFeature->m_numSlices; i++)

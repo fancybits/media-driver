@@ -31,7 +31,7 @@
 
 #include "media_render_copy.h"
 #include "media_interfaces_mhw.h"
-#include "mhw_render.h"
+#include "mhw_render_legacy.h"
 #include "mhw_mi.h"
 #include "mhw_cp_interface.h"
 #include "mos_os.h"
@@ -59,6 +59,17 @@ public:
     virtual MOS_STATUS CopySurface(
         PMOS_RESOURCE src,
         PMOS_RESOURCE dst);
+
+    //!
+    //! \brief    Render copy omputer walker setup
+    //! \details  Computer walker setup for render copy
+    //! \param    PMHW_WALKER_PARAMS pWalkerParams
+    //!           [in/out] Pointer to Walker params
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+   virtual MOS_STATUS RenderCopyComputerWalker(
+     PMHW_GPGPU_WALKER_PARAMS    pWalkerParams);
 
 protected:
 
