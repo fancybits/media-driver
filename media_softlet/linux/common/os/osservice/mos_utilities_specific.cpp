@@ -444,9 +444,13 @@ MOS_STATUS MosUtilities::MosLoadLibrary(const char * const lpLibFileName, PHMODU
         return MOS_STATUS_INVALID_PARAMETER;
     }
 
+#if 1
+    return MOS_STATUS_LOAD_LIBRARY_FAILED;
+#else
     *phModule = dlopen((const char *)lpLibFileName, RTLD_LAZY);
 
     return ((*phModule != nullptr) ? MOS_STATUS_SUCCESS : MOS_STATUS_LOAD_LIBRARY_FAILED);
+#endif
 }
 
 int32_t MosUtilities::MosFreeLibrary(HMODULE hLibModule)
@@ -455,7 +459,11 @@ int32_t MosUtilities::MosFreeLibrary(HMODULE hLibModule)
 
     if(hLibModule != nullptr)
     {
+#if 1
+        iRet = -1;
+#else
         iRet = dlclose(hLibModule);
+#endif
     }
     return (iRet == 0) ? true : false;
 }
