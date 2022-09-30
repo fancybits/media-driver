@@ -635,7 +635,7 @@ namespace encode
         std::shared_ptr<HevcVdencParDump> m_hevcParDump = nullptr;
 #endif  // _ENCODE_RESERVED
 
-    MEDIA_CLASS_DEFINE_END(HevcVdencPkt)
+    MEDIA_CLASS_DEFINE_END(encode__HevcVdencPkt)
     };
 
 }

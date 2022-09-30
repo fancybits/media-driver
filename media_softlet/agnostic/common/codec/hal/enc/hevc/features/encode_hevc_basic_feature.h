@@ -168,7 +168,7 @@ protected:
     //!
     MOS_STATUS CalcLCUMaxCodingSize();
 
-MEDIA_CLASS_DEFINE_END(HevcBasicFeature)
+MEDIA_CLASS_DEFINE_END(encode__HevcBasicFeature)
 };
 
 }  // namespace encode

@@ -527,11 +527,14 @@ struct _MOS_GPUCTX_CREATOPTIONS
         uint32_t SSEUValue;
     };
 
+    uint8_t isRealTimePriority;  // 1 if context is created from real time priority command queue (run GT at higher frequency)
+
     _MOS_GPUCTX_CREATOPTIONS() : CmdBufferNumScale(MOS_GPU_CONTEXT_CREATE_DEFAULT),
         RAMode(0),
         ProtectMode(0),
         gpuNode(0),
-        SSEUValue(0){}
+        SSEUValue(0),
+        isRealTimePriority(0){}
 
     virtual ~_MOS_GPUCTX_CREATOPTIONS(){}
 };
@@ -1181,12 +1184,6 @@ typedef struct _MOS_INTERFACE
     MOS_STATUS (* pfnWaitAndReleaseCmdBuffer) (
         PMOS_INTERFACE              pOsInterface,
         PMOS_COMMAND_BUFFER         pCmdBuffer);
-
-    MOS_FORMAT (* pfnFmt_OsToMos) (
-        MOS_OS_FORMAT               format);
-
-    MOS_OS_FORMAT (* pfnFmt_MosToOs) (
-        MOS_FORMAT                  format);
 
     GMM_RESOURCE_FORMAT (* pfnFmt_MosToGmm) (
         MOS_FORMAT                  format);

@@ -132,7 +132,7 @@ protected:
 public:
     const static std::string          s_kernelNameNonAdvKernels;
 
-MEDIA_CLASS_DEFINE_END(VpRenderKernel)
+MEDIA_CLASS_DEFINE_END(vp__VpRenderKernel)
 };
 
 using KERNEL_POOL = std::map<std::string, VpRenderKernel>;
@@ -229,7 +229,7 @@ public:
         CODECHAL_STANDARD         codecStandard,
         CodecDecodeJpegChromaType jpegChromaType);
 
-    virtual bool IsVeboxScalabilitywith4K(
+    virtual bool VeboxScalabilitywith4K(
         VP_MHWINTERFACE           vpMhwInterface);
 
     virtual MOS_STATUS GetVeboxHeapInfo(
@@ -320,7 +320,7 @@ protected:
     std::shared_ptr<mhw::render::Itf>       m_renderItf = nullptr;
     std::shared_ptr<mhw::mi::Itf>           m_miItf     = nullptr;
 
-    MEDIA_CLASS_DEFINE_END(VpPlatformInterface)
+    MEDIA_CLASS_DEFINE_END(vp__VpPlatformInterface)
 };
 
 }
