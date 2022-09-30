@@ -31,7 +31,7 @@
 
 #include <stdint.h>
 #include "vp_common.h"
-#include "vphal_common_tools.h"
+#include "vp_common_tools.h"
 #include "media_class_trace.h"
 #include "vp_common_hdr.h"
 
@@ -92,8 +92,7 @@ public:
     //! \details  set VphalFeatureReport value
     //!
     virtual void SetConfigValues(
-        PVP_CONFIG configValues,
-        uint32_t   &laceInUse);
+        PVP_CONFIG configValues);
 
     VP_FEATURES &GetFeatures()
     {

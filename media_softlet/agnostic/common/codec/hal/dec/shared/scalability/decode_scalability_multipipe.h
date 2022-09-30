@@ -32,14 +32,14 @@
 #include "mos_defs.h"
 #include "mos_os.h"
 #include "codechal_hw.h"
-#include "media_scalability_multipipe.h"
+#include "decode_scalability_multipipe_next.h"
 #include "decode_scalability_option.h"
 #include "mos_os_virtualengine_scalability.h"
 #include "decode_phase.h"
 
 namespace decode
 {
-class DecodeScalabilityMultiPipe : public MediaScalabilityMultiPipe
+class DecodeScalabilityMultiPipe : public DecodeScalabilityMultiPipeNext
 {
 public:
     //!

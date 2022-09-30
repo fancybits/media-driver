@@ -28,6 +28,7 @@
 //!
 #include <typeinfo>
 #include <iostream>
+#include "mos_os.h"
 #include "mos_os_virtualengine_scalability.h"
 #include "media_scalability_defs.h"
 #include "media_scalability_singlepipe_next.h"
@@ -46,7 +47,7 @@ MediaScalabilitySinglePipeNext::MediaScalabilitySinglePipeNext(void *hwInterface
 MOS_STATUS MediaScalabilitySinglePipeNext::Initialize(const MediaScalabilityOption &option)
 {
     SCALABILITY_CHK_NULL_RETURN(m_osInterface);
-
+#if !EMUL
     if (MOS_VE_SUPPORTED(m_osInterface))
     {
         MOS_VIRTUALENGINE_INIT_PARAMS VEInitParams;
@@ -75,7 +76,7 @@ MOS_STATUS MediaScalabilitySinglePipeNext::Initialize(const MediaScalabilityOpti
             }
         }
     }
-
+#endif
     PMOS_GPUCTX_CREATOPTIONS_ENHANCED gpuCtxCreateOption = MOS_New(MOS_GPUCTX_CREATOPTIONS_ENHANCED);
     SCALABILITY_CHK_NULL_RETURN(gpuCtxCreateOption);
 
@@ -84,7 +85,7 @@ MOS_STATUS MediaScalabilitySinglePipeNext::Initialize(const MediaScalabilityOpti
     gpuCtxCreateOption->LRCACount = 1;
     // This setting is only for encode, please override it in decode/vpp
     gpuCtxCreateOption->UsingSFC = false;
-#if (_DEBUG || _RELEASE_INTERNAL)
+#if (_DEBUG || _RELEASE_INTERNAL) && !EMUL
     if (m_osInterface->bEnableDbgOvrdInVE)
     {
         gpuCtxCreateOption->DebugOverride = true;
@@ -245,7 +246,10 @@ MOS_STATUS MediaScalabilitySinglePipeNext::SubmitCmdBuffer(PMOS_COMMAND_BUFFER c
 
     SCALABILITY_CHK_STATUS_RETURN(GetCmdBuffer(cmdBuffer));
 
-    SCALABILITY_CHK_STATUS_RETURN(m_miItf->AddMiBatchBufferEnd(cmdBuffer, nullptr));
+    if (!m_osInterface->pfnIsMismatchOrderProgrammingSupported())
+    {
+        SCALABILITY_CHK_STATUS_RETURN(m_miItf->AddMiBatchBufferEnd(cmdBuffer, nullptr));
+    }
 
     SCALABILITY_CHK_STATUS_RETURN(Oca1stLevelBBEnd(*cmdBuffer));
 

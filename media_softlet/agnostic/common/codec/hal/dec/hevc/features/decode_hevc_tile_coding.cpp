@@ -81,10 +81,23 @@ MOS_STATUS HevcTileCoding::UpdateSlice(const CODEC_HEVC_PIC_PARAMS & picParams,
         SliceTileInfo* sliceTileInfo = AllocateSliceTileInfo(slcIdx);
         DECODE_CHK_NULL(sliceTileInfo);
 
+        if(sliceParams[slcIdx].slice_data_offset + sliceParams[slcIdx].slice_data_size > m_basicFeature->m_dataSize)
+        {
+            DECODE_ASSERTMESSAGE("invalid slice %d, data size overflow\n", slcIdx);
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+
         if (m_basicFeature->IsIndependentSlice(slcIdx))
         {
             sliceTileInfo->origCtbX = sliceParams[slcIdx].slice_segment_address % m_basicFeature->m_widthInCtb;
             sliceTileInfo->origCtbY = sliceParams[slcIdx].slice_segment_address / m_basicFeature->m_widthInCtb;
+
+            if(slcIdx == 0 && sliceParams[slcIdx].slice_segment_address != 0)
+            {
+                DECODE_ASSERTMESSAGE("invalid independent slice %d, slice_segment_address=%d\n",
+                    slcIdx, sliceParams[slcIdx].slice_segment_address);
+                return MOS_STATUS_INVALID_PARAMETER;
+            }
         }
         else
         {
@@ -95,6 +108,13 @@ MOS_STATUS HevcTileCoding::UpdateSlice(const CODEC_HEVC_PIC_PARAMS & picParams,
                 {
                     sliceTileInfo->origCtbX = sliceParams[index].slice_segment_address % m_basicFeature->m_widthInCtb;
                     sliceTileInfo->origCtbY = sliceParams[index].slice_segment_address / m_basicFeature->m_widthInCtb;
+
+                    if(index == 0 && sliceParams[index].slice_segment_address != 0)
+                    {
+                        DECODE_ASSERTMESSAGE("invalid dependent slice %d, index %d, slice_segment_address=%d\n",
+                            index, sliceParams[index].slice_segment_address);
+                        return MOS_STATUS_INVALID_PARAMETER;
+                    }
                     break;
                 }
             }
@@ -273,9 +293,6 @@ MOS_STATUS HevcTileCoding::GetAllTileInfo(const CODEC_HEVC_PIC_PARAMS & picParam
                                           uint32_t widthInCtb, uint32_t heightInCtb)
 {
     DECODE_FUNC_CALL();
-    DECODE_CHK_COND((picParams.num_tile_columns_minus1 >= HEVC_NUM_MAX_TILE_COLUMN) ||
-                    (picParams.num_tile_rows_minus1 >= HEVC_NUM_MAX_TILE_ROW),
-                    "num_tile_columns_minus1 or num_tile_rows_minus1 is out of range!");
 
     if (picParams.uniform_spacing_flag == 1)
     {

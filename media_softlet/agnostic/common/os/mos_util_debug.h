@@ -120,6 +120,7 @@ typedef enum
     MOS_CP_SUBCOMP_TEE_HAL          = 15,            // CP TEE HAL class
     MOS_CP_SUBCOMP_CAPS             = 16,            // CP CAPS clas
     MOS_CP_SUBCOMP_CPLIB            = 17,            // CP CPLIB interacting
+    MOS_CP_SUBCOMP_CENC             = 18,            // CP cenc class
     MOS_CP_SUBCOMP_COUNT                             // Must be last in the list
 } MOS_CP_SUBCOMP_ID;
 
@@ -711,8 +712,8 @@ MEDIA_CLASS_DEFINE_END(MosUtilDebug)
         TR_FILL_PARAM(__VA_ARGS__);                                                \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                 \
     }
-#define MOS_TraceDecodeBitStream32(usId, usType, ...)                                    \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_BITSTREAM_32BYTE)) \
+#define MOS_TraceDecodeBitStreamInfo(usId, usType, ...)                                  \
+    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_BITSTREAM_INFO))   \
     {                                                                                    \
         TR_FILL_PARAM(__VA_ARGS__);                                                      \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                       \
@@ -845,7 +846,7 @@ MEDIA_CLASS_DEFINE_END(MosUtilDebug)
 #define MOS_TraceDecodeSliceParam(usId, usType, ...)
 #define MOS_TraceDecodeTileParam(usId, usType, ...)
 #define MOS_TraceDecodeQMatrix(usId, usType, ...)
-#define MOS_TraceDecodeBitStream32(usId, usType, ...)
+#define MOS_TraceDecodeBitStreamInfo(usId, usType, ...)
 #define MOS_TraceDecodeBitStream(usId, usType, ...)
 #define MOS_TraceDecodeInternal(usId, usType, ...)
 #define MOS_TraceDecodeCommand(usId, usType, ...)

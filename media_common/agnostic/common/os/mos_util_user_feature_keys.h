@@ -59,7 +59,13 @@
 #define __MEDIA_USER_FEATURE_VALUE_VDI_MODE                             "VDI Mode"
 #define __MEDIA_USER_FEATURE_VALUE_MEDIA_WALKER_MODE                    "Media Walker Mode"
 
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_HCP_SCALABILITY_DECODE        "Enable HCP Scalability Decode"
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_VEBOX_SCALABILITY_MODE        "Enable Vebox Scalability"
+
 #if (_DEBUG || _RELEASE_INTERNAL)
+
+#define __MEDIA_USER_FEATURE_VALUE_MEDIA_RESET_ENABLE                   "Media Reset"
+
 //!
 //! \brief ISA ASM Debug Enable and Debug Surface BTI
 //!
@@ -74,11 +80,24 @@
 //!
 //! \brief enable Huc based DRM for CHV
 //!
-#define __MEDIA_USER_FEATURE_VALUE_HUC_DRM_ENABLE                           "HuC DRM Enable"                 //!< 0: Disable, Others: enable
+#define __MEDIA_USER_FEATURE_VALUE_HUC_DRM_ENABLE                         "HuC DRM Enable"                 //!< 0: Disable, Others: enable
 
 #define __MEDIA_USER_FEATURE_VALUE_MEMORY_NINJA_BEGIN_COUNTER             "MemNinjaBeginCounter"
 #define __MEDIA_USER_FEATURE_VALUE_MEMORY_NINJA_END_COUNTER               "MemNinjaEndCounter"
 
+#define __MEDIA_USER_FEATURE_VALUE_SIM_ENABLE                             "Simulation Enable"
+#define __MEDIA_USER_FEATURE_VALUE_SIM_IN_USE                             "Simulation In Use"
+
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_VE_DEBUG_OVERRIDE               "Enable VE Debug Override"
+#define __MEDIA_USER_FEATURE_VALUE_FORCE_VDBOX                            "Force VDBOX"
+#define __MEDIA_USER_FEATURE_VALUE_FORCE_VEBOX                            "Force VEBOX"
+#define __MEDIA_USER_FEATURE_VALUE_FORCE_YFYS                             "Force to allocate YfYs"
+
+#define __MEDIA_USER_FEATURE_VALUE_NULL_HW_ACCELERATION_ENABLE            "NullHWAccelerationEnable"
+
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_LINUX_FRAME_SPLIT               "Enable Linux Frame Split"
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_GUC_SUBMISSION                  "Enable Guc Submission"
+#define __MEDIA_USER_FEATURE_VALUE_SOFT_RESET_ENABLE                      "Soft Reset"
 #endif // (_DEBUG || _RELEASE_INTERNAL)
 
 //!

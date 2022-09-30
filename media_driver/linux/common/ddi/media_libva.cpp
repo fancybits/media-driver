@@ -1941,17 +1941,16 @@ VAStatus DdiMedia_InitMediaContext (
         // Create GMM page table manager
         mediaCtx->m_auxTableMgr = AuxTableMgr::CreateAuxTableMgr(mediaCtx->pDrmBufMgr, &mediaCtx->SkuTable, mediaCtx->pGmmClientContext);
 
-        MOS_USER_FEATURE_VALUE_DATA UserFeatureData;
-        MOS_ZeroMemory(&UserFeatureData, sizeof(UserFeatureData));
+        bool bSimulationEnable = false;
 #if (_DEBUG || _RELEASE_INTERNAL)
-        MOS_UserFeature_ReadValue_ID(
+        ReadUserSettingForDebug(
             nullptr,
-            __MEDIA_USER_FEATURE_VALUE_SIM_ENABLE_ID,
-            &UserFeatureData,
-            (MOS_CONTEXT_HANDLE)nullptr);
+            bSimulationEnable,
+            __MEDIA_USER_FEATURE_VALUE_SIM_ENABLE,
+            MediaUserSetting::Group::Device);
 #endif
 
-        mediaCtx->m_useSwSwizzling = UserFeatureData.i32Data || MEDIA_IS_SKU(&mediaCtx->SkuTable, FtrUseSwSwizzling);
+        mediaCtx->m_useSwSwizzling = bSimulationEnable || MEDIA_IS_SKU(&mediaCtx->SkuTable, FtrUseSwSwizzling);
         mediaCtx->m_tileYFlag      = MEDIA_IS_SKU(&mediaCtx->SkuTable, FtrTileY);
 
         mediaCtx->m_osContext = OsContext::GetOsContextObject();
@@ -2722,6 +2721,9 @@ VAStatus DdiMedia_CreateSurfaces2(
             break;
         case VA_FOURCC_I420:
             expected_fourcc = VA_FOURCC_I420;
+            break;
+        case VA_FOURCC_UYVY:
+            expected_fourcc = VA_FOURCC_UYVY;
             break;
 #endif
         default:
@@ -4812,6 +4814,7 @@ VAStatus DdiMedia_DeriveImage (
     {
     case Media_Format_YV12:
     case Media_Format_I420:
+    case Media_Format_IYUV:
         vaimg->format.bits_per_pixel    = 12;
         vaimg->num_planes               = 3;
         vaimg->pitches[0]               = mediaSurface->iPitch;
@@ -7065,6 +7068,8 @@ static uint32_t DdiMedia_GetDrmFormatOfCompositeObject(uint32_t fourcc)
         return DRM_FORMAT_VYUY;
     case VA_FOURCC_UYVY:
         return DRM_FORMAT_UYVY;
+    case VA_FOURCC_AYUV:
+        return DRM_FORMAT_AYUV;
     case VA_FOURCC_Y210:
         return DRM_FORMAT_Y210;
 #if VA_CHECK_VERSION(1, 9, 0)

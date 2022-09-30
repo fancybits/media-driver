@@ -428,6 +428,12 @@ public:
         return MOS_STATUS_SUCCESS;
     }
 
+    MOS_STATUS SetDisableHistogram(
+        PMHW_VEBOX_IECP_PARAMS pVeboxIecpParams)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+
     MOS_STATUS SetVeboxLaceColorParams(
         MHW_LACE_COLOR_CORRECTION *pLaceColorParams)
     {
@@ -530,35 +536,6 @@ public:
         return eStatus;
     }
 
-    MOS_STATUS setVeboxPrologCmd(
-        std::shared_ptr<mhw::mi::Itf> miItf,
-        PMOS_COMMAND_BUFFER CmdBuffer)
-    {
-        MOS_STATUS                            eStatus = MOS_STATUS_SUCCESS;
-        uint64_t                              auxTableBaseAddr = 0;
-
-        MHW_CHK_NULL_RETURN(miItf);
-        MHW_CHK_NULL_RETURN(CmdBuffer);
-        MHW_CHK_NULL_RETURN(this->m_osItf);
-
-        auxTableBaseAddr = this->m_osItf->pfnGetAuxTableBaseAddr(this->m_osItf);
-
-        if (auxTableBaseAddr)
-        {
-            auto& par = miItf->MHW_GETPAR_F(MI_LOAD_REGISTER_IMM)();
-            par = {};
-            par.dwData     = (auxTableBaseAddr & 0xffffffff);
-            par.dwRegister        = miItf->GetMmioInterfaces(mhw::mi::MHW_MMIO_VE0_AUX_TABLE_BASE_LOW);
-            miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(CmdBuffer);
-
-            par.dwData     = ((auxTableBaseAddr >> 32) & 0xffffffff);
-            par.dwRegister = miItf->GetMmioInterfaces(mhw::mi::MHW_MMIO_VE0_AUX_TABLE_BASE_HIGH);
-            miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(CmdBuffer);
-        }
-
-        return eStatus;
-    }
-
   MOS_STATUS AdjustBoundary(
         PMHW_VEBOX_SURFACE_PARAMS pCurrSurf,
         uint32_t *pdwSurfaceWidth,
@@ -628,6 +605,8 @@ public:
                 (uint32_t)pCurrSurf->rcSrc.right,
                 *pdwSurfaceHeight,
                 *pdwSurfaceWidth);
+            MT_LOG5(MT_VP_MHW_VE_ADJUST_SURFPARAM, MT_NORMAL, MT_VP_RENDER_VE_CROPPING, 1, MT_RECT_BOTTOM, pCurrSurf->rcSrc.bottom, 
+                MT_RECT_RIGHT, pCurrSurf->rcSrc.right, MT_SURF_HEIGHT, *pdwSurfaceHeight, MT_SURF_WIDTH, *pdwSurfaceWidth);
         }
         else
         {

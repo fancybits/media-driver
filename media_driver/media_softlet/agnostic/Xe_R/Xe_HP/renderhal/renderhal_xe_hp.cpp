@@ -27,6 +27,6 @@
 //! \details    Render functions
 //!
 
-#include "renderhal.h"
+#include "renderhal_legacy.h"
 #include "renderhal_xe_hp.h"
 #include "mhw_mi_g12_X.h"
