@@ -27,7 +27,7 @@
 #ifndef __VP_PLATFORM_INTERFACE_H__
 #define __VP_PLATFORM_INTERFACE_H__
 
-#include "hal_kerneldll.h"
+#include "hal_kerneldll_next.h"
 #include "vp_feature_manager.h"
 #include "vp_render_common.h"
 #include "vp_kernel_config.h"
@@ -300,6 +300,8 @@ public:
     virtual MOS_STATUS GetKernelBinary(const void *&kernelBin, uint32_t &kernelSize, const void *&patchKernelBin, uint32_t &patchKernelSize);
 
     virtual MOS_STATUS ConfigVirtualEngine() = 0;
+
+    virtual MOS_STATUS ConfigureVpScalability(VP_MHWINTERFACE &vpMhwInterface) = 0;
 
     virtual bool IsEufusionBypassWaEnabled()
     {

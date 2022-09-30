@@ -61,6 +61,8 @@
 #include "media_libva_apo_decision.h"
 #include "mos_oca_interface_specific.h"
 
+#define BO_BUSY_TIMEOUT_LIMIT 100
+
 #ifdef _MANUAL_SOFTLET_
 #include "media_libva_interface.h"
 #include "media_libva_interface_next.h"
@@ -1753,7 +1755,6 @@ VAStatus DdiMedia_InitMediaContext (
     MOS_CONTEXT mosCtx     = {};
     mosCtx.fd              = mediaCtx->fd;
     MosInterface::InitOsUtilities(&mosCtx);
-
     mediaCtx->m_apoMosEnabled = SetupApoMosSwitch(devicefd);
 
 #ifdef _MMC_SUPPORTED
@@ -1769,7 +1770,7 @@ VAStatus DdiMedia_InitMediaContext (
         mosCtx.fd              = mediaCtx->fd;
         mosCtx.m_apoMosEnabled = mediaCtx->m_apoMosEnabled;
 
-        MosOcaInterfaceSpecific::InitInterface();
+        MosOcaInterfaceSpecific::InitInterface(&mosCtx);
 
         mediaCtx->pGtSystemInfo = (MEDIA_SYSTEM_INFO *)MOS_AllocAndZeroMemory(sizeof(MEDIA_SYSTEM_INFO));
         if (nullptr == mediaCtx->pGtSystemInfo)
@@ -1796,6 +1797,8 @@ VAStatus DdiMedia_InitMediaContext (
         mediaCtx->m_tileYFlag               = mosCtx.bTileYFlag;
         mediaCtx->bIsAtomSOC                = mosCtx.bIsAtomSOC;
         mediaCtx->perfData                  = mosCtx.pPerfData;
+
+        MediaUserSettingsMgr::MediaUserSettingsInit(mediaCtx->platform.eProductFamily);
 
 #ifdef _MMC_SUPPORTED
         if (mosCtx.ppMediaMemDecompState == nullptr)
@@ -2251,6 +2254,7 @@ VAStatus DdiMedia_Terminate (
         mediaCtx->m_osDeviceContext = MOS_INVALID_HANDLE;
         MOS_FreeMemory(mediaCtx->pGtSystemInfo);
         MosOcaInterfaceSpecific::UninitInterface();
+        MediaUserSettingsMgr::MediaUserSettingClose();
         MosInterface::CloseOsUtilities(nullptr);
     }
     else if (mediaCtx->modularizedGpuCtxEnabled)
@@ -2289,6 +2293,7 @@ VAStatus DdiMedia_Terminate (
         gmmOutArgs.pGmmClientContext = mediaCtx->pGmmClientContext;
         GmmAdapterDestroy(&gmmOutArgs);
         mediaCtx->pGmmClientContext = nullptr;
+        MediaUserSettingsMgr::MediaUserSettingClose();
         MosUtilities::MosUtilitiesClose(nullptr);
     }
 
@@ -2540,6 +2545,23 @@ VAStatus DdiMedia_DestroySurfaces (
         }
 
         DdiMediaUtil_UnRegisterRTSurfaces(ctx, surface);
+
+        uint64_t freq = 1, countStart = 0, countCur = 0;
+        MosUtilities::MosQueryPerformanceFrequency(&freq);
+        uint64_t countTimeout = freq * BO_BUSY_TIMEOUT_LIMIT / 1000;
+        MOS_TraceEventExt(EVENT_VA_SYNC, EVENT_TYPE_START, nullptr, 0, nullptr, 0);
+        MosUtilities::MosQueryPerformanceCounter(&countStart);
+        while (1)
+        {
+            MosUtilities::MosQueryPerformanceCounter(&countCur);
+
+            if(mos_bo_busy(surface->bo) == 0 || countCur - countStart > countTimeout)
+            {
+                break;
+            }
+            MosUtilities::MosSleep(10);
+        }
+        MOS_TraceEventExt(EVENT_VA_SYNC, EVENT_TYPE_END, nullptr, 0, nullptr, 0);
 
         DdiMediaUtil_LockMutex(&mediaCtx->SurfaceMutex);
         DdiMediaUtil_FreeSurface(surface);

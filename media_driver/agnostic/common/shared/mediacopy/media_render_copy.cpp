@@ -26,6 +26,15 @@
 //!
 
 #include "media_render_copy.h"
+#include "hal_kerneldll.h"
+#include "media_copy.h"
+#include "media_interfaces_mhw.h"
+#include "mhw_cp_interface.h"
+#include "mhw_state_heap.h"
+#include "mos_defs_specific.h"
+#include "mos_os_hw.h"
+#include "mos_utilities.h"
+#include "vphal_render_common.h"
 
 RenderCopyState::RenderCopyState(PMOS_INTERFACE osInterface, MhwInterfaces *mhwInterfaces) :
     m_osInterface(osInterface),
@@ -292,7 +301,7 @@ MOS_STATUS RenderCopyState::SetupSurfaceStates()
         {
            m_Source.dwWidth = (m_Source.dwHeight * m_Source.dwPitch) * 3 / 2;
         }
-        else if ((format == Format_RGBP) || (format == Format_Y410) || (format == Format_Y416))
+        else if (format == Format_RGBP)
         {
            m_Source.dwWidth = (m_Source.dwHeight * m_Source.dwPitch) * 3;
         }

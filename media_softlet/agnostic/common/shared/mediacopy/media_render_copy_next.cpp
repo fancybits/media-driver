@@ -292,7 +292,7 @@ MOS_STATUS RenderCopyStateNext::SetupSurfaceStates()
         {
            m_Source.dwWidth = (m_Source.dwHeight * m_Source.dwPitch) * 3 / 2;
         }
-        else if ((format == Format_RGBP) || (format == Format_Y410) || (format == Format_Y416))
+        else if (format == Format_RGBP)
         {
            m_Source.dwWidth = (m_Source.dwHeight * m_Source.dwPitch) * 3;
         }
@@ -666,6 +666,10 @@ MOS_STATUS RenderCopyStateNext::LoadStaticData(
         (m_currKernelId == KERNEL_CopyKernel_2D_to_1D_Planar))
     {
         m_WalkerWidthBlockSize = 16;
+    }
+    else
+    {
+        m_WalkerWidthBlockSize = 128;
     }
 
     // Set walker cmd params - Rasterscan

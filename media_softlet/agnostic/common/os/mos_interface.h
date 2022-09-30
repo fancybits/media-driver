@@ -2047,12 +2047,21 @@ public:
 
     //! \brief    Get usersetting instance for each stream
     //! \details  the user setting instance
-    //! \param    MOS_PLANE_OFFSET planeOffset
-    //!           [in] Reference to MOS_PLANE_OFFSET structure
-    //! \return   int - offset of the plane
+    //! \param    MOS_STREAM_HANDLE streamState
+    //!           [in] streamState
+    //! \return   MediaUserSettingSharedPtr - user setting instance
     //!
     static MediaUserSettingSharedPtr MosGetUserSettingInstance(
         MOS_STREAM_HANDLE streamState);
+
+    //! \brief    Get usersetting instance for each stream
+    //! \details  the user setting instance
+    //! \param    PMOS_CONTEXT mosCtx
+    //!           [in] mosCtx
+    //! \return   MediaUserSettingSharedPtr - user setting instance
+    //!
+    static MediaUserSettingSharedPtr MosGetUserSettingInstance(
+        PMOS_CONTEXT mosCtx);
 
     //!
     //! \brief  Translate MOS_OS_FORMT into MOS_FORMAT
@@ -2063,6 +2072,16 @@ public:
     //! \brief  Check if Mismatch Order Programming model is supported
     //!
     static bool IsMismatchOrderProgrammingSupported();
+
+    //!
+    //! \brief  Translate GMM_TILE_TYPE to MOS_TILE_TYPE
+    //!
+    static MOS_TILE_TYPE MapTileType(GMM_RESOURCE_FLAG flags, GMM_TILE_TYPE type);
+
+    //!
+    //! \brief  Check if Multiple Codec Devices is in use
+    //!
+    static bool IsMultipleCodecDevicesInUse(PMOS_INTERFACE osInterface);
 
 private:
     //!
@@ -2141,7 +2160,7 @@ private:
     //!           os device ctx handle
     //! \return   void
     //!
-    static void MosInitOsApiFailSimulateFlag(MOS_CONTEXT_HANDLE mosCtx);
+    static void MosInitOsApiFailSimulateFlag(MediaUserSettingSharedPtr userSettingPtr);
 
     //!
     //! \brief    Deinit OS API fail simulate flags

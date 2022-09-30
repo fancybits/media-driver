@@ -575,7 +575,7 @@ private:
     static std::shared_ptr<GpuCmdResInfoDump> m_instance;
     mutable uint32_t         m_cnt         = 0;
     bool                     m_dumpEnabled = false;
-    std::string              m_path;
+    std::string              m_path        = "";
 };
 #endif // MOS_COMMAND_RESINFO_DUMP_SUPPORTED
 
@@ -1316,6 +1316,9 @@ typedef struct _MOS_INTERFACE
         PMOS_RESOURCE               pOsResource);
 
     int32_t (*pfnIsGPUHung)(
+        PMOS_INTERFACE              pOsInterface);
+
+    bool (*pfnIsMultipleCodecDevicesInUse)(
         PMOS_INTERFACE              pOsInterface);
 
     //!

@@ -312,6 +312,11 @@ MOS_STATUS MmdDeviceXe_Hpm::Initialize(
         mhwInterfaces->m_miInterface,
         mhwInterfaces->m_veboxInterface) != MOS_STATUS_SUCCESS)
     {
+        // Vebox/mi/cp interface will gove control to mmd device, will release will be in destructure func
+        // set as null to avoid double free in driver
+        mhwInterfaces->m_cpInterface = nullptr;
+        mhwInterfaces->m_miInterface = nullptr;
+        mhwInterfaces->m_veboxInterface = nullptr;
         MMD_FAILURE();
     }
 
@@ -553,8 +558,8 @@ MOS_STATUS CodechalInterfacesXe_Hpm::Initialize(
     bool disableScalability = false;
     PLATFORM platform = {};
     osInterface->pfnGetPlatform(osInterface, &platform);
-    if((platform.usDeviceID == 0x56C0)
-        || (platform.usDeviceID == 0x56C1))
+    if((platform.usDeviceID >= 0x56C0)
+        && (platform.usDeviceID <= 0x56CF))
     {
         disableScalability = true;
     }
@@ -564,6 +569,10 @@ MOS_STATUS CodechalInterfacesXe_Hpm::Initialize(
 
     if (CodecHalIsDecode(CodecFunction))
     {
+        if(osInterface->bHcpDecScalabilityMode = MOS_SCALABILITY_ENABLE_MODE_USER_FORCE)
+        {
+            disableScalability = false;
+        }
         CreateCodecHalInterface(mhwInterfaces, hwInterface, debugInterface, osInterface, CodecFunction, disableScalability);
 
     #ifdef _MPEG2_DECODE_SUPPORTED

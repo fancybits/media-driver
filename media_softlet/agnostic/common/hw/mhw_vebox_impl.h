@@ -30,8 +30,7 @@
 
 #include "mhw_vebox_itf.h"
 #include "mhw_impl.h"
-#include "hal_oca_interface.h"
-#include "mhw_mi_g12_X.h"
+#include "hal_oca_interface_next.h"
 #include "mos_solo_generic.h"
 
 #ifdef IGFX_VEBOX_INTERFACE_EXT_SUPPORT
@@ -351,6 +350,30 @@ public:
         return MOS_STATUS_SUCCESS;
     }
 
+    MOS_STATUS SetgnHVSParams(
+        bool tGNEEnable, uint32_t lumaStadTh, uint32_t chromaStadTh, 
+        uint32_t tGNEThCnt, uint32_t historyInit, bool fallBack)
+    {
+        dw4X4TGNEThCnt = tGNEThCnt;
+        bTGNEEnable    = tGNEEnable;
+        dwLumaStadTh   = lumaStadTh;
+        dwChromaStadTh = chromaStadTh;
+        bHVSfallback   = fallBack;
+        dwHistoryInit  = historyInit;
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS SetgnHVSMode(bool hVSAutoBdrate, bool hVSAutoSubjective, uint32_t bSDThreshold)
+    {
+        bHVSAutoBdrateEnable     = hVSAutoBdrate;
+        bHVSAutoSubjectiveEnable = hVSAutoSubjective;
+        dwBSDThreshold           = bSDThreshold;
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+
     void RefreshVeboxSync()
     {
         MHW_VEBOX_HEAP              *pVeboxHeap;
@@ -664,19 +687,19 @@ public:
         if (isCmBuffer)
         {
             char ocaLog[] = "Vebox indirect state use CmBuffer";
-            HalOcaInterface::TraceMessage(cmdBuffer, mosContext, ocaLog, sizeof(ocaLog));
+            HalOcaInterfaceNext::TraceMessage(cmdBuffer, mosContext, ocaLog, sizeof(ocaLog));
         }
         else
         {
             if (useVeboxHeapKernelResource)
             {
                 char ocaLog[] = "Vebox indirect state use KernelResource";
-                HalOcaInterface::TraceMessage(cmdBuffer, mosContext, ocaLog, sizeof(ocaLog));
+                HalOcaInterfaceNext::TraceMessage(cmdBuffer, mosContext, ocaLog, sizeof(ocaLog));
             }
             else
             {
                 char ocaLog[] = "Vebox indirect state use DriverResource";
-                HalOcaInterface::TraceMessage(cmdBuffer, mosContext, ocaLog, sizeof(ocaLog));
+                HalOcaInterfaceNext::TraceMessage(cmdBuffer, mosContext, ocaLog, sizeof(ocaLog));
             }
         }
         return MOS_STATUS_SUCCESS;
@@ -979,6 +1002,8 @@ protected:
     uint32_t                  dwLumaStadTh                = 3200;
     uint32_t                  dwChromaStadTh              = 1600;
     uint32_t                  dw4X4TGNEThCnt              = 576;
+    uint32_t                  dwHistoryInit               = 32;
+    uint32_t                  dwBSDThreshold              = 480;
     bool                      bTGNEEnable                 = false;
     bool                      bHVSAutoBdrateEnable        = false;
     bool                      bHVSAutoSubjectiveEnable    = false;
