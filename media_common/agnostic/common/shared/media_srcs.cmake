@@ -18,11 +18,10 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
-media_include_subdirectory(user_setting)
-
 set(TMP_HEADERS_
     ${CMAKE_CURRENT_LIST_DIR}/media_factory.h
     ${CMAKE_CURRENT_LIST_DIR}/null_hardware.h
+    ${CMAKE_CURRENT_LIST_DIR}/media_defs.h
 )
 
 set(SOFTLET_COMMON_HEADERS_

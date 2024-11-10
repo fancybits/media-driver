@@ -32,16 +32,16 @@
 #include "codechal_debug.h"
 #include "encode_huc_la_init_packet.h"
 #include "encode_huc_la_update_packet.h"
+#include "encode_hevc_vdenc_422_packet.h"
+#include "encode_check_huc_load_packet.h"
 
-#ifdef _ENCODE_RESERVED
-#include "encode_hevc_vdenc_packet_rsvd.h"
+#if _ENCODE_RESERVED
 #include "encode_hevc_vdenc_packet_xe_hpm_ext.h"
 #endif
-
 namespace encode {
 
 HevcVdencPipelineXe_Hpm::HevcVdencPipelineXe_Hpm(
-    CodechalHwInterface     *hwInterface,
+    CodechalHwInterfaceNext     *hwInterface,
     CodechalDebugInterface  *debugInterface)
     : HevcVdencPipelineXe_Xpm_Base(hwInterface, debugInterface)
 {
@@ -85,9 +85,9 @@ MOS_STATUS HevcVdencPipelineXe_Hpm::Init(void *settings)
         return vdencPkt == nullptr ? nullptr : MOS_New(HevcVdencTileRowPkt, task, vdencPkt);
     });
 
-#ifdef _ENCODE_RESERVED
-    RegisterPacket(hevcVdencPacketRsvd, [=]() -> MediaPacket * { return MOS_New(HevcVdencPktRsvd, this, task, m_hwInterface); });
-#endif
+    RegisterPacket(hevcVdencPacket422, [=]() -> MediaPacket * { return MOS_New(HevcVdencPkt422, this, task, m_hwInterface); });
+
+    RegisterPacket(EncodeCheckHucLoad, [=]() -> MediaPacket * { return MOS_New(EncodeCheckHucLoadPkt, this, task, m_hwInterface); });
 
     return MOS_STATUS_SUCCESS;
 }
@@ -115,8 +115,9 @@ MOS_STATUS HevcVdencPipelineXe_Hpm::Initialize(void *settings)
         }
         m_debugInterface = MOS_New(CodechalDebugInterface);
         ENCODE_CHK_NULL_RETURN(m_debugInterface);
+        ENCODE_CHK_NULL_RETURN(m_mediaCopyWrapper);
         ENCODE_CHK_STATUS_RETURN(
-            m_debugInterface->Initialize(m_hwInterface, m_codecFunction));
+            m_debugInterface->Initialize(m_hwInterface, m_codecFunction, m_mediaCopyWrapper));
 
         if (m_statusReportDebugInterface != nullptr) {
             MOS_Delete(m_statusReportDebugInterface);
@@ -124,8 +125,28 @@ MOS_STATUS HevcVdencPipelineXe_Hpm::Initialize(void *settings)
         m_statusReportDebugInterface = MOS_New(CodechalDebugInterface);
         ENCODE_CHK_NULL_RETURN(m_statusReportDebugInterface);
         ENCODE_CHK_STATUS_RETURN(
-            m_statusReportDebugInterface->Initialize(m_hwInterface, m_codecFunction)););
+            m_statusReportDebugInterface->Initialize(m_hwInterface, m_codecFunction, m_mediaCopyWrapper)););
 
     return MOS_STATUS_SUCCESS;
 }
+
+
+MOS_STATUS HevcVdencPipelineXe_Hpm::HuCCheckAndInit()
+{
+    ENCODE_FUNC_CALL();
+
+    bool immediateSubmit = !m_singleTaskPhaseSupported;
+
+    ENCODE_CHK_NULL_RETURN(m_hwInterface);
+    MEDIA_WA_TABLE *waTable = m_hwInterface->GetWaTable();
+    if (waTable && MEDIA_IS_WA(waTable, WaCheckHucAuthenticationStatus))
+    {
+        ENCODE_CHK_STATUS_RETURN(ActivatePacket(EncodeCheckHucLoad, immediateSubmit, 0, 0));
+    }
+
+    ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucBrcInit, immediateSubmit, 0, 0));
+
+    return MOS_STATUS_SUCCESS;
+}
+
 }

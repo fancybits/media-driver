@@ -45,6 +45,9 @@ class MhwCpInterface;
 #define MHW_MI_ENCODER_4K_WATCHDOG_THRESHOLD_IN_MS      100
 #define MHW_MI_ENCODER_FHD_WATCHDOG_THRESHOLD_IN_MS     50
 #define MHW_MI_DECODER_720P_WATCHDOG_THRESHOLD_IN_MS    10
+#define MHW_MI_DECODER_4K_WATCHDOG_THRESHOLD_IN_MS      20
+#define MHW_MI_DECODER_8K_WATCHDOG_THRESHOLD_IN_MS      60
+#define MHW_MI_DECODER_AV1_WATCHDOG_THRESHOLD_IN_MS     80
 #define MHW_MI_DECODER_16K_WATCHDOG_THRESHOLD_IN_MS     180
 #define MHW_MI_DECODER_16Kx16K_WATCHDOG_THRESHOLD_IN_MS 256
 #define MHW_MI_WATCHDOG_COUNTS_PER_MILLISECOND         (19200123 / 1000)   // Time stamp counts per millisecond
@@ -116,6 +119,7 @@ typedef enum _MHW_MI_ALU_OPCODE
     MHW_MI_ALU_AND = 0x102,
     MHW_MI_ALU_OR = 0x103,
     MHW_MI_ALU_XOR = 0x104,
+    MHW_MI_ALU_SHR = 0x106,
     MHW_MI_ALU_STORE = 0x180,
     MHW_MI_ALU_STOREINV = 0x580
 } MHW_MI_ALU_OPCODE;
@@ -177,6 +181,7 @@ typedef struct _MHW_PIPE_CONTROL_PARAMS
     uint32_t                bInvalidateTextureCache        : 1;
     uint32_t                bGenericMediaStateClear        : 1;
     uint32_t                bIndirectStatePointersDisable  : 1;
+    uint32_t                bUnTypedDataPortCacheFlush     : 1;
     uint32_t                bHdcPipelineFlush              : 1;
     uint32_t                bKernelFenceEnabled            : 1;
     uint32_t                bPPCFlush                      : 1;
@@ -663,6 +668,18 @@ public:
     inline PMHW_MI_MMIOREGISTERS GetMmioRegisters()
     {
         return &m_mmioRegisters;
+    }
+
+    //!
+    //! \brief    Get Os interface
+    //! \details  Get Os interface in codechal hw interface
+    //!
+    //! \return   [out] PMOS_INTERFACE
+    //!           Interface got.
+    //!
+    inline PMOS_INTERFACE GetOsInterface()
+    {
+        return m_osInterface;
     }
 
     //!

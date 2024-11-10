@@ -26,7 +26,7 @@
 
 #include "decode_hevc_basic_feature.h"
 #include "decode_utils.h"
-#include "codechal_utilities.h"
+#include "codec_utilities_next.h"
 #include "decode_hevc_reference_frames.h"
 #include "codec_def_decode_hevc.h"
 
@@ -45,7 +45,7 @@ MOS_STATUS HevcReferenceFrames::Init(HevcBasicFeature *basicFeature, DecodeAlloc
 
     m_basicFeature = basicFeature;
     m_allocator = &allocator;
-    DECODE_CHK_STATUS(CodecHalAllocateDataList(m_refList, CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC));
+    DECODE_CHK_STATUS(CodecUtilities::CodecHalAllocateDataList(m_refList, CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC));
 
     m_osInterface = basicFeature->GetOsInterface();
 
@@ -55,7 +55,7 @@ MOS_STATUS HevcReferenceFrames::Init(HevcBasicFeature *basicFeature, DecodeAlloc
 HevcReferenceFrames::~HevcReferenceFrames()
 {
     DECODE_FUNC_CALL();
-    CodecHalFreeDataList(m_refList, CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC);
+    CodecUtilities::CodecHalFreeDataList(m_refList, CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC);
     m_activeReferenceList.clear();
 }
 
@@ -67,6 +67,7 @@ MOS_STATUS HevcReferenceFrames::UpdatePicture(CODEC_HEVC_PIC_PARAMS & picParams,
     DECODE_CHK_STATUS(UpdateCurFrame(picParams, isSCCIBCMode));
     DECODE_CHK_STATUS(UpdateCurRefList(picParams, isSCCIBCMode));
     DECODE_CHK_STATUS(UpdateRefIdxMapping(picParams, isSCCIBCMode));
+    DECODE_CHK_STATUS(UpdateRefCachePolicy(picParams));
 
     return MOS_STATUS_SUCCESS;
 }
@@ -332,6 +333,33 @@ MOS_STATUS HevcReferenceFrames::UpdateRefIdxMapping(const CODEC_HEVC_PIC_PARAMS 
     }
 
     DECODE_CHK_COND(curRefIdx > 8, "Invalid reference number for current frame");
+
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS HevcReferenceFrames::UpdateRefCachePolicy(const CODEC_HEVC_PIC_PARAMS &picParams)
+{
+    DECODE_FUNC_CALL();
+    MOS_STATUS sts = MOS_STATUS_SUCCESS;
+
+    HevcReferenceFrames        &refFrames     = m_basicFeature->m_refFrames;
+    const std::vector<uint8_t> &activeRefList = refFrames.GetActiveReferenceList(picParams);
+    if (!refFrames.m_curIsIntra)
+    {
+        for (uint8_t i = 0; i < activeRefList.size(); i++)
+        {
+            uint8_t frameIdx = activeRefList[i];
+            if (frameIdx >= CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC)
+            {
+                continue;
+            }
+            sts = m_allocator->UpdateResoreceUsageType(&m_refList[frameIdx]->resRefPic, resourceInputReference);
+            if (sts != MOS_STATUS_SUCCESS)
+            {
+                DECODE_NORMALMESSAGE("GetReferenceByFrameIndex invalid\n");
+            }
+        }
+    }
 
     return MOS_STATUS_SUCCESS;
 }

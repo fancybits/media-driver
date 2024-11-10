@@ -28,7 +28,6 @@
 #include "media_sfc_interface.h"
 #include "media_vdbox_sfc_render.h"
 #include "mos_os.h"
-#include "vp_render_sfc_base_legacy.h"
 #include "vp_render_ief.h"
 #include "vp_mem_compression.h"
 
@@ -156,8 +155,8 @@ MOS_STATUS MediaVdboxSfcRender::SetScalingParams(VDBOX_SFC_PARAMS &sfcParam, VP_
     }
 
     m_scalingFilter->Init(sfcParam.videoParams.codecStandard, sfcParam.videoParams.jpeg.jpegChromaType);
-    m_scalingFilter->SetExecuteEngineCaps(scalingParams, vpExecuteCaps);
-    m_scalingFilter->CalculateEngineParams();
+    VP_PUBLIC_CHK_STATUS_RETURN(m_scalingFilter->SetExecuteEngineCaps(scalingParams, vpExecuteCaps));
+    VP_PUBLIC_CHK_STATUS_RETURN(m_scalingFilter->CalculateEngineParams());
 
     return m_sfcRender->SetScalingParams(m_scalingFilter->GetSfcParams());
 }

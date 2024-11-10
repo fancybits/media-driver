@@ -43,20 +43,28 @@ public:
     //!         Pointer to PCODECHAL_STANDARD_INFO
     //!
     Av1VdencPipeline(
-        CodechalHwInterface *   hwInterface,
+        CodechalHwInterfaceNext *   hwInterface,
         CodechalDebugInterface *debugInterface);
 
     virtual ~Av1VdencPipeline() {}
 
     virtual MOS_STATUS Prepare(void *params) override;
+    virtual MOS_STATUS Execute() override;
+    virtual MOS_STATUS GetStatusReport(void *status, uint16_t numStatus) override;
+    virtual MOS_STATUS Destroy() override;
 
 protected:
     virtual MOS_STATUS Initialize(void *settings) override;
-    virtual MOS_STATUS Uninitialize() override;
     virtual MOS_STATUS UserFeatureReport() override;
     virtual MOS_STATUS ActivateVdencVideoPackets();
     virtual MOS_STATUS CreateFeatureManager() override;
     virtual MOS_STATUS SwitchContext(uint8_t outputChromaFormat, uint16_t numTileRows, uint16_t numTileColumns);
+    virtual MOS_STATUS InitMmcState() = 0;
+    virtual MOS_STATUS FillStatusReportParameters(EncoderStatusParameters* pPar, EncoderParams* pEncPar);
+    virtual MOS_STATUS HuCCheckAndInit();
+    virtual MOS_STATUS ResetParams();
+
+    bool m_preEncEnabled = false;
 
 MEDIA_CLASS_DEFINE_END(encode__Av1VdencPipeline)
 };

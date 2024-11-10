@@ -50,6 +50,7 @@ public:
     //!
     //! \brief    init function.
     virtual MOS_STATUS Initialize(  PMOS_INTERFACE  osInterface, MhwInterfaces *mhwInterfaces);
+    using MediaCopyBaseState::Initialize;
 
     //!
     //! \brief    render format support.
@@ -80,12 +81,27 @@ public:
     //!
     //! \brief    surface copy pre process.
     //! \details  pre process before doing surface copy.
+    //! \param    src
+    //!          [in]Media copy state's input parmaters
+    //! \param    dest
+    //!          [in]Media copy state's output parmaters
     //! \param    preferMethod
-    //!           [in] Preferred media copy method
+    //!          [in]Media copy Method
     //! \return   MOS_STATUS
     //!           Return MOS_STATUS_SUCCESS if support, otherwise return unspoort.
     //!
-    MOS_STATUS PreProcess(MCPY_METHOD preferMethod);
+    virtual MOS_STATUS PreCheckCpCopy(
+        MCPY_STATE_PARAMS src, MCPY_STATE_PARAMS dest, MCPY_METHOD preferMethod);
+
+    //!
+    //! \brief    Is AIL force opition.
+    //! \details  Is AIL force opition.
+    //! \return   bool
+    //!           Return true if support, otherwise return false.
+    bool IsAILForceOption()
+    {
+        return true;
+    }
 
 protected:
     //!
@@ -124,7 +140,30 @@ protected:
     //!
     virtual MOS_STATUS MediaVeboxCopy(PMOS_RESOURCE src, PMOS_RESOURCE dst);
 
+    //!
+    //! \brief    vebox format support.
+    //! \details  surface format support.
+    //! \param    src
+    //!           [in] Pointer to source surface
+    //! \param    dst
+    //!           [in] Pointer to destination surface
+    //! \return   bool
+    //!           Return true if support, otherwise return false.
+    //!
     virtual bool IsVeboxCopySupported(PMOS_RESOURCE src, PMOS_RESOURCE dst);
+    //!
+    //! \brief    select copy enigne
+    //! \details  media copy select copy enigne.
+    //! \param    preferMethod
+    //!           [in] copy method
+    //! \param    mcpyEngine
+    //!           [in] copy engine
+    //! \param    caps
+    //!           [in] reference of featue supported engine
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if support, otherwise return unspoort.
+    //!
+    virtual MOS_STATUS CopyEnigneSelect(MCPY_METHOD &preferMethod, MCPY_ENGINE &mcpyEngine, MCPY_ENGINE_CAPS &caps);
 
 protected:
     MhwInterfaces      *m_mhwInterfacesXeHpm  = nullptr;

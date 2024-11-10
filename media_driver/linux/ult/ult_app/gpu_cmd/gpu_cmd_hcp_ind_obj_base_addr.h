@@ -23,7 +23,6 @@
 #define __GPU_CMD_HCP_IND_OBJ_BASE_ADDR_H__
 
 #include "gpu_cmd.h"
-#include "mhw_vdbox_hcp_hwcmd_g10_X.h"
 
 template<typename _CmdType>
 class GpuCmdHcpIndObjBaseAddr : public GpuCmd<_CmdType>
@@ -43,20 +42,6 @@ protected:
         CacheCheck1(m_pCmd->HcpIndirectBitstreamObjectMemoryAddressAttributes.DW0.Value,
             pCmd->HcpIndirectBitstreamObjectMemoryAddressAttributes.DW0.Value);
     }
-};
-
-class GpuCmdHcpIndObjBaseAddrG10 : public GpuCmdHcpIndObjBaseAddr<mhw_vdbox_hcp_g10_X::HCP_IND_OBJ_BASE_ADDR_STATE_CMD>
-{
-public:
-
-    GpuCmdHcpIndObjBaseAddrG10()
-    {
-        InitCachePolicy();
-    }
-
-protected:
-
-    void InitCachePolicy();
 };
 
 #endif // __GPU_CMD_HCP_IND_OBJ_BASE_ADDR_H__

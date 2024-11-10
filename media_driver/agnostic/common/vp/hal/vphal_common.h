@@ -191,24 +191,6 @@ typedef enum _VPHAL_DP_ROTATION_MODE
 //!
 #define SET_VPHAL_MMC_STATE(_a, _bEnableMMC)          (_a->bEnableMMC =  _bEnableMMC)                    // Set the Component
 
-
-//!
-//! Union   VPHAL_HALF_PRECISION_FLOAT
-//! \brief  Vphal half precision float type
-//!
-typedef union _VPHAL_HALF_PRECISION_FLOAT
-{
-    struct
-    {
-        uint16_t      Mantissa : 10;
-        uint16_t      Exponent : 5;
-        uint16_t      Sign     : 1;
-    };
-
-    uint16_t value;
-} VPHAL_HALF_PRECISION_FLOAT, PVPHAL_HALF_PRECISION_FLOAT;
-
-
 //!
 //! \brief Vphal 3DLUT Channel Mapping enum
 //!
@@ -227,26 +209,6 @@ typedef struct _VPHAL_CONSTRICTION_PARAMS
 {
     RECT                rcConstriction;
 } VPHAL_CONSTRICTION_PARAMS, *PVPHAL_CONSTRICTION_PARAMS;
-
-//!
-//! \brief    Performs Color Space Convert for Sample 8 bit
-//! \details  Performs Color Space Convert from Src Color Spase to Dst Color Spase
-//! \param    [out] pOutput
-//!           Pointer to VPHAL_COLOR_SAMPLE_8
-//! \param    [in] pInput
-//!           Pointer to VPHAL_COLOR_SAMPLE_8
-//! \param    [in] srcCspace
-//!           Source Color Space 
-//! \param    [in] dstCspace
-//!           Dest Color Space 
-//! \return   bool
-//!           Return true if successful, otherwise false
-//!
-bool VpHal_CSC_8(
-    VPHAL_COLOR_SAMPLE_8    *pOutput,
-    VPHAL_COLOR_SAMPLE_8    *pInput,
-    VPHAL_CSPACE            srcCspace,
-    VPHAL_CSPACE            dstCspace);
 
 //!
 //! \brief    sinc
@@ -401,17 +363,6 @@ bool VpHal_IsChromaDownSamplingNeeded(
     PVPHAL_SURFACE          pSource,
     PVPHAL_SURFACE          pTarget);
 
-//! \brief    Get the bit depth of a surface
-//! \details  Get bit depth of input mos surface format and return.
-//!           For unknown format return 0
-//! \param    [in] Format
-//!           MOS_FORMAT of a surface
-//! \return   uint32_t
-//!           Bit depth of the surface
-//!
-uint32_t VpHal_GetSurfaceBitDepth(
-    MOS_FORMAT      Format);
-
 //!
 //! \brief      Get the scale ratio
 //! \details    Get the scale ratio from input surface to output surface
@@ -438,21 +389,8 @@ void VpHal_GetScalingRatio(
 //! \return   uint16_t
 //!           half precision float value in bit
 //!
-uint16_t VpHal_FloatToHalfFloat(
-    float     fInput);
-
-//! \brief    Transfer float type to half precision float type
-//! \details  Transfer float type to half precision float (16bit) type
-//! \param    [in] fInput
-//!           input FP32 number
-//! \return   uint16_t
-//!           half precision float value in bit
-//!
 uint16_t VpHal_FloatToHalfFloatA(
     float fInputA);
-
-MOS_SURFACE VpHal_ConvertVphalSurfaceToMosSurface(
-    PVPHAL_SURFACE pSurface);
 
 bool IsSyncFreeNeededForMMCSurface(PVPHAL_SURFACE pSurface, PMOS_INTERFACE pOsInterface);
 

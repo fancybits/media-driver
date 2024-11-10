@@ -26,8 +26,8 @@
 //!
 
 #include "vp_vebox_cmd_packet_xe_hpm.h"
+#include "vp_hal_ddi_utils.h"
 #include "mhw_sfc_xe_xpm.h"
-#include "media_user_settings_mgr_g12.h"
 #include "mhw_vebox_xe_hpm.h"
 
 using namespace vp;
@@ -83,7 +83,7 @@ MOS_STATUS VpVeboxCmdPacketXe_Hpm::AddVeboxDndiState()
     PMHW_VEBOX_INTERFACE  pVeboxInterface = m_hwInterface->m_veboxInterface;
     VpVeboxRenderData    *renderData     = GetLastExecRenderData();
 
-    if (renderData->DN.bDnEnabled)
+    if (renderData->DN.bDnEnabled || renderData->DI.bDeinterlace || renderData->DI.bQueryVariance)
     {
         auto pVeboxInterfaceHPM = static_cast<MhwVeboxInterfaceG12 *>(pVeboxInterface);
         VP_RENDER_CHK_STATUS_RETURN(pVeboxInterfaceHPM->SetVeboxChromaParams(&veboxChromaParams));
@@ -295,7 +295,7 @@ MOS_STATUS VpVeboxCmdPacketXe_Hpm::UpdateDnHVSParameters(
         tgneParams.bTgneFirstFrame     = false;  // next frame bTgneFirstFrame should be false
 
         if (MEDIA_IS_WA(m_hwInterface->m_waTable, Wa_1609102037) &&
-            VpHal_GetSurfaceColorPack(m_currentSurface->osSurface->Format) == VPHAL_COLORPACK_444)
+            VpHalDDIUtils::GetSurfaceColorPack(m_currentSurface->osSurface->Format) == VPHAL_COLORPACK_444)
         {
             veboxInterface->dw4X4TGNEThCnt = ((m_currentSurface->osSurface->dwWidth - 32) *
                                                   (m_currentSurface->osSurface->dwHeight - 8)) /
@@ -395,7 +395,7 @@ MOS_STATUS VpVeboxCmdPacketXe_Hpm::UpdateDnHVSParameters(
         }
 
         if (MEDIA_IS_WA(m_hwInterface->m_waTable, Wa_1609102037) &&
-            VpHal_GetSurfaceColorPack(m_currentSurface->osSurface->Format) == VPHAL_COLORPACK_444)
+            VpHalDDIUtils::GetSurfaceColorPack(m_currentSurface->osSurface->Format) == VPHAL_COLORPACK_444)
         {
             veboxInterface->dw4X4TGNEThCnt = ((m_currentSurface->osSurface->dwWidth - 32) *
                                                  (m_currentSurface->osSurface->dwHeight - 8)) /

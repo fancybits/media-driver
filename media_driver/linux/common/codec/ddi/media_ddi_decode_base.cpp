@@ -33,6 +33,7 @@
 #include "media_interfaces_codechal.h"
 #include "media_interfaces_mmd.h"
 #include "mos_solo_generic.h"
+#include "media_interfaces_codechal_next.h"
 
 DdiMediaDecode::DdiMediaDecode(DDI_DECODE_CONFIG_ATTR *ddiDecodeAttr)
     : DdiMediaBase()
@@ -279,6 +280,7 @@ VAStatus DdiMediaDecode::BeginPicture(
     MOS_STATUS eStatus = m_ddiDecodeCtx->pCodecHal->BeginFrame();
     if (eStatus != MOS_STATUS_SUCCESS)
     {
+        m_decodeErrorFlag = true;
         return VA_STATUS_ERROR_DECODING_ERROR;
     }
 
@@ -931,6 +933,7 @@ VAStatus DdiMediaDecode::EndPicture(
     MOS_STATUS status = m_ddiDecodeCtx->pCodecHal->Execute((void *)(&m_ddiDecodeCtx->DecodeParams));
     if (status != MOS_STATUS_SUCCESS)
     {
+        m_decodeErrorFlag = true;
         DDI_ASSERTMESSAGE("DDI:DdiDecode_DecodeInCodecHal return failure.");
         return VA_STATUS_ERROR_DECODING_ERROR;
     }
@@ -942,6 +945,7 @@ VAStatus DdiMediaDecode::EndPicture(
     status = m_ddiDecodeCtx->pCodecHal->EndFrame();
     if (status != MOS_STATUS_SUCCESS)
     {
+        m_decodeErrorFlag = true;
         return VA_STATUS_ERROR_DECODING_ERROR;
     }
 
@@ -1018,12 +1022,6 @@ VAStatus DdiMediaDecode::CreateBuffer(
             buf->format     = Media_Format_CPU;
             break;
         case VASubsetsParameterBufferType:
-            //maximum entry point supported should not be more than 440
-            if(numElements > 440)
-            {
-                va = VA_STATUS_ERROR_INVALID_PARAMETER;
-                goto CleanUpandReturn;
-            }
             buf->pData      = (uint8_t*)MOS_AllocAndZeroMemory(size * numElements);
             buf->format     = Media_Format_CPU;
             break;
@@ -1181,9 +1179,18 @@ VAStatus DdiMediaDecode::CreateCodecHal(
 
     if (nullptr == codecHal)
     {
-        DDI_ASSERTMESSAGE("Failure in CodecHal create.\n");
-        vaStatus = VA_STATUS_ERROR_ALLOCATION_FAILED;
-        return vaStatus;
+        codecHal = CodechalDeviceNext::CreateFactory(
+            nullptr,
+            mosCtx,
+            standardInfo,
+            m_codechalSettings);
+
+        if (nullptr == codecHal)
+        {
+            DDI_ASSERTMESSAGE("Failure in CodecHal create.\n");
+            vaStatus = VA_STATUS_ERROR_ALLOCATION_FAILED;
+            return vaStatus;
+        }
     }
 
     if (codecHal->IsApogeiosEnabled())
@@ -1366,4 +1373,13 @@ void DdiMediaDecode::ReportDecodeMode(
         default:
             break;
     }
+
+#if MOS_EVENT_TRACE_DUMP_SUPPORTED
+    {
+        DECODE_EVENTDATA_VA_FEATURE_REPORTMODE eventData;
+        eventData.wMode = (uint32_t)wMode;
+        eventData.ValueID = userFeatureWriteData.ValueID;
+        MOS_TraceEvent(EVENT_DECODE_FEATURE_DECODEMODE_REPORTVA, EVENT_TYPE_INFO, &eventData, sizeof(eventData), NULL, 0);
+    }
+#endif
  }

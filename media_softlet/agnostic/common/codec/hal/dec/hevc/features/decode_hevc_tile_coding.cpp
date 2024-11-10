@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019, Intel Corporation
+* Copyright (c) 2019-2022, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -27,7 +27,6 @@
 #include "decode_hevc_tile_coding.h"
 #include "decode_hevc_basic_feature.h"
 #include "codec_def_common.h"
-#include "mhw_vdbox_hcp_g12_X.h"
 #include "decode_pipeline.h"
 
 namespace decode
@@ -40,6 +39,11 @@ HevcTileCoding::~HevcTileCoding()
         MOS_Delete(sliceTileInfo);
     }
     m_sliceTileInfoList.clear();
+
+    if (m_pCtbAddrRsToTs)
+    {
+        MOS_FreeMemory(m_pCtbAddrRsToTs);
+    }
 }
 
 MOS_STATUS HevcTileCoding::Init(HevcBasicFeature *basicFeature, CodechalSetting *codecSettings)
@@ -80,23 +84,11 @@ MOS_STATUS HevcTileCoding::UpdateSlice(const CODEC_HEVC_PIC_PARAMS & picParams,
         SliceTileInfo* sliceTileInfo = AllocateSliceTileInfo(slcIdx);
         DECODE_CHK_NULL(sliceTileInfo);
 
-        if(sliceParams[slcIdx].slice_data_offset + sliceParams[slcIdx].slice_data_size > m_basicFeature->m_dataSize)
-        {
-            DECODE_ASSERTMESSAGE("invalid slice %d, data size overflow\n", slcIdx);
-            return MOS_STATUS_INVALID_PARAMETER;
-        }
-
         if (m_basicFeature->IsIndependentSlice(slcIdx))
         {
             sliceTileInfo->origCtbX = sliceParams[slcIdx].slice_segment_address % m_basicFeature->m_widthInCtb;
             sliceTileInfo->origCtbY = sliceParams[slcIdx].slice_segment_address / m_basicFeature->m_widthInCtb;
 
-            if(slcIdx == 0 && sliceParams[slcIdx].slice_segment_address != 0)
-            {
-                DECODE_ASSERTMESSAGE("invalid independent slice %d, slice_segment_address=%d\n",
-                    slcIdx, sliceParams[slcIdx].slice_segment_address);
-                return MOS_STATUS_INVALID_PARAMETER;
-            }
         }
         else
         {
@@ -108,12 +100,6 @@ MOS_STATUS HevcTileCoding::UpdateSlice(const CODEC_HEVC_PIC_PARAMS & picParams,
                     sliceTileInfo->origCtbX = sliceParams[index].slice_segment_address % m_basicFeature->m_widthInCtb;
                     sliceTileInfo->origCtbY = sliceParams[index].slice_segment_address / m_basicFeature->m_widthInCtb;
 
-                    if(index == 0 && sliceParams[index].slice_segment_address != 0)
-                    {
-                        DECODE_ASSERTMESSAGE("invalid dependent slice %d, index %d, slice_segment_address=%d\n",
-                            index, sliceParams[index].slice_segment_address);
-                        return MOS_STATUS_INVALID_PARAMETER;
-                    }
                     break;
                 }
             }
@@ -149,6 +135,23 @@ MOS_STATUS HevcTileCoding::UpdateSliceTileInfo()
     DECODE_CHK_COND(m_basicFeature->m_numSlices > m_sliceTileInfoList.size(),
                     "Number of slices is exceeds the size of tile info list!");
 
+    /* To generate RsToTs convert table per frame */
+    if (picParams.tiles_enabled_flag == 1)
+    {
+        uint32_t picSizeInCtbsY = m_basicFeature->m_widthInCtb * m_basicFeature->m_heightInCtb;
+        if (nullptr == m_pCtbAddrRsToTs || m_CurRsToTsTableSize < picSizeInCtbsY)
+        {
+            if (m_pCtbAddrRsToTs)
+            {
+                MOS_FreeMemory(m_pCtbAddrRsToTs);
+            }
+            m_pCtbAddrRsToTs = (uint32_t *)MOS_AllocAndZeroMemory(picSizeInCtbsY * sizeof(uint32_t));
+            DECODE_CHK_NULL(m_pCtbAddrRsToTs);
+            m_CurRsToTsTableSize = picSizeInCtbsY;
+        }
+        RsToTsAddrConvert(picParams, picSizeInCtbsY);
+    }
+
     for (uint32_t slcIdx = 0; slcIdx < m_basicFeature->m_numSlices; slcIdx++)
     {
         SliceTileInfo* sliceTileInfo = m_sliceTileInfoList[slcIdx];
@@ -168,7 +171,11 @@ MOS_STATUS HevcTileCoding::UpdateSliceTileInfo()
         bool lastSlice = m_basicFeature->IsLastSlice(slcIdx);
         sliceTileInfo->numTiles = ComputeTileNumForSlice(picParams, slcIdx,
                                     sliceTileInfo->sliceTileX, sliceTileInfo->sliceTileY, lastSlice);
-
+        if(sliceTileInfo->numTiles > (picParams.num_tile_columns_minus1+1)*(picParams.num_tile_rows_minus1+1))
+        {
+            DECODE_ASSERTMESSAGE("Number of slice tile is exceeds the number of total tile!\n");
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
         // Case 1: multiple tiles in single slice, this is the last slice in tile.
         // Case 2: multiple slices in single tile, these slices share same tile position which means numTilesInSlice is 0.
         sliceTileInfo->lastSliceOfTile = (sliceTileInfo->numTiles > 0);
@@ -184,6 +191,45 @@ MOS_STATUS HevcTileCoding::UpdateSliceTileInfo()
             }
             DECODE_CHK_STATUS(UpdateSubTileInfo(picParams, sliceParams[slcIdx], *sliceTileInfo));
         }
+
+        uint16_t tileStartCtbX = GetTileCtbX(sliceTileInfo->sliceTileX);
+        uint16_t tileStartCtbY = GetTileCtbY(sliceTileInfo->sliceTileY);
+        uint16_t subStreamCount = (sliceTileInfo->numTiles > 0) ? sliceTileInfo->numTiles : 1;
+        for (uint16_t tileId = 0; tileId < subStreamCount; tileId++)
+        {
+            if (sliceTileInfo->firstSliceOfTile)
+            {
+                /* Check the startCtbX and startCtbY for firstsliceoftile and firsttileofslice */
+                if (tileId == 0)
+                {
+                    uint32_t slicestartCtbX = sliceParams[slcIdx].slice_segment_address % m_basicFeature->m_widthInCtb;
+                    uint32_t slicestartCtbY = sliceParams[slcIdx].slice_segment_address / m_basicFeature->m_widthInCtb;
+                    if (slicestartCtbY != tileStartCtbY || slicestartCtbX != tileStartCtbX)
+                    {
+                        DECODE_ASSERTMESSAGE("slicestartCtbX(%d) does not equal to tilestartCtbX(%d) or slicestartCtbY(%d) does not equal to tilestartCtbY(%d)\n",
+                                             slicestartCtbX, tileStartCtbX, slicestartCtbY, tileStartCtbY);
+                        return MOS_STATUS_INVALID_PARAMETER;
+                    }
+                }
+            }
+        }
+
+        /* Check slice segment address in tile scan should be increasing */
+        if (picParams.tiles_enabled_flag == 1)
+        {
+            if ((m_pCtbAddrRsToTs != nullptr) && (slcIdx > 0))
+            {
+                if (m_pCtbAddrRsToTs[sliceParams[slcIdx].slice_segment_address] <= m_pCtbAddrRsToTs[sliceParams[slcIdx - 1].slice_segment_address]) // Tile scan address is not increasing
+                {
+                    DECODE_ASSERTMESSAGE("Address in tile scan is not increasing, %dth slice tile scan address = %d, %dth slice tile scan address = %d\n",
+                                         slcIdx - 1,
+                                         m_pCtbAddrRsToTs[sliceParams[slcIdx - 1].slice_segment_address],
+                                         slcIdx,
+                                         m_pCtbAddrRsToTs[sliceParams[slcIdx].slice_segment_address]);
+                    return MOS_STATUS_INVALID_PARAMETER;
+                }
+            }
+        }
     }
 
     return MOS_STATUS_SUCCESS;
@@ -193,7 +239,14 @@ MOS_STATUS HevcTileCoding::UpdateSubTileInfo(const CODEC_HEVC_PIC_PARAMS & picPa
                                              const CODEC_HEVC_SLICE_PARAMS & sliceParams,
                                              SliceTileInfo &sliceTileInfo)
 {
-    DECODE_ASSERT(sliceTileInfo.numTiles == (sliceParams.num_entry_point_offsets + 1));
+    if (sliceTileInfo.numTiles > 1)
+    {
+        if (!picParams.entropy_coding_sync_enabled_flag)
+        {
+            DECODE_CHK_COND(sliceTileInfo.numTiles != (sliceParams.num_entry_point_offsets + 1),
+                            "tiles number does not equal to current num_entry_point_offsets.");
+        }
+    }
 
     uint32_t* entryPointOffsets = nullptr;
     if (m_basicFeature->m_hevcSubsetParams != nullptr)
@@ -240,6 +293,102 @@ MOS_STATUS HevcTileCoding::UpdateSubTileInfo(const CODEC_HEVC_PIC_PARAMS & picPa
             tileX = 0;
             ++tileY;
         }
+    }
+
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS HevcTileCoding::RsToTsAddrConvert(const CODEC_HEVC_PIC_PARAMS &picParams, uint32_t picSizeInCtbsY)
+{
+    uint32_t tbX = 0;
+    uint32_t tbY = 0;
+    uint32_t ctbAddrRs = 0;
+    uint32_t colBd[HEVC_NUM_MAX_TILE_COLUMN + 1] = {0};
+    uint32_t rowBd[HEVC_NUM_MAX_TILE_ROW + 1]    = {0};
+    uint32_t colWidth[HEVC_NUM_MAX_TILE_COLUMN + 1] = {0};
+    uint32_t rowHeight[HEVC_NUM_MAX_TILE_ROW + 1]   = {0};
+    uint8_t  i = 0, j = 0;
+
+    if (picParams.tiles_enabled_flag && picParams.uniform_spacing_flag)
+    {
+        for (i = 0; i <= picParams.num_tile_columns_minus1; i++)
+        {
+            colWidth[i] = ((i + 1) * m_basicFeature->m_widthInCtb) / (picParams.num_tile_columns_minus1 + 1) -
+                (i * m_basicFeature->m_widthInCtb) / (picParams.num_tile_columns_minus1 + 1);
+        }
+
+        for (j = 0; j <= picParams.num_tile_rows_minus1; j++)
+        {
+            rowHeight[j] = ((j + 1) * m_basicFeature->m_heightInCtb) / (picParams.num_tile_rows_minus1 + 1) -
+                (j * m_basicFeature->m_heightInCtb) / (picParams.num_tile_rows_minus1 + 1);
+        }
+    }
+    else
+    {
+        colWidth[picParams.num_tile_columns_minus1] = m_basicFeature->m_widthInCtb;
+        for (i = 0; i < picParams.num_tile_columns_minus1; i++)
+        {
+            colWidth[i] = picParams.column_width_minus1[i] + 1;
+            colWidth[picParams.num_tile_columns_minus1] -= colWidth[i];
+        }
+
+        rowHeight[picParams.num_tile_rows_minus1] = m_basicFeature->m_heightInCtb;
+        for (j = 0; j < picParams.num_tile_rows_minus1; j++)
+        {
+            rowHeight[j] = picParams.row_height_minus1[j] + 1;
+            rowHeight[picParams.num_tile_rows_minus1] -= rowHeight[j];
+        }
+    }
+
+    /* The list colBd[i] for i ranging from 0 to num_tile_columns_minus1 + 1, inclusive,
+     * specifying the location of the i-th tile column boundary in units of CTBs */
+    for (colBd[0] = 0, i = 0; i <= picParams.num_tile_columns_minus1; i ++)
+    {
+        colBd[i + 1] = colBd[i] + colWidth[i];
+    }
+
+    /* The list rowBd[j] for j ranging from 0 to num_tile_rows_minus1 + 1, inclusive,
+     * specifying the location of the j-th tile row boundary in units of CTBs */
+    for (rowBd[0] = 0, j = 0; j <= picParams.num_tile_rows_minus1; j ++)
+    {
+        rowBd[j + 1] = rowBd[j] + rowHeight[j];
+    }
+
+    /* The list CtbAddrRsToTs[ctbAddrRs] for ctbAddrRs ranging from 0 to PicSizeInCtbsY - 1, inclusive,
+     * specifying the conversion from a CTB address in CTB raster scan of a picture to a CTB address in tile scan */
+    uint16_t tileX = 0, tileY = 0;
+    for (ctbAddrRs = 0; ctbAddrRs < picSizeInCtbsY; ctbAddrRs++)
+    {
+        tbX = ctbAddrRs % m_basicFeature->m_widthInCtb;
+        tbY = ctbAddrRs / m_basicFeature->m_widthInCtb;
+
+        for (j = 0; j <= picParams.num_tile_rows_minus1; j++)
+        {
+            if (tbY >= rowBd[j])
+            {
+                tileY = j;
+            }
+        }
+
+        for (i = 0; i <= picParams.num_tile_columns_minus1; i++)
+        {
+            if (tbX >= colBd[i])
+            {
+                tileX = i;
+            }
+        }
+
+        m_pCtbAddrRsToTs[ctbAddrRs] = 0;
+        for (i = 0; i < tileX; i++)
+        {
+            m_pCtbAddrRsToTs[ctbAddrRs] += rowHeight[tileY] * colWidth[i];
+        }
+        for (j = 0; j < tileY; j++)
+        {
+            m_pCtbAddrRsToTs[ctbAddrRs] += m_basicFeature->m_widthInCtb * rowHeight[j];
+        }
+
+        m_pCtbAddrRsToTs[ctbAddrRs] += (tbY - rowBd[tileY]) * colWidth[tileX] + tbX - colBd[tileX];
     }
 
     return MOS_STATUS_SUCCESS;

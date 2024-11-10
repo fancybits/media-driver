@@ -41,7 +41,7 @@ public:
     //!         Pointer to CodechalDebugInterface
     //!
     Av1VdencPipelineXe_Hpm(
-        CodechalHwInterface     *hwInterface,
+        CodechalHwInterfaceNext     *hwInterface,
         CodechalDebugInterface  *debugInterface);
 
     //!
@@ -52,8 +52,8 @@ public:
     virtual MOS_STATUS Init(void *settings) override;
 
 protected:
-    virtual MOS_STATUS Initialize(void *settings) override;
     virtual MOS_STATUS CreateFeatureManager() override;
+    virtual MOS_STATUS HuCCheckAndInit() override;
 MEDIA_CLASS_DEFINE_END(encode__Av1VdencPipelineXe_Hpm)
 };
 

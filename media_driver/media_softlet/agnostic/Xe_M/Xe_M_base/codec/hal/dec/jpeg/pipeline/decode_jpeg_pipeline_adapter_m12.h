@@ -38,7 +38,14 @@ public:
         CodechalHwInterface *   hwInterface,
         CodechalDebugInterface *debugInterface);
 
-    virtual ~DecodeJpegPipelineAdapterM12() {}
+    virtual ~DecodeJpegPipelineAdapterM12()
+    {
+        if (m_hwInterface)
+        {
+            MOS_Delete(m_hwInterface);
+            Codechal::m_hwInterface = nullptr;
+        }
+    }
 
     virtual MOS_STATUS BeginFrame() override;
 
@@ -60,6 +67,7 @@ public:
     virtual void Destroy() override;
 
     virtual MOS_GPU_CONTEXT GetDecodeContext() override;
+    virtual GPU_CONTEXT_HANDLE GetDecodeContextHandle() override;
 
     virtual MOS_SURFACE *GetDummyReference() override;
 
@@ -74,6 +82,8 @@ public:
 
 protected:
     std::shared_ptr<decode::JpegPipelineM12> m_decoder;
+    CodechalHwInterface                     *m_hwInterface = nullptr;
+
 MEDIA_CLASS_DEFINE_END(DecodeJpegPipelineAdapterM12)
 };
 #endif // !__DECODE_JPEG_PIPELINE_ADAPTER_M12_H__

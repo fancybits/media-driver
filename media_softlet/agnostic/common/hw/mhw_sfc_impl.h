@@ -68,24 +68,18 @@ public:
         m_indexofSfc              = 0;
         m_numofSfc                = 1;
 
-        if (osItf == nullptr)
-        {
-            MHW_ASSERTMESSAGE("Invalid Input Parameter: m_osInterface is nullptr");
-            return;
-        }
-
         // Get Memory control object directly from MOS.
         // If any override is needed, something like pfnOverrideMemoryObjectCtrl() / pfnComposeSurfaceCacheabilityControl()
         // will need to be implemented.
         m_outputSurfCtrl.Value = osItf->pfnCachePolicyGetMemoryObject(
-            MOS_MHW_RESOURCE_USAGE_Sfc_CurrentOutputSurface,
+            MOS_HW_RESOURCE_USAGE_VP_OUTPUT_PICTURE_FF,
             osItf->pfnGetGmmClientContext(osItf)).DwordValue;
 
         m_avsLineBufferCtrl.Value = osItf->pfnCachePolicyGetMemoryObject(
-            MOS_MHW_RESOURCE_USAGE_Sfc_AvsLineBufferSurface,
+            MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_FF,
             osItf->pfnGetGmmClientContext(osItf)).DwordValue;
         m_iefLineBufferCtrl.Value = osItf->pfnCachePolicyGetMemoryObject(
-            MOS_MHW_RESOURCE_USAGE_Sfc_IefLineBufferSurface,
+            MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_FF,
             osItf->pfnGetGmmClientContext(osItf)).DwordValue;
 
         m_sfdLineBufferCtrl.Value = osItf->pfnCachePolicyGetMemoryObject(
@@ -101,6 +95,9 @@ public:
             MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED,
             osItf->pfnGetGmmClientContext(osItf)).DwordValue;
         m_histogramBufferCtrl.Value = osItf->pfnCachePolicyGetMemoryObject(
+            MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED,
+            osItf->pfnGetGmmClientContext(osItf)).DwordValue;
+        m_sfcIndirectBufferCtrl.Value = osItf->pfnCachePolicyGetMemoryObject(
             MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED,
             osItf->pfnGetGmmClientContext(osItf)).DwordValue;
 
@@ -224,7 +221,7 @@ public:
         uint32_t &heightAlignUnit,
         bool bVdbox,
         CODECHAL_STANDARD codecStandard,
-        CodecDecodeJpegChromaType jpegChromaType)
+        CodecDecodeJpegChromaType jpegChromaType) override
     {
         if (bVdbox)
         {
@@ -264,27 +261,41 @@ public:
     }
 
     MOS_STATUS SetSfcAVSScalingMode(
-        MHW_SCALING_MODE ScalingMode)
+        MHW_SCALING_MODE ScalingMode) override
     {
         m_scalingMode = ScalingMode;
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS GetMinWidthHeightInfo(uint32_t &width, uint32_t &height)
+    MOS_STATUS GetInputMinWidthHeightInfo(uint32_t &width, uint32_t &height) override
+    {
+        width  = m_inputMinWidth;
+        height = m_inputMinHeight;
+        return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS GetOutputMinWidthHeightInfo(uint32_t &width, uint32_t &height) override
+    {
+        width  = m_outputMinWidth;
+        height = m_outputMinHeight;
+        return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS GetMinWidthHeightInfo(uint32_t &width, uint32_t &height) override
     {
         width = m_minWidth;
         height = m_minHeight;
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS GetMaxWidthHeightInfo(uint32_t &width, uint32_t &height)
+    MOS_STATUS GetMaxWidthHeightInfo(uint32_t &width, uint32_t &height) override
     {
         width  = m_maxWidth;
         height = m_maxHeight;
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS GetScalingRatioLimit(float &minScalingRatio, float &maxScalingRatio)
+    MOS_STATUS GetScalingRatioLimit(float &minScalingRatio, float &maxScalingRatio) override
     {
         minScalingRatio = m_minScalingRatio;
         maxScalingRatio = m_maxScalingRatio;
@@ -301,7 +312,7 @@ public:
         uint32_t                  dwChromaSiting,
         bool                      bUse8x8Filter,
         float                     fHPStrength,
-        float                     fLanczosT)
+        float                     fLanczosT) override
     {
         MHW_FUNCTION_ENTER;
 
@@ -321,11 +332,24 @@ public:
 
         // Skip calculation if no changes to AVS parameters
         if (srcFormat == pAvsParams->Format &&
-            fScaleX == pAvsParams->fScaleX &&
-            fScaleY == pAvsParams->fScaleY)
+            fScaleX == pAvsParams->fScaleX  &&
+            fScaleY == pAvsParams->fScaleY  &&
+            bUse8x8Filter == pAvsParams->bUse8x8Filter)
         {
             MHW_NORMALMESSAGE("Skip calculation since no changes to AVS parameters. srcFormat %d, fScaleX %f, fScaleY %f",
                 srcFormat, fScaleX, fScaleY);
+
+            SetSfcAVSLumaTable(
+                srcFormat,
+                pLumaTable->LumaTable,
+                piYCoefsX,
+                piYCoefsY,
+                bUse8x8Filter);
+
+            SetSfcAVSChromaTable(
+                pChromaTable->ChromaTable,
+                piUVCoefsX,
+                piUVCoefsY);
             return MOS_STATUS_SUCCESS;
         }
 
@@ -546,7 +570,7 @@ public:
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     MOS_STATUS SetSfcIndex(
         uint32_t dwSfcIndex,
-        uint32_t dwSfcCount)
+        uint32_t dwSfcCount) override
     {
         MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
@@ -559,7 +583,7 @@ public:
         return eStatus;
     }
 
-    void IsOutPutCenterEnable(bool inputEnable)
+    void IsOutPutCenterEnable(bool inputEnable) override
     {
         m_outputCenteringEnable = inputEnable;
     }
@@ -725,6 +749,10 @@ protected:
     uint32_t                           m_maxHeight             = MHW_SFC_MAX_HEIGHT;
     uint32_t                           m_minWidth              = MHW_SFC_MIN_WIDTH;
     uint32_t                           m_minHeight             = MHW_SFC_MIN_HEIGHT;
+    uint32_t                           m_inputMinWidth         = MHW_SFC_MIN_WIDTH;             // SFC input min width size for ve+sfc
+    uint32_t                           m_inputMinHeight        = MHW_SFC_MIN_HEIGHT;            // SFC input min height size for ve+sfc
+    uint32_t                           m_outputMinWidth        = MHW_SFC_OUTPUT_MIN_WIDTH;      // SFC output min width size for ve+sfc
+    uint32_t                           m_outputMinHeight       = MHW_SFC_OUTPUT_MIN_HEIGHT;     // SFC output min height size for ve+sfc
 
     float                              m_maxScalingRatio       = MHW_SFC_MAX_SCALINGFACTOR;
     float                              m_minScalingRatio       = MHW_SFC_MIN_SCALINGFACTOR;
@@ -737,6 +765,7 @@ protected:
     MHW_MEMORY_OBJECT_CONTROL_PARAMS   m_iefLineTileBufferCtrl = {};   // IEF Line Tile Buffer caching control bits
     MHW_MEMORY_OBJECT_CONTROL_PARAMS   m_sfdLineTileBufferCtrl = {};   // SFD Line Tile Buffer caching control bits
     MHW_MEMORY_OBJECT_CONTROL_PARAMS   m_histogramBufferCtrl   = {};   // Histogram Buffer caching control bits
+    MHW_MEMORY_OBJECT_CONTROL_PARAMS   m_sfcIndirectBufferCtrl = {};   // SfcIndirect Buffer caching control bits
     MHW_SCALING_MODE                   m_scalingMode           = MHW_SCALING_NEAREST;
 MEDIA_CLASS_DEFINE_END(mhw__sfc__Impl)
 };

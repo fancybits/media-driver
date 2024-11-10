@@ -31,7 +31,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 #include "linux_skuwa_debug.h"
 #include "linux_media_skuwa.h"
 #include "linux_shadow_skuwa.h"
-#include "mos_utilities.h"
+#include "media_user_setting_specific.h"
 
 #define THREADS_NUMBER_PER_EU_HP 8
 
@@ -203,8 +203,6 @@ bool InitXeHPShadowWa(struct GfxDeviceInfo *devInfo,
     waTable->WaDisregardPlatformChecks          = 1;
     waTable->Wa4kAlignUVOffsetNV12LinearSurface = 1;
 
-    waTable->WaDefaultTile4 = 1;
-
     waTable->Wa_15010089951 = 1;
 
     return true;
@@ -232,8 +230,6 @@ bool InitPvcShadowWa(struct GfxDeviceInfo *devInfo,
 
     // Set it to 0 if need to support 256B compress mode
     waTable->WaLimit128BMediaCompr = 0;
-
-    waTable->WaDefaultTile4 = 1;
 
     return true;
 }
@@ -370,6 +366,12 @@ static bool pvcGt4Device0bd8 = DeviceInfoFactory<GfxDeviceInfo>::
 static bool pvcGt4Device0bd9 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x0bd9, &pvcGt4Info); 
 
+static bool pvcGt4Device0bda = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x0bda, &pvcGt4Info);
+
+static bool pvcGt4Device0bdb = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x0bdb, &pvcGt4Info);
+
 static bool pvcGt4Device0be0 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x0be0, &pvcGt4Info);
 
@@ -430,9 +432,6 @@ static bool dg2Gt4Device5696 = DeviceInfoFactory<GfxDeviceInfo>::
 static bool dg2Gt4Device5697 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x5697, &dg2Gt4Info);
 
-static bool dg2Gt4Device5698 = DeviceInfoFactory<GfxDeviceInfo>::
-    RegisterDevice(0x5698, &dg2Gt4Info);
-
 static bool dg2Gt4Device56A0 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x56A0, &dg2Gt4Info);
 
@@ -454,23 +453,45 @@ static bool dg2Gt4Device56A5 = DeviceInfoFactory<GfxDeviceInfo>::
 static bool dg2Gt4Device56A6 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x56A6, &dg2Gt4Info);
 
-static bool dg2Gt4Device56A7 = DeviceInfoFactory<GfxDeviceInfo>::
-    RegisterDevice(0x56A7, &dg2Gt4Info);
-
-static bool dg2Gt4Device56A8 = DeviceInfoFactory<GfxDeviceInfo>::
-    RegisterDevice(0x56A8, &dg2Gt4Info);
-
-static bool dg2Gt4Device56A9 = DeviceInfoFactory<GfxDeviceInfo>::
-    RegisterDevice(0x56A9, &dg2Gt4Info);
-
 static bool dg2Gt4Device56B0 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x56B0, &dg2Gt4Info);
 
 static bool dg2Gt4Device56B1 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x56B1, &dg2Gt4Info);
 
+static bool dg2Gt4Device56BA = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x56BA, &dg2Gt4Info);
+
+static bool dg2Gt4Device56BB = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x56BB, &dg2Gt4Info);
+
+static bool dg2Gt4Device56BC = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x56BC, &dg2Gt4Info);
+
+static bool dg2Gt4Device56BD = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x56BD, &dg2Gt4Info);
+
+static bool dg2Gt4Device56B2 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x56B2, &dg2Gt4Info);
+
+static bool dg2Gt4Device56B3 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x56B3, &dg2Gt4Info);
+
 static bool dg2Gt4Device56C0 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x56C0, &dg2Gt4Info);
 
 static bool dg2Gt4Device56C1 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x56C1, &dg2Gt4Info);
+
+static bool dg2Gt4Device56C2 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x56C2, &dg2Gt4Info);
+
+static bool dg2Gt4Device56BE = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x56BE, &dg2Gt4Info);
+
+static bool dg2Gt4Device56BF = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x56BF, &dg2Gt4Info);
+
+static bool dg2Gt4Device56AF = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x56AF, &dg2Gt4Info);
+

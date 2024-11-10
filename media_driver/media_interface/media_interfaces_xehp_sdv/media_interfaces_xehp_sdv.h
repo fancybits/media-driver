@@ -34,7 +34,6 @@
 #include "media_interfaces_mmd.h"
 #include "media_interfaces_mcpy.h"
 #include "media_interfaces_cmhal.h"
-#include "media_interfaces_mosutil.h"
 #include "media_interfaces_vphal.h"
 #include "media_interfaces_renderhal.h"
 #include "media_interfaces_nv12top010.h"
@@ -42,7 +41,9 @@
 #include "media_interfaces_hwinfo_device.h"
 
 #include "mhw_cp_interface.h"
+#if IGFX_GEN12_SUPPORTED
 #include "mhw_mi_g12_X.h"
+#endif
 #include "mhw_render_xe_hp.h"
 #include "mhw_sfc_xe_xpm.h"
 #include "mhw_state_heap_xe_xpm.h"
@@ -128,7 +129,6 @@
 #include "codechal_vdenc_avc_xe_xpm.h"
 #endif
 
-#include "codechal_memdecomp_g11_icl.h"
 
 #ifdef _VP9_ENCODE_VDENC_SUPPORTED
 #include "codechal_vdenc_vp9_g12.h"
@@ -145,11 +145,12 @@
 #endif
 #include "vphal_xe_xpm.h"
 #include "renderhal_xe_hp.h"
-#include "media_user_settings_mgr_g12_plus.h"
 
 #include "codechal_decode_histogram.h"
 #include "codechal_decode_histogram_g12.h"
 
+#include "decode_scalability_singlepipe.h"
+#include "decode_scalability_multipipe.h"
 class MhwInterfacesXehp_Sdv : public MhwInterfaces
 {
 public:
@@ -297,14 +298,6 @@ protected:
 };
 #endif
 
-class MosUtilDeviceXe_Xpm : public MosUtilDevice
-{
-public:
-    using MosUtil = MediaUserSettingsMgr_Xe_M_base;
-
-    MOS_STATUS Initialize();
-};
-
 class VphalInterfacesXe_Xpm : public VphalDevice
 {
 public:
@@ -312,9 +305,9 @@ public:
 
     MOS_STATUS Initialize(
         PMOS_INTERFACE  osInterface,
-        PMOS_CONTEXT    osDriverContext,
         bool            bInitVphalState,
-        MOS_STATUS      *eStatus);
+        MOS_STATUS      *eStatus,
+        bool            clearViewMode = false);
 
     MOS_STATUS CreateVpPlatformInterface(
         PMOS_INTERFACE           osInterface,

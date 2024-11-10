@@ -52,15 +52,6 @@ public:
         bool              disableScalability = false);
 
     //!
-    //! \brief    Constructor
-    //!
-    CodechalHwInterfaceXe_Xpm_Plus(
-        PMOS_INTERFACE    osInterface,
-        CODECHAL_FUNCTION codecFunction,
-        MhwInterfacesNext *mhwInterfacesNext,
-        bool              disableScalability);
-
-    //!
     //! \brief    Copy constructor
     //!
     CodechalHwInterfaceXe_Xpm_Plus(const CodechalHwInterfaceXe_Xpm_Plus&) = delete;
@@ -142,6 +133,15 @@ public:
     //!
     virtual MOS_STATUS SetCacheabilitySettings(
             MHW_MEMORY_OBJECT_CONTROL_PARAMS cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_END_CODEC]) override;
+
+    //! \brief    Create media copy
+    //! \details  Create media copy instance.
+    //! \param    osInterface
+    //!           [in] Pointer to MOS_INTERFACE.
+    //! \return   MediaCopyBaseState*
+    //!           Pointer to MediaCopyBaseState
+    //!
+    virtual MediaCopyBaseState* CreateMediaCopy(PMOS_INTERFACE mosInterface) override;
 
 private:
     //!

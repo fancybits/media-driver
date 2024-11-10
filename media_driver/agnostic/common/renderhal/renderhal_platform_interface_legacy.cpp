@@ -633,17 +633,17 @@ MOS_STATUS XRenderHal_Platform_Interface_Legacy::On1stLevelBBStart(
 MOS_STATUS XRenderHal_Platform_Interface_Legacy::OnDispatch(
     PRENDERHAL_INTERFACE pRenderHal,
     PMOS_COMMAND_BUFFER  pCmdBuffer,
-    PMOS_CONTEXT         pOsContext,
+    PMOS_INTERFACE       pOsInterface,
     MHW_MI_MMIOREGISTERS *pMmioReg)
 {
     MOS_STATUS  eStatus = MOS_STATUS_SUCCESS;
     MHW_RENDERHAL_CHK_NULL_RETURN(pRenderHal);
     MHW_RENDERHAL_CHK_NULL_RETURN(pRenderHal->pMhwMiInterface);
     MHW_RENDERHAL_CHK_NULL_RETURN(pCmdBuffer);
-    MHW_RENDERHAL_CHK_NULL_RETURN(pOsContext);
+    MHW_RENDERHAL_CHK_NULL_RETURN(pOsInterface);
     MHW_RENDERHAL_CHK_NULL_RETURN(pMmioReg);
 
-    HalOcaInterface::OnDispatch(*pCmdBuffer, *pOsContext, *pRenderHal->pMhwMiInterface, *pMmioReg);
+    HalOcaInterface::OnDispatch(*pCmdBuffer, *pOsInterface, *pRenderHal->pMhwMiInterface, *pMmioReg);
 
     return eStatus;
 }
@@ -712,7 +712,7 @@ MOS_STATUS XRenderHal_Platform_Interface_Legacy::StartPredicate(
     MHW_RENDERHAL_CHK_NULL_RETURN(pRenderHal->pMhwMiInterface);
     MHW_RENDERHAL_CHK_NULL_RETURN(cmdBuffer);
 
-    MHW_RENDERHAL_CHK_STATUS_RETURN(NullHW::StartPredicate(pRenderHal->pMhwMiInterface, cmdBuffer));
+    MHW_RENDERHAL_CHK_STATUS_RETURN(NullHW::StartPredicate(pRenderHal->pOsInterface, pRenderHal->pMhwMiInterface, cmdBuffer));
 
     return eStatus;
 }
@@ -726,7 +726,7 @@ MOS_STATUS XRenderHal_Platform_Interface_Legacy::StopPredicate(
     MHW_RENDERHAL_CHK_NULL_RETURN(pRenderHal->pMhwMiInterface);
     MHW_RENDERHAL_CHK_NULL_RETURN(cmdBuffer);
 
-    MHW_RENDERHAL_CHK_STATUS_RETURN(NullHW::StopPredicate(pRenderHal->pMhwMiInterface, cmdBuffer));
+    MHW_RENDERHAL_CHK_STATUS_RETURN(NullHW::StopPredicate(pRenderHal->pOsInterface, pRenderHal->pMhwMiInterface, cmdBuffer));
 
     return eStatus;
 }

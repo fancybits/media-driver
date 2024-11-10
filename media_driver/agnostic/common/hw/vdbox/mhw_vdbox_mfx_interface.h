@@ -41,12 +41,6 @@
 
 #define MFX_PAK_STREAMOUT_DATA_BYTE_SIZE   4
 
-typedef enum _MHW_VDBOX_AVC_DMV_OFFSET
-{
-    MHW_VDBOX_AVC_DMV_DEST_TOP = 32,
-    MHW_VDBOX_AVC_DMV_DEST_BOTTOM = 33
-} MHW_VDBOX_AVC_DMV_OFFSET;
-
 typedef enum _MHW_VDBOX_DECODE_VC1_IT_ILDB_EDGE_CONTROL_LUMA
 {
     MHW_VDBOX_DECODE_VC1_IT_ILDB_EDGE_CONTROL_LUMA_X0Y0 = 0x0f0c0300,
@@ -100,7 +94,7 @@ typedef struct _MHW_VDBOX_MPEG2_SLICE_STATE
 
 typedef struct _MHW_VDBOX_MPEG2_MB_STATE
 {
-    CodecDecodeMpeg2MbParmas       *pMBParams;
+    CodecDecodeMpeg2MbParams       *pMBParams;
     uint16_t                        wPicWidthInMb;
     uint16_t                        wPicHeightInMb;
     uint16_t                        wPicCodingType;

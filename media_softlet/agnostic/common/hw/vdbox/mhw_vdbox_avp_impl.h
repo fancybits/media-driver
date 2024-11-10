@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2022, Intel Corporation
+* Copyright (c) 2020-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -72,16 +72,31 @@ public:
         MHW_FUNCTION_ENTER;
 
         MHW_MI_CHK_NULL(avpBufSizeParam);
-
-        uint32_t sbPerFrmWid        = avpBufSizeParam->width;
-        uint32_t sbPerFrmHgt        = avpBufSizeParam->height;
-        uint32_t sbPerTileWid       = avpBufSizeParam->tileWidth;
-        uint32_t bufferSize         = 0;
-        uint32_t totalSbPerFrame    = sbPerFrmWid * sbPerFrmHgt;
-        uint32_t index              = (uint32_t)bufferType;
-        uint32_t maxCuPerSB         = avpBufSizeParam->isSb128x128 ? 256 : 64;
-
         MHW_ASSERT(avpBufSizeParam->bitDepthIdc == 0 || avpBufSizeParam->bitDepthIdc == 1);
+
+        uint32_t bufferSize = 0;
+
+        MHW_MI_CHK_STATUS(CalculateBufferSize(bufferType, avpBufSizeParam, avpBufferSize, avpBufferSizeExt, bufferSize));
+
+        avpBufSizeParam->bufferSize = bufferSize * MHW_CACHELINE_SIZE;
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS CalculateBufferSize(AvpBufferType    bufferType,
+                                   AvpBufferSizePar *avpBufSizeParam,
+                                   const uint8_t    avpBufferSizeTbl[][2][2],
+                                   const uint8_t    avpBufferSizeExtTbl[][2][2],
+                                   uint32_t         &bufferSize)
+    {
+        MHW_FUNCTION_ENTER;
+
+        uint32_t sbPerFrmWid     = avpBufSizeParam->width;
+        uint32_t sbPerFrmHgt     = avpBufSizeParam->height;
+        uint32_t sbPerTileWid    = avpBufSizeParam->tileWidth;
+        uint32_t totalSbPerFrame = sbPerFrmWid * sbPerFrmHgt;
+        uint32_t index           = (uint32_t)bufferType;
+        uint32_t maxCuPerSB      = avpBufSizeParam->isSb128x128 ? 256 : 64;
 
         switch (bufferType)
         {
@@ -92,11 +107,11 @@ public:
             case deblockLineYBuffer:
             case deblockLineUBuffer:
             case deblockLineVBuffer:
-                bufferSize = sbPerTileWid * avpBufferSize[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
+                bufferSize = sbPerTileWid * avpBufferSizeTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
                 break;
             case cdefLineBuffer:
-                bufferSize = sbPerTileWid * avpBufferSize[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128]
-                    + avpBufferSizeExt[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
+                bufferSize = sbPerTileWid * avpBufferSizeTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128]
+                    + avpBufferSizeExtTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
                 break;
                 //Tile storage - tile line buffers, Total CLs = (#CLs_per_SB * num_of_SB_per_row) = (#CLs_per_SB * num_of_SB_per_frame_width)
             case bsdTileLineBuffer:
@@ -105,17 +120,17 @@ public:
             case deblockTileLineYBuffer:
             case deblockTileLineUBuffer:
             case deblockTileLineVBuffer:
-                bufferSize = sbPerFrmWid * avpBufferSize[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
+                bufferSize = sbPerFrmWid * avpBufferSizeTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
                 break;
                 //Tile storage - tile column buffers, Total CLs = (#CLs_per_SB * num_of_SB_per_column) = (#CLs_per_SB * num_of_SB_per_frame_height)
             case deblockTileColYBuffer:
             case deblockTileColUBuffer:
             case deblockTileColVBuffer:
-                bufferSize = sbPerFrmHgt * avpBufferSize[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
+                bufferSize = sbPerFrmHgt * avpBufferSizeTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
                 break;
                 // Tile storage, per tile number
             case cdefTopLeftCornerBuffer:
-                bufferSize = avpBufSizeParam->curFrameTileNum;
+                bufferSize = avpBufSizeParam->curFrameTileNum * avpBufferSizeTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
                 break;
             case cdefMetaTileLineBuffer:
                 bufferSize = avpBufSizeParam->numTileCol;
@@ -129,8 +144,8 @@ public:
                 break;
                 // Tile storage, - tile line buffers, with extra size
             case cdefTileLineBuffer:
-                bufferSize = sbPerFrmWid * avpBufferSize[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128]
-                    + avpBufferSizeExt[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
+                bufferSize = sbPerFrmWid * avpBufferSizeTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128]
+                    + avpBufferSizeExtTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
                 break;
                 // Tile storage, - tile column buffers, with extra size
             case cdefTileColBuffer:
@@ -142,8 +157,8 @@ public:
             case lrTileColUBuffer:
             case lrTileColVBuffer:
             case lrMetaTileColBuffer:
-                bufferSize = sbPerFrmHgt * avpBufferSize[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128]
-                    + avpBufferSizeExt[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
+                bufferSize = sbPerFrmHgt * avpBufferSizeTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128]
+                    + avpBufferSizeExtTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
                 break;
                 //frame buffer
             case segmentIdBuffer:
@@ -178,18 +193,16 @@ public:
                 break;
             case lrTileColAlignBuffer:
             case fgTileColBuffer:
-                bufferSize = sbPerFrmHgt * avpBufferSize[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128] 
-                    + avpBufferSizeExt[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
+                bufferSize = sbPerFrmHgt * avpBufferSizeTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128]
+                    + avpBufferSizeExtTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
                 break;
             case fgSampleTmpBuffer:
-                bufferSize = avpBufferSize[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128]
-                    + avpBufferSizeExt[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
+                bufferSize = avpBufferSizeTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128]
+                    + avpBufferSizeExtTbl[index][avpBufSizeParam->bitDepthIdc][avpBufSizeParam->isSb128x128];
                 break;
             default:
                 return MOS_STATUS_INVALID_PARAMETER;
         }
-
-        avpBufSizeParam->bufferSize = bufferSize * MHW_CACHELINE_SIZE;
 
         return MOS_STATUS_SUCCESS;
     }
@@ -282,154 +295,116 @@ private:
     {
         MHW_FUNCTION_ENTER;
 
-        MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-
-        memset(&userFeatureData, 0, sizeof(userFeatureData));
-
+        bool rowstoreCachingDisableDefaultValue = false;
         if (m_osItf->bSimIsActive)
         {
-            userFeatureData.u32Data = 1;
+            // Disable RowStore Cache on simulation by default
+            rowstoreCachingDisableDefaultValue = true;
         }
         else
         {
-            userFeatureData.u32Data = 0;
+            rowstoreCachingDisableDefaultValue = false;
         }
-
-        userFeatureData.i32DataFlag = MOS_USER_FEATURE_VALUE_DATA_FLAG_CUSTOM_DEFAULT_VALUE_TYPE;
+        m_rowstoreCachingSupported = !rowstoreCachingDisableDefaultValue;
 #if (_DEBUG || _RELEASE_INTERNAL)
-        MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            __MEDIA_USER_FEATURE_VALUE_ROWSTORE_CACHE_DISABLE_ID,
-            &userFeatureData,
-            m_osItf->pOsContext);
-#endif // _DEBUG || _RELEASE_INTERNAL
-        this->m_rowstoreCachingSupported = userFeatureData.i32Data ? false : true;
+        auto userSettingPtr = m_osItf->pfnGetUserSettingInstance(m_osItf);
+        {
+            MediaUserSetting::Value outValue;
+            ReadUserSettingForDebug(userSettingPtr,
+                outValue,
+                "Disable RowStore Cache",
+                MediaUserSetting::Group::Device,
+                rowstoreCachingDisableDefaultValue,
+                true);
+            m_rowstoreCachingSupported = !(outValue.Get<bool>());
+        }
+#endif  // _DEBUG || _RELEASE_INTERNAL
 
         if (m_rowstoreCachingSupported)
         {
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_btdlRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_AV1BTDLROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableAv1BtdlRowstoreCache",
+                    MediaUserSetting::Group::Device);
+                m_btdlRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_btdlRowstoreCache.supported = userFeatureData.i32Data ? false : true;
 
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_smvlRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_AV1SMVLROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableAv1SmvlRowstoreCache",
+                    MediaUserSetting::Group::Device);
+                m_smvlRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_smvlRowstoreCache.supported = userFeatureData.i32Data ? false : true;
 
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_ipdlRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_AV1IPDLROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableAv1IpdlRowstoreCache",
+                    MediaUserSetting::Group::Device);
+                m_ipdlRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_ipdlRowstoreCache.supported = userFeatureData.i32Data ? false : true;
 
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_dflyRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_AV1DFLYROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableAv1DflyRowstoreCache",
+                    MediaUserSetting::Group::Device);
+                m_dflyRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_dflyRowstoreCache.supported = userFeatureData.i32Data ? false : true;
 
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_dfluRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_AV1DFLUROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableAv1DfluRowstoreCache",
+                    MediaUserSetting::Group::Device);
+                m_dfluRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_dfluRowstoreCache.supported = userFeatureData.i32Data ? false : true;
 
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_dflvRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_AV1DFLVROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableAv1DflvRowstoreCache",
+                    MediaUserSetting::Group::Device);
+                m_dflvRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_dflvRowstoreCache.supported = userFeatureData.i32Data ? false : true;
 
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_cdefRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_AV1CDEFROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableAv1CdefRowstoreCache",
+                    MediaUserSetting::Group::Device);
+                m_cdefRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_cdefRowstoreCache.supported = userFeatureData.i32Data ? false : true;
-        }
-
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS GetRowstoreCachingAddrs()
-    {
-        //BTDL
-        if (m_btdlRowstoreCache.supported)
-        {
-            m_btdlRowstoreCache.enabled     = true;
-            m_btdlRowstoreCache.dwAddress   = 0;
-        }
-
-        //SMVL
-        if (m_smvlRowstoreCache.supported)
-        {
-            m_smvlRowstoreCache.enabled     = true;
-            m_smvlRowstoreCache.dwAddress   = 128;
-        }
-
-        //IPDL
-        if (m_ipdlRowstoreCache.supported)
-        {
-            m_ipdlRowstoreCache.enabled     = true;
-            m_ipdlRowstoreCache.dwAddress   = 384;
-        }
-
-        //DFLY
-        if (m_dflyRowstoreCache.supported)
-        {
-            m_dflyRowstoreCache.enabled     = true;
-            m_dflyRowstoreCache.dwAddress   = 640;
-        }
-
-        //DFLU
-        if (m_dfluRowstoreCache.supported)
-        {
-            m_dfluRowstoreCache.enabled     = true;
-            m_dfluRowstoreCache.dwAddress   = 1344;
-        }
-
-        //DFLV
-        if (m_dflvRowstoreCache.supported)
-        {
-            m_dflvRowstoreCache.enabled     = true;
-            m_dflvRowstoreCache.dwAddress   = 1536;
-        }
-
-        //CDEF
-        if (m_cdefRowstoreCache.supported)
-        {
-            m_cdefRowstoreCache.enabled     = true;
-            m_cdefRowstoreCache.dwAddress   = 1728;
         }
 
         return MOS_STATUS_SUCCESS;
@@ -538,11 +513,86 @@ protected:
         MHW_FUNCTION_ENTER;
 
         InitRowstoreUserFeatureSettings();
-        GetRowstoreCachingAddrs(); // Move to CodecHW in the future.
         InitMmioRegisters();
     }
 
-    virtual uint32_t GetMocsValue(MOS_HW_RESOURCE_DEF hwResType) = 0;
+    virtual ~Impl()
+    {
+        MHW_FUNCTION_ENTER;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+        if (m_btdlRowstoreCache.enabled ||
+            m_smvlRowstoreCache.enabled ||
+            m_ipdlRowstoreCache.enabled ||
+            m_dflyRowstoreCache.enabled ||
+            m_dfluRowstoreCache.enabled ||
+            m_dflvRowstoreCache.enabled ||
+            m_cdefRowstoreCache.enabled)
+        {
+            // Report rowstore cache usage status to regkey
+            ReportUserSettingForDebug(
+                m_userSettingPtr,
+                __MEDIA_USER_FEATURE_VALUE_IS_CODEC_ROW_STORE_CACHE_ENABLED,
+                1,
+                MediaUserSetting::Group::Device);
+        }
+#endif
+
+    }
+
+    MOS_STATUS GetRowstoreCachingAddrs(mhw::vdbox::avp::AvpVdboxRowStorePar rowstoreParams) override
+    {
+        //BTDL
+        if (m_btdlRowstoreCache.supported)
+        {
+            m_btdlRowstoreCache.enabled   = true;
+            m_btdlRowstoreCache.dwAddress = 0;
+        }
+
+        //SMVL
+        if (m_smvlRowstoreCache.supported)
+        {
+            m_smvlRowstoreCache.enabled   = true;
+            m_smvlRowstoreCache.dwAddress = 128;
+        }
+
+        //IPDL
+        if (m_ipdlRowstoreCache.supported)
+        {
+            m_ipdlRowstoreCache.enabled   = true;
+            m_ipdlRowstoreCache.dwAddress = 384;
+        }
+
+        //DFLY
+        if (m_dflyRowstoreCache.supported)
+        {
+            m_dflyRowstoreCache.enabled   = true;
+            m_dflyRowstoreCache.dwAddress = 640;
+        }
+
+        //DFLU
+        if (m_dfluRowstoreCache.supported)
+        {
+            m_dfluRowstoreCache.enabled   = true;
+            m_dfluRowstoreCache.dwAddress = 1344;
+        }
+
+        //DFLV
+        if (m_dflvRowstoreCache.supported)
+        {
+            m_dflvRowstoreCache.enabled   = true;
+            m_dflvRowstoreCache.dwAddress = 1536;
+        }
+
+        //CDEF
+        if (m_cdefRowstoreCache.supported)
+        {
+            m_cdefRowstoreCache.enabled   = true;
+            m_cdefRowstoreCache.dwAddress = 1728;
+        }
+
+        return MOS_STATUS_SUCCESS;
+    }
 
     // Programming Note: CodecHAL layer must add MFX wait command
     //                   for both KIN and VRT before and after AVP_PIPE_MODE_SELECT
@@ -820,7 +870,7 @@ protected:
 
 #define DO_FIELDS()                                                                             \
     DO_FIELD(DW1, FrameTileId, params.tileId);                                                  \
-    DO_FIELD(DW1, TgTileNum, params.tileNum);                                                   \
+    DO_FIELD(DW1, TgTileNum, params.tgTileNum);                                                   \
     DO_FIELD(DW1, TileGroupId, params.tileGroupId);                                             \
                                                                                                 \
     DO_FIELD(DW2, TileColumnPositionInSbUnit, params.tileColPositionInSb);                      \
@@ -915,13 +965,6 @@ protected:
                 resourceParams.bIsWritable        = false;
                 resourceParams.dwSharedMocsOffset = 17 - resourceParams.dwLocationInCmd;
 
-                MOS_GPU_CONTEXT gpuContext = m_osItf->pfnGetGpuContext(m_osItf);
-                m_osItf->pfnSyncOnResource(
-                    m_osItf,
-                    params.refs[i],
-                    gpuContext,
-                    false);
-
                 InitMocsParams(resourceParams, &cmd.ReferenceFrameBufferBaseAddressAttributes.DW0.Value, 1, 6);
 
                 MHW_MI_CHK_STATUS(AddResourceToCmd(
@@ -930,8 +973,6 @@ protected:
                     &resourceParams));
             }
         }
-        cmd.ReferenceFrameBufferBaseAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-            GetMocsValue(MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC);
 
         //Decoded Output Frame Buffer
         cmd.DecodedOutputFrameBufferAddressAttributes.DW0.BaseAddressMemoryCompressionEnable = MmcEnabled(params.mmcStatePreDeblock);
@@ -951,9 +992,6 @@ protected:
             this->m_currentCmdBuf,
             &resourceParams));
 
-        cmd.DecodedOutputFrameBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-            GetMocsValue(MOS_CODEC_RESOURCE_USAGE_PRE_DEBLOCKING_CODEC);
-
         //IntraBC Decoded Output Frame buffer
         if (!Mos_ResourceIsNull(params.intrabcDecodedOutputFrameBuffer))
         {
@@ -970,8 +1008,6 @@ protected:
                 this->m_currentCmdBuf,
                 &resourceParams));
 
-            cmd.IntrabcDecodedOutputFrameBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
-
             //This surface should not have memory compression turned on
             cmd.IntrabcDecodedOutputFrameBufferAddressAttributes.DW0.BaseAddressMemoryCompressionEnable = 0;
             cmd.IntrabcDecodedOutputFrameBufferAddressAttributes.DW0.CompressionType                    = 0;
@@ -985,7 +1021,7 @@ protected:
             resourceParams.dwOffset        = params.cdfTableInitBufferOffset;
             resourceParams.pdwCmd          = (cmd.CdfTablesInitializationBufferAddress.DW0_1.Value);
             resourceParams.dwLocationInCmd = _MHW_CMD_DW_LOCATION(CdfTablesInitializationBufferAddress);
-            resourceParams.bIsWritable     = true;
+            resourceParams.bIsWritable     = false;
 
             InitMocsParams(resourceParams, &cmd.CdfTablesInitializationBufferAddressAttributes.DW0.Value, 1, 6);
 
@@ -993,8 +1029,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.CdfTablesInitializationBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         if (!Mos_ResourceIsNull(params.cdfTableBwdAdaptBuffer))
@@ -1011,8 +1045,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.CdfTablesBackwardAdaptationBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Reset dwSharedMocsOffset
@@ -1034,8 +1066,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.Av1SegmentIdReadBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // AV1 Segment Id Write Buffer
@@ -1055,8 +1085,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.Av1SegmentIdWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         //Collocated MV Temporal buffers
@@ -1079,7 +1107,6 @@ protected:
                     &resourceParams));
             }
         }
-        cmd.CollocatedMotionVectorTemporalBufferBaseAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
 
         // Current Motion Vector Temporal Buffer
         if (!Mos_ResourceIsNull(params.curMvTempBuffer))
@@ -1096,8 +1123,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.CurrentFrameMotionVectorWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Reset dwSharedMocsOffset
@@ -1122,8 +1147,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.BitstreamDecoderEncoderLineRowstoreReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Bitstream Decode Tile Line Rowstore Buffer
@@ -1141,8 +1164,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.BitstreamDecoderEncoderTileLineRowstoreReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Reset dwSharedMocsOffset
@@ -1167,8 +1188,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.IntraPredictionLineRowstoreReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         if (!Mos_ResourceIsNull(params.intraPredTileLineRowstoreBuffer))
@@ -1185,8 +1204,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.IntraPredictionTileLineRowstoreReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Spatial Motion Vector Line Buffer
@@ -1209,8 +1226,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.SpatialMotionVectorLineReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Spatial Motion Vector Tile Line Buffer
@@ -1228,8 +1243,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.SpatialMotionVectorTileLineReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         //Loop Restoration Meta Tile Column Read/Write Buffer
@@ -1247,8 +1260,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.LoopRestorationMetaTileColumnReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         //Deblocker Filter Control Parameters Line Read Write Buffer
@@ -1266,8 +1277,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.LoopRestorationFilterTileReadWriteLineYBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         //Deblocker Filter Control Parameters Tile Line Read Write Buffer
@@ -1285,8 +1294,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.LoopRestorationFilterTileReadWriteLineUBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         //Deblocker Filter Control Parameters Tile Column Read Write Buffer
@@ -1304,8 +1311,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.LoopRestorationFilterTileReadWriteLineVBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Deblocker Filter Line Read Write Y Buffer
@@ -1328,8 +1333,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DeblockerFilterLineReadWriteYBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC);
         }
 
         // Deblocker Filter Line Read Write U Buffer
@@ -1352,8 +1355,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DeblockerFilterLineReadWriteUBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC);
         }
         // Deblocker Filter Line Read Write V Buffer
         if (m_dflvRowstoreCache.enabled)
@@ -1375,8 +1376,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DeblockerFilterLineReadWriteVBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC);
         }
 
         // Deblocker Filter Tile Line Read Write Y Buffer
@@ -1394,8 +1393,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DeblockerFilterTileLineReadWriteYBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC);
         }
 
         // Deblocker Filter Tile Line Read Write V Buffer
@@ -1413,8 +1410,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DeblockerFilterTileLineReadWriteVBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC);
         }
 
         // Deblocker Filter Tile Line Read Write U Buffer
@@ -1432,8 +1427,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DeblockerFilterTileLineReadWriteUBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC);
         }
 
         // Deblocker Filter Tile Column Read Write Y Buffer
@@ -1451,8 +1444,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DeblockerFilterTileColumnReadWriteYBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC);
         }
 
         // Deblocker Filter Tile Column Read Write U Buffer
@@ -1470,8 +1461,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DeblockerFilterTileColumnReadWriteUBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC);
         }
 
         // Deblocker Filter Tile Column Read Write V Buffer
@@ -1489,7 +1478,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-            cmd.DeblockerFilterTileColumnReadWriteVBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC);
         }
 
         // Cdef Filter Line Read Write Y Buffer
@@ -1512,9 +1500,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.CdefFilterLineReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
-
         }
 
         // Cdef Filter Tile Line Read Write Y Buffer
@@ -1532,8 +1517,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.CdefFilterTileLineReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Cdef Filter Tile Line Read Write U Buffer
@@ -1551,8 +1534,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.CdefFilterTileColumnReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Cdef Filter Tile Line Read Write V Buffer
@@ -1570,8 +1551,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.CdefFilterMetaTileLineReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Cdef Filter Tile Column Read Write Y Buffer
@@ -1589,8 +1568,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.CdefFilterMetaTileColumnReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Cdef Filter Top Left Corner Read Write Buffer
@@ -1608,8 +1585,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.CdefFilterTopLeftCornerReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Super-Res Tile Column Read Write Y Buffer
@@ -1627,8 +1602,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.SuperResTileColumnReadWriteYBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Super-Res Tile Column Read Write U Buffer
@@ -1646,8 +1619,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.SuperResTileColumnReadWriteUBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Super-Res Tile Column Read Write V Buffer
@@ -1665,8 +1636,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.SuperResTileColumnReadWriteVBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Loop Restoration Filter Tile Column Read Write Y Buffer
@@ -1684,8 +1653,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.LoopRestorationFilterTileColumnReadWriteYBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Loop Restoration Filter Tile Column Read Write U Buffer
@@ -1703,8 +1670,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.LoopRestorationFilterTileColumnReadWriteUBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Loop Restoration Filter Tile Column Read Write V Buffer
@@ -1722,8 +1687,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.LoopRestorationFilterTileColumnReadWriteVBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Decoded Frame Status Error Buffer
@@ -1741,8 +1704,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DecodedFrameStatusErrorBufferBaseAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Decoded Block Data Streamout Buffer
@@ -1760,8 +1721,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DecodedBlockDataStreamoutBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // below is encode part
@@ -1782,7 +1741,7 @@ protected:
             resourceParams.dwOffset        = 0;
             resourceParams.pdwCmd          = (cmd.OriginalUncompressedPictureSourceBufferAddress.DW0_1.Value);
             resourceParams.dwLocationInCmd = _MHW_CMD_DW_LOCATION(OriginalUncompressedPictureSourceBufferAddress);
-            resourceParams.bIsWritable     = true;
+            resourceParams.bIsWritable     = false;
 
             InitMocsParams(resourceParams, &cmd.OriginalUncompressedPictureSourceBufferAddressAttributes.DW0.Value, 1, 6);
 
@@ -1790,8 +1749,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.OriginalUncompressedPictureSourceBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Downscaled Uncompressed Picture Source Buffer
@@ -1810,7 +1767,7 @@ protected:
             resourceParams.dwOffset        = 0;
             resourceParams.pdwCmd          = (cmd.DownscaledUncompressedPictureSourceBufferAddress.DW0_1.Value);
             resourceParams.dwLocationInCmd = _MHW_CMD_DW_LOCATION(DownscaledUncompressedPictureSourceBufferAddress);
-            resourceParams.bIsWritable     = true;
+            resourceParams.bIsWritable     = false;
 
             InitMocsParams(resourceParams, &cmd.DownscaledUncompressedPictureSourceBufferAddressAttributes.DW0.Value, 1, 6);
 
@@ -1818,8 +1775,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.DownscaledUncompressedPictureSourceBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Tile Size Streamout Buffer
@@ -1838,8 +1793,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.TileSizeStreamoutBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // Tile Statistics Streamout Buffer
@@ -1857,8 +1810,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.TileStatisticsStreamoutBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // CU Streamout Buffer
@@ -1876,8 +1827,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.CUStreamoutBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // SSE Line Read / Write Buffer
@@ -1895,8 +1844,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.SSELineReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // SSE Tile Line Read/Write Buffer
@@ -1914,8 +1861,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.SSETileLineReadWriteBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         // PostCDEF pixels Buffer
@@ -1939,8 +1884,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.PostCDEFpixelsBufferAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         return MOS_STATUS_SUCCESS;
@@ -2047,10 +1990,6 @@ protected:
                 &resourceParams));
 
             resourceParams.dwUpperBoundLocationOffsetFromCmd = 0;
-
-            cmd.AvpIndirectBitstreamObjectMemoryAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-                GetMocsValue(MOS_CODEC_RESOURCE_USAGE_MFX_INDIRECT_BITSTREAM_OBJECT_DECODE);
-
         }
 
         if (!Mos_ResourceIsNull(params.pakBaseObjectBuffer))
@@ -2070,9 +2009,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.AvpIndirectBitstreamObjectMemoryAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-                GetMocsValue(MOS_CODEC_RESOURCE_USAGE_MFC_INDIRECT_PAKBASE_OBJECT_CODEC);
         }
 
         if (!Mos_ResourceIsNull(params.mvObjectBuffer))
@@ -2093,9 +2029,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.AvpIndirectCuObjectMemoryAddressAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-                GetMocsValue(MOS_CODEC_RESOURCE_USAGE_MFX_INDIRECT_MV_OBJECT_CODEC);
         }
 
         return MOS_STATUS_SUCCESS;

@@ -1,7 +1,7 @@
 /*
 * Copyright 1999 Precision Insight, Inc., Cedar Park, Texas.
 * Copyright 2000 VA Linux Systems, Inc., Sunnyvale, California.
-* Copyright(c) 2019, Intel Corporation
+* Copyright(c) 2019-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files(the "Software"),
@@ -486,9 +486,14 @@ static int drmParsePlatformDeviceInfo(int maj, int min,
     value = sysfs_uevent_get(path, "OF_COMPATIBLE_N");
     if (!value)
         return -ENOENT;
-    sscanf(value, "%u", &count);
 
+    int scanned_value_count = sscanf(value, "%u", &count);
     free(value);
+    if (scanned_value_count <= 0 || 0 == count)
+    {
+        return -ENOENT;
+    }
+
     if (count <= MAX_DRM_NODES)
     {
         info->compatible = (char**)calloc(count + 1, sizeof(*info->compatible));
@@ -568,6 +573,7 @@ static int parse_separate_sysfs_files(int maj, int min,
 
     snprintf(resourcename, sizeof(resourcename), "%s/resource", pci_path);
 
+    memset(drivername, 0, sizeof(drivername));
     if (readlink(driverpath, drivername, PATH_MAX) < 0)
     {
         /* Some devices might not be bound to a driver */
@@ -934,6 +940,7 @@ static int drmParseSubsystemType(int maj, int min)
     snprintf(path, PATH_MAX, "/sys/dev/char/%d:%d/device/subsystem",
         maj, min);
 
+    memset(link, 0, sizeof(link));
     if (readlink(path, link, PATH_MAX) < 0)
         return -errno;
 

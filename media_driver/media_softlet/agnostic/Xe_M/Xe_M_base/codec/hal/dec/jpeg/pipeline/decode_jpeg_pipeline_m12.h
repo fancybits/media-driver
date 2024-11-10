@@ -72,6 +72,22 @@ public:
 
     virtual MOS_STATUS Destroy() override;
 
+    //!
+    //! \brief  Create post sub packets
+    //! \param  [in] subPipelineManager
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS CreatePostSubPipeLines(DecodeSubPipelineManager &subPipelineManager) override;
+    //!
+    //! \brief  Create pre sub packets
+    //! \param  [in] subPipelineManager
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS CreatePreSubPipeLines(DecodeSubPipelineManager &subPipelineManager) override;
+    virtual MOS_STATUS CreateFeatureManager() override;
+
 protected:
     virtual MOS_STATUS Initialize(void *settings) override;
     virtual MOS_STATUS Uninitialize() override;
@@ -122,6 +138,7 @@ protected:
 
 private:
     JpegDecodePktM12 *m_jpegDecodePkt = nullptr;
+    CodechalHwInterface *m_hwInterface   = nullptr;
 MEDIA_CLASS_DEFINE_END(decode__JpegPipelineM12)
 };
 

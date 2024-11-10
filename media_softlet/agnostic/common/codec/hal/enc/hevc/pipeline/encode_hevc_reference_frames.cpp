@@ -26,7 +26,6 @@
 
 #include "encode_hevc_basic_feature.h"
 #include "encode_utils.h"
-#include "codechal_utilities.h"
 #include "encode_hevc_reference_frames.h"
 #include "codec_def_encode_hevc.h"
 #include "encode_hevc_dfs.h"
@@ -618,7 +617,6 @@ MHW_SETPAR_DECL_SRC(HCP_PIPE_BUF_ADDR_STATE, HevcReferenceFrames)
                 //CodecHalGetResourceInfo(m_osInterface, &(m_refList[idx]->sRefReconBuffer));
 
                 uint8_t frameStoreId                            = m_refIdxMapping[i];
-                params.presReferences[frameStoreId] = &(m_refList[idx]->sRefReconBuffer.OsResource);
                 params.presReferences[frameStoreId] = (picParams->bUseRawPicForRef) ? 
                     &(m_refList[idx]->sRefBuffer.OsResource) : &(m_refList[idx]->sRefReconBuffer.OsResource);
 
@@ -637,6 +635,8 @@ MHW_SETPAR_DECL_SRC(HCP_SURFACE_STATE, HevcReferenceFrames)
 {
     ENCODE_FUNC_CALL();
 
+#ifdef _MMC_SUPPORTED
+    ENCODE_CHK_NULL_RETURN(m_mmcState);
     if (m_mmcState->IsMmcEnabled())
     {
         ENCODE_CHK_NULL_RETURN(m_basicFeature);
@@ -670,6 +670,7 @@ MHW_SETPAR_DECL_SRC(HCP_SURFACE_STATE, HevcReferenceFrames)
             }
         }
     }
+#endif
 
     return MOS_STATUS_SUCCESS;
 }

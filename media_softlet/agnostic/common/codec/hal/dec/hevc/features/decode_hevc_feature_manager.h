@@ -32,7 +32,7 @@
 #include <vector>
 #include "decode_allocator.h"
 #include "decode_feature_manager.h"
-#include "codechal_hw.h"
+#include "codec_hw_next.h"
 
 namespace decode
 {
@@ -51,8 +51,8 @@ public:
     //! \param  [in] recycleBuf
     //!         Pointer to RecycleResource
     //!
-    DecodeHevcFeatureManager(DecodeAllocator *allocator, CodechalHwInterface *hwInterface)
-        : DecodeFeatureManager(allocator, hwInterface)
+    DecodeHevcFeatureManager(DecodeAllocator *allocator, void *hwInterface, PMOS_INTERFACE osInterface)
+        : DecodeFeatureManager(allocator, hwInterface, osInterface)
     {}
 
     //!

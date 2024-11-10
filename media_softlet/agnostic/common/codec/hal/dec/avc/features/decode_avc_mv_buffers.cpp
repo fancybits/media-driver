@@ -26,14 +26,13 @@
 
 #include "decode_avc_basic_feature.h"
 #include "decode_utils.h"
-#include "codechal_utilities.h"
 #include "decode_avc_mv_buffers.h"
 #include "codec_def_decode_avc.h"
 
 namespace decode
 {
 
-MOS_STATUS AvcMvBufferOpInf::Init(CodechalHwInterface& hwInterface, DecodeAllocator& allocator,
+MOS_STATUS AvcMvBufferOpInf::Init(void* hwInterface, DecodeAllocator& allocator,
                                    AvcBasicFeature& basicFeature)
 {
     DECODE_CHK_STATUS(BufferOpInf::Init(hwInterface, allocator, basicFeature));
@@ -71,7 +70,11 @@ MOS_STATUS AvcMvBufferOpInf::Resize(MOS_BUFFER* &buffer)
 void AvcMvBufferOpInf::Destroy(MOS_BUFFER* &buffer)
 {
     DECODE_FUNC_CALL();
-    m_allocator->Destroy(buffer);
+
+    if (m_allocator != nullptr)
+    {
+        m_allocator->Destroy(buffer);
+    }
 }
 
 }  // namespace decode

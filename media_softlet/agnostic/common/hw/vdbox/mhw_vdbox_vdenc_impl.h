@@ -30,6 +30,7 @@
 
 #include "mhw_vdbox_vdenc_itf.h"
 #include "mhw_impl.h"
+#include "mhw_mi_impl.h"
 
 #ifdef IGFX_VDENC_INTERFACE_EXT_SUPPORT
 #include "mhw_vdbox_vdenc_impl_ext.h"
@@ -124,6 +125,7 @@ inline SurfaceFormat MosFormatToVdencSurfaceReconFormat(MOS_FORMAT format)
         return SurfaceFormat::p010Variant;
     case Format_R10G10B10A2:
         return SurfaceFormat::r10g10b10a2;
+    case Format_Y210:
     case Format_Y216:
         return SurfaceFormat::y216Variant;
     case Format_Y410:
@@ -139,8 +141,10 @@ template <typename cmd_t>
 class Impl : public Itf, public mhw::Impl
 {
     _VDENC_CMD_DEF(_MHW_CMD_ALL_DEF_FOR_IMPL);
+    MmioRegistersVdbox m_mmioRegisters[MHW_VDBOX_NODE_MAX] = {};  //!< Mfx mmio registers
 
 public:
+
     MOS_STATUS SetRowstoreCachingOffsets(const RowStorePar &par) override
     {
         MHW_FUNCTION_ENTER;
@@ -302,6 +306,63 @@ public:
         return m_rhoDomainStatsEnabled;
     }
 
+    MmioRegistersVdbox *GetMmioRegisters(MHW_VDBOX_NODE_IND index) override
+    {
+        if (index < MHW_VDBOX_NODE_MAX)
+        {
+            return &m_mmioRegisters[index];
+        }
+        else
+        {
+            MHW_ASSERT("index is out of range!");
+            return &m_mmioRegisters[MHW_VDBOX_NODE_1];
+        }
+    }
+private:
+    //VDBOX register offsets
+    static constexpr uint32_t MFC_IMAGE_STATUS_MASK_REG_OFFSET_NODE_1_INIT           = 0x1C08B4;
+    static constexpr uint32_t MFC_IMAGE_STATUS_CTRL_REG_OFFSET_NODE_1_INIT           = 0x1C08B8;
+    static constexpr uint32_t MFC_AVC_NUM_SLICES_REG_OFFSET_NODE_1_INIT              = 0x1C0954;
+    static constexpr uint32_t MFC_QP_STATUS_COUNT_OFFSET_NODE_1_INIT                 = 0x1C08BC;
+    static constexpr uint32_t MFX_ERROR_FLAG_REG_OFFSET_NODE_1_INIT                  = 0x1C0800;
+    static constexpr uint32_t MFX_FRAME_CRC_REG_OFFSET_NODE_1_INIT                   = 0x1C0850;
+    static constexpr uint32_t MFX_MB_COUNT_REG_OFFSET_NODE_1_INIT                    = 0x1C0868;
+    static constexpr uint32_t MFC_BITSTREAM_BYTECOUNT_FRAME_REG_OFFSET_NODE_1_INIT   = 0x1C08A0;
+    static constexpr uint32_t MFC_BITSTREAM_SE_BITCOUNT_FRAME_REG_OFFSET_NODE_1_INIT = 0x1C08A4;
+    static constexpr uint32_t MFC_BITSTREAM_BYTECOUNT_SLICE_REG_OFFSET_NODE_1_INIT   = 0x1C08D0;
+    //VDBOX register initial value
+    static constexpr uint32_t MFX_LRA0_REG_OFFSET_NODE_1_INIT = 0;
+    static constexpr uint32_t MFX_LRA1_REG_OFFSET_NODE_1_INIT = 0;
+    static constexpr uint32_t MFX_LRA2_REG_OFFSET_NODE_1_INIT = 0;
+
+    void InitMmioRegisters()
+    {
+        MmioRegistersVdbox *mmioRegisters = &m_mmioRegisters[MHW_VDBOX_NODE_1];
+
+        mmioRegisters->generalPurposeRegister0LoOffset           = mhw::mi::GENERAL_PURPOSE_REGISTER0_LO_OFFSET_NODE_1_INIT;
+        mmioRegisters->generalPurposeRegister0HiOffset           = mhw::mi::GENERAL_PURPOSE_REGISTER0_HI_OFFSET_NODE_1_INIT;
+        mmioRegisters->generalPurposeRegister4LoOffset           = mhw::mi::GENERAL_PURPOSE_REGISTER4_LO_OFFSET_NODE_1_INIT;
+        mmioRegisters->generalPurposeRegister4HiOffset           = mhw::mi::GENERAL_PURPOSE_REGISTER4_HI_OFFSET_NODE_1_INIT;
+        mmioRegisters->generalPurposeRegister11LoOffset          = mhw::mi::GENERAL_PURPOSE_REGISTER11_LO_OFFSET_NODE_1_INIT;
+        mmioRegisters->generalPurposeRegister11HiOffset          = mhw::mi::GENERAL_PURPOSE_REGISTER11_HI_OFFSET_NODE_1_INIT;
+        mmioRegisters->generalPurposeRegister12LoOffset          = mhw::mi::GENERAL_PURPOSE_REGISTER12_LO_OFFSET_NODE_1_INIT;
+        mmioRegisters->generalPurposeRegister12HiOffset          = mhw::mi::GENERAL_PURPOSE_REGISTER12_HI_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfcImageStatusMaskRegOffset               = MFC_IMAGE_STATUS_MASK_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfcImageStatusCtrlRegOffset               = MFC_IMAGE_STATUS_CTRL_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfcAvcNumSlicesRegOffset                  = MFC_AVC_NUM_SLICES_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfcQPStatusCountOffset                    = MFC_QP_STATUS_COUNT_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfxErrorFlagsRegOffset                    = MFX_ERROR_FLAG_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfxFrameCrcRegOffset                      = MFX_FRAME_CRC_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfxMBCountRegOffset                       = MFX_MB_COUNT_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfcBitstreamBytecountFrameRegOffset       = MFC_BITSTREAM_BYTECOUNT_FRAME_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfcBitstreamSeBitcountFrameRegOffset      = MFC_BITSTREAM_SE_BITCOUNT_FRAME_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfcBitstreamBytecountSliceRegOffset       = MFC_BITSTREAM_BYTECOUNT_SLICE_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfxLra0RegOffset                          = MFX_LRA0_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfxLra1RegOffset                          = MFX_LRA1_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->mfxLra2RegOffset                          = MFX_LRA2_REG_OFFSET_NODE_1_INIT;
+
+        m_mmioRegisters[MHW_VDBOX_NODE_2] = m_mmioRegisters[MHW_VDBOX_NODE_1];
+    }
 protected:
     using base_t = Itf;
 
@@ -316,6 +377,7 @@ protected:
     {
         MHW_FUNCTION_ENTER;
 
+        InitMmioRegisters();
         InitRowstoreUserFeatureSettings();
     }
 
@@ -323,53 +385,59 @@ protected:
     {
         MHW_FUNCTION_ENTER;
 
-        MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+        bool rowstoreCachingDisableDefaultValue = false;
         if (this->m_osItf->bSimIsActive)
         {
             // Disable RowStore Cache on simulation by default
-            userFeatureData.u32Data = 1;
+            rowstoreCachingDisableDefaultValue = true;
         }
         else
         {
-            userFeatureData.u32Data = 0;
+            rowstoreCachingDisableDefaultValue = false;
         }
-
-        userFeatureData.i32DataFlag = MOS_USER_FEATURE_VALUE_DATA_FLAG_CUSTOM_DEFAULT_VALUE_TYPE;
+        bool rowstoreCachingSupported = !rowstoreCachingDisableDefaultValue;
 #if (_DEBUG || _RELEASE_INTERNAL)
-        MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            __MEDIA_USER_FEATURE_VALUE_ROWSTORE_CACHE_DISABLE_ID,
-            &userFeatureData,
-            m_osItf->pOsContext);
+        auto userSettingPtr = m_osItf->pfnGetUserSettingInstance(m_osItf);
+        {
+            MediaUserSetting::Value outValue;
+            ReadUserSettingForDebug(userSettingPtr,
+                outValue,
+                "Disable RowStore Cache",
+                MediaUserSetting::Group::Device,
+                rowstoreCachingDisableDefaultValue,
+                true);
+            rowstoreCachingSupported = !(outValue.Get<bool>());
+        }
 #endif  // _DEBUG || _RELEASE_INTERNAL
-        bool rowstoreCachingSupported = userFeatureData.i32Data ? false : true;
 
         if (!rowstoreCachingSupported)
         {
             return MOS_STATUS_SUCCESS;
         }
 
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+        m_rowStoreCache.vdenc.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-        MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            __MEDIA_USER_FEATURE_VALUE_VDENCROWSTORECACHE_DISABLE_ID,
-            &userFeatureData,
-            m_osItf->pOsContext);
+        {
+            MediaUserSetting::Value outValue;
+            ReadUserSettingForDebug(userSettingPtr,
+                outValue,
+                "DisableVDEncRowStoreCache",
+                MediaUserSetting::Group::Device);
+            m_rowStoreCache.vdenc.supported = !(outValue.Get<bool>());
+        }
 #endif  // _DEBUG || _RELEASE_INTERNAL
-        this->m_rowStoreCache.vdenc.supported = userFeatureData.i32Data ? false : true;
 
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+        m_rowStoreCache.ipdl.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-        MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            __MEDIA_USER_FEATURE_VALUE_INTRAROWSTORECACHE_DISABLE_ID,
-            &userFeatureData,
-            m_osItf->pOsContext);
+        {
+            MediaUserSetting::Value outValue;
+            ReadUserSettingForDebug(userSettingPtr,
+                outValue,
+                "DisableIntraRowStoreCache",
+                MediaUserSetting::Group::Device);
+            m_rowStoreCache.ipdl.supported = !(outValue.Get<bool>());
+        }
 #endif  // _DEBUG || _RELEASE_INTERNAL
-        this->m_rowStoreCache.ipdl.supported = userFeatureData.i32Data ? false : true;
 
         return MOS_STATUS_SUCCESS;
     }
@@ -501,7 +569,7 @@ protected:
     {
         _MHW_SETCMD_CALLBASE(VDENC_PIPE_BUF_ADDR_STATE);
 
-        MHW_RESOURCE_PARAMS resourceParams;
+        MHW_RESOURCE_PARAMS resourceParams = {};
 
         if (params.surfaceRaw)
         {
@@ -513,7 +581,8 @@ protected:
             resourceParams.presResource    = &params.surfaceRaw->OsResource;
             resourceParams.dwOffset        = params.surfaceRaw->dwOffset;
             resourceParams.pdwCmd          = (uint32_t *)&(cmd.OriginalUncompressedPicture.LowerAddress);
-            resourceParams.dwLocationInCmd = _MHW_CMD_DW_LOCATION(OriginalUncompressedPicture.LowerAddress);
+            //resourceParams.dwLocationInCmd = _MHW_CMD_DW_LOCATION(OriginalUncompressedPicture.LowerAddress);
+            resourceParams.dwLocationInCmd = 10;
             resourceParams.bIsWritable     = false;
             resourceParams.HwCommandType   = MOS_VDENC_PIPE_BUF_ADDR;
 
@@ -523,9 +592,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.OriginalUncompressedPicture.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_ORIGINAL_UNCOMPRESSED_PICTURE_ENCODE].Gen12_7.Index;
         }
 
         if (this->m_rowStoreCache.vdenc.enabled)
@@ -548,9 +614,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.RowStoreScratchBuffer.BufferPictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_VDENC_ROW_STORE_BUFFER_CODEC].Gen12_7.Index;
         }
 
         if (!Mos_ResourceIsNull(params.streamOutBuffer))
@@ -568,9 +631,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.VdencStatisticsStreamout.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_STREAMOUT_DATA_CODEC].Gen12_7.Index;
         }
 
         if (!Mos_ResourceIsNull(params.streamInBuffer))
@@ -588,15 +648,13 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.StreaminDataPicture.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_VDENC_STREAMIN_CODEC].Gen12_7.Index;
         }
 
+        // SCC will use BwdRef0 as extra slot to store IBC if max fwd ref num is 3.
         typename cmd_t::VDENC_Reference_Picture_CMD *fwdRefs[] =
             {&cmd.FwdRef0, &cmd.FwdRef1, &cmd.FwdRef2, &cmd.BwdRef0};
         uint32_t fwdRefsDwLoaction[] =
-            {_MHW_CMD_DW_LOCATION(FwdRef0), _MHW_CMD_DW_LOCATION(FwdRef1), _MHW_CMD_DW_LOCATION(FwdRef2)};
+            {_MHW_CMD_DW_LOCATION(FwdRef0), _MHW_CMD_DW_LOCATION(FwdRef1), _MHW_CMD_DW_LOCATION(FwdRef2), _MHW_CMD_DW_LOCATION(BwdRef0)};
 
         typename cmd_t::VDENC_Down_Scaled_Reference_Picture_CMD *fwdRefsDsStage1[] =
             {&cmd.DsFwdRef0, &cmd.DsFwdRef1};
@@ -645,9 +703,6 @@ protected:
                     this->m_osItf,
                     this->m_currentCmdBuf,
                     &resourceParams));
-
-                fwdRefs[refIdx]->PictureFields.DW0.MemoryObjectControlState =
-                    this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
             }
 
             if (!Mos_ResourceIsNull(params.refsDsStage1[refIdx]) && refIdx < sizeof(fwdRefsDsStage1) / sizeof(fwdRefsDsStage1[0]))
@@ -674,9 +729,6 @@ protected:
                     this->m_osItf,
                     this->m_currentCmdBuf,
                     &resourceParams));
-
-                fwdRefsDsStage1[refIdx]->PictureFields.DW0.MemoryObjectControlState =
-                    this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
             }
 
             if (!Mos_ResourceIsNull(params.refsDsStage2[refIdx]) && refIdx < sizeof(fwdRefsDsStage2) / sizeof(fwdRefsDsStage2[0]))
@@ -704,9 +756,6 @@ protected:
                     this->m_currentCmdBuf,
                     &resourceParams));
 
-                fwdRefsDsStage2[refIdx]->PictureFields.DW0.MemoryObjectControlState =
-                    this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
-
                 if (params.numActiveRefL0 == 2 && params.numActiveRefL1 == 1 && refIdx == 1)
                 {
                     resourceParams.dwLocationInCmd = fwdRefsDsStage2DwLoaction[refIdx + 1];
@@ -722,9 +771,6 @@ protected:
                         this->m_osItf,
                         this->m_currentCmdBuf,
                         &resourceParams));
-
-                    fwdRefsDsStage2[refIdx + 1]->PictureFields.DW0.MemoryObjectControlState =
-                        this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
                 }
             }
         }
@@ -764,9 +810,6 @@ protected:
                     this->m_osItf,
                     this->m_currentCmdBuf,
                     &resourceParams));
-
-                cmd.BwdRef0.PictureFields.DW0.MemoryObjectControlState =
-                    this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
             }
 
             if (!Mos_ResourceIsNull(params.refsDsStage1[refIdx]))
@@ -793,9 +836,6 @@ protected:
                     this->m_osItf,
                     this->m_currentCmdBuf,
                     &resourceParams));
-
-                cmd.DsBwdRef0.PictureFields.DW0.MemoryObjectControlState =
-                    this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
             }
 
             if (!Mos_ResourceIsNull(params.refsDsStage2[refIdx]))
@@ -822,9 +862,6 @@ protected:
                     this->m_osItf,
                     this->m_currentCmdBuf,
                     &resourceParams));
-
-                cmd.DsBwdRef04X.PictureFields.DW0.MemoryObjectControlState =
-                    this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
             }
         }
 
@@ -846,9 +883,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.ColocatedMv.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
         }
 
         if (!Mos_ResourceIsNull(params.colMvTempBuffer[0]))
@@ -869,9 +903,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.ColocatedMv.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
         }
 
         if (params.surfaceDsStage1)
@@ -894,9 +925,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.ScaledReferenceSurfaceStage1.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
         }
 
         if (params.surfaceDsStage2)
@@ -919,9 +947,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.ScaledReferenceSurfaceStage2.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
         }
 
         if (!Mos_ResourceIsNull(params.pakObjCmdStreamOutBuffer))
@@ -942,9 +967,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.VdencLcuPakObjCmdBuffer.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
         }
 
         if (!Mos_ResourceIsNull(params.segmentMapStreamInBuffer))
@@ -962,9 +984,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.Vp9SegmentationMapStreaminBuffer.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
         }
 
         if (!Mos_ResourceIsNull(params.segmentMapStreamOutBuffer))
@@ -982,9 +1001,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.Vp9SegmentationMapStreamoutBuffer.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_STREAMOUT_DATA_CODEC].Gen12_7.Index;
         }
 
         cmd.DW61.WeightsHistogramStreamoutOffset = 3 * MHW_CACHELINE_SIZE;
@@ -1004,9 +1020,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.VdencTileRowStoreBuffer.BufferPictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_VDENC_ROW_STORE_BUFFER_CODEC].Gen12_7.Index;
         }
 
         if (this->m_rowStoreCache.ipdl.enabled)
@@ -1031,9 +1044,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.IntraPredictionRowstoreBaseAddress.BufferPictureFields.DW0.MemoryObjectControlState =
-                m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_INTRA_ROWSTORE_SCRATCH_BUFFER_CODEC].Gen12_7.Index;
         }
 
         if (!Mos_ResourceIsNull(params.cumulativeCuCountStreamOutBuffer))
@@ -1071,9 +1081,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.ColocatedMvAvcWriteBuffer.PictureFields.DW0.MemoryObjectControlState =
-                this->m_cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC].Gen12_7.Index;
         }
 
         return MOS_STATUS_SUCCESS;
@@ -1139,7 +1146,7 @@ protected:
     DO_FIELD(DW6, TileStreaminOffset, params.tileStreamInOffset);                                                         \
                                                                                                                           \
     DO_FIELD(DW7, RowStoreOffsetEnable, cmd.DW4.TileStartCtbY == 0 ? params.tileEnable : 0);                              \
-    DO_FIELD(DW7, TileRowstoreOffset, cmd.DW4.TileStartCtbY == 0 ? cmd.DW4.TileStartCtbX / 32 : 0);                       \
+    DO_FIELD(DW7, TileRowstoreOffset, params.tileRowstoreOffset);                                                         \
                                                                                                                           \
     DO_FIELD(DW8, TileStreamoutOffsetEnable, params.tileEnable);                                                          \
     DO_FIELD(DW8, TileStreamoutOffset, params.tileId * 19);                                                               \
@@ -1212,7 +1219,9 @@ protected:
     DO_FIELD(DW1, HevcPipelineCommandFlush, params.flushHEVC);                \
     DO_FIELD(DW1, VdencPipelineCommandFlush, params.flushVDENC);              \
     DO_FIELD(DW1, MflPipelineCommandFlush, params.flushMFL);                  \
-    DO_FIELD(DW1, MfxPipelineCommandFlush, params.flushMFX);                  \
+    DO_FIELD(DW1, MfxPipelineCommandFlush, params.flushMFX)
+
+#define DO_FIELDS_EXT() \
     __MHW_VDBOX_VDENC_WRAPPER_EXT(VD_PIPELINE_FLUSH_IMPL_EXT)
 
 #include "mhw_hwcmd_process_cmdfields.h"
@@ -1423,6 +1432,7 @@ protected:
     DO_FIELD(DW5, StreaminRoiEnable, params.roiStreamIn);                                                \
     DO_FIELD(DW5, NumRefIdxL0Minus1, params.numRefL0 > 0 ? params.numRefL0 - 1 : 0);                     \
     DO_FIELD(DW5, NumRefIdxL1Minus1, params.numRefL1 > 0 ? params.numRefL1 - 1 : 0);                     \
+    DO_FIELD(DW5, SubPelMode, params.subPelMode);                                                        \
                                                                                                          \
     DO_FIELD(DW7, SegmentationEnable, params.segmentation);                                              \
     DO_FIELD(DW7, SegmentationMapTemporalPredictionEnable, params.segmentationTemporal);                 \
@@ -1474,33 +1484,72 @@ protected:
     DO_FIELD(DW61, Av1L0RefID3, params.av1RefId[0][3]);                                                  \
     DO_FIELD(DW61, Av1L1RefID3, params.av1RefId[1][3])
 
-#define NO_RETURN
-#include "mhw_hwcmd_process_cmdfields.h"
-
-        if (params.extSettings.empty())
-        {
-#define DO_FIELDS() \
+#define DO_FIELDS_EXT() \
     __MHW_VDBOX_VDENC_WRAPPER_EXT(VDENC_CMD2_IMPL_EXT)
 
 #include "mhw_hwcmd_process_cmdfields.h"
-        }
-        else
-        {
-            for (const auto &func : params.extSettings)
-            {
-                MHW_CHK_STATUS_RETURN(func(reinterpret_cast<uint32_t *>(&cmd)));
-            }
-        }
-
-        return MOS_STATUS_SUCCESS;
-#undef NO_RETURN
     }
 
     _MHW_SETCMD_OVERRIDE_DECL(VDENC_CMD3)
     {
-        _MHW_SETCMD_CALLBASE(VDENC_CMD3);
+    _MHW_SETCMD_CALLBASE(VDENC_CMD3);
 
-#define DO_FIELDS() __MHW_VDBOX_VDENC_WRAPPER_EXT(VDENC_CMD3_IMPL_EXT)
+    for (auto i = 0; i < 12; i++)
+    {
+        cmd.VDENC_CMD3_DW3_5[i] = params.vdencCmd3Par1[i];
+        cmd.VDENC_CMD3_DW6_8[i] = params.vdencCmd3Par2[i];
+    }
+
+#define DO_FIELDS()                                                 \
+    DO_FIELD(DW1_2, VDENC_CMD3_DW1_BIT0,  params.vdencCmd3Par0[0]); \
+    DO_FIELD(DW1_2, VDENC_CMD3_DW1_BIT8,  params.vdencCmd3Par0[1]); \
+    DO_FIELD(DW1_2, VDENC_CMD3_DW1_BIT16, params.vdencCmd3Par0[2]); \
+    DO_FIELD(DW1_2, VDENC_CMD3_DW1_BIT24, params.vdencCmd3Par0[3]); \
+    DO_FIELD(DW1_2, VDENC_CMD3_DW2_BIT0,  params.vdencCmd3Par0[4]); \
+    DO_FIELD(DW1_2, VDENC_CMD3_DW2_BIT8,  params.vdencCmd3Par0[5]); \
+    DO_FIELD(DW1_2, VDENC_CMD3_DW2_BIT16, params.vdencCmd3Par0[6]); \
+    DO_FIELD(DW1_2, VDENC_CMD3_DW2_BIT24, params.vdencCmd3Par0[7]); \
+                                                                    \
+    DO_FIELD(DW10, VDENC_CMD3_DW10_BIT16, params.vdencCmd3Par3);    \
+    DO_FIELD(DW10, VDENC_CMD3_DW10_BIT24, params.vdencCmd3Par4);    \
+                                                                    \
+    DO_FIELD(DW12, VDENC_CMD3_DW12_BIT0,  params.vdencCmd3Par5);    \
+    DO_FIELD(DW12, VDENC_CMD3_DW12_BIT8,  params.vdencCmd3Par6);    \
+    DO_FIELD(DW12, VDENC_CMD3_DW12_BIT16, params.vdencCmd3Par7);    \
+    DO_FIELD(DW12, VDENC_CMD3_DW12_BIT24, params.vdencCmd3Par8);    \
+                                                                    \
+    DO_FIELD(DW13, VDENC_CMD3_DW13_BIT0,  params.vdencCmd3Par9);    \
+    DO_FIELD(DW13, VDENC_CMD3_DW13_BIT8,  params.vdencCmd3Par10);   \
+    DO_FIELD(DW13, VDENC_CMD3_DW13_BIT16, params.vdencCmd3Par11);   \
+    DO_FIELD(DW13, VDENC_CMD3_DW13_BIT24, params.vdencCmd3Par12);   \
+                                                                    \
+    DO_FIELD(DW14, VDENC_CMD3_DW14_BIT8,  params.vdencCmd3Par13);   \
+    DO_FIELD(DW14, VDENC_CMD3_DW14_BIT16, params.vdencCmd3Par14);   \
+    DO_FIELD(DW14, VDENC_CMD3_DW14_BIT24, params.vdencCmd3Par15);   \
+                                                                    \
+    DO_FIELD(DW15, VDENC_CMD3_DW15_BIT8,  params.vdencCmd3Par16);   \
+    DO_FIELD(DW15, VDENC_CMD3_DW15_BIT16, params.vdencCmd3Par17);   \
+    DO_FIELD(DW15, VDENC_CMD3_DW15_BIT24, params.vdencCmd3Par18);   \
+                                                                    \
+    DO_FIELD(DW16, VDENC_CMD3_DW16_BIT16, params.vdencCmd3Par19);   \
+                                                                    \
+    DO_FIELD(DW17, VDENC_CMD3_DW17_BIT0,  params.vdencCmd3Par20);   \
+    DO_FIELD(DW17, VDENC_CMD3_DW17_BIT8,  params.vdencCmd3Par23);   \
+    DO_FIELD(DW17, VDENC_CMD3_DW17_BIT16, params.vdencCmd3Par21);   \
+    DO_FIELD(DW17, VDENC_CMD3_DW17_BIT24, params.vdencCmd3Par22);   \
+                                                                    \
+    DO_FIELD(DW19, VDENC_CMD3_DW19_BIT8,  params.vdencCmd3Par24);   \
+    DO_FIELD(DW19, VDENC_CMD3_DW19_BIT16, params.vdencCmd3Par25);   \
+    DO_FIELD(DW19, VDENC_CMD3_DW19_BIT24, params.vdencCmd3Par26);   \
+                                                                    \
+    DO_FIELD(DW20, VDENC_CMD3_DW20_BIT0, params.vdencCmd3Par27);    \
+    DO_FIELD(DW20, VDENC_CMD3_DW20_BIT8, params.vdencCmd3Par28);    \
+                                                                    \
+    DO_FIELD(DW21, VDENC_CMD3_DW21_BIT0, params.vdencCmd3Par29);    \
+    DO_FIELD(DW21, VDENC_CMD3_DW21_BIT8, params.vdencCmd3Par30);    \
+                                                                    \
+    DO_FIELD(DW22, VDENC_CMD3_DW22_BIT0,  params.vdencCmd3Par31);   \
+    DO_FIELD(DW22, VDENC_CMD3_DW22_BIT16, params.vdencCmd3Par32)
 
 #include "mhw_hwcmd_process_cmdfields.h"
     }
@@ -1554,29 +1603,12 @@ protected:
     DO_FIELD(DW16, PocNumberForFwdRef0, params.pocNumberForFwdRef0);                                                \
     DO_FIELD(DW17, PocNumberForFwdRef1, params.pocNumberForFwdRef1);                                                \
     DO_FIELD(DW18, PocNumberForFwdRef2, params.pocNumberForFwdRef2);                                                \
-    DO_FIELD(DW19, PocNumberForBwdRef0, params.pocNumberForBwdRef0);                                                \
-    
-#define NO_RETURN
-#include "mhw_hwcmd_process_cmdfields.h"
+    DO_FIELD(DW19, PocNumberForBwdRef0, params.pocNumberForBwdRef0)
 
-        if (params.extSettings.empty())
-        {
-#define DO_FIELDS() \
+#define DO_FIELDS_EXT() \
     __MHW_VDBOX_VDENC_WRAPPER_EXT(VDENC_AVC_IMG_STATE_IMPL_EXT)
-
+    
 #include "mhw_hwcmd_process_cmdfields.h"
-        }
-        else
-        {
-            for (const auto &func : params.extSettings)
-            {
-                MHW_CHK_STATUS_RETURN(func(reinterpret_cast<uint32_t *>(&cmd)));
-            }
-        }
-
-        return MOS_STATUS_SUCCESS;
-#undef NO_RETURN
-
     }
 MEDIA_CLASS_DEFINE_END(mhw__vdbox__vdenc__Impl)
 };

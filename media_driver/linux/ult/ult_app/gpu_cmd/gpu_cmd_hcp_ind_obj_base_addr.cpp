@@ -21,7 +21,3 @@
 */
 #include "gpu_cmd_hcp_ind_obj_base_addr.h"
 
-void GpuCmdHcpIndObjBaseAddrG10::InitCachePolicy()
-{
-    m_pCmd->HcpIndirectBitstreamObjectMemoryAddressAttributes.DW0.Value |= 8;
-}

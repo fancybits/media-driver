@@ -30,7 +30,7 @@
 #include "media_cmd_packet.h"
 #include "encode_huc.h"
 #include "media_pipeline.h"
-#include "codechal_hw.h"
+#include "codec_hw_next.h"
 #include "encode_utils.h"
 #include "encode_hevc_vdenc_pipeline.h"
 #include "encode_hevc_basic_feature.h"
@@ -124,7 +124,7 @@ public:
         } InputCOM[10];
     };
 
-    HevcPakIntegratePkt(MediaPipeline *pipeline, MediaTask *task, CodechalHwInterface *hwInterface) : EncodeHucPkt(pipeline, task, hwInterface)
+    HevcPakIntegratePkt(MediaPipeline *pipeline, MediaTask *task, CodechalHwInterfaceNext *hwInterface) : EncodeHucPkt(pipeline, task, hwInterface)
     {
         m_hcpItf = std::static_pointer_cast<mhw::vdbox::hcp::Itf>(hwInterface->GetHcpInterfaceNext());
         ENCODE_CHK_NULL_NO_STATUS_RETURN(m_hcpItf);
@@ -268,6 +268,9 @@ protected:
     virtual MOS_STATUS DumpInput() override;
     virtual MOS_STATUS DumpOutput() override;
 #endif
+
+    MOS_STATUS AddCondBBEndForLastPass(MOS_COMMAND_BUFFER &cmdBuffer);
+
     static constexpr uint32_t m_vdboxHucPakIntKernelDescriptor = 15;  //!< Huc pak integrate kernel descriptor
 
     EncodeMemComp *m_mmcState = nullptr;
@@ -275,7 +278,7 @@ protected:
     uint32_t      m_vdencHucPakDmemBufferSize = sizeof(HucPakIntegrateDmem);    //!< Indicate the size of Dmem buffer of Huc pak integrate kernel
     PMOS_RESOURCE m_resHucPakStitchDmemBuffer[CODECHAL_ENCODE_RECYCLED_BUFFER_NUM][CODECHAL_VDENC_BRC_NUM_OF_PASSES] = {};  //!< HuC Pak Integration Dmem data for each pass
 
-    MOS_RESOURCE     m_resHucStitchDataBuffer[CODECHAL_ENCODE_RECYCLED_BUFFER_NUM][CODECHAL_VDENC_BRC_NUM_OF_PASSES];
+    MOS_RESOURCE     m_resHucStitchDataBuffer[CODECHAL_ENCODE_RECYCLED_BUFFER_NUM][CODECHAL_VDENC_BRC_NUM_OF_PASSES] = {};
     MHW_BATCH_BUFFER m_HucStitchCmdBatchBuffer = {};
 
     static constexpr const uint32_t m_hwStitchCmdSize = 20 * sizeof(uint32_t);  //!< Cmd size for hw stitch

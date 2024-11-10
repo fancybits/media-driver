@@ -42,7 +42,7 @@ public:
     //!         Pointer to CodechalDebugInterface
     //!
     HevcVdencPipelineXe_Xpm_Base(
-        CodechalHwInterface    *hwInterface,
+        CodechalHwInterfaceNext    *hwInterface,
         CodechalDebugInterface *debugInterface);
 
     virtual ~HevcVdencPipelineXe_Xpm_Base() {}
@@ -50,6 +50,10 @@ public:
     virtual MOS_STATUS Init(void *settings) override;
 
     virtual MOS_STATUS Prepare(void *params) override;
+
+    virtual MOS_STATUS Reformat();
+
+    virtual MOS_STATUS PrepareReformat();
 
     virtual MOS_STATUS Execute() override;
 

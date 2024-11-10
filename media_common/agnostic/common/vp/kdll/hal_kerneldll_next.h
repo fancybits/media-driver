@@ -54,23 +54,23 @@
 
 #define DL_MAX_SEARCH_FILTER_SIZE 10  // max number of entries to describe a compositing filter
 
-#define DL_MAX_KERNELS 150         // Max component kernels to combine
+#define DL_MAX_KERNELS 256         // Max component kernels to combine
 #define DL_MAX_PATCH_DATA_SIZE 64  // Max size of a patch block
 #define DL_MAX_PATCH_BLOCKS 8      // Max number of blocks to patch per patch data
-#define DL_MAX_PATCHES 4           // Max patches to use
+#define DL_MAX_PATCHES 8           // Max patches to use
 #define DL_MAX_EXPORT_COUNT 64     // size of the symbol export table
 
 #define DL_MAX_COMBINED_KERNELS 64       // Max number of kernels in cache
 #define DL_MAX_SYMBOLS 100               // max number of import/export symbols in a combined kernels
-#define DL_MAX_KERNEL_SIZE (128 * 1024)  // max output kernel size
+#define DL_MAX_KERNEL_SIZE (160 * 1024)  // max output kernel size
 
-#define DL_CSC_MAX 6                      // 6 CSC matrices max
+#define DL_CSC_MAX 8                      // 8 CSC matrices max
 #define DL_MAX_SEARCH_NODES_PER_KERNEL 6  // max number of search nodes for a component kernel (max tree depth)
 #define DL_MAX_COMPONENT_KERNELS 25       // max number of component kernels that can be combined
 
 #define DL_DEFAULT_COMBINED_KERNELS 4                                                  // Default number of kernels in cache
 #define DL_NEW_COMBINED_KERNELS 4                                                      // The increased number of kernels in cache each time
-#define DL_CACHE_BLOCK_SIZE (128 * 1024)                                               // Kernel allocation block size
+#define DL_CACHE_BLOCK_SIZE (160 * 1024)                                               // Kernel allocation block size
 #define DL_COMBINED_KERNEL_CACHE_SIZE (DL_CACHE_BLOCK_SIZE * DL_NEW_COMBINED_KERNELS)  // Combined kernel size
 
 #define DL_PROCAMP_DISABLED -1  // procamp is disabled
@@ -178,6 +178,34 @@ const float g_cCSC_stRGB_sRGB[12] =
         -18.630137f  // sB   = C8 * stR + C9 * stG + C10 * stB + C11
 };
 
+//BT2020_RGB to BT2020_limited_RGB conversions
+const float g_cCSC_BT2020RGB_BT2020stRGB[12] =
+    {
+        0.8563050f, 0.000000f, 0.000000f, 64.000000f,  // sR = C0 * R + C1 * G + C2  * B + C3
+        0.000000f,
+        0.8563050f,
+        0.000000f,
+        64.000000f,  // sG = C4 * R + C5 * G + C6  * B + C7
+        0.000000f,
+        0.000000f,
+        0.8563050f,
+        64.000000f  // sB = C8 * R + C9 * G + C10 * B + C11
+};
+
+//BT2020_limited_RGB to BT2020_RGB conversions
+const float g_cCSC_BT2020stRGB_BT2020RGB[12] =
+    {
+        1.1678082f, 0.000000f, 0.000000f, -74.739726f,  // R = C0 * sR + C1 * sG + C2  * sB + C3
+        0.000000f,
+        1.1678082f,
+        0.000000f,
+        -74.739726f,  // G = C4 * sR + C5 * sG + C6  * sB + C7
+        0.000000f,
+        0.000000f,
+        1.1678082f,
+        -74.739726f  // B = C8 * sR + C9 * sG + C10 * sB + C11
+};
+
 const float g_cCSC_Identity[12] =
     {
         1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
@@ -223,6 +251,22 @@ const float g_cCSC_BT2020_YUV_RGB[9] =
         1.000000f,
         1.881400f,
         0.000000f  //B
+};
+
+// BT2020 YUV Limited Range to BT2020 RGB full range conversion matrix
+const float g_cCSC_BT2020_LimitedYUV_RGB[9] =
+{
+    1.164383f,  0.000000f,  1.678680f,    // R
+    1.164383f, -0.187332f, -0.650421f,    // G
+    1.164383f,  2.141769f,  0.000000f     // B
+};
+
+// BT2020 RGB full range to BT2020 YUV Limited Range tconversion matrix
+const float g_cCSC_BT2020_RGB_LimitedYUV[9] =
+{
+    0.225617f,   0.582275f,  0.050934f,  // Y
+    -0.122650f, -0.316559f,  0.439209f,  // U
+    0.439209f,  -0.403885f, -0.035324f   // V
 };
 
 // Layer definition
@@ -544,6 +588,7 @@ typedef struct tagKdll_FilterEntry
     Kdll_Scalingratio      ScalingRatio;
     Kdll_RenderMethod      RenderMethod;
     Kdll_SetCSCCoeffMethod SetCSCCoeffMode;
+    bool                   forceToTargetColorSpace;
 } Kdll_FilterEntry, *PKdll_FilterEntry;
 
 // Structure that defines a compositing filter
@@ -840,6 +885,11 @@ void KernelDll_GetCSCMatrix(
     Kdll_CSpace src,
     Kdll_CSpace dst,
     float *     pCSC_Matrix);
+
+void KernelDll_MatrixProduct(
+    float       *dest,
+    const float *m1,
+    const float *m2);
 
 // Simple Hash function
 uint32_t KernelDll_SimpleHash(

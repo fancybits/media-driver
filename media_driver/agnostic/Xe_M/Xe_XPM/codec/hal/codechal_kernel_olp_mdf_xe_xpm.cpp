@@ -35,7 +35,7 @@ MOS_STATUS CodechalKernelOlpMdf::Init(PMOS_INTERFACE osInterface)
 {
     CODECHAL_DECODE_FUNCTION_ENTER;
     CODECHAL_DECODE_CHK_NULL_RETURN(osInterface);
-
+    m_osInterface = osInterface;
     if (m_cmDevice)
     {
         return MOS_STATUS_SUCCESS;
@@ -44,10 +44,11 @@ MOS_STATUS CodechalKernelOlpMdf::Init(PMOS_INTERFACE osInterface)
     osInterface->pfnNotifyStreamIndexSharing(osInterface);
 
     uint32_t devCreateOption = CM_DEVICE_CREATE_OPTION_SCRATCH_SPACE_DISABLE;
-    CODECHAL_DECODE_CHK_STATUS_RETURN(CreateCmDevice(
+    CODECHAL_DECODE_CHK_STATUS_RETURN(osInterface->pfnCreateCmDevice(
         osInterface->pOsContext,
         m_cmDevice,
-        devCreateOption));
+        devCreateOption,
+        CM_DEVICE_CREATE_PRIORITY_DEFAULT));
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_cmDevice->CreateQueue(m_cmQueue));
 #if defined(ENABLE_KERNELS) && !defined(_FULL_OPEN_SOURCE)
@@ -160,10 +161,16 @@ MOS_STATUS CodechalKernelOlpMdf::Execute(PMOS_SURFACE src, uint16_t *srcMemory_o
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_cmDevice->CreateThreadGroupSpace(1, 1, threadWidth, threadHeight, m_threadGroupSpaces[0]));
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_cmKernels[0]->AssociateThreadGroupSpace(m_threadGroupSpaces[0]));
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_cmTask->AddKernel(m_cmKernels[0]));
+
+    auto delete_event = [&]()
+    {
+        MOS_Delete(event);
+    };
+
     if (!m_SingleTaskPhase)
     {
-        CODECHAL_DECODE_CHK_STATUS_RETURN(m_cmQueue->EnqueueWithGroup(m_cmTask, event));
-        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_cmTask->Reset());
+        CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_cmQueue->EnqueueWithGroup(m_cmTask, event), delete_event);
+        CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_cmTask->Reset(), delete_event);
     }
 
     threadWidth  = MOS_ALIGN_CEIL(src->dwWidth, 16) / 16;
@@ -173,8 +180,9 @@ MOS_STATUS CodechalKernelOlpMdf::Execute(PMOS_SURFACE src, uint16_t *srcMemory_o
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_cmDevice->CreateThreadGroupSpace(1, 1, threadWidth, threadHeight, m_threadGroupSpaces[1]));
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_cmKernels[1]->AssociateThreadGroupSpace(m_threadGroupSpaces[1]));
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_cmTask->AddKernel(m_cmKernels[1]));
-    CODECHAL_DECODE_CHK_STATUS_RETURN(m_cmQueue->EnqueueWithGroup(m_cmTask, event));
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_cmTask->Reset());
+    CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_cmQueue->EnqueueWithGroup(m_cmTask, event), delete_event);
+    CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_cmTask->Reset(), delete_event);
+
 
     return MOS_STATUS_SUCCESS;
 }
@@ -215,7 +223,10 @@ MOS_STATUS CodechalKernelOlpMdf::UnInit()
         m_cmDevice->DestroyProgram(m_cmProgram);
         m_cmProgram = nullptr;
     }
-    DestroyCmDevice(m_cmDevice);
+    if (m_osInterface != nullptr)
+    {
+        m_osInterface->pfnDestroyCmDevice(m_cmDevice);
+    }
 
     return MOS_STATUS_SUCCESS;
 }

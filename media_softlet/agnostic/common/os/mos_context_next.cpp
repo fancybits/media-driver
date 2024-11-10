@@ -25,6 +25,8 @@
 //!
 
 #include "mos_context_specific_next.h"
+#include "mos_os_mock_adaptor.h"
+#include "mos_oca_rtlog_mgr.h"
 
 class OsContextNext* OsContextNext::GetOsContextObject()
 {
@@ -43,6 +45,8 @@ void OsContextNext::CleanUp()
 #endif
     MOS_Delete(m_mosMediaCopy);
 
+    MosOcaRTLogMgr::UnRegisterContext(this);
+
     if (m_gpuContextMgr != nullptr)
     {
         m_gpuContextMgr->CleanUp();
@@ -58,4 +62,16 @@ void OsContextNext::CleanUp()
     }
 
     Destroy();
+}
+
+MOS_STATUS OsContextNext::NullHwInit(MOS_CONTEXT_HANDLE osContext)
+{
+    MOS_OS_FUNCTION_ENTER;
+    return MosMockAdaptor::Init(osContext, this);
+}
+
+MOS_STATUS OsContextNext::NullHwDestroy()
+{
+    MOS_OS_FUNCTION_ENTER;
+    return MosMockAdaptor::Destroy();
 }

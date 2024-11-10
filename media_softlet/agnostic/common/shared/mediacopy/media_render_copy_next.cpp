@@ -29,13 +29,32 @@
 #include "media_interfaces_mhw_next.h"
 #include "media_render_common.h"
 
+//!
+//! \brief Initialize MHW Kernel Param struct for loading Kernel
+//!
+#define INIT_MHW_KERNEL_PARAM(MhwKernelParam, _pKernelEntry)                        \
+    do                                                                              \
+    {                                                                               \
+        MOS_ZeroMemory(&(MhwKernelParam), sizeof(MhwKernelParam));                  \
+        (MhwKernelParam).pBinary  = (_pKernelEntry)->pBinary;                       \
+        (MhwKernelParam).iSize    = (_pKernelEntry)->iSize;                         \
+        (MhwKernelParam).iKUID    = (_pKernelEntry)->iKUID;                         \
+        (MhwKernelParam).iKCID    = (_pKernelEntry)->iKCID;                         \
+    } while(0)
+
+
 RenderCopyStateNext::RenderCopyStateNext(PMOS_INTERFACE osInterface, MhwInterfacesNext *mhwInterfaces) :
     m_osInterface(osInterface),
     m_mhwInterfaces(mhwInterfaces)
 {
+    if (nullptr == osInterface)
+    {
+        MCPY_ASSERTMESSAGE("osInterface is nullptr");
+        return;
+    }
     m_RenderData.pKernelParam = (PRENDERHAL_KERNEL_PARAM)g_rendercopy_KernelParam;
     Mos_SetVirtualEngineSupported(osInterface, true);
-    Mos_CheckVirtualEngineSupported(osInterface, true, false);
+    osInterface->pfnVirtualEngineSupported(osInterface, true, false);
 
     MOS_NULL_RENDERING_FLAGS        NullRenderingFlags;
     NullRenderingFlags = osInterface->pfnGetNullHWRenderFlags(osInterface);
@@ -49,18 +68,28 @@ RenderCopyStateNext:: ~RenderCopyStateNext()
 {
     if (m_renderHal != nullptr)
     {
-       MOS_STATUS eStatus = m_renderHal->pfnDestroy(m_renderHal);
-       if (eStatus != MOS_STATUS_SUCCESS)
-       {
-           MCPY_ASSERTMESSAGE("Failed to destroy RenderHal, eStatus:%d.\n", eStatus);
-       }
+        if (m_renderHal->pfnDestroy)
+        {
+            MOS_STATUS eStatus = m_renderHal->pfnDestroy(m_renderHal);
+            if (eStatus != MOS_STATUS_SUCCESS)
+            {
+                MCPY_ASSERTMESSAGE("Failed to destroy RenderHal, eStatus:%d.\n", eStatus);
+            }
+        }
        MOS_FreeMemAndSetNull(m_renderHal);
     }
 
     if (m_cpInterface != nullptr)
     {
-        Delete_MhwCpInterface(m_cpInterface);
-        m_cpInterface = nullptr;
+        if (m_osInterface)
+        {
+            m_osInterface->pfnDeleteMhwCpInterface(m_cpInterface);
+            m_cpInterface = nullptr;
+        }
+        else
+        {
+            MCPY_ASSERTMESSAGE("Failed to destroy cpInterface.");
+        }
     }
 
     // Destroy Kernel DLL objects (cache, hash table, states)
@@ -73,29 +102,9 @@ RenderCopyStateNext:: ~RenderCopyStateNext()
 
 MOS_STATUS RenderCopyStateNext::Initialize()
 {
-    MOS_GPU_NODE            RenderGpuNode;
-    MOS_GPU_CONTEXT         RenderGpuContext;
-    MOS_GPUCTX_CREATOPTIONS createOption;
     RENDERHAL_SETTINGS      RenderHalSettings;
 
-    RenderGpuContext   = MOS_GPU_CONTEXT_COMPUTE;
-    RenderGpuNode      = MOS_GPU_NODE_COMPUTE;
-
     MCPY_CHK_NULL_RETURN(m_osInterface);
-
-    Mos_SetVirtualEngineSupported(m_osInterface, true);
-    Mos_CheckVirtualEngineSupported(m_osInterface, true, true);
-    // Create render copy Context
-    MCPY_CHK_STATUS_RETURN(m_osInterface->pfnCreateGpuContext(
-        m_osInterface,
-        RenderGpuContext,
-        RenderGpuNode,
-        &createOption));
-
-    // Register context with the Batch Buffer completion event
-    MCPY_CHK_STATUS_RETURN(m_osInterface->pfnRegisterBBCompleteNotifyEvent(
-        m_osInterface,
-        RenderGpuContext));
 
     m_renderHal = (PRENDERHAL_INTERFACE)MOS_AllocAndZeroMemory(sizeof(*m_renderHal));
     MCPY_CHK_NULL_RETURN(m_renderHal);
@@ -108,7 +117,9 @@ MOS_STATUS RenderCopyStateNext::Initialize()
     RenderHalSettings.iMediaStates = 32;
     MCPY_CHK_STATUS_RETURN(m_renderHal->pfnInitialize(m_renderHal, &RenderHalSettings));
 
-    m_renderHal->sseuTable = defaultSSEUTable;
+    m_renderHal->sseuTable              = defaultSSEUTable;
+    m_renderHal->forceDisablePreemption = true;
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -146,9 +157,242 @@ int32_t RenderCopyStateNext::GetBytesPerPixelPerPlane(
     return iBytePerPixelPerPlane;
 }
 
-MOS_STATUS RenderCopyStateNext::SubmitCMD( )
+MOS_STATUS RenderCopyStateNext::SetupKernel(
+    int32_t iKDTIndex)
 {
-    return MOS_STATUS_SUCCESS;
+    Kdll_CacheEntry* pCacheEntryTable;                              // Kernel Cache Entry table
+    int32_t                     iKUID = 0;                                     // Kernel Unique ID
+    int32_t                     iInlineLength;                                  // Inline data length
+    int32_t                     iTotalRows;                                     // Total number of row in statistics surface
+    int32_t                     iTotalColumns;                                  // Total number of columns in statistics surface
+    MOS_STATUS                  eStatus = MOS_STATUS_SUCCESS;                   // Return code
+    uint32_t                    dwKernelBinSize;
+    PMEDIACOPY_RENDER_DATA      pRenderData = &m_RenderData;
+    const void* pcKernelBin = nullptr;
+
+    MCPY_CHK_NULL_RETURN(pRenderData);
+    if (iKDTIndex == KERNEL_CopyKernel_1D_to_2D_NV12)
+    {
+        iKUID = IDR_VP_CopyKernel_1D_to_2D_NV12_genx;
+    }
+    else if (iKDTIndex == KERNEL_CopyKernel_2D_to_2D_NV12)
+    {
+        iKUID = IDR_VP_CopyKernel_2D_to_2D_NV12_genx;
+    }
+    else if (iKDTIndex == KERNEL_CopyKernel_2D_to_1D_NV12)
+    {
+        iKUID = IDR_VP_CopyKernel_2D_to_1D_NV12_genx;
+    }
+    else if (iKDTIndex == KERNEL_CopyKernel_1D_to_2D_Planar)
+    {
+        iKUID = IDR_VP_CopyKernel_1D_to_2D_RGBP_genx;
+    }
+    else if (iKDTIndex == KERNEL_CopyKernel_2D_to_2D_Planar)
+    {
+        iKUID = IDR_VP_CopyKernel_2D_to_2D_RGBP_genx;
+    }
+    else if (iKDTIndex == KERNEL_CopyKernel_2D_to_1D_Planar)
+    {
+        iKUID = IDR_VP_CopyKernel_2D_to_1D_RGBP_genx;
+    }
+    else if (iKDTIndex == KERNEL_CopyKernel_1D_to_2D_Packed)
+    {
+        iKUID = IDR_VP_CopyKernel_1D_to_2D_genx;
+    }
+    else if (iKDTIndex == KERNEL_CopyKernel_2D_to_2D_Packed)
+    {
+        iKUID = IDR_VP_CopyKernel_2D_to_2D_genx;
+    }
+    else if (iKDTIndex == KERNEL_CopyKernel_2D_to_1D_Packed)
+    {
+        iKUID = IDR_VP_CopyKernel_2D_to_1D_genx;
+    }
+    else
+    {
+        MCPY_ASSERTMESSAGE("Can't find the right kernel.");
+        return MOS_STATUS_UNKNOWN;
+    }
+
+    pcKernelBin = m_KernelBin;
+    dwKernelBinSize = m_KernelBinSize;
+
+    if (nullptr == m_pKernelBin)
+    {
+        m_pKernelBin = MOS_AllocMemory(dwKernelBinSize);
+    }
+
+    MCPY_CHK_NULL_RETURN(m_pKernelBin);
+    MOS_SecureMemcpy(m_pKernelBin,
+        dwKernelBinSize,
+        pcKernelBin,
+        dwKernelBinSize);
+
+    // Allocate KDLL state (Kernel Dynamic Linking)
+    if (nullptr == m_pKernelDllState)
+    {
+        m_pKernelDllState = KernelDll_AllocateStates(
+            m_pKernelBin,
+            dwKernelBinSize,
+            nullptr,
+            0,
+            nullptr,
+            nullptr);
+    }
+    if (nullptr == m_pKernelDllState)
+    {
+        MCPY_ASSERTMESSAGE("Failed to allocate KDLL state.");
+        if (m_pKernelBin)
+        {
+            MOS_SafeFreeMemory(m_pKernelBin);
+            m_pKernelBin = nullptr;
+        }
+        return MOS_STATUS_NULL_POINTER;
+    }
+    pCacheEntryTable =
+        m_pKernelDllState->ComponentKernelCache.pCacheEntries;
+
+    // Set the Kernel Parameters
+    pRenderData->pKernelParam = (PRENDERHAL_KERNEL_PARAM)&g_rendercopy_KernelParam[iKDTIndex];
+    pRenderData->PerfTag = VPHAL_NONE;
+
+    // Set Kernel entry
+    pRenderData->KernelEntry.iKUID = iKUID;
+    pRenderData->KernelEntry.iKCID = -1;
+    pRenderData->KernelEntry.iSize = pCacheEntryTable[iKUID].iSize;
+    pRenderData->KernelEntry.pBinary = pCacheEntryTable[iKUID].pBinary;
+
+    return eStatus;
+}
+
+MOS_STATUS RenderCopyStateNext::SubmitCMD()
+{
+    PRENDERHAL_INTERFACE        pRenderHal;
+    PMOS_INTERFACE              pOsInterface;
+    MHW_KERNEL_PARAM            MhwKernelParam;
+    int32_t                     iKrnAllocation;
+    int32_t                     iCurbeOffset;
+    MOS_STATUS                  eStatus = MOS_STATUS_SUCCESS;
+
+    PMEDIACOPY_RENDER_DATA      pRenderData = &m_RenderData;
+    MHW_WALKER_PARAMS           WalkerParams = {0};
+    PMHW_WALKER_PARAMS          pWalkerParams = nullptr;
+    MHW_GPGPU_WALKER_PARAMS     ComputeWalkerParams = {0};
+    PMHW_GPGPU_WALKER_PARAMS    pComputeWalkerParams = nullptr;
+    MOS_GPUCTX_CREATOPTIONS_ENHANCED createOption = {};
+
+    pRenderHal = m_renderHal;
+    pOsInterface = m_osInterface;
+    // no gpucontext will be created if the gpu context has been created before.
+    MCPY_CHK_STATUS_RETURN(pOsInterface->pfnCreateGpuContext(
+        m_osInterface,
+        MOS_GPU_CONTEXT_COMPUTE,
+        MOS_GPU_NODE_COMPUTE,
+        &createOption));
+
+    // Register context with the Batch Buffer completion event
+    MCPY_CHK_STATUS_RETURN(m_osInterface->pfnRegisterBBCompleteNotifyEvent(
+        m_osInterface,
+        MOS_GPU_CONTEXT_COMPUTE));
+
+    // Set GPU Context to Render Engine
+    MCPY_CHK_STATUS_RETURN(pOsInterface->pfnSetGpuContext(pOsInterface, MOS_GPU_CONTEXT_COMPUTE));
+
+    // Reset allocation list and house keeping
+    m_osInterface->pfnResetOsStates(pOsInterface);
+
+    // Register the resource of GSH
+    MCPY_CHK_STATUS_RETURN(pRenderHal->pfnReset(pRenderHal));
+
+    // Set copy kernel
+    SetupKernel(m_currKernelId);
+
+    //----------------------------------
+    // Allocate and reset media state
+    //----------------------------------
+    pRenderData->pMediaState = pRenderHal->pfnAssignMediaState(pRenderHal, RENDERHAL_COMPONENT_RENDER_COPY);
+    MCPY_CHK_NULL_RETURN(pRenderData->pMediaState);
+
+    // Allocate and reset SSH instance
+    MCPY_CHK_STATUS_RETURN(pRenderHal->pfnAssignSshInstance(pRenderHal));
+
+    // Assign and Reset Binding Table
+    MCPY_CHK_STATUS_RETURN(pRenderHal->pfnAssignBindingTable(
+        pRenderHal,
+        &pRenderData->iBindingTable));
+
+    // Setup surface states
+    MCPY_CHK_STATUS_RETURN(SetupSurfaceStates())
+
+        // load static data
+        MCPY_CHK_STATUS_RETURN(LoadStaticData(
+            &iCurbeOffset));
+
+    //----------------------------------
+    // Setup VFE State params. Each Renderer MUST call pfnSetVfeStateParams().
+    //----------------------------------
+    MCPY_CHK_STATUS_RETURN(pRenderHal->pfnSetVfeStateParams(
+        pRenderHal,
+        MEDIASTATE_DEBUG_COUNTER_FREE_RUNNING,
+        pRenderData->pKernelParam->Thread_Count,
+        pRenderData->iCurbeLength,
+        pRenderData->iInlineLength,
+        nullptr));
+
+    //----------------------------------
+    // Load kernel to GSH
+    //----------------------------------
+    INIT_MHW_KERNEL_PARAM(MhwKernelParam, &pRenderData->KernelEntry);
+    iKrnAllocation = pRenderHal->pfnLoadKernel(
+        pRenderHal,
+        pRenderData->pKernelParam,
+        &MhwKernelParam,
+        nullptr);
+    if (iKrnAllocation < 0)
+    {
+        eStatus = MOS_STATUS_UNKNOWN;
+        return eStatus;
+    }
+
+    //----------------------------------
+    // Allocate Media ID, link to kernel
+    //----------------------------------
+    pRenderData->iMediaID = pRenderHal->pfnAllocateMediaID(
+        pRenderHal,
+        iKrnAllocation,
+        pRenderData->iBindingTable,
+        iCurbeOffset,
+        pRenderData->pKernelParam->CURBE_Length << 5,
+        0,
+        nullptr);
+    if (pRenderData->iMediaID < 0)
+    {
+        eStatus = MOS_STATUS_UNKNOWN;
+        return eStatus;
+    }
+
+    // Set Perf Tag
+    pOsInterface->pfnResetPerfBufferID(pOsInterface);
+    m_osInterface->pfnSetPerfTag(m_osInterface, RENDER_COPY);
+
+    // Setup Compute Walker
+    pWalkerParams = nullptr;
+    pComputeWalkerParams = &ComputeWalkerParams;
+
+    RenderCopyComputerWalker(
+        &ComputeWalkerParams);
+
+    // Submit all states to render the kernel
+    //VpHal_RndrCommonSubmitCommands(
+    MediaRenderCommon::EukernelSubmitCommands(
+        pRenderHal,
+        nullptr,
+        m_bNullHwRenderCopy,
+        pWalkerParams,
+        pComputeWalkerParams,
+        (VpKernelID)kernelRenderCopy,
+        true);
+
+    return eStatus;
 }
 
 MOS_STATUS RenderCopyStateNext::GetCurentKernelID( )
@@ -252,7 +496,8 @@ MOS_STATUS RenderCopyStateNext::SetupSurfaceStates()
     int32_t                         iBTEntry;
     PRENDERHAL_INTERFACE            pRenderHal  = m_renderHal;
     PMEDIACOPY_RENDER_DATA          pRenderData = &m_RenderData;
-
+    RENDERHAL_SURFACE               RenderHalSource = {};  // source for mhw
+    RENDERHAL_SURFACE               RenderHalTarget = {};
     MCPY_CHK_NULL_RETURN(pRenderHal);
     MCPY_CHK_NULL_RETURN(pRenderData);
     // Source surface
@@ -260,7 +505,7 @@ MOS_STATUS RenderCopyStateNext::SetupSurfaceStates()
 
     pRenderData->SurfMemObjCtl.SourceSurfMemObjCtl =
          pRenderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
-         MOS_MP_RESOURCE_USAGE_SurfaceState_FF,
+         MOS_MP_RESOURCE_USAGE_SurfaceState_RCS,
          pRenderHal->pOsInterface->pfnGetGmmClientContext(pRenderHal->pOsInterface)).DwordValue;
 
     pRenderData->SurfMemObjCtl.TargetSurfMemObjCtl = pRenderData->SurfMemObjCtl.SourceSurfMemObjCtl;
@@ -277,7 +522,7 @@ MOS_STATUS RenderCopyStateNext::SetupSurfaceStates()
 
     if (Format_NV12 == m_Target.Format)
     {
-         // set NV12 as 2 plane
+        // set NV12 as 2 plane because render copy only uses DP reading&writing.
         RenderHalSource.SurfType = RENDERHAL_SURF_OUT_RENDERTARGET;
         RenderHalTarget.SurfType = RENDERHAL_SURF_OUT_RENDERTARGET;
     }
@@ -307,7 +552,7 @@ MOS_STATUS RenderCopyStateNext::SetupSurfaceStates()
 
         m_Source.dwWidth = MOS_ALIGN_CEIL(m_Source.dwWidth, 128);
         //1D surfaces
-        MCPY_CHK_STATUS(MediaRenderCommon::Set1DSurfaceForHwAccess(
+        MCPY_CHK_STATUS_RETURN(MediaRenderCommon::Set1DSurfaceForHwAccess(
              pRenderHal,
              &m_Source,
              &RenderHalSource,
@@ -320,7 +565,7 @@ MOS_STATUS RenderCopyStateNext::SetupSurfaceStates()
     }
     else {
         //2D surfaces
-        MCPY_CHK_STATUS(MediaRenderCommon::Set2DSurfaceForHwAccess(
+        MCPY_CHK_STATUS_RETURN(MediaRenderCommon::Set2DSurfaceForHwAccess(
             pRenderHal,
             &m_Source,
             &RenderHalSource,
@@ -363,7 +608,7 @@ MOS_STATUS RenderCopyStateNext::SetupSurfaceStates()
         m_Target.dwWidth = MOS_ALIGN_CEIL(m_Target.dwWidth, 128);
 
         //1D surface.
-        MCPY_CHK_STATUS(MediaRenderCommon::Set1DSurfaceForHwAccess(
+        MCPY_CHK_STATUS_RETURN(MediaRenderCommon::Set1DSurfaceForHwAccess(
             pRenderHal,
             &m_Target,
             &RenderHalTarget,
@@ -377,7 +622,7 @@ MOS_STATUS RenderCopyStateNext::SetupSurfaceStates()
     else
     {
         //2D surface.
-        MCPY_CHK_STATUS(MediaRenderCommon::Set2DSurfaceForHwAccess(
+        MCPY_CHK_STATUS_RETURN(MediaRenderCommon::Set2DSurfaceForHwAccess(
             pRenderHal,
             &m_Target,
             &RenderHalTarget,
@@ -387,7 +632,7 @@ MOS_STATUS RenderCopyStateNext::SetupSurfaceStates()
             true));
 
     }
-finish:
+
     return eStatus;
 }
 
@@ -718,3 +963,29 @@ MOS_STATUS RenderCopyStateNext::LoadStaticData(
 
     return eStatus;
 }
+
+ MOS_STATUS RenderCopyStateNext::CopySurface(
+     PMOS_RESOURCE src,
+     PMOS_RESOURCE dst)
+ {
+     MOS_STATUS                  eStatus = MOS_STATUS_SUCCESS;
+     m_Source.OsResource = *src;
+     m_Source.Format = Format_Invalid;
+     m_osInterface->pfnGetResourceInfo(m_osInterface, src, &m_Source);
+
+     m_Target.OsResource = *dst;
+     m_Target.Format = Format_Invalid;
+     m_osInterface->pfnGetResourceInfo(m_osInterface, dst, &m_Target);
+
+     if ((m_Target.Format != Format_RGBP) && (m_Target.Format != Format_NV12) && (m_Target.Format != Format_RGB)
+         && (m_Target.Format != Format_P010) && (m_Target.Format != Format_P016) && (m_Target.Format != Format_YUY2)
+         && (m_Target.Format != Format_Y210) && (m_Target.Format != Format_Y216) && (m_Target.Format != Format_AYUV)
+         && (m_Target.Format != Format_Y410) && (m_Target.Format != Format_Y416) && (m_Target.Format != Format_A8R8G8B8))
+     {
+         MCPY_ASSERTMESSAGE("Can't suppport format %d ", m_Target.Format);
+         return MOS_STATUS_INVALID_PARAMETER;
+     }
+
+     MCPY_CHK_STATUS_RETURN(GetCurentKernelID());
+     return SubmitCMD();
+ }

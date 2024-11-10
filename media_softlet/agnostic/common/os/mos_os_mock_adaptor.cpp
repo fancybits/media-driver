@@ -26,6 +26,7 @@
 
 #include "mos_os.h"
 #include "mos_os_specific.h"
+#include "mos_context_next.h"
 #include "mos_interface.h"
 #include "mos_os_mock_adaptor.h"
 #include "mos_os_mock_adaptor_specific.h"
@@ -91,13 +92,26 @@ MOS_STATUS MosMockAdaptor::RegkeyRead(PMOS_CONTEXT osContext)
 }
 
 MOS_STATUS MosMockAdaptor::Init(
-    PMOS_CONTEXT osContext)
+    MOS_CONTEXT_HANDLE osDriverContext,
+    OsContextNext      *osDeviceContext)
 {
-    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
-
+    MOS_STATUS   eStatus       = MOS_STATUS_SUCCESS;
+    uint32_t     value         = 0;
+    bool         nullHwEnabled = false;
+    PMOS_CONTEXT osContext     = (PMOS_CONTEXT)osDriverContext;
     MOS_OS_CHK_NULL_RETURN(osContext);
+    MOS_OS_CHK_NULL_RETURN(osDeviceContext);
 
-    if (!m_enabled) {
+    MediaUserSettingSharedPtr userSettingPtr = MosInterface::MosGetUserSettingInstance(osContext);
+    ReadUserSettingForDebug(
+        userSettingPtr,
+        value,
+        __MEDIA_USER_FEATURE_VALUE_NULLHW_ENABLE,
+        MediaUserSetting::Group::Device);
+    nullHwEnabled = (value) ? true : false;
+    osDeviceContext->SetNullHwIsEnabled(nullHwEnabled);
+
+    if (nullHwEnabled && !m_enabled) {
         m_enabled = true;
 
         MOS_OS_CHK_STATUS_RETURN(RegkeyRead(osContext));
@@ -131,10 +145,10 @@ MOS_STATUS MosMockAdaptor::InitContext(
 
     MOS_OS_CHK_NULL_RETURN(osContext);
 
-    m_pPlatform     = &osContext->platform;
-    m_pSkuTable     = &osContext->SkuTable;
-    m_pWaTable      = &osContext->WaTable;
-    m_pGtSystemInfo = &osContext->gtSystemInfo;
+    m_pPlatform     = &osContext->m_platform;
+    m_pSkuTable     = &osContext->m_skuTable;
+    m_pWaTable      = &osContext->m_waTable;
+    m_pGtSystemInfo = &osContext->m_gtSystemInfo;
 
     MOS_OS_CHK_STATUS_RETURN(InitializePlatForm());
 

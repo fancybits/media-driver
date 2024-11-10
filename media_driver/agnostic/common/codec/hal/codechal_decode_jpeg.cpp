@@ -89,6 +89,7 @@ CodechalDecodeJpeg::CodechalDecodeJpeg(
 #if (_DEBUG || _RELEASE_INTERNAL)
     m_reportFrameCrc = true;
 #endif
+    m_hwInterface = hwInterface;
 }
 
 MOS_STATUS CodechalDecodeJpeg::InitializeBeginFrame()
@@ -380,7 +381,8 @@ MOS_STATUS CodechalDecodeJpeg::CheckSupportedFormat(
     // real output format (ARGB8888) should also be from JPEG PPS; MSDK would handle the details of treating AYUV as ARGB.
     if (*format == Format_420O || *format == Format_AYUV)
     {
-        *format = MosInterface::OsFmtToMosFmt(m_jpegPicParams->m_renderTargetFormat);
+        CODECHAL_DECODE_CHK_NULL_RETURN(m_osInterface);
+        *format = m_osInterface->pfnOsFmtToMosFmt(m_jpegPicParams->m_renderTargetFormat);
     }
 
     //No support for RGBP/BGRP channel swap or YUV/RGB conversion!
@@ -548,7 +550,7 @@ MOS_STATUS CodechalDecodeJpeg::SetFrameStates()
         if (&(m_resDataBuffer)) {
             CODECHAL_DECODE_CHK_STATUS_RETURN(m_debugInterface->DumpBuffer(
                 &m_resDataBuffer,
-                CodechalDbgAttr::attrBitstream,
+                CodechalDbgAttr::attrDecodeBitstream,
                 "_DEC",
                 (m_copiedDataBufferInUse ? m_nextCopiedDataOffset : m_dataSize),
                 0,
@@ -804,6 +806,11 @@ MOS_STATUS CodechalDecodeJpeg::DecodePrimitiveLevel()
     {
         // Using scanCount here because the same command is used for JPEG decode and encode
         uint32_t quantTableSelector                                      = m_jpegPicParams->m_quantTableSelector[scanCount];
+        if (quantTableSelector >= JPEG_MAX_NUM_OF_QUANTMATRIX)
+        {
+            CODECHAL_DECODE_ASSERTMESSAGE("Unsupported QuantTableSelector in JPEG Picture parameter.");
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
         qmParams.pJpegQuantMatrix->m_jpegQMTableType[quantTableSelector] = scanCount;
         qmParams.JpegQMTableSelector = quantTableSelector;
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_mfxInterface->AddMfxQmCmd(

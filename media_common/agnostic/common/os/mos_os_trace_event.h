@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2015-2017, Intel Corporation
+* Copyright (c) 2015-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -105,8 +105,92 @@ typedef enum _MEDIA_EVENT_FILTER_KEYID
     TR_KEY_MOSMSG_DDI,
     TR_KEY_MOSMSG_MOS,
     TR_KEY_MOSMSG_MHW,
-    TR_KEY_DECODE_INFO
+    TR_KEY_DECODE_INFO,
+    TR_KEY_ENCODE_EVENT_DDI = 24,
+    TR_KEY_ENCODE_EVENT_API_STICKER,
+    TR_KEY_ENCODE_EVENT_INTERNAL,
+    TR_KEY_ENCODE_DATA_INPUT_SURFACE,
+    TR_KEY_ENCODE_DATA_REF_SURFACE,
+    TR_KEY_ENCODE_DATA_RECON_SURFACE,
+    TR_KEY_ENCODE_DATA_BITSTREAM,
+    TR_KEY_DECODE_DSTYUV_IN_TRACE,
+    TR_KEY_ENCODE_DATA_HUC_DMEM,
+    TR_KEY_ENCODE_DATA_HUC_REGION,
 } MEDIA_EVENT_FILTER_KEYID;
+
+#pragma pack(push, 8)
+struct MtSetting
+{
+    struct FastDump
+    {
+        uint8_t  allowDataLoss : 1;
+        uint8_t  frameIdxBasedSampling : 1;
+        uint8_t  memUsagePolicy : 2;
+        uint8_t  writeMode : 2;
+        uint8_t  informOnError : 1;
+        uint8_t  rsv0 : 1;
+        uint8_t  rsv1;
+        uint8_t  maxPrioritizedMem;
+        uint8_t  maxDeprioritizedMem;
+        uint8_t  weightRenderCopy;
+        uint8_t  weightVECopy;
+        uint8_t  weightBLTCopy;
+        uint8_t  rsv2;
+        uint64_t samplingTime;
+        uint64_t samplingInterval;
+        uint64_t bufferSize;
+        char     filePath[1024];
+    } fastDump;
+
+    struct HwcmdParser
+    {
+        char filePath[1024];
+    } hwcmdParser;
+
+    uint8_t rsv[1504];
+};
+
+// 4KB in total
+struct MtControlData
+{
+    uint32_t enable;
+    uint8_t  level;
+    uint8_t  rsv[3];
+    uint64_t filter[63];
+
+    MtSetting setting;
+};
+#pragma pack(pop)
+
+enum class MT_EVENT_LEVEL
+{
+    ALWAYS,
+    CRITICAL,
+    ERR,
+    WARNING,
+    INFO,
+    VERBOSE,
+};
+
+enum class MT_DATA_LEVEL
+{
+    FIRST_64B,  // dump first min(DataSize, 64) bytes
+    QUARTER,    // dump first min(DataSize, max(DataSize/4, 64)) bytes
+    HALF,       // dump first min(DataSize, max(DataSize/2, 64)) bytes
+    FULL,       // dump all data
+};
+
+enum class MT_LOG_LEVEL
+{
+    ALWAYS,
+    CRITICAL,
+    NORMAL,
+    VERBOSE,
+    FUNCTION_ENTRY,
+    FUNCTION_EXIT,
+    FUNCTION_ENTRY_VERBOSE,
+    MEMNINJA,
+};
 
 typedef enum _MEDIA_EVENT
 {
@@ -258,7 +342,7 @@ typedef enum _MEDIA_EVENT
     EVENT_DECODE_CMD_HCP_INDOBJBASEADDRSTATE,      //! event for Decode HcpIndObjBaseAddrState Cmd
     EVENT_DECODE_CMD_HCP_SEGMENTSTATE_VP9,         //! event for Decode HcpVp9SegmentState Cmd
     EVENT_DECODE_CMD_HCP_PICSTATE_VP9,             //! event for Decode HcpVp9PicState Cmd
-    EVENT_DECODE_CMD_HCP_BSDOBJECT,                //! event for Decode HcpBsdObject Cmd
+    EVENT_DECODE_BUFFER_IQPARAM_AVC,               //! event for Decode AVC IQ Paramters
     EVENT_DECODE_BUFFER_PICPARAM_AV1,              //! event for Decode AV1 Pic Paramters
     EVENT_DECODE_BUFFER_SEGPARAM_AV1,              //! event for Decode AV1 Segment Paramters
     EVENT_DECODE_BUFFER_FILMGRAINPARAM_AV1,        //! event for Decode AV1 Film Grain Paramters
@@ -272,10 +356,10 @@ typedef enum _MEDIA_EVENT
     EVENT_DECODE_BUFFER_LONGSLICEPARAM_HEVC,       //! event for Decode HEVC Long Slice Paramters
     EVENT_DECODE_BUFFER_REXTLONGSLICEPARAM_HEVC,   //! event for Decode HEVC RExt Long Slice Paramters
     EVENT_DECODE_BUFFER_LONGSLICEPARAM_AVC,        //! event for Decode AVC Long Slice Paramters
-    EVENT_DECODE_FEATURE_MMC,                      //! event for Decode Feature MMC
-    EVENT_DECODE_FEATURE_VT_SCALABILITY,           //! event for Decode Feature Virtual Tile Scalability
-    EVENT_DECODE_FEATURE_RT_SCALABILITY,           //! event for Decode Feature Real Tile Scalability
-    EVENT_DECODE_FEATURE_DECODEMODE_REPORT,        //! event for Decode Feature Decode Mode Report
+    EVENT_DECODE_INFO_MMC,                         //! event for Decode Info MMC
+    EVENT_DECODE_INFO_SCALABILITY,                 //! event for Decode Info Scalability
+    EVENT_DECODE_INFO_SFC,                         //! event for Decode Info SFC
+    EVENT_DECODE_INFO_DECODEMODE_REPORT,           //! event for Decode Info Decode Mode Report
     EVENT_DECODE_DUMPINFO_DST,                     //! event for Decode Dst Dump Info
     EVENT_DECODE_DUMPINFO_REF,                     //! event for Decode Ref Dump Info
     EVENT_CALL_STACK,                              //! event for call stack dump
@@ -287,6 +371,32 @@ typedef enum _MEDIA_EVENT
     EVENT_ENCODE_DDI_11_CHECKFORMAT,               //! event for Encode check format
     EVENT_ENCODE_DDI_11_GETCONFIGCOUNT,            //! event for Encode get config count
     EVENT_ENCODE_DDI_11_GETCONFIG,                 //! event for Encode get config
+    EVENT_ENCODE_DDI_STATUS_REPORT_HEVC,           //! event for HEVC encode status report
+    EVENT_ENCODE_DDI_SLICE_STATUS_REPORT_HEVC,     //! event for HEVC encode slice status report
+    EVENT_ENCODE_DDI_EXT_STATUS_REPORT_HEVC,       //! event for HEVC encode ext status report
+    EVENT_ENCODE_DDI_CAPS_HEVC,                    //! event for HEVC encode caps
+    EVENT_ENCODE_DDI_SEQ_PARAM_HEVC,               //! event for HEVC encode sequence param
+    EVENT_ENCODE_DDI_PIC_PARAM_HEVC,               //! event for HEVC encode picture param
+    EVENT_ENCODE_DDI_SLC_PARAM_HEVC,               //! event for HEVC encode slice param
+    EVENT_ENCODE_DDI_VERSION_HEVC,                 //! event for HEVC encode DDI version
+    EVENT_ENCODE_API_STICKER_HEVC,                 //! event for HEVC encode API sticker
+    EVENT_DECODE_DDI_DISPLAYINFOVA,                //! event for Decode DDI DisplayInfo
+    EVENT_DECODE_DDI_CREATEBUFFERVA,               //! event for Decode DDI CreateBuffer
+    EVENT_DECODE_DDI_BEGINPICTUREVA,               //! event for Decode DDI BeginPicture
+    EVENT_DECODE_DDI_ENDPICTUREVA,                 //! event for Decode DDI EndPicture
+    EVENT_DECODE_DDI_RENDERPICTUREVA,              //! event for Decode DDI RenderPicture
+    EVENT_DECODE_DDI_CLEARUPVA,                    //! event for Decode DDI ClearUp
+    EVENT_DECODE_DDI_STATUSREPORTVA,               //! event for Decode DDI StatusReport
+    EVENT_DECODE_DDI_CREATECONTEXTVA,              //! event for Decode DDI CreateContext
+    EVENT_DECODE_DDI_DESTROYCONTEXTVA,             //! event for Decode DDI DestroyContext
+    EVENT_DECODE_DDI_GETDECCTXFROMBUFFERIDVA,      //! event for Decode DDI GetDecCtxFromBufferID
+    EVENT_DECODE_DDI_FREEBUFFERHEAPELEMENTSVA,     //! event for Decode DDI FreeBufferHeapElements
+    EVENT_DECODE_DDI_SETGPUPRIORITYVA,             //! event for Decode DDI SetGpuPriority
+    EVENT_DECODE_FEATURE_DECODEMODE_REPORTVA,      //! event for Decode Feature Decode Mode Report
+    EVENT_DECODE_INFO_PICTUREVA,                   //! event for Decode Picture Info VA
+    EVENT_DECODE_IP_ALIGNMENT,                     //! event for Decode IP Alignment
+    EVENT_ENCODE_IP_ALIGNMENT,                     //! event for Encode IP Alignment
+    EVENT_VPP_IP_ALIGNMENT,                        //! event for VPP IP Alignment
 } MEDIA_EVENT;
 
 typedef enum _MEDIA_EVENT_TYPE
@@ -303,6 +413,103 @@ typedef enum _MT_LEVEL
     MT_NORMAL   = 1,  //! normal runtime log
     MT_CRITICAL = 2,  //! critical runtime log
 } MT_LEVEL;
+
+class MtEnable
+{
+public:
+    MtEnable(bool flag = false) : m_flag(flag) {}
+
+    MtEnable(const uint32_t *pFlag) : m_pFlag(pFlag) {}
+
+    ~MtEnable()
+    {
+        Reset();
+    }
+
+    operator bool() const
+    {
+        return m_pFlag ? *(m_pFlag) : m_flag;
+    }
+
+    void Reset()
+    {
+        m_pFlag = nullptr;
+    }
+
+private:
+    bool            m_flag  = false;
+    const uint32_t *m_pFlag = nullptr;
+};
+
+class MtFilter
+{
+public:
+    MtFilter(const uint64_t *filter = nullptr, size_t filterNum = 0) : m_filter(filter), m_maxKeyNum(filterNum * N)
+    {
+        if (filter && filterNum == 0)
+        {
+            m_maxKeyNum = N;
+        }
+    }
+
+    ~MtFilter()
+    {
+        Reset();
+    }
+
+    bool operator()(MEDIA_EVENT_FILTER_KEYID key)
+    {
+        return m_filter && static_cast<size_t>(key) < m_maxKeyNum ? (m_filter[key / N] & (1ULL << (key % N))) : false;
+    }
+
+    void Reset()
+    {
+        m_filter    = nullptr;
+        m_maxKeyNum = 0;
+    }
+
+private:
+    static constexpr size_t N = sizeof(uint64_t) << 3;
+
+    const uint64_t *m_filter;
+    size_t          m_maxKeyNum;
+};
+
+class MtLevel
+{
+public:
+    MtLevel(const uint8_t *level = nullptr) : m_level(reinterpret_cast<const Level *>(level)) {}
+
+    ~MtLevel() { Reset(); }
+
+    bool operator()(MT_EVENT_LEVEL level)
+    {
+        return m_level ? (level <= static_cast<MT_EVENT_LEVEL>(m_level->event)) : false;
+    }
+
+    bool operator()(MT_DATA_LEVEL level)
+    {
+        return m_level ? (level <= static_cast<MT_DATA_LEVEL>(m_level->data)) : false;
+    }
+
+    bool operator()(MT_LOG_LEVEL level)
+    {
+        return m_level ? (level <= static_cast<MT_LOG_LEVEL>(m_level->log)) : false;
+    }
+
+    void Reset() { m_level = nullptr; }
+
+private:
+    struct Level
+    {
+        uint8_t event : 3;  // MT_EVENT_LEVEL
+        uint8_t data : 2;   // MT_DATA_LEVEL
+        uint8_t log : 3;    // MT_LOG_LEVEL
+    };
+
+private:
+    const Level *m_level;
+};
 
 #pragma pack(1)
 typedef struct _MT_PARAM
@@ -339,6 +546,18 @@ typedef enum _MT_LOG_ID
     MT_MOS_GPUCXT_VALID,
     MT_MOS_GPUVA_MAP,
     MT_MOS_GPUVA_FREE,
+    MT_MOS_MM_ALLOCATE_EXTRES,
+    MT_MOS_MM_MAKERESIDENT,
+    MT_MOS_MM_UPDATERESIDENCY,
+    MT_MOS_MM_EVICT,
+    MT_MOS_MM_BIND_GPU_RESOURCE_VIRTUAL,
+    MT_MOS_MM_UNBIND_GPU_RESOURCE_VIRTUAL,
+    MT_ERR_CRITICAL_MESSAGE,
+    MT_MOS_ALLOCATE_MEMORY,
+    MT_MOS_DESTROY_MEMORY,
+    MT_MOS_MEMORY_NINJA_COUNTER,
+    MT_GPU_ALLOCATE_MEMORY,
+    MT_GPU_DESTROY_MEMORY,
     MT_LOG_ID_CP_BASE = 0x01000000,
     MT_CP_HAL_NOT_INITIALIZED,
     MT_CP_HAL_FAIL,
@@ -351,6 +570,7 @@ typedef enum _MT_LOG_ID
     MT_CP_HAL_STATUS_CHECK,
     MT_CP_PROVISION_CERT_CHECK,
     MT_CP_PROVISION_CERT_NOT_FOUND,
+    MT_CP_HUC_NOT_AUTHENTICATED,
     MT_CP_KERNEL_RULE,
     MT_CP_KERNEL_TRANSCRYPT,
     MT_CP_BUFFER_RULE,
@@ -468,6 +688,7 @@ typedef enum _MT_LOG_ID
     MT_CP_DDI_RESOURCE_CREATE,
     MT_CP_DDI_OS_RESOURCE_INIT,
     MT_CP_DDI_FUNC_UNSUPPORTED,
+    MT_CP_DDI_LBDM_FALLBACK_SWDRM,
     MT_LOG_ID_VP_BASE = 0x02000000,
     MT_VP_CREATE,
     MT_VP_DESTROY,
@@ -495,6 +716,46 @@ typedef enum _MT_LOG_ID
     MT_VP_BLT_MCPYPARAM,
     MT_VP_USERFEATURE_CTRL,
     MT_VP_FTR_REPORT,
+    MT_VP_FEATURE_GRAPH_ID_BASE = 0x02000200,
+    MT_VP_FEATURE_GRAPH_EXECUTE_VPPIPELINE_START,
+    MT_VP_FEATURE_GRAPH_EXECUTE_VPPIPELINE_END,
+    MT_VP_FEATURE_GRAPH_SETUPEXECUTESWFILTER_START,
+    MT_VP_FEATURE_GRAPH_SETUPEXECUTESWFILTER_END,
+    MT_VP_FEATURE_GRAPH_EXECUTEFILTER,
+    MT_VP_FEATURE_GRAPH_SWFILTERALPHA,
+    MT_VP_FEATURE_GRAPH_SWFILTERBLENDING,
+    MT_VP_FEATURE_GRAPH_SWFILTERCGC,
+    MT_VP_FEATURE_GRAPH_SWFILTERCOLORFILL,
+    MT_VP_FEATURE_GRAPH_SWFILTERCSC,
+    MT_VP_FEATURE_GRAPH_SWFILTERDEINTERLACE,
+    MT_VP_FEATURE_GRAPH_SWFILTERDENOISE,
+    MT_VP_FEATURE_GRAPH_SWFILTERHDR,
+    MT_VP_FEATURE_GRAPH_SWFILTERLUMAKEY,
+    MT_VP_FEATURE_GRAPH_SWFILTERPROCAMP,
+    MT_VP_FEATURE_GRAPH_SWFILTERROTMIR,
+    MT_VP_FEATURE_GRAPH_SWFILTERSCALING,
+    MT_VP_FEATURE_GRAPH_SWFILTERSTE,
+    MT_VP_FEATURE_GRAPH_SWFILTERTCC,
+    MT_VP_FEATURE_GRAPH_SWFILTERACE,
+    MT_VP_FEATURE_GRAPH_SWFILTERCAPPIPE,
+    MT_VP_FEATURE_GRAPH_SWFILTERDV,
+    MT_VP_FEATURE_GRAPH_SWFILTERFDFB,
+    MT_VP_FEATURE_GRAPH_SWFILTERLACE,
+    MT_VP_FEATURE_GRAPH_SWFILTERS3D,
+    MT_VP_FEATURE_GRAPH_SWFILTERSECURECOPY,
+    MT_VP_FEATURE_GRAPH_SWFILTERVEBOXUPDATE,
+    MT_VP_FEATURE_GRAPH_SWFILTERSTD,
+    MT_VP_FEATURE_GRAPH_INPUTSWFILTER,
+    MT_VP_FEATURE_GRAPH_OUTPUTSWFILTER,
+    MT_VP_FEATURE_GRAPH_INPUT_SURFACE_INFO,
+    MT_VP_FEATURE_GRAPH_INTERMEIDATE_SURFACE_INFO,
+    MT_VP_FEATURE_GRAPH_OUTPUT_SURFACE_INFO,
+    MT_VP_FEATURE_GRAPH_SURFACE_ALLOCATIONHANDLE,
+    MT_VP_FEATURE_GRAPH_GET_RENDERTARGETTYPE,
+    MT_VP_FEATURE_GRAPH_SWFILTERSR,
+    MT_VP_FEATURE_GRAPH_FEATUREPIPE_REUSE,
+    MT_VP_FEATURE_GRAPH_EXECUTE_SINGLE_VPPIPELINE_START,
+    MT_VP_FEATURE_GRAPH_EXECUTE_SINGLE_VPPIPELINE_END,
     MT_VP_HAL_ID_BASE = 0x02000400,
     MT_VP_HAL_PIPELINE_ADAPTER,
     MT_VP_HAL_PIPELINE_ADAPTER_EXT_ENTRY,
@@ -529,6 +790,11 @@ typedef enum _MT_LOG_ID
     MT_VP_HAL_POLICY_FLITER_FTR_COMBINE,
     MT_VP_HAL_FC_UPDATE_COMP_PARAM,
     MT_VP_HAL_FC_GET_CURBE_STATE,
+    MT_VP_HAL_DESTROY_SURF,
+    MT_VP_HAL_MEMORY_FOOTPRINT_EXECUTION_ENTRY,
+    MT_VP_HAL_MEMORY_FOOTPRINT_EXECUTION_EXIT,
+    MT_VP_HAL_VEBOXNUM_CHECK,
+    MT_VP_HAL_VEBOXNUM_RESET,
     MT_VP_MHW_ID_BASE = 0x02002000,
     MT_VP_MHW_VE_SURFSTATE_INPUT,
     MT_VP_MHW_VE_SURFSTATE_OUT,
@@ -537,6 +803,7 @@ typedef enum _MT_LOG_ID
     MT_VP_MHW_VE_SURFSTATE_STMM,
     MT_VP_MHW_VE_SCALABILITY,
     MT_VP_MHW_VE_ADJUST_SURFPARAM,
+    MT_VP_MHW_CACHE_MOCS_TABLE,
     MT_VP_KERNEL_ID_BASE = 0x02003000,
     MT_VP_KERNEL_CSC,
     MT_VP_KERNEL_RULE,
@@ -558,7 +825,7 @@ typedef enum _MT_LOG_ID
 //!
 typedef enum _MT_PARAM_ID
 {
-    MT_PARAM_ID_BASE    = 0,
+    MT_PARAM_ID_BASE = 0,
     MT_ERROR_CODE,
     MT_COMPONENT,
     MT_SUB_COMPONENT,
@@ -599,6 +866,25 @@ typedef enum _MT_PARAM_ID
     MT_SURF_GMM_RESUSAGE,
     MT_SURF_GMM_GPUVA,
     MT_SURF_GMM_PAGINGFENCE,
+    MT_SURF_MOS_RESOURCE_USAGE,
+    MT_SURF_ALLOCINFO_PTR,
+    MT_SURF_ALLOCINFO_ISMEDIAINTERNAL,
+    MT_SURF_ALLOCINFO_ISPERSISTENT,
+    MT_SURF_ALLOCINFO_3DRESOURCE_PTR,
+    MT_SURF_ALLOCINFO_ISNEW,
+    MT_SURF_MEDIARESINFO_PTR,
+    MT_SURF_BE_INTERNAL_RESIDENT_MAP,
+    MT_SURF_MAPPED_ALLOCINFO,
+    MT_DEVICE_HANDLE,
+    MT_COMMAND_GPUVA,
+    MT_FUNC_NAME,
+    MT_FUNC_LINE,
+    MT_MEMORY_PTR,
+    MT_MEMORY_SIZE,
+    MT_MEMORY_INDEX,
+    MT_MEMORY_NINJA_START_COUNTER,
+    MT_MEMORY_NINJA_END_COUNTER,
+    MT_MEMORY_NINJA_IS_START,
     MT_PARAM_ID_MOS_BASE = 0x00001000,
     MT_MOS_STATUS,
     MT_MOS_GPU_NODE,
@@ -611,6 +897,13 @@ typedef enum _MT_PARAM_ID
     MT_MOS_SYNC_HAZARDTYPE,
     MT_MOS_SYNC_BUSYCTX,
     MT_MOS_SYNC_REQCTX,
+    MT_MOS_MM_EXT_RESOURCE_NEED_MAKE_RESIDENT,
+    MT_SYNC_WAIT_LOOPCOUNTER,
+    MT_SYNC_CUR_FENCE_TAG,
+    MT_SYNC_LAST_FENCE_TAG,
+    MT_SYNC_WAIT_BEFORE_SYNC,
+    MT_SYNC_WAIT_MICROSECOND,
+    MT_SYNC_WAIT_RESULT,
     MT_PARAM_ID_CP_BASE  = 0x01000000,
     MT_CP_SESSION_TYPE,
     MT_CP_SESSION_MODE,
@@ -674,6 +967,8 @@ typedef enum _MT_PARAM_ID
     MT_VP_BLT_FDFBPARAM_FACECOUNT,
     MT_VP_BLT_FDFBPARAM_FBMAXFACECOUNT,
     MT_VP_BLT_SR_MODE,
+    MT_VP_BLT_SR_EU,
+    MT_VP_BLT_SR_GEN,
     MT_PARAM_ID_VP_HAL_BASE = 0x02000400,
     MT_VP_HAL_APO,
     MT_VP_HAL_PTR,
@@ -737,10 +1032,118 @@ typedef enum _MT_PARAM_ID
     MT_VP_HAL_MMCINUSE,
     MT_VP_HAL_FRC_MODE,
     MT_VP_HAL_CAPTURE_PIPE,
+    MT_VP_HAL_SURF_ALLOC_PARAM_PTR,
+    MT_VP_HAL_SURF_ALLOC_PARAM_MOS_SURF_PTR,
+    MT_VP_HAL_SURF_ALLOC_PARAM_IS_RES_OWNER,
+    MT_VP_HAL_SURF_ALLOC_PARAM_HANDLE,
+    MT_VP_HAL_SURF_ALLOC_PARAM_SIZE,
+    MT_VP_HAL_SURF_ALLOC_PARAM_NAME,
+    MT_VP_HAL_SURF_ALLOC_PARAM_PEAK_SIZE,
+    MT_VP_HAL_SURF_ALLOC_PARAM_TOTAL_SIZE,
+    MT_VP_HAL_VEBOX_NUMBER,
+    MT_PARAM_ID_VP_FEATURE_GRAPH_BASE = 0x02001400,
+    MT_VP_FEATURE_GRAPH_FILTER_SWFILTERPIPE_COUNT,
+    MT_VP_FEATURE_GRAPH_FILTER_LAYERINDEXES_COUNT,
+    MT_VP_FEATURE_GRAPH_FILTER_INPUTCOLORSPACE,
+    MT_VP_FEATURE_GRAPH_FILTER_OUTPUTCOLORSPACE,
+    MT_VP_FEATURE_GRAPH_FILTER_INPUTFORMAT,
+    MT_VP_FEATURE_GRAPH_FILTER_OUTPUTFORMAT,
+    MT_VP_FEATURE_GRAPH_FILTER_FEATURETYPE,
+    MT_VP_FEATURE_GRAPH_FILTER_CALCULATINGALPHA,
+    MT_VP_FEATURE_GRAPH_FILTER_ALPHAMODE,
+    MT_VP_FEATURE_GRAPH_FILTER_FALPHA,
+    MT_VP_FEATURE_GRAPH_FILTER_BLENDTYPE,
+    MT_VP_FEATURE_GRAPH_FILTER_LUMAHIGH,
+    MT_VP_FEATURE_GRAPH_FILTER_LUMALOW,
+    MT_VP_FEATURE_GRAPH_FILTER_HDRMODE,
+    MT_VP_FEATURE_GRAPH_FILTER_LUTMODE,
+    MT_VP_FEATURE_GRAPH_FILTER_GPUGENERATE3DLUT,
+    MT_VP_FEATURE_GRAPH_FILTER_BRIGHTNESS,
+    MT_VP_FEATURE_GRAPH_FILTER_CONTRAST,
+    MT_VP_FEATURE_GRAPH_FILTER_HUE,
+    MT_VP_FEATURE_GRAPH_FILTER_SATURATION,
+    MT_VP_FEATURE_GRAPH_FILTER_DISABLECFINSFC,
+    MT_VP_FEATURE_GRAPH_FILTER_TCCRED,
+    MT_VP_FEATURE_GRAPH_FILTER_TCCGREEN,
+    MT_VP_FEATURE_GRAPH_FILTER_TCCBLUE,
+    MT_VP_FEATURE_GRAPH_FILTER_STEFACTOR,
+    MT_VP_FEATURE_GRAPH_FILTER_ENABLESTD,
+    MT_VP_FEATURE_GRAPH_FILTER_SAMPLETYPEINPUT,
+    MT_VP_FEATURE_GRAPH_FILTER_FMDKERNELENABLE,
+    MT_VP_FEATURE_GRAPH_FILTER_SINGLEFIELD,
+    MT_VP_FEATURE_GRAPH_FILTER_DIMODE,
+    MT_VP_FEATURE_GRAPH_FILTER_CHROMADN,
+    MT_VP_FEATURE_GRAPH_FILTER_LUMADN,
+    MT_VP_FEATURE_GRAPH_FILTER_AUTODETECT,
+    MT_VP_FEATURE_GRAPH_FILTER_HVSDN,
+    MT_VP_FEATURE_GRAPH_FILTER_DNFACTOR,
+    MT_VP_FEATURE_GRAPH_FILTER_SECUREDNNEED,
+    MT_VP_FEATURE_GRAPH_FILTER_ROTATION,
+    MT_VP_FEATURE_GRAPH_FILTER_INPUTHEIGHT,
+    MT_VP_FEATURE_GRAPH_FILTER_INPUTWIDTH,
+    MT_VP_FEATURE_GRAPH_FILTER_INPUTTILEMODE,
+    MT_VP_FEATURE_GRAPH_FILTER_OUTPUTHEIGHT,
+    MT_VP_FEATURE_GRAPH_FILTER_OUTPUTWIDTH,
+    MT_VP_FEATURE_GRAPH_FILTER_OUTPUTTILEMODE,
+    MT_VP_FEATURE_GRAPH_FILTER_ISCALINGTYPE,
+    MT_VP_FEATURE_GRAPH_FILTER_SCALINGMODE,
+    MT_VP_FEATURE_GRAPH_FILTER_GCOMPMODE,
+    MT_VP_FEATURE_GRAPH_FILTER_BT2020TORGB,
+    MT_VP_FEATURE_GRAPH_FILTER_ENABLEACE,
+    MT_VP_FEATURE_GRAPH_FILTER_ACELEVELCHANGED,
+    MT_VP_FEATURE_GRAPH_FILTER_ACELEVEL,
+    MT_VP_FEATURE_GRAPH_FILTER_ACESTRENGTH,
+    MT_VP_FEATURE_GRAPH_FILTER_ENABLECAPPIPE,
+    MT_VP_FEATURE_GRAPH_FILTER_LGCAKERNELENABLED,
+    MT_VP_FEATURE_GRAPH_FILTER_LGCAPHASE,
+    MT_VP_FEATURE_GRAPH_FILTER_1DLUTSIZE,
+    MT_VP_FEATURE_GRAPH_FILTER_3DLUTSIZE,
+    MT_VP_FEATURE_GRAPH_FILTER_ENABLEFB,
+    MT_VP_FEATURE_GRAPH_FILTER_ENABLEFD,
+    MT_VP_FEATURE_GRAPH_FILTER_ENABLEFLD,
+    MT_VP_FEATURE_GRAPH_FILTER_FDFBSTAGE,
+    MT_VP_FEATURE_GRAPH_FILTER_ENABLELACE,
+    MT_VP_FEATURE_GRAPH_FILTER_INPUTSAMPLETYPE,
+    MT_VP_FEATURE_GRAPH_FILTER_LACESTAGE,
+    MT_VP_FEATURE_GRAPH_FILTER_ENABLES3D,
+    MT_VP_FEATURE_GRAPH_FILTER_STEREOFORMAT,
+    MT_VP_FEATURE_GRAPH_FILTER_VEBOXSTATECOPYNEEDED,
+    MT_VP_FEATURE_GRAPH_FILTER_STD_OUTPUT_ENABLE,
+    MT_VP_FEATURE_GRAPH_FILTER_STD_OUTPUT_TO_STDPARAM,
+    MT_VP_FEATURE_GRAPH_FILTER_STD_OUTPUT_TO_OUTPUT_SURFACE,
+    MT_VP_FEATURE_GRAPH_SURFACE_WIDTH,
+    MT_VP_FEATURE_GRAPH_SURFACE_HEIGHT,
+    MT_VP_FEATURE_GRAPH_SURFACE_PITCH,
+    MT_VP_FEATURE_GRAPH_SURFACE_COLORSPACE,
+    MT_VP_FEATURE_GRAPH_SURFACE_FORMAT,
+    MT_VP_FEATURE_GRAPH_SURFACE_RCSRC_LEFT,
+    MT_VP_FEATURE_GRAPH_SURFACE_RCSRC_TOP,
+    MT_VP_FEATURE_GRAPH_SURFACE_RCSRC_RIGHT,
+    MT_VP_FEATURE_GRAPH_SURFACE_RCSRC_BOTTOM,
+    MT_VP_FEATURE_GRAPH_SURFACE_RCDST_LEFT,
+    MT_VP_FEATURE_GRAPH_SURFACE_RCDST_TOP,
+    MT_VP_FEATURE_GRAPH_SURFACE_RCDST_RIGHT,
+    MT_VP_FEATURE_GRAPH_SURFACE_RCDST_BOTTOM,
+    MT_VP_FEATURE_GRAPH_RENDERTARGETTYPE,
+    MT_VP_FEATURE_GRAPH_FILTER_ESRMODE,
+    MT_VP_FEATURE_GRAPH_FILTER_SRMODEL,
+    MT_VP_FEATURE_GRAPH_FILTER_SRSTAGE,
+    MT_VP_FEATURE_GRAPH_FILTER_FRAMENUMBER,
+    MT_VP_FEATURE_GRAPH_FILTER_FIRSTFRAME,
+    MT_VP_FEATURE_GRAPH_FILTER_ENABLESR,
+    MT_VP_FEATURE_GRAPH_FILTER_FRAMEID,
+    MT_VP_FEATURE_GRAPH_FILTER_PIPEID,
+    MT_VP_FEATURE_GRAPH_FILTER_PIPELINEBYPASS,
     MT_PARAM_ID_VP_MHW_BASE = 0x02002000,
     MT_VP_MHW_VE_SCALABILITY_EN,
     MT_VP_MHW_VE_SCALABILITY_USE_SFC,
     MT_VP_MHW_VE_SCALABILITY_IDX,
+    MT_VP_MHW_CACHE_MEMORY_OBJECT_CONTROL_STATE,
+    MT_VP_MHW_CACHE_MEMORY_OBJECT_NAME,
+    MT_VP_MHW_CACHE_MEMORY_OBJECT_SURFACE_TYPE,
+    MT_VP_MHW_CACHE_MEMORY_OBJECT_SURFACE_WIDTH,
+    MT_VP_MHW_CACHE_MEMORY_OBJECT_SURFACE_HEIGHT,
+    MT_VP_MHW_CACHE_MEMORY_OBJECT_SURFACE_FORMAT,
     MT_PARAM_ID_VP_KERNEL_BASE = 0x02003000,
     MT_VP_KERNEL_CSPACE, 
     MT_VP_KERNEL_RULE_ID,
@@ -752,6 +1155,12 @@ typedef enum _MT_PARAM_ID
     MT_MEDIA_COPY_CAPS, 
     MT_MEDIA_COPY_DIRECTION,
     MT_MEDIA_COPY_METHOD,
+    MT_MEDIA_COPY_DEVICE_PTR,
+    MT_MEDIA_COPY_DATASIZE,
+    MT_MEDIA_COPY_PLANE_NUM,
+    MT_MEDIA_COPY_PLANE_PITCH,
+    MT_MEDIA_COPY_PLANE_OFFSET,
+    MT_MEDIA_COPY_LIMITATION,
     MT_PARAM_ID_DEC_BASE = 0x03000000,
     MT_DEC_HUC_ERROR_STATUS2,
     MT_CODEC_HAL_MODE,

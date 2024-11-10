@@ -33,6 +33,7 @@
 #include "mos_defs.h"
 #include "mos_os_trace_event.h"
 #include "media_class_trace.h"
+#include "mos_oca_util_debug.h"
 
 #if MOS_MESSAGES_ENABLED
 
@@ -61,6 +62,7 @@ typedef enum
     MOS_SUBCOMP_CODEC              = 2,
     MOS_SUBCOMP_VP                 = 3,
     MOS_SUBCOMP_CP                 = 4,
+    MOS_SUBCOMP_EXT                = 5,
     MOS_SUBCOMP_COUNT
 } MOS_SELF_SUBCOMP_ID;
 
@@ -249,6 +251,8 @@ typedef struct _MOS_MESSAGE_PARAMS
     int32_t                     bUseOutputDebugString;                          //!< Onscreen debug message prints enabled or not
     uint32_t                    bEnableMaps;                                    //!< Dump mapped memory regions to trace file
     uint32_t                    bDisableAssert;                                 //!< Disable assert
+    uint32_t                    bEnableFlush;                                   //!< Enable flush
+    uint32_t                    bEnableMemoryFootPrint;                        //!< Disable Memory Foot Print
     MOS_COMPONENT_DEBUG_PARAMS  components[MOS_COMPONENT_COUNT];
     char                        g_MosMsgBuffer[MOS_MAX_MSG_BUF_SIZE];           //!< Array for debug message
 } MOS_MESSAGE_PARAMS;
@@ -291,6 +295,21 @@ public:
     //! \return   void
     //!
     static void MosMessageClose();
+
+    //!
+    //! \brief    Close file handles and frees resources
+    //! \details  Close file handles and frees resources,
+    //!           and reopen file handles.To be called before workload submission
+    //! \return   void
+    //!
+    static void MosHLTFlush();
+
+    //!
+    //! \brief    Disable Memory Foot Print
+    //! \details  Disable Memory Foot Print
+    //! \return   bool
+    //!
+    static bool EnableMemoryFootPrint();
 
     //!
     //! \brief    Form a string that will prefix MOS's log file name
@@ -578,8 +597,12 @@ MEDIA_CLASS_DEFINE_END(MosUtilDebug)
 
 #endif // MOS_ASSERT_ENABLED
 
-
 #if MOS_MESSAGES_ENABLED
+
+// flush hlt message before workload submission
+#define MOS_FLUSH_HLT_MESSAGE MosUtilDebug::MosHLTFlush();
+
+#define MOS_IS_MEMORY_FOOT_PRINT_ENABLED() MosUtilDebug::EnableMemoryFootPrint()
 
 
 //!
@@ -669,12 +692,8 @@ MEDIA_CLASS_DEFINE_END(MosUtilDebug)
 //! \def MOS_TraceEventExt
 //!  this is trace event interface extension, only for debug purpose.
 //!
-#define MOS_TraceEventExt MosUtilities::MosTraceEvent
-#define MOS_TraceDumpExt(name, flags, pBuf, dwSize)                                \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DATA_DUMP))         \
-    {                                                                              \
-        MosUtilities::MosTraceDataDump(name, flags, pBuf, dwSize);                 \
-    }
+#define MOS_TraceEventExt MOS_TraceEvent
+#define MOS_TraceDumpExt  MOS_TraceDataDump
 
 #define MOS_TraceDataExt0 MOS_TraceData0
 #define MOS_TraceDataExt  MOS_TraceData
@@ -683,61 +702,61 @@ MEDIA_CLASS_DEFINE_END(MosUtilDebug)
 //! \def New trace interface with keyword filter, need have at least 1 param in trace data
 //!
 #define MOS_TraceDecodePicParam(usId, usType, ...)                                 \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_PICPARAM))   \
+    if (MosUtilities::TraceKeyEnabled(TR_KEY_DECODE_PICPARAM))                     \
     {                                                                              \
         TR_FILL_PARAM(__VA_ARGS__);                                                \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                 \
     }
 #define MOS_TraceDecodeSliceParam(usId, usType, ...)                               \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_SLICEPARAM)) \
+    if (MosUtilities::TraceKeyEnabled(TR_KEY_DECODE_SLICEPARAM))                   \
     {                                                                              \
         TR_FILL_PARAM(__VA_ARGS__);                                                \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                 \
     }
 #define MOS_TraceDecodeTileParam(usId, usType, ...)                                \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_TILEPARAM))  \
+    if (MosUtilities::TraceKeyEnabled(TR_KEY_DECODE_TILEPARAM))                    \
     {                                                                              \
         TR_FILL_PARAM(__VA_ARGS__);                                                \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                 \
     }
 #define MOS_TraceDecodeQMatrix(usId, usType, ...)                                  \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_QMATRIX))    \
+    if (MosUtilities::TraceKeyEnabled(TR_KEY_DECODE_QMATRIX))                      \
     {                                                                              \
         TR_FILL_PARAM(__VA_ARGS__);                                                \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                 \
     }
 #define MOS_TraceDecodeBitStreamInfo(usId, usType, ...)                                  \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_BITSTREAM_INFO))   \
+    if (MosUtilities::TraceKeyEnabled(TR_KEY_DECODE_BITSTREAM_INFO))                     \
     {                                                                                    \
         TR_FILL_PARAM(__VA_ARGS__);                                                      \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                       \
     }
 #define MOS_TraceDecodeBitStream(usId, usType, ...)                                \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_BITSTREAM))  \
+    if (MosUtilities::TraceKeyEnabled(TR_KEY_DECODE_BITSTREAM))                    \
     {                                                                              \
         TR_FILL_PARAM(__VA_ARGS__);                                                \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                 \
     }
 #define MOS_TraceDecodeInternal(usId, usType, ...)                                 \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_INTERNAL))   \
+    if (MosUtilities::TraceKeyEnabled(TR_KEY_DECODE_INTERNAL))                     \
     {                                                                              \
         TR_FILL_PARAM(__VA_ARGS__);                                                \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                 \
     }
 #define MOS_TraceDecodeCommand(usId, usType, ...)                                  \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_COMMAND))    \
+    if (MosUtilities::TraceKeyEnabled(TR_KEY_DECODE_COMMAND))                      \
     {                                                                              \
         TR_FILL_PARAM(__VA_ARGS__);                                                \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                 \
     }
 #define MOS_TraceDecodeDstYuv(usId, usType, ...)                                   \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_DSTYUV))     \
+    if (MosUtilities::TraceKeyEnabled(TR_KEY_DECODE_DSTYUV))                       \
     {                                                                              \
         TR_FILL_PARAM(__VA_ARGS__);                                                \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                 \
     }
 #define MOS_TraceDecodeRefYuv(usId, usType, ...)                                   \
-    if (MosUtilities::GetTraceEventKeyword() & (1ULL << TR_KEY_DECODE_REFYUV))     \
+    if (MosUtilities::TraceKeyEnabled(TR_KEY_DECODE_REFYUV))                       \
     {                                                                              \
         TR_FILL_PARAM(__VA_ARGS__);                                                \
         TR_WRITE_PARAM(MosUtilities::MosTraceEvent, usId, usType);                 \
@@ -745,95 +764,97 @@ MEDIA_CLASS_DEFINE_END(MosUtilDebug)
 
 #define MT_LOG(id, lvl)                                                     \
     {                                                                       \
-        int32_t head[] = {id, lvl};                                         \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 0, head, sizeof(head), nullptr, 0); \
+        int32_t _head[] = {id, lvl};                                         \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 0, _head, sizeof(_head), nullptr, 0); \
     }
 
 #define MT_LOG1(id, lvl, p1, v1)                                                      \
     {                                                                                 \
-        int32_t   head[] = {id, lvl};                                                 \
-        MT_PARAM param[] = {p1, v1};                                                  \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 1, head, sizeof(head), param, sizeof(param)); \
+        int32_t   _head[] = {id, lvl};                                                 \
+        MT_PARAM  _param[] = {p1, v1};                                                  \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 1, _head, sizeof(_head), _param, sizeof(_param)); \
     }
 
 #define MT_LOG2(id, lvl, p1, v1, p2, v2)                                              \
     {                                                                                 \
-        int32_t   head[] = {id, lvl};                                                 \
-        MT_PARAM param[] = {{p1, v1}, {p2, v2}};                                      \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 2, head, sizeof(head), param, sizeof(param)); \
+        int32_t   _head[] = {id, lvl};                                                 \
+        MT_PARAM  _param[] = {{p1, v1}, {p2, v2}};                                      \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 2, _head, sizeof(_head), _param, sizeof(_param)); \
     }
 
 #define MT_LOG3(id, lvl, p1, v1, p2, v2, p3, v3)                                      \
     {                                                                                 \
-        int32_t   head[] = {id, lvl};                                                 \
-        MT_PARAM param[] = {{p1, v1}, {p2, v2}, {p3, v3}};                            \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 3, head, sizeof(head), param, sizeof(param)); \
+        int32_t   _head[] = {id, lvl};                                                 \
+        MT_PARAM  _param[] = {{p1, v1}, {p2, v2}, {p3, v3}};                            \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 3, _head, sizeof(_head), _param, sizeof(_param)); \
     }
 
 #define MT_LOG4(id, lvl, p1, v1, p2, v2, p3, v3, p4, v4)                              \
     {                                                                                 \
-        int32_t   head[] = {id, lvl};                                                 \
-        MT_PARAM param[] = {{p1, v1}, {p2, v2}, {p3, v3}, {p4, v4}};                  \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 4, head, sizeof(head), param, sizeof(param)); \
+        int32_t   _head[] = {id, lvl};                                                 \
+        MT_PARAM  _param[] = {{p1, v1}, {p2, v2}, {p3, v3}, {p4, v4}};                  \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 4, _head, sizeof(_head), _param, sizeof(_param)); \
     }
 
 #define MT_LOG5(id, lvl, p1, v1, p2, v2, p3, v3, p4, v4, p5, v5)                                   \
     {                                                                                              \
-        int32_t   head[] = {id, lvl};                                                              \
-        MT_PARAM param[] = {{p1, v1}, {p2, v2}, {p3, v3}, {p4, v4}, {p5, v5}};                     \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 5, head, sizeof(head), param, sizeof(param)); \
+        int32_t   _head[] = {id, lvl};                                                              \
+        MT_PARAM  _param[] = {{p1, v1}, {p2, v2}, {p3, v3}, {p4, v4}, {p5, v5}};                     \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 5, _head, sizeof(_head), _param, sizeof(_param)); \
     }
 
 #define MT_LOG6(id, lvl, p1, v1, p2, v2, p3, v3, p4, v4, p5, v5, p6, v6)                           \
     {                                                                                              \
-        int32_t   head[] = {id, lvl};                                                              \
-        MT_PARAM param[] = {{p1, v1}, {p2, v2}, {p3, v3}, {p4, v4}, {p5, v5}, {p6, v6}};           \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 6, head, sizeof(head), param, sizeof(param)); \
+        int32_t   _head[] = {id, lvl};                                                              \
+        MT_PARAM  _param[] = {{p1, v1}, {p2, v2}, {p3, v3}, {p4, v4}, {p5, v5}, {p6, v6}};           \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 6, _head, sizeof(_head), _param, sizeof(_param)); \
     }
 
 #define MT_LOG7(id, lvl, p1, v1, p2, v2, p3, v3, p4, v4, p5, v5, p6, v6, p7, v7)                   \
     {                                                                                              \
-        int32_t   head[] = {id, lvl};                                                              \
-        MT_PARAM param[] = {{p1, v1}, {p2, v2}, {p3, v3}, {p4, v4}, {p5, v5}, {p6, v6}, {p7, v7}}; \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 7, head, sizeof(head), param, sizeof(param)); \
+        int32_t   _head[] = {id, lvl};                                                              \
+        MT_PARAM  _param[] = {{p1, v1}, {p2, v2}, {p3, v3}, {p4, v4}, {p5, v5}, {p6, v6}, {p7, v7}}; \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_LOG, 7, _head, sizeof(_head), _param, sizeof(_param)); \
     }
-
 
 #define MT_ERR(id)                                                          \
     {                                                                       \
-        int32_t head[] = {id};                                              \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_ERR, 0, head, sizeof(head), nullptr, 0); \
+        int32_t _head[] = {id};                                              \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_ERR, 0, _head, sizeof(_head), nullptr, 0); \
     }
 
 #define MT_ERR1(id, p1, v1)                                                           \
     {                                                                                 \
-        int32_t   head[] = {id};                                                      \
-        MT_PARAM param[] = {p1, v1};                                                  \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_ERR, 1, head, sizeof(head), param, sizeof(param)); \
+        int32_t   _head[] = {id};                                                      \
+        MT_PARAM  _param[] = {p1, v1};                                                  \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_ERR, 1, _head, sizeof(_head), _param, sizeof(_param)); \
     }
 
 #define MT_ERR2(id, p1, v1, p2, v2)                                                   \
     {                                                                                 \
-        int32_t   head[] = {id};                                                      \
-        MT_PARAM param[] = {{p1, v1}, {p2, v2}};                                      \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_ERR, 2, head, sizeof(head), param, sizeof(param)); \
+        int32_t   _head[] = {id};                                                      \
+        MT_PARAM  _param[] = {{p1, v1}, {p2, v2}};                                      \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_ERR, 2, _head, sizeof(_head), _param, sizeof(_param)); \
     }
 
 #define MT_ERR3(id, p1, v1, p2, v2, p3, v3)                                           \
     {                                                                                 \
-        int32_t   head[] = {id};                                                      \
-        MT_PARAM param[] = {{p1, v1}, {p2, v2}, {p3, v3}};                            \
-        MosUtilities::MosTraceEvent(EVENT_MEDIA_ERR, 3, head, sizeof(head), param, sizeof(param)); \
+        int32_t   _head[] = {id};                                                      \
+        MT_PARAM  _param[] = {{p1, v1}, {p2, v2}, {p3, v3}};                            \
+        MosUtilities::MosTraceEvent(EVENT_MEDIA_ERR, 3, _head, sizeof(_head), _param, sizeof(_param)); \
     }
 
 #else // !MOS_MESSAGES_ENABLED
+
+#define MOS_FLUSH_HLT_MESSAGE
+#define MOS_IS_MEMORY_FOOT_PRINT_ENABLED() 0
 
 //!
 //! \brief   The two methods below are used only for debug or release internal drivers
 //!            but are called in release drivers too.
 //!
-#define MOS_TraceEventExt(usId, usType, pArg1, dwSize1, pArg2, dwSize2)
-#define MOS_TraceDumpExt(name, flags, pBuf, dwSize)
+#define MOS_TraceEventExt(...)
+#define MOS_TraceDumpExt(...)
 #define MOS_TraceDataExt0(usId, usType)
 #define MOS_TraceDataExt(usId, usType, ...)
 #define MOS_TraceDecodePicParam(usId, usType, ...)
@@ -986,11 +1007,11 @@ MEDIA_CLASS_DEFINE_END(MosUtilDebug)
 //!
 #define MOS_CHK_STATUS_NO_STATUS_RETURN(_compID, _subCompID, _stmt)                         \
 {                                                                                           \
-    eStatus = (MOS_STATUS)(_stmt);                                                          \
-    if (eStatus != MOS_STATUS_SUCCESS)                                                      \
+    MOS_STATUS stmtStatus = (MOS_STATUS)(_stmt);                                                          \
+    if (stmtStatus != MOS_STATUS_SUCCESS)                                                      \
     {                                                                                       \
-        MT_ERR3(MT_ERR_MOS_STATUS_CHECK, MT_COMPONENT, _compID, MT_SUB_COMPONENT, _subCompID, MT_ERROR_CODE, eStatus); \
-        MOS_ASSERTMESSAGE(_compID, _subCompID, "MOS returned error, eStatus = 0x%x", eStatus);\
+        MT_ERR3(MT_ERR_MOS_STATUS_CHECK, MT_COMPONENT, _compID, MT_SUB_COMPONENT, _subCompID, MT_ERROR_CODE, stmtStatus); \
+        MOS_ASSERTMESSAGE(_compID, _subCompID, "MOS returned error, eStatus = 0x%x", stmtStatus);\
         return;                                                                             \
     }                                                                                       \
 }
@@ -1353,12 +1374,12 @@ public:
         m_subCompID(subCompID),
         m_name(name)
     {
-        MOS_VERBOSEMESSAGE(m_compID, m_subCompID, "Enter Function: %s\r\n", m_name);
+        MOS_VERBOSEMESSAGE(m_compID, m_subCompID, "Enter Function:%s\r\n", m_name);
     }
 
     virtual ~FunctionTrace()
     {
-        MOS_VERBOSEMESSAGE(m_compID, m_subCompID, "Exit Function: %s\r\n", m_name);
+        MOS_VERBOSEMESSAGE(m_compID, m_subCompID, "Exit Function:%s\r\n", m_name);
     }
 
 protected:

@@ -27,8 +27,11 @@
 //!
 #include "vp_kernelset.h"
 #include "vp_render_fc_kernel.h"
+#include "vp_render_ocl_fc_kernel.h"
 #include "vp_render_vebox_hdr_3dlut_kernel.h"
 #include "vp_render_vebox_hvs_kernel.h"
+#include "vp_render_hdr_kernel.h"
+#include "vp_render_vebox_hdr_3dlut_l0_kernel.h"
 
 using namespace vp;
 
@@ -39,11 +42,11 @@ VpKernelSet::VpKernelSet(PVP_MHWINTERFACE hwInterface, PVpAllocator allocator) :
     m_pKernelPool = &hwInterface->m_vpPlatformInterface->GetKernelPool();
 }
 
-MOS_STATUS VpKernelSet::GetKernelInfo(uint32_t kuid, uint32_t& size, void*& kernel)
+MOS_STATUS VpKernelSet::GetKernelInfo(std::string kernelName, uint32_t kuid, uint32_t& size, void*& kernel)
 {
     VP_FUNC_CALL();
 
-    auto it = m_pKernelPool->find(VpRenderKernel::s_kernelNameNonAdvKernels);
+    auto it = m_pKernelPool->find(kernelName);
 
     if (m_pKernelPool->end() == it)
     {
@@ -67,10 +70,16 @@ MOS_STATUS VpKernelSet::GetKernelInfo(uint32_t kuid, uint32_t& size, void*& kern
         }
         return MOS_STATUS_SUCCESS;
     }
-    else
+    else if (kernelName == VpRenderKernel::s_kernelNameNonAdvKernels)
     {
         VP_PUBLIC_ASSERTMESSAGE("Kernel State not inplenmented, return error");
         return MOS_STATUS_UNINITIALIZED;
+    }
+    else
+    {
+        size = it->second.GetKernelSize();
+        kernel = (void*)it->second.GetKernelBinPointer();
+        return MOS_STATUS_SUCCESS;
     }
 }
 
@@ -83,6 +92,7 @@ MOS_STATUS VpKernelSet::FindAndInitKernelObj(VpRenderKernelObj* kernelObj)
     VP_RENDER_CHK_NULL_RETURN(m_pKernelPool);
 
     bool bFind = false;
+    VP_RENDER_CHK_STATUS_RETURN(m_hwInterface->m_vpPlatformInterface->InitializeDelayedKernels(kernelObj->GetKernelType()));
 
     if (m_pKernelPool)
     {
@@ -117,12 +127,39 @@ MOS_STATUS VpKernelSet::CreateSingleKernelObject(
         kernel = (VpRenderKernelObj*)MOS_New(VpRenderFcKernel, m_hwInterface, m_allocator);
         VP_RENDER_CHK_NULL_RETURN(kernel);
         break;
+    case kernelOclFcCommon:
+    case kernelOclFcFP:
+    case kernelOclFc420PL3Input:
+    case kernelOclFc420PL3Output:
+    case kernelOclFc444PL3Input:
+    case kernelOclFc444PL3Output:
+        kernel = (VpRenderKernelObj *)MOS_New(VpRenderOclFcKernel, m_hwInterface, kernelId, kernelIndex, m_allocator);
+        VP_RENDER_CHK_NULL_RETURN(kernel);
+        break;
     case kernelHdr3DLutCalc:
-        kernel = (VpRenderKernelObj *)MOS_New(VpRenderHdr3DLutKernel, m_hwInterface, kernelId, kernelIndex, m_allocator);
+        if (m_pKernelPool->find(VP_HDR_KERNEL_NAME_L0) != m_pKernelPool->end())
+        {
+            VP_RENDER_NORMALMESSAGE("HDR 3dlut kernel use l0 hdr_3dlut_l0 kernel");
+            kernel = (VpRenderKernelObj *)MOS_New(VpRenderHdr3DLutKernel, m_hwInterface, m_allocator);
+        }
+        else
+        {
+            VP_RENDER_NORMALMESSAGE("HDR 3dlut kernel use isa hdr_3dlut kernel");
+            kernel = (VpRenderKernelObj *)MOS_New(VpRenderHdr3DLutKernelCM, m_hwInterface, kernelId, kernelIndex, m_allocator);
+        }
+        VP_RENDER_CHK_NULL_RETURN(kernel);
+        break;
+    case kernelHdr3DLutCalcL0:
+        VP_RENDER_NORMALMESSAGE("HDR 3dlut kernel use l0 fillLutTable_3dlut kernel");
+        kernel = (VpRenderKernelObj *)MOS_New(VpRenderHdr3DLutL0Kernel, m_hwInterface, m_allocator);
         VP_RENDER_CHK_NULL_RETURN(kernel);
         break;
     case kernelHVSCalc:
         kernel = (VpRenderKernelObj *)MOS_New(VpRenderHVSKernel, m_hwInterface, kernelId, kernelIndex, m_allocator);
+        VP_RENDER_CHK_NULL_RETURN(kernel);
+        break;
+    case kernelHdrMandatory:
+        kernel = (VpRenderKernelObj *)MOS_New(VpRenderHdrKernel, m_hwInterface, m_allocator);
         VP_RENDER_CHK_NULL_RETURN(kernel);
         break;
     default:
@@ -152,6 +189,11 @@ MOS_STATUS VpKernelSet::CreateKernelObjects(
         {
             if (kernel)
             {
+                auto it = m_cachedKernels.find(kernel->GetKernelId());
+                if (it != m_cachedKernels.end() && it->second == kernel)
+                {
+                    m_cachedKernels.erase(it);
+                }
                 MOS_Delete(kernel);
             }
         }
@@ -188,7 +230,7 @@ MOS_STATUS VpKernelSet::CreateKernelObjects(
 
             VP_RENDER_CHK_NULL_RETURN(kernel);
 
-            VP_RENDER_CHK_STATUS_RETURN(VpStatusHandler(GetKernelInfo(kernel->GetKernelBinaryID(), kernelSize, binary)));
+            VP_RENDER_CHK_STATUS_RETURN(VpStatusHandler(GetKernelInfo(kernel->GetKernelName(), kernel->GetKernelBinaryID(), kernelSize, binary)));
 
             VP_RENDER_CHK_STATUS_RETURN(VpStatusHandler(kernel->InitKernel(binary, kernelSize, kernelConfigs, surfacesGroup, surfMemCacheCtl)));
 

@@ -32,6 +32,7 @@
 #include "decode_utils.h"
 #include "decode_hevc_basic_feature.h"
 #include "decode_downsampling_packet.h"
+#include "codechal_hw.h"
 
 namespace decode
 {
@@ -40,10 +41,13 @@ class HevcDecodePicPktXe_M_Base : public DecodeSubPacket
 {
 public:
     HevcDecodePicPktXe_M_Base(HevcPipeline *pipeline, CodechalHwInterface *hwInterface)
-        : DecodeSubPacket(pipeline, hwInterface), m_hevcPipeline(pipeline)
+        : DecodeSubPacket(pipeline, *hwInterface), m_hevcPipeline(pipeline)
     {
+        m_hwInterface = hwInterface;
         if (m_hwInterface != nullptr)
         {
+            m_miInterface  = m_hwInterface->GetMiInterface();
+            m_osInterface  = m_hwInterface->GetOsInterface();
             m_hcpInterface  = hwInterface->GetHcpInterface();
         }
     }
@@ -129,20 +133,11 @@ protected:
     //!
     MOS_STATUS FreeResources();
 
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-    //!
-    //! \brief  Trace Dump MV
-    //! \return MOS_STATUS
-    //!         MOS_STATUS_SUCCESS if success, else fail reason
-    //!
-    MOS_STATUS TraceDataDumpMV(MHW_VDBOX_PIPE_BUF_ADDR_PARAMS &pipeBufAddrParams);
-    
-    //!
-    //! \brief  Trace Dump Ref Resources
-    //! \return MOS_STATUS
-    //!         MOS_STATUS_SUCCESS if success, else fail reason
-    //!
-    MOS_STATUS TraceDataDumpReferences(MHW_VDBOX_PIPE_BUF_ADDR_PARAMS &pipeBufAddrParams);
+#if USE_CODECHAL_DEBUG_TOOL
+    MOS_STATUS DumpResources(
+        MHW_VDBOX_PIPE_BUF_ADDR_PARAMS &pipeBufAddrParams,
+        uint8_t                         activeRefListSize,
+        uint32_t                        mvBufferSize);
 #endif
 
     static constexpr uint32_t sliceStateCachelinesPerSlice = 9;
@@ -169,6 +164,9 @@ protected:
     PCODEC_HEVC_EXT_PIC_PARAMS      m_hevcRextPicParams  = nullptr; //!< Extended pic params for Rext
     PCODEC_HEVC_SCC_PIC_PARAMS      m_hevcSccPicParams   = nullptr; //!< Pic params for SCC
 
+    CodechalHwInterface *m_hwInterface = nullptr;
+    MhwMiInterface      *m_miInterface = nullptr;
+
     PMOS_BUFFER m_resMfdDeblockingFilterRowStoreScratchBuffer    = nullptr; //!< Handle of MFD Deblocking Filter Row Store Scratch data surface
     PMOS_BUFFER m_resDeblockingFilterTileRowStoreScratchBuffer   = nullptr; //!< Handle of Deblocking Filter Tile Row Store Scratch data surface
     PMOS_BUFFER m_resDeblockingFilterColumnRowStoreScratchBuffer = nullptr; //!< Handle of Deblocking Filter Column Row Store Scratch data surface
@@ -185,10 +183,6 @@ protected:
     PMOS_BUFFER m_resIntraPredLeftReconColStoreBuffer            = nullptr; //!< Handle of intra prediction left recon column store buffer
     PMOS_BUFFER m_resCABACSyntaxStreamOutBuffer                  = nullptr; //!< Handle of CABAC syntax stream out buffer
     PMOS_BUFFER m_resCABACStreamOutSizeBuffer                    = nullptr; //!< Handle of CABAC stream out size buffer
-
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-    PMOS_SURFACE m_tempRefSurf                                   = nullptr;
-#endif
 MEDIA_CLASS_DEFINE_END(decode__HevcDecodePicPktXe_M_Base)
 };
 

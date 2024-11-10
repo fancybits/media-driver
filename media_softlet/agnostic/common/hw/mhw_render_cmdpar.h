@@ -61,6 +61,13 @@ struct MHW_VFE_SCOREBOARD
     MHW_VFE_SCOREBOARD_DELTA ScoreboardDelta[MHW_MAX_DEPENDENCY_COUNT] = {};
 };
 
+struct MHW_HEAPS_RESOURCE
+{
+    PMOS_RESOURCE          presInstructionBuffer = nullptr;
+    PMHW_INLINE_DATA_PARAMS inlineDataParamsBase   = nullptr;
+    uint32_t                inlineDataParamSize   = 0;
+};
+
 enum MHW_VFE_SLICE_DISABLE
 {
     MHW_VFE_SLICE_ALL = 0,
@@ -84,6 +91,14 @@ enum MHW_WALKER_MODE
     MHW_WALKER_MODE_QUAD     = 4,    // applies in HSW GT3 which has 2 slices and 2 sampler/VME per slice
     MHW_WALKER_MODE_HEX      = 6,    // applies in BDW GT2 which has 2 slices and 3 sampler/VME per slice
     MHW_WALKER_MODE_OCT      = 8     // may apply in future Gen media architectures
+};
+
+enum MHW_EMIT_LOCAL_MODE
+{
+    MHW_EMIT_LOCAL_NONE = 0,
+    MHW_EMIT_LOCAL_X    = 1,
+    MHW_EMIT_LOCAL_XY   = 3,
+    MHW_EMIT_LOCAL_XYZ  = 7
 };
 
 struct MHW_RENDER_ENGINE_CAPS
@@ -211,6 +226,7 @@ struct _MHW_PAR_T(STATE_BASE_ADDRESS)
     uint32_t                mocs4IndirectObjectBuffer  = 0;
     uint32_t                mocs4StatelessDataport     = 0;
     uint32_t                l1CacheConfig              = 0;
+    bool                    addressDis                 = false;
 };
 
 struct _MHW_PAR_T(MEDIA_VFE_STATE)
@@ -321,6 +337,7 @@ struct _MHW_PAR_T(GPGPU_CSR_BASE_ADDRESS)
 
 struct _MHW_PAR_T(_3DSTATE_BINDING_TABLE_POOL_ALLOC)
 {
+    uint32_t mocs4SurfaceState = 0;
 };
 
 struct _MHW_PAR_T(CFE_STATE)
@@ -370,16 +387,27 @@ struct _MHW_PAR_T(COMPUTE_WALKER)
     bool                      bGlobalBarrierEnable          = false;   //! Enable Global Barrier (SKL+)
     uint32_t                  dwNumberofThreadsInGPGPUGroup = 0;       //! Number of threads per group
     uint32_t                  dwSharedLocalMemorySize       = 0;       //! Size of SharedLocalMemory (SLM)
+    int32_t                   forcePreferredSLMZero         = 0;       //! force preferredSLM value as 0
     int32_t                   iCrsThdConDataRdLn            = 0;
     PMHW_STATE_HEAP           pGeneralStateHeap             = 0;       //! General state heap in use
     MemoryBlock               *memoryBlock                  = nullptr; //! Memory block associated with the state heap
     MOS_RESOURCE              *postsyncResource             = nullptr;
     uint32_t                  resourceOffset                = 0;
+    bool                      isEmitInlineParameter         = false;
+    uint32_t                  inlineDataLength              = 0;
+    uint8_t                   *inlineData                   = nullptr;
+    bool                      isGenerateLocalId             = false;
+    MHW_EMIT_LOCAL_MODE       emitLocal                     = MHW_EMIT_LOCAL_NONE;
+    uint32_t                  preferredSlmAllocationSize    = 0;
+    _MHW_PAR_T(CFE_STATE)     cfeState                      = {};
+    MHW_HEAPS_RESOURCE        heapsResource                 = {};
+
 };
 
 struct _MHW_PAR_T(STATE_COMPUTE_MODE)
 {
     bool enableLargeGrf = false;
+    uint32_t forceEuThreadSchedulingMode = 0;
 };
 
 }  // namespace render

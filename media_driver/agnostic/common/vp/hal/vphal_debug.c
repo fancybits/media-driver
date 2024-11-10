@@ -2618,6 +2618,9 @@ MOS_STATUS VphalSurfaceDumper::DumpSurface(
     VPHAL_DBG_SURF_DUMP_SPEC*  pDumpSpec = &m_dumpSpec;
     bool                       isDumpFromDecomp;
     bool                       orgDumpAuxEnable;
+    uint32_t                   pid = MosUtilities::MosGetPid();
+    uint64_t                   timestamp  = 0;
+    MosUtilities::MosQueryPerformanceCounter(&timestamp);
 
     eStatus             = MOS_STATUS_SUCCESS;
     i                   = 0;
@@ -2676,11 +2679,11 @@ MOS_STATUS VphalSurfaceDumper::DumpSurface(
 
                     if (!isDumpFromDecomp || m_dumpLocInVp[0] == 0)
                     {
-                        MOS_SecureStringPrint(m_dumpPrefix, MAX_PATH, MAX_PATH, "%s/surfdump_loc[%s]_lyr[%d]", pDumpSpec->pcOutputPath, m_dumpLoc, uiCounter);
+                        MOS_SecureStringPrint(m_dumpPrefix, MAX_PATH, MAX_PATH, "%s/surfdump_pid[%d]_loc[%s]_lyr[%d]_ts[%lld]", pDumpSpec->pcOutputPath, pid, m_dumpLoc, uiCounter, timestamp);
                     }
                     else
                     {
-                        MOS_SecureStringPrint(m_dumpPrefix, MAX_PATH, MAX_PATH, "%s/surfdump_loc[%s_%s]_lyr[%d]", pDumpSpec->pcOutputPath, m_dumpLocInVp, m_dumpLoc, uiCounter);
+                        MOS_SecureStringPrint(m_dumpPrefix, MAX_PATH, MAX_PATH, "%s/surfdump_pid[%d]_loc[%s_%s]_lyr[%d]_ts[%lld]", pDumpSpec->pcOutputPath, pid, m_dumpLocInVp, m_dumpLoc, uiCounter, timestamp);
                     }
 
                     DumpSurfaceToFile(
@@ -2721,13 +2724,13 @@ MOS_STATUS VphalSurfaceDumper::DumpSurface(
 
                 if (!isDumpFromDecomp || m_dumpLocInVp[0] == 0)
                 {
-                    MOS_SecureStringPrint(m_dumpPrefix, MAX_PATH, MAX_PATH, "%s/surfdump_loc[%s]_lyr[%d]",
-                        pDumpSpec->pcOutputPath, m_dumpLoc, uiCounter);
+                    MOS_SecureStringPrint(m_dumpPrefix, MAX_PATH, MAX_PATH, "%s/surfdump_pid[%d]_loc[%s]_lyr[%d]_ts[%lld]",
+                        pDumpSpec->pcOutputPath, pid, m_dumpLoc, uiCounter, timestamp);
                 }
                 else
                 {
-                    MOS_SecureStringPrint(m_dumpPrefix, MAX_PATH, MAX_PATH, "%s/surfdump_loc[%s_%s]_lyr[%d]",
-                        pDumpSpec->pcOutputPath, m_dumpLocInVp, m_dumpLoc, uiCounter);
+                    MOS_SecureStringPrint(m_dumpPrefix, MAX_PATH, MAX_PATH, "%s/surfdump_pid[%d]_loc[%s_%s]_lyr[%d]_ts[%lld]",
+                        pDumpSpec->pcOutputPath, pid, m_dumpLocInVp, m_dumpLoc, uiCounter, timestamp);
                 }
 
                 DumpSurfaceToFile(
@@ -3651,6 +3654,8 @@ const char * VphalDumperTool::GetFormatStr(MOS_FORMAT format)
         case Format_Y410        : return _T("y410");
         case Format_P210        : return _T("p210");
         case Format_P216        : return _T("p216");
+        case Format_A16B16G16R16F : return _T("abgr16_float");
+        case Format_A16R16G16B16F : return _T("argb16_float");
         default                 : return _T("Err");
     }
 
@@ -3707,6 +3712,7 @@ MOS_STATUS VphalDumperTool::GetSurfaceSize(
         case Format_Y216:
         case Format_Y410:
         case Format_Y416:
+        case Format_R16F:
             iWidthInBytes = pSurface->dwWidth * iBpp / 8;
             iHeightInRows = pSurface->dwHeight;
             break;
@@ -4494,205 +4500,3 @@ bool VphalParameterDumper::GetDumpSpecSkuWaDumpEnable()
 }
 
 #endif // (_DEBUG || _RELEASE_INTERNAL)
-
-// Max number of source info to be dumped into OCA.
-#define MAX_NUMBER_OF_SOURCE_INFO_IN_OCA_BUFFER 8
-// Max number of target info to be dumped into OCA.
-#define MAX_NUMBER_OF_TARGET_INFO_IN_OCA_BUFFER 4
-
-VphalOcaDumper::VphalOcaDumper()
-{
-}
-
-VphalOcaDumper::~VphalOcaDumper()
-{
-    MOS_DeleteArray(m_pOcaRenderParam);
-}
-
-void VphalOcaDumper::Delete(void *&p)
-{
-    VphalOcaDumper *pOcaDumpter =  (VphalOcaDumper *)p;
-    MOS_Delete(pOcaDumpter);
-    p = nullptr;
-}
-
-void VphalOcaDumper::SetRenderParam(VPHAL_RENDER_PARAMS *pRenderParams)
-{
-    if (nullptr == pRenderParams)
-    {
-        return;
-    }
-
-    uint32_t uSrcCountDumped = MOS_MIN(pRenderParams->uSrcCount, MAX_NUMBER_OF_SOURCE_INFO_IN_OCA_BUFFER);
-    uint32_t uDstCountDumped = MOS_MIN(pRenderParams->uDstCount, MAX_NUMBER_OF_TARGET_INFO_IN_OCA_BUFFER);
-
-    uint32_t size = sizeof(VPHAL_OCA_RENDER_PARAM) + uSrcCountDumped * sizeof(VPHAL_OCA_SOURCE_INFO) +
-        uDstCountDumped * sizeof(VPHAL_OCA_TARGET_INFO);
-    uint32_t allocSize = size;
-
-    if (m_pOcaRenderParam)
-    {
-        if (allocSize > m_pOcaRenderParam->Header.allocSize)
-        {
-            MOS_DeleteArray(m_pOcaRenderParam);
-        }
-        else
-        {
-            // Reuse previous buffer.
-            allocSize = m_pOcaRenderParam->Header.allocSize;
-        }
-    }
-
-    if (nullptr == m_pOcaRenderParam)
-    {
-        m_pOcaRenderParam = (VPHAL_OCA_RENDER_PARAM *)MOS_NewArray(char, allocSize);
-        if (nullptr == m_pOcaRenderParam)
-        {
-            return;
-        }
-    }
-    MOS_ZeroMemory(m_pOcaRenderParam, size);
-
-    m_pOcaRenderParam->Header.size          = size;
-    m_pOcaRenderParam->Header.allocSize     = allocSize;
-    m_pOcaRenderParam->Component            = pRenderParams->Component;
-
-    if (pRenderParams->uSrcCount > 0 && pRenderParams->pSrc[0])
-    {
-        m_pOcaRenderParam->FrameID = pRenderParams->pSrc[0]->FrameID;
-    }
-
-    m_pOcaRenderParam->Pid = MosUtilities::MosGetPid();
-
-    m_pOcaRenderParam->uSrcCount = pRenderParams->uSrcCount;
-    m_pOcaRenderParam->uDstCount = pRenderParams->uDstCount;
-    m_pOcaRenderParam->uSrcCountDumped = uSrcCountDumped;
-    m_pOcaRenderParam->uDstCountDumped = uDstCountDumped;
-
-    if (pRenderParams->pColorFillParams)
-    {
-        m_pOcaRenderParam->ColorFillParams.params = *pRenderParams->pColorFillParams;
-        m_pOcaRenderParam->ColorFillParams.bValid = true;
-    }
-
-    uint32_t offset = sizeof(VPHAL_OCA_RENDER_PARAM);
-    VPHAL_OCA_SOURCE_INFO *pSource = uSrcCountDumped > 0 ? (VPHAL_OCA_SOURCE_INFO *)((char*)m_pOcaRenderParam + offset) : nullptr;
-    offset += uSrcCountDumped * sizeof(VPHAL_OCA_SOURCE_INFO);
-    VPHAL_OCA_TARGET_INFO *pTarget = uDstCountDumped > 0 ? (VPHAL_OCA_TARGET_INFO *)((char*)m_pOcaRenderParam + offset) : nullptr;
-
-    if (pSource)
-    {
-        for (uint32_t i = 0; i < uSrcCountDumped; ++i)
-        {
-            if (pRenderParams->pSrc[i])
-            {
-                InitSourceInfo(pSource[i], *(VPHAL_SURFACE *)pRenderParams->pSrc[i]);
-            }
-        }
-    }
-
-    if (pTarget)
-    {
-        for (uint32_t i = 0; i < uDstCountDumped; ++i)
-        {
-            if (pRenderParams->pTarget[i])
-            {
-                InitTargetInfo(pTarget[i], *(VPHAL_SURFACE *)pRenderParams->pTarget[i]);
-            }
-        }
-    }
-}
-
-void VphalOcaDumper::InitSurfInfo(VPHAL_OCA_SURFACE_INFO &surfInfo, VPHAL_SURFACE &surf)
-{
-    surfInfo.Format        = surf.Format;
-    surfInfo.SurfType      = surf.SurfType;
-    surfInfo.SampleType    = surf.SampleType;
-    surfInfo.ColorSpace    = surf.ColorSpace;
-    surfInfo.ScalingMode   = surf.ScalingMode;
-    surfInfo.TileType      = surf.TileType;
-    surfInfo.dwWidth       = surf.dwWidth;
-    surfInfo.dwHeight      = surf.dwHeight;
-    surfInfo.dwPitch       = surf.dwPitch;
-    surfInfo.rcSrc         = surf.rcSrc;
-    surfInfo.rcDst         = surf.rcDst;
-}
-
-void VphalOcaDumper::InitSourceInfo(VPHAL_OCA_SOURCE_INFO &sourceInfo, VPHAL_SURFACE &source)
-{
-    InitSurfInfo(sourceInfo.surfInfo, source);
-    sourceInfo.Rotation         = source.Rotation;
-    sourceInfo.iPalette         = source.iPalette;
-    sourceInfo.PaletteParams    = source.Palette;
-
-    if (source.pBlendingParams)
-    {
-        sourceInfo.BlendingParams.params = *source.pBlendingParams;
-        sourceInfo.BlendingParams.bValid = true;
-    }
-
-    if (source.pLumaKeyParams)
-    {
-        sourceInfo.LumaKeyParams.params = *source.pLumaKeyParams;
-        sourceInfo.LumaKeyParams.bValid = true;
-    }
-
-    if (source.pProcampParams)
-    {
-        sourceInfo.ProcampParams.params = *source.pProcampParams;
-        sourceInfo.ProcampParams.bValid = true;
-    }
-
-    if (source.pIEFParams)
-    {
-        sourceInfo.IEFParams.params = *source.pIEFParams;
-        sourceInfo.IEFParams.bValid = true;
-    }
-
-    if (source.pDeinterlaceParams)
-    {
-        sourceInfo.DIParams.params = *source.pDeinterlaceParams;
-        sourceInfo.DIParams.bValid = true;
-    }
-
-    if (source.pDenoiseParams)
-    {
-        sourceInfo.DNParams.params = *source.pDenoiseParams;
-        sourceInfo.DNParams.bValid = true;
-    }
-
-    if (source.pColorPipeParams)
-    {
-        sourceInfo.ColorPipeParams.params = *source.pColorPipeParams;
-        sourceInfo.ColorPipeParams.bValid = true;
-    }
-
-    if (source.uBwdRefCount > 0)
-    {
-        sourceInfo.BwdRefInfo.uBwdRefCount  = source.uBwdRefCount;
-        sourceInfo.BwdRefInfo.bValid        = true;
-    }
-
-    if (source.uFwdRefCount > 0)
-    {
-        sourceInfo.FwdRefInfo.uFwdRefCount  = source.uFwdRefCount;
-        sourceInfo.FwdRefInfo.bValid        = true;
-    }
-
-    if (source.pHDRParams)
-    {
-        sourceInfo.HDRParams.params = *source.pHDRParams;
-        sourceInfo.HDRParams.bValid = true;
-    }
-}
-
-void VphalOcaDumper::InitTargetInfo(VPHAL_OCA_TARGET_INFO &targetInfo, VPHAL_SURFACE &target)
-{
-    InitSurfInfo(targetInfo.surfInfo, target);
-
-    if (target.pHDRParams)
-    {
-        targetInfo.HDRParams.params = *target.pHDRParams;
-        targetInfo.HDRParams.bValid = true;
-    }
-}

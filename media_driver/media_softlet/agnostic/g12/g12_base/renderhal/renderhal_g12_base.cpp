@@ -71,7 +71,8 @@ extern const RENDERHAL_STATE_HEAP_SETTINGS g_cRenderHal_State_Heap_Settings_g12 
     RENDERHAL_SSH_BINDING_TABLES,              //!< iBindingTables
     RENDERHAL_SSH_SURFACE_STATES,              //!< iSurfaceStates
     RENDERHAL_SSH_SURFACES_PER_BT,             //!< iSurfacesPerBT
-    RENDERHAL_SSH_BINDING_TABLE_ALIGN          //!< iBTAlignment
+    RENDERHAL_SSH_BINDING_TABLE_ALIGN,         //!< iBTAlignment
+    MOS_CODEC_RESOURCE_USAGE_BEGIN_CODEC       //!< heapUsageType
 };
 
 const uint32_t g_cLookup_RotationMode_g12[8] = 
@@ -207,9 +208,27 @@ MOS_STATUS XRenderHal_Interface_G12_Base::SetupSurfaceState (
                     pRenderHal->pOsInterface->pfnGetGmmClientContext(pRenderHal->pOsInterface)).DwordValue;
                 MHW_RENDERHAL_NORMALMESSAGE(" disable  CameraCapture  caches on render path ");
             }
+
+            // use RESOURCE_USAGE_CCS_MEDIA_WRITABLE to ensure displayable output LLC write-uncached
+            if (pParams->isOutput && gmmFlags.Gpu.FlipChain && pSurface->MmcState == MOS_MEMCOMP_MC)
+            {
+                SurfStateParams.dwCacheabilityControl = pRenderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
+                                                                                    MOS_RESOURCE_USAGE_CCS_MEDIA_WRITABLE,
+                                                                                    pRenderHal->pOsInterface->pfnGetGmmClientContext(pRenderHal->pOsInterface))
+                                                            .DwordValue;
+                MHW_RENDERHAL_NORMALMESSAGE(" MOS_RESOURCE_USAGE_CCS_MEDIA_WRITABLE is queried, and target SurfStateParams.dwCacheabilityControl = %d \n", SurfStateParams.dwCacheabilityControl);
+            }
+            #if (_DEBUG || _RELEASE_INTERNAL)
+                pSurface->OsResource.memObjCtrlState.DwordValue = SurfStateParams.dwCacheabilityControl;
+                pParams->MemObjCtl                              = SurfStateParams.dwCacheabilityControl;
+                pSurface->oldCacheSetting                       = (SurfStateParams.dwCacheabilityControl >> 1) & 0x0000003f;
+                if (pParams->isOutput)
+                {
+                    pRenderHal->oldCacheSettingForTargetSurface = pSurface->oldCacheSetting;
+                }
+            #endif
         }
     #endif
-
         if (IsFormatMMCSupported(pSurface->Format) &&
             m_renderHalMMCEnabled)
         {
@@ -218,13 +237,13 @@ MOS_STATUS XRenderHal_Interface_G12_Base::SetupSurfaceState (
             {
                 // bCompressionEnabled/bCompressionMode is deprecated on Gen12+, use MmcState instead.
                 // RC compression mode is not supported on render output surface on tgllp.
-                SurfStateParams.MmcState            = MOS_MEMCOMP_DISABLED;
+                SurfStateParams.MmcState = MOS_MEMCOMP_DISABLED;
                 SurfStateParams.dwCompressionFormat = 0;
             }
-            else if (pSurface->MmcState == MOS_MEMCOMP_MC ||
-                     pSurface->MmcState == MOS_MEMCOMP_RC)
+            else if(pSurface->MmcState == MOS_MEMCOMP_MC ||
+                    pSurface->MmcState == MOS_MEMCOMP_RC)
             {
-                SurfStateParams.MmcState            = pSurface->MmcState;
+                SurfStateParams.MmcState    = pSurface->MmcState;
 
                 if (pSurfaceEntry->YUVPlane == MHW_U_PLANE && 
                    (pSurface->Format        == Format_NV12 ||
@@ -1036,6 +1055,7 @@ bool XRenderHal_Interface_G12_Base::IsFormatMMCSupported(MOS_FORMAT format)
         (format != Format_B10G10R10A2)      &&
         (format != Format_R10G10B10A2)      &&
         (format != Format_A16R16G16B16F)    &&
+        (format != Format_A16B16G16R16F)    &&
         (format != Format_IMC3)             &&
         (format != Format_444P)             &&
         (format != Format_422H)             &&

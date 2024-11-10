@@ -30,7 +30,6 @@
 #include "mhw_render_g12_X.h"
 #include "mhw_mi_hwcmd_g12_X.h"
 #include "mhw_vdbox_hcp_hwcmd_g12_X.h"  // temporary include for calculating size of various hardware commands
-#include "mhw_vdbox_mfx_hwcmd_g11_X.h"
 #include "mhw_vdbox_vdenc_g12_X.h"
 #include "mhw_vdbox_hcp_g12_X.h"
 #include "media_interfaces_g12_tgllp.h"
@@ -204,38 +203,51 @@ CodechalHwInterfaceG12::CodechalHwInterfaceG12(
 
     InternalInit(codecFunction);
 }
-#ifdef IGFX_MHW_INTERFACES_NEXT_SUPPORT
-CodechalHwInterfaceG12::CodechalHwInterfaceG12(
-    PMOS_INTERFACE    osInterface,
-    CODECHAL_FUNCTION codecFunction,
-    MhwInterfacesNext *mhwInterfacesNext,
-    bool              disableScalability)
-    : CodechalHwInterface(osInterface, codecFunction, mhwInterfacesNext, disableScalability)
-{
-    CODECHAL_HW_FUNCTION_ENTER;
 
-    InternalInit(codecFunction);
-}
-#endif
 MOS_STATUS CodechalHwInterfaceG12::InitL3CacheSettings()
 {
     // Get default L3 cache settings
-    CODECHAL_HW_CHK_STATUS_RETURN(m_renderInterface->EnableL3Caching(nullptr));
+    if (m_renderInterface)
+    {
+        CODECHAL_HW_CHK_STATUS_RETURN(m_renderInterface->EnableL3Caching(nullptr));
+    }
+    else
+    {
+        CODECHAL_HW_CHK_STATUS_RETURN(m_hwInterfaceNext->GetRenderInterfaceNext()->EnableL3Caching(nullptr));
+    }
 
 #if (_DEBUG || _RELEASE_INTERNAL)
     // Override default L3 cache settings
-    auto l3CacheConfig =
-        m_renderInterface->GetL3CacheConfig();
-    MHW_RENDER_ENGINE_L3_CACHE_SETTINGS_G12 l3Overrides;
-    l3Overrides.dwTcCntlReg =
-        static_cast<MHW_RENDER_ENGINE_L3_CACHE_CONFIG_G12*>(l3CacheConfig)->dwL3CacheTcCntlReg_Setting;
-    l3Overrides.dwAllocReg =
-        static_cast<MHW_RENDER_ENGINE_L3_CACHE_CONFIG_G12*>(l3CacheConfig)->dwL3CacheAllocReg_Setting;
-    CODECHAL_HW_CHK_STATUS_RETURN(InitL3ControlUserFeatureSettings(
-        l3CacheConfig,
-        &l3Overrides));
-    CODECHAL_HW_CHK_STATUS_RETURN(m_renderInterface->EnableL3Caching(
-        &l3Overrides));
+    if (m_renderInterface)
+    {
+        auto l3CacheConfig = m_renderInterface->GetL3CacheConfig();
+        MHW_RENDER_ENGINE_L3_CACHE_SETTINGS_G12 l3Overrides;
+        l3Overrides.dwTcCntlReg =
+            static_cast<MHW_RENDER_ENGINE_L3_CACHE_CONFIG_G12 *>(l3CacheConfig)->dwL3CacheTcCntlReg_Setting;
+        l3Overrides.dwAllocReg =
+            static_cast<MHW_RENDER_ENGINE_L3_CACHE_CONFIG_G12 *>(l3CacheConfig)->dwL3CacheAllocReg_Setting;
+        CODECHAL_HW_CHK_STATUS_RETURN(InitL3ControlUserFeatureSettings(
+            l3CacheConfig,
+            &l3Overrides));
+        CODECHAL_HW_CHK_STATUS_RETURN(m_renderInterface->EnableL3Caching(
+            &l3Overrides));
+    }
+    else
+    {
+        auto                                             l3CacheConfig = m_hwInterfaceNext->GetRenderInterfaceNext()->GetL3CacheConfig();
+        mhw::render::MHW_RENDER_ENGINE_L3_CACHE_SETTINGS l3Overrides;
+        l3Overrides.dwTcCntlReg =
+            static_cast<mhw::render::MHW_RENDER_ENGINE_L3_CACHE_CONFIG *>(l3CacheConfig)->dwL3CacheTcCntlReg_Setting;
+        l3Overrides.dwAllocReg =
+            static_cast<mhw::render::MHW_RENDER_ENGINE_L3_CACHE_CONFIG *>(l3CacheConfig)->dwL3CacheAllocReg_Setting;
+        CODECHAL_HW_CHK_STATUS_RETURN(InitL3ControlUserFeatureSettings(
+            (MHW_RENDER_ENGINE_L3_CACHE_CONFIG *)l3CacheConfig,
+            (MHW_RENDER_ENGINE_L3_CACHE_SETTINGS_G12 *)&l3Overrides));
+        CODECHAL_HW_CHK_STATUS_RETURN(m_hwInterfaceNext->GetRenderInterfaceNext()->EnableL3Caching(
+            &l3Overrides));
+
+    }
+
 #endif // (_DEBUG || _RELEASE_INTERNAL)
 
     return MOS_STATUS_SUCCESS;
@@ -449,7 +461,6 @@ MOS_STATUS CodechalHwInterfaceG12::Initialize(
     return eStatus;
 }
 
-#ifdef IGFX_MHW_INTERFACES_NEXT_SUPPORT
 MOS_STATUS CodechalHwInterfaceG12::ReadAvpStatus(MHW_VDBOX_NODE_IND vdboxIndex, const EncodeStatusReadParams &params, PMOS_COMMAND_BUFFER cmdBuffer)
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
@@ -462,25 +473,50 @@ MOS_STATUS CodechalHwInterfaceG12::ReadAvpStatus(MHW_VDBOX_NODE_IND vdboxIndex, 
 
     MHW_MI_FLUSH_DW_PARAMS flushDwParams;
     MOS_ZeroMemory(&flushDwParams, sizeof(flushDwParams));
-    CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiFlushDwCmd(cmdBuffer, &flushDwParams));
+    std::shared_ptr<mhw::mi::Itf> m_miItf = GetMiInterfaceNext();
+    if (m_miInterface)
+    {
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiFlushDwCmd(cmdBuffer, &flushDwParams));
+    }
+    else
+    {
+        auto &parFlush = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
+        parFlush       = {};
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer));
+    }
 
     std::shared_ptr<mhw::vdbox::avp::Itf> m_avpItf = GetAvpInterfaceNext();
     CODECHAL_HW_CHK_NULL_RETURN(m_avpItf);
     auto mmioRegisters = m_avpItf->GetMmioRegisters(vdboxIndex);
+    if (m_miInterface)
+    {
+        MHW_MI_STORE_REGISTER_MEM_PARAMS miStoreRegMemParams;
+        MOS_ZeroMemory(&miStoreRegMemParams, sizeof(miStoreRegMemParams));
+        miStoreRegMemParams.presStoreBuffer = params.resBitstreamByteCountPerFrame;
+        miStoreRegMemParams.dwOffset        = params.bitstreamByteCountPerFrameOffset;
+        miStoreRegMemParams.dwRegister      = mmioRegisters->avpAv1BitstreamByteCountTileRegOffset;
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiStoreRegisterMemCmd(cmdBuffer, &miStoreRegMemParams));
+        MOS_ZeroMemory(&miStoreRegMemParams, sizeof(miStoreRegMemParams));
+        miStoreRegMemParams.presStoreBuffer = params.resQpStatusCount;
+        miStoreRegMemParams.dwOffset        = params.qpStatusCountOffset;
+        miStoreRegMemParams.dwRegister      = mmioRegisters->avpAv1QpStatusCountRegOffset;
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiStoreRegisterMemCmd(cmdBuffer, &miStoreRegMemParams));
 
-    MHW_MI_STORE_REGISTER_MEM_PARAMS miStoreRegMemParams;
-    MOS_ZeroMemory(&miStoreRegMemParams, sizeof(miStoreRegMemParams));
-    miStoreRegMemParams.presStoreBuffer = params.resBitstreamByteCountPerFrame;
-    miStoreRegMemParams.dwOffset        = params.bitstreamByteCountPerFrameOffset;
-    miStoreRegMemParams.dwRegister      = mmioRegisters->avpAv1BitstreamByteCountTileRegOffset;
-    CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiStoreRegisterMemCmd(cmdBuffer, &miStoreRegMemParams));
-
-    MOS_ZeroMemory(&miStoreRegMemParams, sizeof(miStoreRegMemParams));
-    miStoreRegMemParams.presStoreBuffer = params.resQpStatusCount;
-    miStoreRegMemParams.dwOffset        = params.qpStatusCountOffset;
-    miStoreRegMemParams.dwRegister      = mmioRegisters->avpAv1QpStatusCountRegOffset;
-    CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiStoreRegisterMemCmd(cmdBuffer, &miStoreRegMemParams));
-
+    }
+    else
+    {
+        auto &storeRegMemParams           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
+        storeRegMemParams                 = {};
+        storeRegMemParams.presStoreBuffer = params.resBitstreamByteCountPerFrame;
+        storeRegMemParams.dwOffset        = params.bitstreamByteCountPerFrameOffset;
+        storeRegMemParams.dwRegister      = mmioRegisters->avpAv1BitstreamByteCountTileRegOffset;
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+        storeRegMemParams                 = {};
+        storeRegMemParams.presStoreBuffer = params.resQpStatusCount;
+        storeRegMemParams.dwOffset        = params.qpStatusCountOffset;
+        storeRegMemParams.dwRegister      = mmioRegisters->avpAv1QpStatusCountRegOffset;
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+    }
     return eStatus;
 }
 
@@ -497,27 +533,45 @@ MOS_STATUS CodechalHwInterfaceG12::ReadImageStatusForAvp(MHW_VDBOX_NODE_IND vdbo
     std::shared_ptr<mhw::vdbox::avp::Itf> m_avpItf = GetAvpInterfaceNext();
     CODECHAL_HW_CHK_NULL_RETURN(m_avpItf);
     auto mmioRegisters = GetAvpInterfaceNext()->GetMmioRegisters(vdboxIndex);
+    std::shared_ptr<mhw::mi::Itf> m_miItf       = GetMiInterfaceNext();
+    if (m_miInterface)
+    {
+        MHW_MI_STORE_REGISTER_MEM_PARAMS miStoreRegMemParams;
+        MOS_ZeroMemory(&miStoreRegMemParams, sizeof(miStoreRegMemParams));
+        miStoreRegMemParams.presStoreBuffer = params.resImageStatusMask;
+        miStoreRegMemParams.dwOffset        = params.imageStatusMaskOffset;
+        miStoreRegMemParams.dwRegister      = mmioRegisters->avpAv1ImageStatusMaskRegOffset;
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiStoreRegisterMemCmd(cmdBuffer, &miStoreRegMemParams));
 
-    MHW_MI_STORE_REGISTER_MEM_PARAMS miStoreRegMemParams;
-    MOS_ZeroMemory(&miStoreRegMemParams, sizeof(miStoreRegMemParams));
-    miStoreRegMemParams.presStoreBuffer = params.resImageStatusMask;
-    miStoreRegMemParams.dwOffset        = params.imageStatusMaskOffset;
-    miStoreRegMemParams.dwRegister      = mmioRegisters->avpAv1ImageStatusMaskRegOffset;
-    CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiStoreRegisterMemCmd(cmdBuffer, &miStoreRegMemParams));
+        MOS_ZeroMemory(&miStoreRegMemParams, sizeof(miStoreRegMemParams));
+        miStoreRegMemParams.presStoreBuffer = params.resImageStatusCtrl;
+        miStoreRegMemParams.dwOffset        = params.imageStatusCtrlOffset;
+        miStoreRegMemParams.dwRegister      = mmioRegisters->avpAv1ImageStatusControlRegOffset;
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiStoreRegisterMemCmd(cmdBuffer, &miStoreRegMemParams));
 
-    MOS_ZeroMemory(&miStoreRegMemParams, sizeof(miStoreRegMemParams));
-    miStoreRegMemParams.presStoreBuffer = params.resImageStatusCtrl;
-    miStoreRegMemParams.dwOffset        = params.imageStatusCtrlOffset;
-    miStoreRegMemParams.dwRegister      = mmioRegisters->avpAv1ImageStatusControlRegOffset;
-    CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiStoreRegisterMemCmd(cmdBuffer, &miStoreRegMemParams));
-
-    MHW_MI_FLUSH_DW_PARAMS flushDwParams;
-    MOS_ZeroMemory(&flushDwParams, sizeof(flushDwParams));
-    CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiFlushDwCmd(cmdBuffer, &flushDwParams));
-
+        MHW_MI_FLUSH_DW_PARAMS flushDwParams;
+        MOS_ZeroMemory(&flushDwParams, sizeof(flushDwParams));
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miInterface->AddMiFlushDwCmd(cmdBuffer, &flushDwParams));
+    }
+    else
+    {
+        auto &storeRegMemParams           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
+        storeRegMemParams                 = {};
+        storeRegMemParams.presStoreBuffer = params.resImageStatusMask;
+        storeRegMemParams.dwOffset        = params.imageStatusMaskOffset;
+        storeRegMemParams.dwRegister      = mmioRegisters->avpAv1ImageStatusMaskRegOffset;
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+        storeRegMemParams                 = {};
+        storeRegMemParams.presStoreBuffer = params.resImageStatusCtrl;
+        storeRegMemParams.dwOffset        = params.imageStatusCtrlOffset;
+        storeRegMemParams.dwRegister      = mmioRegisters->avpAv1ImageStatusControlRegOffset;
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+        auto &parFlush = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
+        parFlush       = {};
+        CODECHAL_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer));
+    }
     return eStatus;
 }
-#endif
 
 CodechalHwInterfaceG12::~CodechalHwInterfaceG12()
 {
@@ -531,8 +585,15 @@ CodechalHwInterfaceG12::~CodechalHwInterfaceG12()
 
         if (m_renderHalCpInterface)
         {
-            Delete_MhwCpInterface(m_renderHalCpInterface);
-            m_renderHalCpInterface = nullptr;
+            if (m_osInterface)
+            {
+                m_osInterface->pfnDeleteMhwCpInterface(m_renderHalCpInterface);
+                m_renderHalCpInterface = nullptr;
+            }
+            else
+            {
+                MHW_ASSERTMESSAGE("Failed to destroy renderHalCpInterface.");
+            }
         }
     }
 
@@ -545,7 +606,6 @@ CodechalHwInterfaceG12::~CodechalHwInterfaceG12()
     if (m_avpInterface)
     {
         MOS_Delete(m_avpInterface);
-        m_avpInterface = nullptr;
     }
 }
 

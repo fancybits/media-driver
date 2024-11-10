@@ -27,6 +27,7 @@
 #include "codechal_mmc_encode_mpeg2.h"
 #include "codechal_kernel_hme.h"
 #include "codeckrnheader.h"
+#include "mos_os_cp_interface_specific.h"
 
 #define CODECHAL_ENCODE_MPEG2_FCODE_X(width) ((width < 200) ? 3 : (width < 500) ? 4 : (width < 1400) ? 5 : 6)
 #define CODECHAL_ENCODE_MPEG2_FCODE_Y(fcodeX) ((fcodeX > 5) ? 5 : fcodeX)
@@ -1541,12 +1542,6 @@ MOS_STATUS CodechalEncodeMpeg2::AllocateResources()
         m_refList,
         CODECHAL_NUM_UNCOMPRESSED_SURFACE_MPEG2);
 
-    if (eStatus != MOS_STATUS_SUCCESS)
-    {
-        CODECHAL_ENCODE_ASSERTMESSAGE("Failed to allocate PAK resources.");
-        return eStatus;
-    }
-
     if (m_encEnabled)
     {
         eStatus = AllocateEncResources();
@@ -1891,6 +1886,7 @@ MOS_STATUS CodechalEncodeMpeg2::SetPictureStructs()
 
     uint8_t currRefIdx = m_picParams->m_currReconstructedPic.FrameIdx;
 
+    ENCODE_CHK_COND_RETURN(currRefIdx >= CODECHAL_NUM_UNCOMPRESSED_SURFACE_MPEG2, "currRefIdx cannot bigger than 128.");
     m_refList[currRefIdx]->sRefRawBuffer = m_rawSurface;
     m_refList[currRefIdx]->sRefReconBuffer = m_reconSurface;
     m_refList[currRefIdx]->resBitstreamBuffer = m_resBitstreamBuffer;
@@ -2016,13 +2012,6 @@ MOS_STATUS CodechalEncodeMpeg2::SetSliceGroups()
             // Compare with prev slice to see if curr slice is start of new slice group
             PCODEC_ENCODER_SLCDATA slcDataPrev = slcData - 1;
             CodecEncodeMpeg2SliceParmas *slcParamsPrev = slcParams - 1;
-
-            if (!slcDataPrev || !slcParamsPrev)
-            {
-                eStatus = MOS_STATUS_INVALID_PARAMETER;
-                CODECHAL_ENCODE_ASSERTMESSAGE("Invalid slice pointer.");
-                return eStatus;
-            }
 
             // Start of a new slice group if gap in slices or quantiser_scale_code/IntraSlice changes
             uint32_t mbPrevEnd =
@@ -2727,9 +2716,13 @@ MOS_STATUS CodechalEncodeMpeg2::InitializePicture(const EncoderParams& params)
         CODECHAL_ENCODE_CHK_STATUS_RETURN(DumpSliceParams(
             m_sliceParams));)
 
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(SetStatusReportParams(
-        m_refList[m_currReconstructedPic.FrameIdx]));
-
+        if (m_currReconstructedPic.FrameIdx >= CODECHAL_NUM_UNCOMPRESSED_SURFACE_MPEG2)
+        {
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+        CODECHAL_ENCODE_CHK_STATUS_RETURN(SetStatusReportParams(
+            m_refList[m_currReconstructedPic.FrameIdx]));
+        
     m_bitstreamUpperBound = m_encodeParams.dwBitstreamSize;
 
     return eStatus;

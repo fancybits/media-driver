@@ -30,9 +30,6 @@
 #include "codec_def_decode_vp9.h"
 #include "codec_def_vp9_probs.h"
 #include "decode_vp9_reference_frames.h"
-#include "mhw_vdbox_g12_X.h"
-#include "mhw_vdbox_avp_interface.h"
-#include "codechal_hw_g12_X.h"
 
 namespace decode
 {
@@ -58,7 +55,7 @@ public:
     //!
     //! \brief  Vp9BasicFeature constructor
     //!
-    Vp9BasicFeature(DecodeAllocator *allocator, CodechalHwInterface *hwInterface);
+    Vp9BasicFeature(DecodeAllocator *allocator, void *hwInterface, PMOS_INTERFACE osInterface);
 
     //!
     //! \brief  Vp9BasicFeature deconstructor

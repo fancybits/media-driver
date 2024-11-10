@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021, Intel Corporation
+* Copyright (c) 2021-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -43,6 +43,10 @@ void VpFeatureReport::InitReportValue()
     m_features.vpMMCInUse          = false;
     m_features.rtCompressible      = false;
     m_features.rtCompressMode      = 0;
+    m_features.rtCacheSetting      = 0;
+#if (_DEBUG || _RELEASE_INTERNAL)
+    m_features.rtOldCacheSetting   = 0;
+#endif
     m_features.ffdiCompressible    = false;
     m_features.ffdiCompressMode    = 0;
     m_features.ffdnCompressible    = false;
@@ -62,7 +66,8 @@ void VpFeatureReport::InitReportValue()
 }
 
 void VpFeatureReport::SetConfigValues(
-    PVP_CONFIG configValues)
+    PVP_CONFIG configValues,
+    bool       traceEvent)
 {
     VP_FUNC_CALL();
 
@@ -96,7 +101,10 @@ void VpFeatureReport::SetConfigValues(
     configValues->dwCurrentVEFeatureInUse = m_features.veFeatureInUse;
 
     // Report vp packet reused flag.
-    configValues->isPacketReused        = m_features.packetReused;
+    configValues->isPacketReused = m_features.packetReused;
+
+    // Report vp Dn enabled flag.
+    configValues->isDnEnabled = m_features.denoise;
 
     // Report MMC status
     configValues->dwVPMMCInUse          = m_features.vpMMCInUse;
@@ -113,9 +121,23 @@ void VpFeatureReport::SetConfigValues(
     configValues->dwPrimaryCompressible = m_features.primaryCompressible;
     configValues->dwPrimaryCompressMode = m_features.primaryCompressMode;
 
+    // Report Render Target cache usage
+    configValues->dwRTCacheSetting     = m_features.rtCacheSetting;
+#if (_DEBUG || _RELEASE_INTERNAL)
+    configValues->dwRTOldCacheSetting = m_features.rtOldCacheSetting;
+#endif
+
     // Report In Place Compositon status
     configValues->dwCurrentCompositionMode = m_features.compositionMode;
     configValues->dwCurrentScdMode         = m_features.diScdMode;
+
+    // Report Vebox Scalability
+    configValues->dwCurrentVeboxScalability = m_features.VeboxScalability;
+
+    configValues->dwCurrentSFCLinearOutputByTileConvert = m_features.sfcLinearOutputByTileConvert;
+
+    // Report VP Apogeios
+    configValues->dwCurrentVPApogeios       = m_features.VPApogeios;
 
     VP_PUBLIC_NORMALMESSAGE(
         "VP Feature Report: \
@@ -129,7 +151,8 @@ void VpFeatureReport::SetConfigValues(
         RTCompressMode %d, \
         PrimaryCompressible %d, \
         PrimaryCompressMode %d, \
-        CompositionMode %d",
+        CompositionMode %d, \
+        sfcLinearOutputByTileConvert %d",
         m_features.outputPipeMode,
         m_features.hdrMode,
         m_features.veFeatureInUse,
@@ -140,9 +163,13 @@ void VpFeatureReport::SetConfigValues(
         m_features.rtCompressMode,
         m_features.primaryCompressible,
         m_features.primaryCompressMode,
-        m_features.compositionMode);
-    MT_LOG5(MT_VP_FTR_REPORT, MT_NORMAL, MT_VP_RENDERDATA_OUTPUT_PIPE, m_features.outputPipeMode, MT_VP_RENDER_VE_HDRMODE, m_features.hdrMode, 
-        MT_VP_RENDER_VE_FTRINUSE, m_features.veFeatureInUse, MT_VP_HAL_SCALING_MODE, m_features.scalingMode, MT_VP_HAL_MMCINUSE, m_features.vpMMCInUse);
+        m_features.compositionMode,
+        m_features.sfcLinearOutputByTileConvert);
 
+    if (traceEvent)
+    {
+        MT_LOG5(MT_VP_FTR_REPORT, MT_NORMAL, MT_VP_RENDERDATA_OUTPUT_PIPE, m_features.outputPipeMode, MT_VP_RENDER_VE_HDRMODE, m_features.hdrMode, 
+        MT_VP_RENDER_VE_FTRINUSE, m_features.veFeatureInUse, MT_VP_HAL_SCALING_MODE, m_features.scalingMode, MT_VP_HAL_MMCINUSE, m_features.vpMMCInUse);
+    }
     return;
 }

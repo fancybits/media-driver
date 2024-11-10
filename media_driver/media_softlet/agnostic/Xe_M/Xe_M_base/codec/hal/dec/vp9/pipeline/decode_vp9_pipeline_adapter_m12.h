@@ -38,7 +38,14 @@ public:
         CodechalHwInterface *   hwInterface,
         CodechalDebugInterface *debugInterface);
 
-    virtual ~DecodeVp9PipelineAdapterG12() {}
+    virtual ~DecodeVp9PipelineAdapterG12() 
+    {
+        if (m_hwInterface)
+        {
+            MOS_Delete(m_hwInterface);
+            Codechal::m_hwInterface = nullptr;
+        }
+    }
 
     virtual MOS_STATUS BeginFrame() override;
 
@@ -68,10 +75,12 @@ public:
     virtual void Destroy() override;
 
     virtual MOS_GPU_CONTEXT GetDecodeContext() override;
+    virtual GPU_CONTEXT_HANDLE GetDecodeContextHandle() override;
 
 #ifdef _DECODE_PROCESSING_SUPPORTED
     virtual bool IsDownSamplingSupported() override;
 #endif
+    CodechalHwInterface *m_hwInterface = nullptr;
 
 protected:
     std::shared_ptr<decode::Vp9PipelineG12> m_decoder;

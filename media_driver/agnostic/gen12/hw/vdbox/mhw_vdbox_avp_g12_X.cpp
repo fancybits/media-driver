@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2022, Intel Corporation
+* Copyright (c) 2020-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -552,17 +552,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpPipeModeSelectCmd(
     cmd.DW3.PicStatusErrorReportId                      = false;
     cmd.DW5.PhaseIndicator                              = paramsG12->ucPhaseIndicator;
 
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-    if (m_decodeInUse)
-    {
-        if (cmd.DW1.PipeWorkingMode == MHW_VDBOX_HCP_PIPE_WORK_MODE_CABAC_REAL_TILE)
-        {
-            MOS_TraceEvent(EVENT_DECODE_FEATURE_RT_SCALABILITY, EVENT_TYPE_INFO, NULL, 0, NULL, 0);
-        }
-    }
-#endif
-
-    MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, params->pBatchBuffer, &cmd, sizeof(cmd)));
+    MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(m_osInterface, cmdBuffer, params->pBatchBuffer, &cmd, sizeof(cmd)));
 
     // for Gen11+, we need to add MFX wait for both KIN and VRT before and after AVP Pipemode select...
     MHW_MI_CHK_STATUS(m_miInterface->AddMfxWaitCmd(cmdBuffer, nullptr, true));
@@ -637,6 +627,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpPipeBufAddrCmd(
 
     MHW_FUNCTION_ENTER;
 
+    MHW_MI_CHK_NULL(m_osInterface);
     MHW_MI_CHK_NULL(cmdBuffer);
     MHW_MI_CHK_NULL(params);
 
@@ -681,13 +672,6 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpPipeBufAddrCmd(
             resourceParams.dwLocationInCmd = (i * 2) + 1;
             resourceParams.bIsWritable = false;
             resourceParams.dwSharedMocsOffset = 17 - resourceParams.dwLocationInCmd;
-
-            MOS_GPU_CONTEXT gpuContext = m_osInterface->pfnGetGpuContext(m_osInterface);
-            m_osInterface->pfnSyncOnResource(
-                m_osInterface,
-                params->m_references[i],
-                gpuContext,
-                false);
 
             MHW_MI_CHK_STATUS(AddResourceToCmd(
                 m_osInterface,
@@ -748,7 +732,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpPipeBufAddrCmd(
         resourceParams.dwOffset = 0;
         resourceParams.pdwCmd = (cmd.CdfTablesInitializationBufferAddress.DW0_1.Value);
         resourceParams.dwLocationInCmd = 27;
-        resourceParams.bIsWritable = true;
+        resourceParams.bIsWritable = false;
 
         MHW_MI_CHK_STATUS(AddResourceToCmd(
             m_osInterface,
@@ -1451,18 +1435,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpPipeBufAddrCmd(
             &resourceParams));
     }
 
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-    if (m_decodeInUse)
-    {
-        if (cmd.DecodedOutputFrameBufferAddressAttributes.DW0.BaseAddressMemoryCompressionEnable && !bMMCReported)
-        {
-            MOS_TraceEvent(EVENT_DECODE_FEATURE_MMC, EVENT_TYPE_INFO, NULL, 0, NULL, 0);
-            bMMCReported = true;
-        }
-    }
-#endif
-
-    MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+    MHW_MI_CHK_STATUS(m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
 
     return eStatus;
 }
@@ -1475,6 +1448,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpIndObjBaseAddrCmd(
 
     MHW_FUNCTION_ENTER;
 
+    MHW_MI_CHK_NULL(m_osInterface);
     MHW_MI_CHK_NULL(params);
 
     MHW_RESOURCE_PARAMS resourceParams;
@@ -1510,7 +1484,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpIndObjBaseAddrCmd(
         resourceParams.dwUpperBoundLocationOffsetFromCmd = 0;
     }
 
-    MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, cmd.byteSize));
+    MHW_MI_CHK_STATUS(m_osInterface->pfnAddCommand(cmdBuffer, &cmd, cmd.byteSize));
 
     return eStatus;
 }
@@ -1521,6 +1495,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpDecodePicStateCmd(
 {
     MHW_FUNCTION_ENTER;
 
+    MHW_MI_CHK_NULL(m_osInterface);
     MHW_MI_CHK_NULL(params);
     MHW_MI_CHK_NULL(params->m_picParams);
 
@@ -1748,7 +1723,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpDecodePicStateCmd(
     cmd.DW48.ReferenceFrameOrderHint6ForAltref2Frame    = params->m_refOrderHints[5];
     cmd.DW48.ReferenceFrameOrderHint7ForAltrefFrame     = params->m_refOrderHints[6];
 
-    MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, cmd.byteSize));
+    MHW_MI_CHK_STATUS(m_osInterface->pfnAddCommand(cmdBuffer, &cmd, cmd.byteSize));
 
     return MOS_STATUS_SUCCESS;
 }
@@ -1759,6 +1734,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpSegmentStateCmd(
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
+    MHW_MI_CHK_NULL(m_osInterface);
     MHW_MI_CHK_NULL(params);
     MHW_MI_CHK_NULL(params->m_av1SegmentParams);
 
@@ -1781,7 +1757,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpSegmentStateCmd(
     cmd.DW3.SegmentDeltaLoopFilterLevelChromaV          = params->m_av1SegmentParams->m_featureData[seg][segLvlAltLfV];
     cmd.DW3.SegmentReferenceFrame                       = params->m_av1SegmentParams->m_featureData[seg][segLvlRefFrame];
 
-    MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, cmd.byteSize));
+    MHW_MI_CHK_STATUS(m_osInterface->pfnAddCommand(cmdBuffer, &cmd, cmd.byteSize));
 
     return eStatus;
 }
@@ -1801,7 +1777,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpDecodeTileCodingCmd(
     uint8_t                 numVdbox = (uint8_t)gtSystemInfo->VDBoxInfo.NumberOfVDBoxEnabled;
 
     cmd.DW1.FrameTileId = params->m_tileId;
-    cmd.DW1.TgTileNum   = params->m_tileNum;
+    cmd.DW1.TgTileNum   = params->m_tgTileNum;
     cmd.DW1.TileGroupId = params->m_tileGroupId;
 
     cmd.DW2.TileColumnPositionInSbUnit  = params->m_tileColPositionInSb;
@@ -1823,7 +1799,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpDecodeTileCodingCmd(
     cmd.DW5.NumOfTileColumnsMinus1InAFrame  = params->m_numOfTileColumnsInFrame - 1;
     cmd.DW5.NumOfTileRowsMinus1InAFrame     = params->m_numOfTileRowsInFrame - 1;
 
-    MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
+    MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(m_osInterface, cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
 
     return MOS_STATUS_SUCCESS;
 }
@@ -1843,7 +1819,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpDecodeTileCodingCmdLst(
     uint8_t                 numVdbox = (uint8_t)gtSystemInfo->VDBoxInfo.NumberOfVDBoxEnabled;
 
     cmd.DW1.FrameTileId = params->m_tileId;
-    cmd.DW1.TgTileNum   = params->m_tileNum;
+    cmd.DW1.TgTileNum   = params->m_tgTileNum;
     cmd.DW1.TileGroupId = params->m_tileGroupId;
 
     cmd.DW2.TileColumnPositionInSbUnit  = params->m_tileColPositionInSb;
@@ -1867,7 +1843,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpDecodeTileCodingCmdLst(
     cmd.DW6.OutputDecodedTileColumnPositionInSbUnit = params->m_outputDecodedTileColumnPositionInSBUnit;
     cmd.DW6.OutputDecodedTileRowPositionInSbUnit    = params->m_outputDecodedTileRowPositionInSBUnit;
 
-    MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
+    MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(m_osInterface, cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
 
     return MOS_STATUS_SUCCESS;
 }
@@ -1914,7 +1890,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpBsdObjectCmd(
     cmd.DW1.TileIndirectBsdDataLength       = params->m_bsdDataLength;
     cmd.DW2.TileIndirectDataStartAddress    = params->m_bsdDataStartOffset;
 
-    MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
+    MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(m_osInterface, cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
 
     return MOS_STATUS_SUCCESS;
 }
@@ -1927,6 +1903,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpInloopFilterStateCmd(
 
     MHW_FUNCTION_ENTER;
 
+    MHW_MI_CHK_NULL(m_osInterface);
     MHW_MI_CHK_NULL(params);
     mhw_vdbox_avp_g12_X::AVP_INLOOP_FILTER_STATE_CMD cmd;
 
@@ -2035,7 +2012,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpInloopFilterStateCmd(
         cmd.DW3.DeblockerFilterRefDeltas7 = -1;
     }
 
-    MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, cmd.byteSize));
+    MHW_MI_CHK_STATUS(m_osInterface->pfnAddCommand(cmdBuffer, &cmd, cmd.byteSize));
 
     return eStatus;
 }
@@ -2048,6 +2025,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpInterPredStateCmd(
 
     MHW_FUNCTION_ENTER;
 
+    MHW_MI_CHK_NULL(m_osInterface);
     MHW_MI_CHK_NULL(params);
     mhw_vdbox_avp_g12_X::AVP_INTER_PRED_STATE_CMD cmd;
 
@@ -2115,7 +2093,7 @@ MOS_STATUS MhwVdboxAvpInterfaceG12::AddAvpInterPredStateCmd(
     cmd.DW14.SavedOrderHintsForAllReferences65 = params->m_savedRefOrderHints[6][5];
     cmd.DW14.SavedOrderHintsForAllReferences66 = params->m_savedRefOrderHints[6][6];
 
-    MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, cmd.byteSize));
+    MHW_MI_CHK_STATUS(m_osInterface->pfnAddCommand(cmdBuffer, &cmd, cmd.byteSize));
 
     return eStatus;
 }

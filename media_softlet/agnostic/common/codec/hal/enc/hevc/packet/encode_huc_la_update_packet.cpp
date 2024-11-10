@@ -34,7 +34,7 @@ namespace encode
         ENCODE_FUNC_CALL();
         MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
-        HUC_CHK_STATUS_RETURN(EncodeHucBasic::Init());
+        HUC_CHK_STATUS_RETURN(EncodeHucPkt::Init());
 
         ENCODE_CHK_NULL_RETURN(m_featureManager);
         m_basicFeature = dynamic_cast<HevcBasicFeature *>(m_featureManager->GetFeature(HevcFeatureIDs::basicFeature));
@@ -48,7 +48,7 @@ namespace encode
         ENCODE_FUNC_CALL();
         MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
-        ENCODE_CHK_STATUS_RETURN(EncodeHucBasic::AllocateResources());
+        ENCODE_CHK_STATUS_RETURN(EncodeHucPkt::AllocateResources());
 
         return eStatus;
     }
@@ -113,6 +113,15 @@ namespace encode
             }
 #if _SW_BRC
         }
+        else
+        {
+            //add force wake up for ladll path, to avoid that ladll path directly use MI_COPY to get data in ReadLPLAData
+            if (requestProlog)
+            {
+                ENCODE_CHK_STATUS_RETURN(AddForceWakeup(*commandBuffer));
+                ENCODE_CHK_STATUS_RETURN(SendPrologCmds(*commandBuffer));
+            }
+        }
 #endif
 
         ReadLPLAData(commandBuffer);
@@ -133,11 +142,8 @@ namespace encode
         uint32_t hucPatchListSize = 0;
         MHW_VDBOX_STATE_CMDSIZE_PARAMS stateCmdSizeParams;
 
-        if (m_hwInterface->m_hwInterfaceNext)
-        {
-            ENCODE_CHK_STATUS_RETURN(m_hwInterface->m_hwInterfaceNext->GetHucStateCommandSize(
-                m_basicFeature->m_mode, (uint32_t *)&hucCommandsSize, (uint32_t *)&hucPatchListSize, &stateCmdSizeParams));
-        }
+        ENCODE_CHK_STATUS_RETURN(m_hwInterface->GetHucStateCommandSize(
+            m_basicFeature->m_mode, (uint32_t *)&hucCommandsSize, (uint32_t *)&hucPatchListSize, &stateCmdSizeParams));
 
         commandBufferSize      = hucCommandsSize;
         requestedPatchListSize = osInterface->bUsesPatchList ? hucPatchListSize : 0;
@@ -201,7 +207,7 @@ namespace encode
 
         m_statusReport->GetAddress(statusReportLpla, osResource, offset);
 
-        RUN_FEATURE_INTERFACE_RETURN(VdencLplaAnalysis, HevcFeatureIDs::vdencLplaAnalysisFeature, ReadLPLAData, commandBuffer, osResource, offset, IsHuCStsUpdNeeded());
+        RUN_FEATURE_INTERFACE_RETURN(VdencLplaAnalysis, HevcFeatureIDs::vdencLplaAnalysisFeature, ReadLPLAData, commandBuffer, osResource, offset);
 
         return MOS_STATUS_SUCCESS;
     }
@@ -218,6 +224,13 @@ namespace encode
         params.function = LA_UPDATE;
         RUN_FEATURE_INTERFACE_RETURN(VdencLplaAnalysis, HevcFeatureIDs::vdencLplaAnalysisFeature, SetLaUpdateDmemParameters, 
             params, m_pipeline->m_currRecycledBufIdx, m_pipeline->GetCurrentPass(), m_pipeline->GetPassNum());
+
+        auto laAnalysisFeature = dynamic_cast<VdencLplaAnalysis *>(m_featureManager->GetFeature(HevcFeatureIDs::vdencLplaAnalysisFeature));
+        if (laAnalysisFeature && laAnalysisFeature->IsLastPicInStream())
+        {
+            m_pipeline->m_currRecycledBufIdx =
+                (m_pipeline->m_currRecycledBufIdx + 1) % CODECHAL_ENCODE_RECYCLED_BUFFER_NUM;
+        }
         return MOS_STATUS_SUCCESS;
     }
 

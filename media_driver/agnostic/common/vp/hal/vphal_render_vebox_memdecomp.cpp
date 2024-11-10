@@ -25,8 +25,11 @@
 //! \details
 //!
 #include "vphal_render_vebox_memdecomp.h"
+#include "mos_os_cp_interface_specific.h"
 #include "vphal_debug.h"
 #include "vp_utils.h"
+
+#define DECOMPRESSION_WIDTH_ALIGNMENT_IN_BYTE 32
 
 MediaVeboxDecompState::MediaVeboxDecompState():
     MediaMemDecompBaseState(),
@@ -44,8 +47,15 @@ MediaVeboxDecompState::~MediaVeboxDecompState()
 
     if (m_cpInterface)
     {
-        Delete_MhwCpInterface(m_cpInterface);
-        m_cpInterface = nullptr;
+        if(m_osInterface)
+        {
+            m_osInterface->pfnDeleteMhwCpInterface(m_cpInterface);
+            m_cpInterface = nullptr;
+        }
+        else
+        {
+            VPHAL_MEMORY_DECOMP_ASSERTMESSAGE("Failed to destroy cpInterface.");
+        }
     }
 
     if (m_veboxInterface)
@@ -184,7 +194,9 @@ MOS_STATUS MediaVeboxDecompState::MediaMemoryCopy(
     PMOS_RESOURCE outputResource,
     bool          outputCompressed)
 {
-    MOS_STATUS                          eStatus = MOS_STATUS_SUCCESS;
+    MOS_STATUS eStatus             = MOS_STATUS_SUCCESS;
+    bool       bValidInputSurface  = false;
+    bool       bValidOutputSurface = false;
 
     MHW_FUNCTION_ENTER;
 
@@ -301,6 +313,14 @@ MOS_STATUS MediaVeboxDecompState::MediaMemoryCopy(
     //Get context before proceeding
     auto gpuContext = m_osInterface->CurrentGpuContextOrdinal;
 
+    //Check whether surface is valid, or it will cause page fault
+    m_osInterface->pfnVerifyMosSurface(&sourceSurface, bValidInputSurface);
+    m_osInterface->pfnVerifyMosSurface(&targetSurface, bValidOutputSurface);
+    if (!bValidInputSurface || !bValidOutputSurface)
+    {
+        VPHAL_MEMORY_DECOMP_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+    }
+
     // Sync for Vebox read
     m_osInterface->pfnSyncOnResource(
         m_osInterface,
@@ -334,7 +354,9 @@ MOS_STATUS MediaVeboxDecompState::MediaMemoryCopy2D(
     uint32_t      bpp,
     bool          outputCompressed)
 {
-    MOS_STATUS                          eStatus = MOS_STATUS_SUCCESS;
+    MOS_STATUS eStatus             = MOS_STATUS_SUCCESS;
+    bool       bValidInputSurface  = false;
+    bool       bValidOutputSurface = false;
 
     MHW_FUNCTION_ENTER;
 
@@ -418,6 +440,14 @@ MOS_STATUS MediaVeboxDecompState::MediaMemoryCopy2D(
     sourceSurface.dwHeight = copyHeight;
     targetSurface.dwWidth  = copyWidth / pixelInByte;
     targetSurface.dwHeight = copyHeight;
+
+    //Check whether surface is valid, or it will cause page fault
+    m_osInterface->pfnVerifyMosSurface(&sourceSurface, bValidInputSurface);
+    m_osInterface->pfnVerifyMosSurface(&targetSurface, bValidOutputSurface);
+    if (!bValidInputSurface || !bValidOutputSurface)
+    {
+        VPHAL_MEMORY_DECOMP_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+    }
 
     // Sync for Vebox write
     m_osInterface->pfnSyncOnResource(
@@ -593,7 +623,7 @@ MOS_STATUS MediaVeboxDecompState::Initialize(
 
         if (m_veboxInterface->m_veboxHeap == nullptr)
         {
-            m_veboxInterface->CreateHeap();
+            VPHAL_MEMORY_DECOMP_CHK_STATUS_RETURN(m_veboxInterface->CreateHeap());
         }
 
 #if (_DEBUG || _RELEASE_INTERNAL)
@@ -635,7 +665,33 @@ MOS_STATUS MediaVeboxDecompState::GetResourceInfo(PMOS_SURFACE surface)
         &resDetails));
 
     surface->Format                                             = resDetails.Format;
+#if defined(LINUX) && !defined(WDDM_LINUX)
+    if ((surface->Format == Format_NV12 || surface->Format == Format_P010) && surface->OsResource.iWidth & 1 != 0)
+    {
+        uint32_t bitsPerPixel = 8;
+        if (surface->Format == Format_P010)
+        {
+            bitsPerPixel = 16;
+        }
+
+        uint32_t alignWidth = MOS_ALIGN_CEIL(resDetails.dwWidth, DECOMPRESSION_WIDTH_ALIGNMENT_IN_BYTE*8/bitsPerPixel);
+        if (alignWidth <= resDetails.dwPitch*8/bitsPerPixel)
+        {
+            surface->dwWidth = alignWidth;
+        }
+        else
+        {
+            VPHAL_MEMORY_DECOMP_ASSERTMESSAGE("May got green line corruption.");
+            surface->dwWidth = resDetails.dwWidth;
+        }
+    }
+    else
+    {
+        surface->dwWidth                                        = resDetails.dwWidth;
+    }
+#else
     surface->dwWidth                                            = resDetails.dwWidth;
+#endif
     surface->dwHeight                                           = resDetails.dwHeight;
     surface->dwPitch                                            = resDetails.dwPitch;
     surface->dwDepth                                            = resDetails.dwDepth;

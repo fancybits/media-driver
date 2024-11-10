@@ -96,6 +96,7 @@ MOS_STATUS CodechalEncodeCscDsG12::CheckRawColorFormat(MOS_FORMAT format, MOS_TI
         m_cscRequireConvTo8bPlanar = (uint8_t)HCP_CHROMA_FORMAT_YUV422 == m_outputChromaFormat;
         break;
     case Format_A8R8G8B8:
+    case Format_X8R8G8B8:
         m_colorRawSurface = cscColorARGB;
         m_cscUsingSfc = IsSfcEnabled() ? 1 : 0;
         m_cscRequireColor = 1;
@@ -529,6 +530,14 @@ MOS_STATUS CodechalEncodeCscDsG12::SendSurfaceCsc(PMOS_COMMAND_BUFFER cmdBuffer)
 #ifdef _MMC_SUPPORTED
     CODECHAL_ENCODE_CHK_NULL_RETURN(m_encoder->m_mmcState);
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_encoder->m_mmcState->SetSurfaceParams(&surfaceParams));
+
+    // disable compression for render RC TA resources
+    if (surfaceParams.psSurface->MmcState == MOS_MEMCOMP_RC &&
+        surfaceParams.psSurface->OsResource.pGmmResInfo->GetArraySize() > 1)
+    {
+        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnDecompResource(m_osInterface, &surfaceParams.psSurface->OsResource));
+        surfaceParams.psSurface->MmcState = MOS_MEMCOMP_DISABLED;
+    }
 #endif
 
     surfaceParams.dwBindingTableOffset = cscSrcYPlane;
@@ -850,13 +859,29 @@ MOS_STATUS CodechalEncodeCscDsG12::InitSfcState()
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS CodechalEncodeCscDsG12::SurfaceNeedsExtraCopy()
+{
+    m_needsExtraCopy = true;
+    return MOS_STATUS_SUCCESS;
+}
+
 MOS_STATUS CodechalEncodeCscDsG12::CheckRawSurfaceAlignment(MOS_SURFACE surface)
 {
+    if (m_cscEnableCopy && m_needsExtraCopy)
+    {
+        if (surface.Format == Format_A8R8G8B8) // not touch NV12 logic.
+        {
+            m_colorRawSurface = cscColorARGB;
+            m_cscRequireCopy = 1;
+        }
+    }
+
     if (m_cscEnableCopy && (surface.dwWidth % m_rawSurfAlignment || surface.dwHeight % m_rawSurfAlignment) &&
         m_colorRawSurface != cscColorNv12TileY)
     {
         m_cscRequireCopy = 1;
     }
+
     return MOS_STATUS_SUCCESS;
 }
 

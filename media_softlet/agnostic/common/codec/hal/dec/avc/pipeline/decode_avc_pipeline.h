@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2020, Intel Corporation
+* Copyright (c) 2018-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -47,7 +47,7 @@ public:
     //!         Pointer to CodechalDebugInterface
     //!
     AvcPipeline(
-        CodechalHwInterface*    hwInterface,
+        CodechalHwInterfaceNext *hwInterface,
         CodechalDebugInterface* debugInterface);
 
     //!
@@ -67,6 +67,13 @@ public:
     //! \return MOS_STATUS
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     virtual MOS_STATUS InitUserSetting(MediaUserSettingSharedPtr userSettingPtr) override;
+    
+    //!
+    //! \brief    Set decode short/long format during runtime.
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS SetDecodeFormat(bool isShortFormat) override;
 
     DeclareDecodePacketId(avcDecodePacketId);
     DeclareDecodePacketId(avcPictureSubPacketId);
@@ -128,6 +135,14 @@ protected:
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     //!
     virtual MOS_STATUS CreateSubPackets(DecodeSubPacketManager& subPacketManager, CodechalSetting &codecSettings) override;
+    
+    //!
+    //! \brief  Copy decode dest surface to downsampling input surface if
+    //!         a explicit copy needed for non downsampling platforms
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS HandleRefOnlySurfaces();
 
 #if USE_CODECHAL_DEBUG_TOOL
     MOS_STATUS DumpPicParams(
@@ -135,20 +150,21 @@ protected:
 
     MOS_STATUS DumpSliceParams(
         PCODEC_AVC_SLICE_PARAMS sliceParams,
-        uint32_t                numSlices);
+        uint32_t                numSlices,
+        bool                    shortFormatInUse);
 
     MOS_STATUS DumpIQParams(
-        PCODEC_AVC_IQ_MATRIX_PARAMS matrixData);
+        PCODEC_AVC_IQ_MATRIX_PARAMS iqParams);
 #endif
 
 protected:
 
-    bool            m_shortFormatInUse  = false;            //!< Indicate it is Short Format
+    bool            m_shortFormatInUse  = false;             //!< Indicate it is Short Format
     AvcDecodeMode   m_decodeMode        = baseDecodeMode;    //!< Decode mode
     HucCopyPktItf   *m_formatMonoPicPkt  = nullptr;          //!< Format Avc Mono Chroma with HuC Copy
     AvcBasicFeature *m_basicFeature     = nullptr;           //!< Avc Basic Feature
-
-MEDIA_CLASS_DEFINE_END(decode__AvcPipeline)
+    bool            m_allowVirtualNodeReassign = false;      //!< Whether allow virtual node reassign
+    MEDIA_CLASS_DEFINE_END(decode__AvcPipeline)
 };
 
 }

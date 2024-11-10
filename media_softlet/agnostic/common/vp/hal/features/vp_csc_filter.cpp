@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2022, Intel Corporation
+* Copyright (c) 2018-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -29,6 +29,7 @@
 #include "vp_vebox_cmd_packet_base.h"
 #include "hw_filter.h"
 #include "sw_filter_pipe.h"
+#include "vp_hal_ddi_utils.h"
 
 namespace vp {
 
@@ -80,7 +81,8 @@ namespace vp {
 #define VP_VEBOX_CHROMA_DOWNSAMPLING_422_TYPE2_VERT_OFFSET           0
 #define VP_VEBOX_CHROMA_DOWNSAMPLING_422_TYPE3_VERT_OFFSET           0
 
-MOS_FORMAT GetSfcInputFormat(VP_EXECUTE_CAPS &executeCaps, MOS_FORMAT inputFormat, VPHAL_CSPACE colorSpaceOutput);
+MOS_FORMAT GetSfcInputFormat(VP_EXECUTE_CAPS &executeCaps, MOS_FORMAT inputFormat, VPHAL_CSPACE colorSpaceOutput, MOS_FORMAT outputFormat);
+VPHAL_CSPACE GetDemosaicOutputColorSpace(VPHAL_CSPACE colorSpace);
 bool IsBeCscNeededForAlphaFill(MOS_FORMAT formatInput, MOS_FORMAT formatOutput, PVPHAL_ALPHA_PARAMS compAlpha);
 
 VpCscFilter::VpCscFilter(PVP_MHWINTERFACE vpMhwInterface) :
@@ -160,13 +162,20 @@ MOS_STATUS VpCscFilter::CalculateEngineParams()
     return MOS_STATUS_SUCCESS;
 }
 
-VPHAL_CSPACE GetSfcInputColorSpace(VP_EXECUTE_CAPS &executeCaps, VPHAL_CSPACE inputColorSpace, VPHAL_CSPACE colorSpaceOutput)
+VPHAL_CSPACE GetSfcInputColorSpace(VP_EXECUTE_CAPS &executeCaps, VPHAL_CSPACE inputColorSpace, VPHAL_CSPACE colorSpaceOutput, MOS_FORMAT outputFormat)
 {
     VP_FUNC_CALL();
 
     if (executeCaps.b3DlutOutput)
     {
-        return IS_COLOR_SPACE_BT2020(colorSpaceOutput) ? CSpace_BT2020_RGB : CSpace_sRGB;
+        if (IS_RGB64_FLOAT_FORMAT(outputFormat)) // SFC output FP16, BT2020->BT709
+        {
+            return CSpace_BT2020_RGB;
+        }
+        else
+        {
+            return IS_COLOR_SPACE_BT2020(colorSpaceOutput) ? CSpace_BT2020_RGB : CSpace_sRGB;
+        }
     }
 
     // return sRGB as colorspace as Vebox will do Bt202 to sRGB Gamut switch
@@ -174,18 +183,23 @@ VPHAL_CSPACE GetSfcInputColorSpace(VP_EXECUTE_CAPS &executeCaps, VPHAL_CSPACE in
     {
         return CSpace_sRGB;
     }
+
+    if (executeCaps.bDemosaicInUse)
+    {
+        return GetDemosaicOutputColorSpace(colorSpaceOutput);
+    }
     return inputColorSpace;
 }
 
 bool VpCscFilter::IsDitheringNeeded(MOS_FORMAT formatInput, MOS_FORMAT formatOutput)
 {
-    uint32_t inputBitDepth = VpUtils::GetSurfaceBitDepth(formatInput);
+    uint32_t inputBitDepth = VpHalDDIUtils::GetSurfaceBitDepth(formatInput);
     if (inputBitDepth == 0)
     {
         VP_PUBLIC_ASSERTMESSAGE("Unknown Input format %d for bit depth, return false", formatInput);
         return false;
     }
-    uint32_t outputBitDepth = VpUtils::GetSurfaceBitDepth(formatOutput);
+    uint32_t outputBitDepth = VpHalDDIUtils::GetSurfaceBitDepth(formatOutput);
     if (outputBitDepth == 0)
     {
         VP_PUBLIC_ASSERTMESSAGE("Unknown Output format %d for bit depth, return false", formatOutput);
@@ -245,24 +259,26 @@ MOS_STATUS VpCscFilter::CalculateSfcEngineParams()
         m_sfcCSCParams->iefParams = m_cscParams.pIEFParams;
     }
 
-    m_cscParams.input.colorSpace    = m_cscParams.input.colorSpace;
+    m_sfcCSCParams->inputColorSpace = m_cscParams.input.colorSpace;
 
     // IsDitheringNeeded should be called before input format being updated by GetSfcInputFormat
     m_sfcCSCParams->isDitheringNeeded = IsDitheringNeeded(m_cscParams.formatInput, m_cscParams.formatOutput);
 
-    m_sfcCSCParams->inputColorSpace = GetSfcInputColorSpace(m_executeCaps, m_cscParams.input.colorSpace, m_cscParams.output.colorSpace);
+    m_sfcCSCParams->inputColorSpace = GetSfcInputColorSpace(m_executeCaps, m_cscParams.input.colorSpace, m_cscParams.output.colorSpace, m_cscParams.formatOutput);
 
-    m_cscParams.formatInput         = GetSfcInputFormat(m_executeCaps, m_cscParams.formatInput, m_cscParams.output.colorSpace);
+    m_cscParams.formatInput         = GetSfcInputFormat(m_executeCaps, m_cscParams.formatInput, m_cscParams.output.colorSpace, m_cscParams.formatOutput);
     m_sfcCSCParams->inputFormat     = m_cscParams.formatInput;
     m_sfcCSCParams->outputFormat    = m_cscParams.formatOutput;
+    m_sfcCSCParams->isFullRgbG10P709 = m_cscParams.isFullRgbG10P709;
+    m_sfcCSCParams->isDemosaicNeeded = m_executeCaps.bDemosaicInUse;
 
     // No need to check m_cscParams.pAlphaParams as CalculateVeboxEngineParams does, as alpha is done by scaling filter on SFC.
-    if (m_sfcCSCParams->inputColorSpace != m_cscParams.output.colorSpace)
+    if (m_sfcCSCParams->inputColorSpace != m_cscParams.output.colorSpace && !(IS_RGB64_FLOAT_FORMAT(m_sfcCSCParams->outputFormat) && m_sfcCSCParams->isFullRgbG10P709))
     {
         m_sfcCSCParams->bCSCEnabled = true;
     }
 
-    if (IS_RGB_CSPACE(m_sfcCSCParams->inputColorSpace))
+    if (IS_RGB_CSPACE(m_sfcCSCParams->inputColorSpace) || IS_COLOR_SPACE_BT2020_RGB(m_sfcCSCParams->inputColorSpace))
     {
         m_sfcCSCParams->isInputColorSpaceRGB = true;
     }
@@ -340,7 +356,7 @@ MOS_STATUS VpCscFilter::SetSfcChromaParams(
 
     if (vpExecuteCaps.bVebox)
     {
-        if (VpUtils::GetSurfaceColorPack(m_sfcCSCParams->inputFormat) == VPHAL_COLORPACK_444)
+        if (VpHalDDIUtils::GetSurfaceColorPack(m_sfcCSCParams->inputFormat) == VPHAL_COLORPACK_444)
         {
             m_sfcCSCParams->b8tapChromafiltering = true;
         }
@@ -377,7 +393,14 @@ MOS_STATUS VpCscFilter::SetVeboxCUSChromaParams(VP_EXECUTE_CAPS vpExecuteCaps)
         (vpExecuteCaps.b3DlutOutput && !vpExecuteCaps.bHDR3DLUT);
     bool bDIEnabled      = vpExecuteCaps.bDI;
 
-    srcColorPack = VpUtils::GetSurfaceColorPack(m_cscParams.formatInput);
+    if (Format_None != m_cscParams.formatforCUS)
+    {
+        srcColorPack = VpHalDDIUtils::GetSurfaceColorPack(m_cscParams.formatforCUS);
+    }
+    else
+    {
+        srcColorPack = VpHalDDIUtils::GetSurfaceColorPack(m_cscParams.formatInput);
+    }
 
     // Init CUS as disabled
     m_veboxCSCParams->bypassCUS = true;
@@ -524,7 +547,7 @@ MOS_STATUS VpCscFilter::SetVeboxCDSChromaParams(VP_EXECUTE_CAPS vpExecuteCaps)
 
     bool bNeedDownSampling = false;
 
-    VPHAL_COLORPACK dstColorPack = VpUtils::GetSurfaceColorPack(m_cscParams.formatOutput);
+    VPHAL_COLORPACK dstColorPack = VpHalDDIUtils::GetSurfaceColorPack(m_cscParams.formatOutput);
 
     // Only VEBOX output, we use VEO to do downsampling.
     // Else, we use SFC/FC path to do downscaling.
@@ -643,7 +666,7 @@ MOS_STATUS VpCscFilter::UpdateChromaSiting(VP_EXECUTE_CAPS vpExecuteCaps)
     {
         m_cscParams.input.chromaSiting = (CHROMA_SITING_HORZ_LEFT | CHROMA_SITING_VERT_CENTER);
     }
-    switch (VpUtils::GetSurfaceColorPack(m_cscParams.formatInput))
+    switch (VpHalDDIUtils::GetSurfaceColorPack(m_cscParams.formatInput))
     {
     case VPHAL_COLORPACK_422:
         m_cscParams.input.chromaSiting = (m_cscParams.input.chromaSiting & 0x7) | CHROMA_SITING_VERT_TOP;
@@ -659,7 +682,7 @@ MOS_STATUS VpCscFilter::UpdateChromaSiting(VP_EXECUTE_CAPS vpExecuteCaps)
     {
         m_cscParams.output.chromaSiting = (CHROMA_SITING_HORZ_LEFT | CHROMA_SITING_VERT_CENTER);
     }
-    switch (VpUtils::GetSurfaceColorPack(m_cscParams.formatOutput))
+    switch (VpHalDDIUtils::GetSurfaceColorPack(m_cscParams.formatOutput))
     {
     case VPHAL_COLORPACK_422:
         m_cscParams.output.chromaSiting = (m_cscParams.output.chromaSiting & 0x7) | CHROMA_SITING_VERT_TOP;
@@ -681,8 +704,8 @@ bool VpCscFilter::IsChromaUpSamplingNeeded()
     bool                  bChromaUpSampling = false;
     VPHAL_COLORPACK       srcColorPack, dstColorPack;
 
-    srcColorPack = VpUtils::GetSurfaceColorPack(m_cscParams.formatInput);
-    dstColorPack = VpUtils::GetSurfaceColorPack(m_cscParams.formatOutput);
+    srcColorPack = VpHalDDIUtils::GetSurfaceColorPack(m_cscParams.formatInput);
+    dstColorPack = VpHalDDIUtils::GetSurfaceColorPack(m_cscParams.formatOutput);
 
     if ((srcColorPack == VPHAL_COLORPACK_420 &&
         (dstColorPack == VPHAL_COLORPACK_422 || dstColorPack == VPHAL_COLORPACK_444)) ||

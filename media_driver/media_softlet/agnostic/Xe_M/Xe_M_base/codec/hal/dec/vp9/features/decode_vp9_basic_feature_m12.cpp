@@ -25,15 +25,16 @@
 //!
 
 #include "decode_vp9_basic_feature_m12.h"
+#include "codechal_hw.h"
 
 namespace decode
 {
 
-    Vp9BasicFeatureM12::Vp9BasicFeatureM12(DecodeAllocator *allocator, CodechalHwInterface *hwInterface) : 
-        Vp9BasicFeature(allocator, hwInterface)
+    Vp9BasicFeatureM12::Vp9BasicFeatureM12(DecodeAllocator *allocator, void *hwInterface, PMOS_INTERFACE osInterface) : 
+        Vp9BasicFeature(allocator, *((CodechalHwInterface *)hwInterface), osInterface)
     {
-        m_osInterface  = hwInterface->GetOsInterface();
-        m_hcpInterface = hwInterface->GetHcpInterface();
+        m_osInterface  = osInterface;
+        m_hcpInterface = ((CodechalHwInterface *)hwInterface)->GetHcpInterface();
     }
 
 }  // namespace decode

@@ -29,7 +29,7 @@
 //!           this file is for the base interface which is shared by all components.
 //!
 
-#include "codechal_hw.h"
+#include "codec_hw_next.h"
 #include "encode_scalability_defs.h"
 #include "encode_scalability_singlepipe.h"
 
@@ -37,39 +37,44 @@
 #include "media_status_report.h"
 #include "mhw_utilities.h"
 #include "encode_status_report_defs.h"
-#include "hal_oca_interface.h"
+#include "hal_oca_interface_next.h"
 
 namespace encode
 {
 
 EncodeScalabilitySinglePipe::EncodeScalabilitySinglePipe(void *hwInterface, MediaContext *mediaContext, uint8_t componentType) :
-    MediaScalabilitySinglePipe(hwInterface, mediaContext, componentType)
+    MediaScalabilitySinglePipeNext(hwInterface, mediaContext, componentType)
 {
     if (hwInterface == nullptr)
     {
         return;
     }
-    m_hwInterface = (CodechalHwInterface *)hwInterface;
+    m_hwInterface = (CodechalHwInterfaceNext *)hwInterface;
     m_osInterface = m_hwInterface->GetOsInterface();
 }
 
 MOS_STATUS EncodeScalabilitySinglePipe::Initialize(const MediaScalabilityOption &option)
 {
     SCALABILITY_CHK_NULL_RETURN(m_osInterface);
+    m_userSettingPtr = m_osInterface->pfnGetUserSettingInstance(m_osInterface);
+    if (!m_userSettingPtr)
+    {
+        ENCODE_NORMALMESSAGE("Initialize m_userSettingPtr instance failed!");
+    }
 
     m_scalabilityOption = MOS_New(EncodeScalabilityOption, (const EncodeScalabilityOption &)option);
     SCALABILITY_CHK_NULL_RETURN(m_scalabilityOption);
 
-    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-    auto statusKey = MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_ENCODE_ENABLE_FRAME_TRACKING_ID,
-        &userFeatureData,
-        m_osInterface->pOsContext);
+    MediaUserSetting::Value outValue;
+    auto statusKey = ReadUserSetting(
+                        m_userSettingPtr,
+                        outValue,
+                        "Enable Frame Tracking",
+                        MediaUserSetting::Group::Sequence);
+
     if (statusKey == MOS_STATUS_SUCCESS)
     {
-        m_frameTrackingEnabled = userFeatureData.i32Data ? true : false;
+        m_frameTrackingEnabled = outValue.Get<bool>();
     }
     else
     {
@@ -78,11 +83,11 @@ MOS_STATUS EncodeScalabilitySinglePipe::Initialize(const MediaScalabilityOption 
 
     // !Don't check the return status here, because this function will return fail if there's no regist key in register.
     // But it's normal that regist key not in register.
-    Mos_CheckVirtualEngineSupported(m_osInterface, false, true);
-    m_miInterface = m_hwInterface->GetMiInterface();
-    SCALABILITY_CHK_NULL_RETURN(m_miInterface);
+    m_osInterface->pfnVirtualEngineSupported(m_osInterface, false, true);
+    m_miItf = m_hwInterface->GetMiInterfaceNext();
+    SCALABILITY_CHK_NULL_RETURN(m_miItf);
 
-    SCALABILITY_CHK_STATUS_RETURN(MediaScalabilitySinglePipe::Initialize(option));
+    SCALABILITY_CHK_STATUS_RETURN(MediaScalabilitySinglePipeNext::Initialize(option));
 
     PMOS_GPUCTX_CREATOPTIONS_ENHANCED gpuCtxCreateOption = 
                     dynamic_cast<PMOS_GPUCTX_CREATOPTIONS_ENHANCED>(m_gpuCtxCreateOption);
@@ -98,13 +103,6 @@ MOS_STATUS EncodeScalabilitySinglePipe::Initialize(const MediaScalabilityOption 
     }
 
     return MOS_STATUS_SUCCESS;
-}
-
-MOS_STATUS EncodeScalabilitySinglePipe::VerifyCmdBuffer(uint32_t requestedSize, uint32_t requestedPatchListSize, bool &singleTaskPhaseSupportedInPak)
-{
-    SCALABILITY_FUNCTION_ENTER;
-
-    return MediaScalabilitySinglePipe::VerifyCmdBuffer(requestedSize, requestedPatchListSize, singleTaskPhaseSupportedInPak);
 }
 
 MOS_STATUS EncodeScalabilitySinglePipe::VerifySpaceAvailable(uint32_t requestedSize, uint32_t requestedPatchListSize, bool &singleTaskPhaseSupportedInPak)
@@ -158,7 +156,7 @@ MOS_STATUS EncodeScalabilitySinglePipe::VerifySpaceAvailable(uint32_t requestedS
 MOS_STATUS EncodeScalabilitySinglePipe::UpdateState(void *statePars)
 {
     SCALABILITY_FUNCTION_ENTER;
-    SCALABILITY_CHK_STATUS_RETURN(MediaScalabilitySinglePipe::UpdateState(statePars));
+    SCALABILITY_CHK_STATUS_RETURN(MediaScalabilitySinglePipeNext::UpdateState(statePars));
 
     MOS_STATUS   eStatus         = MOS_STATUS_SUCCESS;
 
@@ -195,7 +193,7 @@ MOS_STATUS EncodeScalabilitySinglePipe::SendAttrWithFrameTracking(
 
     // initialize command buffer attributes
     cmdBuffer.Attributes.bTurboMode               = m_hwInterface->m_turboMode;
-    cmdBuffer.Attributes.bMediaPreemptionEnabled  = renderEngineUsed ? m_hwInterface->GetRenderInterface()->IsPreemptionEnabled() : 0;
+    cmdBuffer.Attributes.bMediaPreemptionEnabled  = renderEngineUsed ? m_hwInterface->GetRenderInterfaceNext()->IsPreemptionEnabled() : 0;
     cmdBuffer.Attributes.dwNumRequestedEUSlices   = m_hwInterface->m_numRequestedEuSlices;
     cmdBuffer.Attributes.dwNumRequestedSubSlices  = m_hwInterface->m_numRequestedSubSlices;
     cmdBuffer.Attributes.dwNumRequestedEUs        = m_hwInterface->m_numRequestedEus;
@@ -216,26 +214,99 @@ MOS_STATUS EncodeScalabilitySinglePipe::SendAttrWithFrameTracking(
 
     return eStatus;
 }
+//#include "mhw_mi_impl.h"
+////VDBOX MFX register offsets
+//static constexpr uint32_t MFC_IMAGE_STATUS_MASK_REG_OFFSET_NODE_1_INIT           = 0x1C08B4;
+//static constexpr uint32_t MFC_IMAGE_STATUS_CTRL_REG_OFFSET_NODE_1_INIT           = 0x1C08B8;
+//static constexpr uint32_t MFC_AVC_NUM_SLICES_REG_OFFSET_NODE_1_INIT              = 0x1C0954;
+//static constexpr uint32_t MFC_QP_STATUS_COUNT_OFFSET_NODE_1_INIT                 = 0x1C08BC;
+//static constexpr uint32_t MFX_ERROR_FLAG_REG_OFFSET_NODE_1_INIT                  = 0x1C0800;
+//static constexpr uint32_t MFX_FRAME_CRC_REG_OFFSET_NODE_1_INIT                   = 0x1C0850;
+//static constexpr uint32_t MFX_MB_COUNT_REG_OFFSET_NODE_1_INIT                    = 0x1C0868;
+//static constexpr uint32_t MFC_BITSTREAM_BYTECOUNT_FRAME_REG_OFFSET_NODE_1_INIT   = 0x1C08A0;
+//static constexpr uint32_t MFC_BITSTREAM_SE_BITCOUNT_FRAME_REG_OFFSET_NODE_1_INIT = 0x1C08A4;
+//static constexpr uint32_t MFC_BITSTREAM_BYTECOUNT_SLICE_REG_OFFSET_NODE_1_INIT   = 0x1C08D0;
+////VDBOX MFX register initial value
+//static constexpr uint32_t MFX_LRA0_REG_OFFSET_NODE_1_INIT = 0;
+//static constexpr uint32_t MFX_LRA1_REG_OFFSET_NODE_1_INIT = 0;
+//static constexpr uint32_t MFX_LRA2_REG_OFFSET_NODE_1_INIT = 0;
+//void EncodeScalabilitySinglePipe::InitMmioRegisters()
+//{
+//    MmioRegistersMfx *mmioRegisters = &m_mmioRegisters[MHW_VDBOX_NODE_1];
+//
+//    mmioRegisters->generalPurposeRegister0LoOffset      = mhw::mi::GENERAL_PURPOSE_REGISTER0_LO_OFFSET_NODE_1_INIT;
+//    mmioRegisters->generalPurposeRegister0HiOffset      = mhw::mi::GENERAL_PURPOSE_REGISTER0_HI_OFFSET_NODE_1_INIT;
+//    mmioRegisters->generalPurposeRegister4LoOffset      = mhw::mi::GENERAL_PURPOSE_REGISTER4_LO_OFFSET_NODE_1_INIT;
+//    mmioRegisters->generalPurposeRegister4HiOffset      = mhw::mi::GENERAL_PURPOSE_REGISTER4_HI_OFFSET_NODE_1_INIT;
+//    mmioRegisters->generalPurposeRegister11LoOffset     = mhw::mi::GENERAL_PURPOSE_REGISTER11_LO_OFFSET_NODE_1_INIT;
+//    mmioRegisters->generalPurposeRegister11HiOffset     = mhw::mi::GENERAL_PURPOSE_REGISTER11_HI_OFFSET_NODE_1_INIT;
+//    mmioRegisters->generalPurposeRegister12LoOffset     = mhw::mi::GENERAL_PURPOSE_REGISTER12_LO_OFFSET_NODE_1_INIT;
+//    mmioRegisters->generalPurposeRegister12HiOffset     = mhw::mi::GENERAL_PURPOSE_REGISTER12_HI_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfcImageStatusMaskRegOffset          = MFC_IMAGE_STATUS_MASK_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfcImageStatusCtrlRegOffset          = MFC_IMAGE_STATUS_CTRL_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfcAvcNumSlicesRegOffset             = MFC_AVC_NUM_SLICES_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfcQPStatusCountOffset               = MFC_QP_STATUS_COUNT_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfxErrorFlagsRegOffset               = MFX_ERROR_FLAG_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfxFrameCrcRegOffset                 = MFX_FRAME_CRC_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfxMBCountRegOffset                  = MFX_MB_COUNT_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfcBitstreamBytecountFrameRegOffset  = MFC_BITSTREAM_BYTECOUNT_FRAME_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfcBitstreamSeBitcountFrameRegOffset = MFC_BITSTREAM_SE_BITCOUNT_FRAME_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfcBitstreamBytecountSliceRegOffset  = MFC_BITSTREAM_BYTECOUNT_SLICE_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfxLra0RegOffset                     = MFX_LRA0_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfxLra1RegOffset                     = MFX_LRA1_REG_OFFSET_NODE_1_INIT;
+//    mmioRegisters->mfxLra2RegOffset                     = MFX_LRA2_REG_OFFSET_NODE_1_INIT;
+//
+//    m_mmioRegisters[MHW_VDBOX_NODE_2] = m_mmioRegisters[MHW_VDBOX_NODE_1];
+//}
+//MmioRegistersMfx *EncodeScalabilitySinglePipe::GetMmioRegisters(MHW_VDBOX_NODE_IND index)
+//{
+//    if (index < MHW_VDBOX_NODE_MAX)
+//    {
+//        return &m_mmioRegisters[index];
+//    }
+//    else
+//    {
+//        MHW_ASSERT("index is out of range!");
+//        return &m_mmioRegisters[MHW_VDBOX_NODE_1];
+//    }
+//}
+//bool EncodeScalabilitySinglePipe::ConvertToMiRegister(MHW_VDBOX_NODE_IND index, MHW_MI_MMIOREGISTERS &mmioRegister)
+//{
+//    MmioRegistersMfx *mfxMmioReg = GetMmioRegisters(index);
+//    if (mfxMmioReg)
+//    {
+//        mmioRegister.generalPurposeRegister0LoOffset  = mfxMmioReg->generalPurposeRegister0LoOffset;
+//        mmioRegister.generalPurposeRegister0HiOffset  = mfxMmioReg->generalPurposeRegister0HiOffset;
+//        mmioRegister.generalPurposeRegister4LoOffset  = mfxMmioReg->generalPurposeRegister4LoOffset;
+//        mmioRegister.generalPurposeRegister4HiOffset  = mfxMmioReg->generalPurposeRegister4HiOffset;
+//        mmioRegister.generalPurposeRegister11LoOffset = mfxMmioReg->generalPurposeRegister11LoOffset;
+//        mmioRegister.generalPurposeRegister11HiOffset = mfxMmioReg->generalPurposeRegister11HiOffset;
+//        mmioRegister.generalPurposeRegister12LoOffset = mfxMmioReg->generalPurposeRegister12LoOffset;
+//        mmioRegister.generalPurposeRegister12HiOffset = mfxMmioReg->generalPurposeRegister12HiOffset;
+//        return true;
+//    }
+//    else
+//        return false;
+//}
 
 MOS_STATUS EncodeScalabilitySinglePipe::Oca1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer)
 {
     MHW_MI_MMIOREGISTERS mmioRegister;
     SCALABILITY_CHK_NULL_RETURN(m_hwInterface);
-    MhwVdboxMfxInterface *mfxInterface = m_hwInterface->GetMfxInterface();
-    SCALABILITY_CHK_NULL_RETURN(mfxInterface);
-    bool validMmio = mfxInterface->ConvertToMiRegister(MHW_VDBOX_NODE_1, mmioRegister);
+
+    auto  vdencItf = m_hwInterface->GetVdencInterfaceNext();
+    SCALABILITY_CHK_NULL_RETURN(vdencItf);
+    bool validMmio = vdencItf->ConvertToMiRegister(MHW_VDBOX_NODE_1, mmioRegister);
     if (validMmio)
     {
         SCALABILITY_CHK_NULL_RETURN(m_osInterface);
         SCALABILITY_CHK_NULL_RETURN(m_osInterface->pOsContext);
-        MhwMiInterface *miInterface = m_hwInterface->GetMiInterface();
-        SCALABILITY_CHK_NULL_RETURN(miInterface);
 
-        HalOcaInterface::On1stLevelBBStart(
+        HalOcaInterfaceNext::On1stLevelBBStart(
             cmdBuffer,
-            *m_osInterface->pOsContext,
+            (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext,
             m_osInterface->CurrentGpuContextHandle,
-            *miInterface,
+            m_miItf,
             mmioRegister);
     }
 
@@ -245,7 +316,7 @@ MOS_STATUS EncodeScalabilitySinglePipe::Oca1stLevelBBStart(MOS_COMMAND_BUFFER &c
 MOS_STATUS EncodeScalabilitySinglePipe::Oca1stLevelBBEnd(MOS_COMMAND_BUFFER &cmdBuffer)
 {
     SCALABILITY_CHK_NULL_RETURN(m_osInterface);
-    HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
+    HalOcaInterfaceNext::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
 
     return MOS_STATUS_SUCCESS;
 }

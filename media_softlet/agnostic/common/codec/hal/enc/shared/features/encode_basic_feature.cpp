@@ -36,7 +36,7 @@ namespace encode
 {
 EncodeBasicFeature::EncodeBasicFeature(
     EncodeAllocator *allocator,
-    CodechalHwInterface *hwInterface,
+    CodechalHwInterfaceNext *hwInterface,
     TrackedBuffer *trackedBuf,
     RecycleResource *recycleBuf):
     MediaFeature(hwInterface ? hwInterface->GetOsInterface() : nullptr),
@@ -78,24 +78,21 @@ MOS_STATUS EncodeBasicFeature::Init(void *setting)
     m_currOriginalPic.FrameIdx = 0;
     m_currOriginalPic.PicEntry = 0;
 
-    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-
     //RCPanic settings
-    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-    MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_RC_PANIC_ENABLE_ID,
-        &userFeatureData,
-        m_osInterface->pOsContext);
-    m_panicEnable = (userFeatureData.i32Data) ? true : false;
+    MediaUserSetting::Value outValue;
+    ReadUserSetting(
+        m_userSettingPtr,
+        outValue,
+        "RC Panic Mode",
+        MediaUserSetting::Group::Sequence);
+    m_panicEnable = outValue.Get<bool>();
 
-    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-    MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_HEVC_ENCODE_ENABLE_HW_STITCH,
-        &userFeatureData,
-        m_osInterface->pOsContext);
-    m_enableTileStitchByHW = userFeatureData.i32Data ? true : false;
+    ReadUserSetting(
+        m_userSettingPtr,
+        outValue,
+        "HEVC Encode Enable HW Stitch",
+        MediaUserSetting::Group::Sequence);
+    m_enableTileStitchByHW = outValue.Get<bool>();
 
     return MOS_STATUS_SUCCESS;
 }
@@ -143,7 +140,11 @@ MOS_STATUS EncodeBasicFeature::Update(void *params)
     }
 
 #if (_DEBUG || _RELEASE_INTERNAL)
-    WriteUserFeature(__MEDIA_USER_FEATURE_VALUE_ENCODE_RAW_TILE_ID, m_rawSurface.TileType, m_osInterface->pOsContext);
+    ReportUserSettingForDebug(
+        m_userSettingPtr,
+        "Encode Raw Surface Tile",
+        m_rawSurface.TileType,
+        MediaUserSetting::Group::Sequence);
 #endif
 
     m_rawSurfaceToEnc     =
@@ -196,6 +197,27 @@ MOS_STATUS EncodeBasicFeature::Update(void *params)
 
     // check output Chroma format
     UpdateFormat(params);
+
+    m_predicationNotEqualZero              = encodeParams->m_predicationNotEqualZero;
+    m_predicationEnabled                   = encodeParams->m_predicationEnabled;
+    m_setMarkerEnabled                     = encodeParams->m_setMarkerEnabled;
+    m_predicationResOffset                 = encodeParams->m_predicationResOffset;
+    m_presPredication                      = encodeParams->m_presPredication;
+    m_tempPredicationBuffer                = encodeParams->m_tempPredicationBuffer;
+
+    if (m_predicationBuffer == nullptr && m_predicationEnabled)
+    {
+        // initiate allocation parameters and lock flags
+        MOS_ALLOC_GFXRES_PARAMS allocParamsForBufferLinear;
+        MOS_ZeroMemory(&allocParamsForBufferLinear, sizeof(MOS_ALLOC_GFXRES_PARAMS));
+        allocParamsForBufferLinear.Type         = MOS_GFXRES_BUFFER;
+        allocParamsForBufferLinear.TileType     = MOS_TILE_LINEAR;
+        allocParamsForBufferLinear.Format       = Format_Buffer;
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
+        allocParamsForBufferLinear.dwBytes      = sizeof(uint32_t);
+        allocParamsForBufferLinear.pBufName     = "PredicationBuffer";
+        m_predicationBuffer                     = m_allocator->AllocateResource(allocParamsForBufferLinear, false);
+    }
 
     return MOS_STATUS_SUCCESS;
 }
@@ -285,6 +307,7 @@ MOS_STATUS EncodeBasicFeature::UpdateTrackedBufferParameters()
         // Must reserve at least 8 cachelines after MI_BATCH_BUFFER_END_CMD since HW prefetch max 8 cachelines from BB everytime
         // + 8 * CODECHAL_CACHELINE_SIZE is inherient from legacy code
         allocParamsForLinear.dwBytes = m_mbCodeSize + 8 * CODECHAL_CACHELINE_SIZE;
+        allocParamsForLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
         ENCODE_CHK_STATUS_RETURN(m_trackedBuf->RegisterParam(encode::BufferType::mbCodedBuffer, allocParamsForLinear));
     }
 
@@ -300,11 +323,13 @@ MOS_STATUS EncodeBasicFeature::UpdateTrackedBufferParameters()
         allocParamsForBuffer2D.dwWidth  = m_downscaledWidth4x;
         allocParamsForBuffer2D.dwHeight = m_downscaledHeight4x;
         allocParamsForBuffer2D.pBufName = "4xDSSurface";
+        allocParamsForBuffer2D.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
         ENCODE_CHK_STATUS_RETURN(m_trackedBuf->RegisterParam(encode::BufferType::ds4xSurface, allocParamsForBuffer2D));
 
         allocParamsForBuffer2D.dwWidth  = m_downscaledWidth4x >> 1;
         allocParamsForBuffer2D.dwHeight = MOS_ALIGN_CEIL(m_downscaledHeight4x >> 1, MOS_YTILE_H_ALIGNMENT) << 1;
         allocParamsForBuffer2D.pBufName = "8xDSSurface";
+        allocParamsForBuffer2D.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
         ENCODE_CHK_STATUS_RETURN(m_trackedBuf->RegisterParam(encode::BufferType::ds8xSurface, allocParamsForBuffer2D));
     }
 

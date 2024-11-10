@@ -1,4 +1,4 @@
-# Copyright (c) 2021, Intel Corporation
+# Copyright (c) 2024, Intel Corporation
 
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -21,9 +21,21 @@
 # This folder is only for render engine related files!
 # Do not add other files here.
 
-if(XE_HPG)
+if(XE_HPG OR XE_LPG)
     media_include_subdirectory(Xe_HPG_Base)
     media_include_subdirectory(Xe_HPG)
 endif()
 
+if(XE2_HPG)
+    media_include_subdirectory(Xe2_HPG)
+endif()
 
+set(MEDIA_BIN_HEADERS_
+    ${MEDIA_BIN_HEADERS_}
+    ${CMAKE_CURRENT_LIST_DIR}/media_bin_register_xe_hpg.h
+)
+
+set(MEDIA_BIN_INCLUDE_DIR
+    ${MEDIA_BIN_INCLUDE_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}
+)

@@ -34,10 +34,3 @@ void GpuCmdMfxBspBufBaseAddrG9Skl::InitCachePolicy()
     m_pCmd->DW6.Value |= 8;
     m_pCmd->DW9.Value |= 10;
 }
-
-void GpuCmdMfxBspBufBaseAddrG10::InitCachePolicy()
-{
-    m_pCmd->DW3.Value |= 6;
-    m_pCmd->DW6.Value |= 6;
-    m_pCmd->DW9.Value |= 8;
-}

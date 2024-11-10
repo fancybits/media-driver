@@ -173,26 +173,6 @@ VAStatus DdiDecodeAVC::ParseSliceParams(
         avcSliceParams++;
     }
 
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-    if (MOS_TraceKeyEnabled(TR_KEY_DECODE_SLICEPARAM))
-    {
-        if (m_ddiDecodeCtx->bShortFormatInUse)
-        {
-            DECODE_EVENTDATA_SLICEPARAM_AVC *pEventData = (DECODE_EVENTDATA_SLICEPARAM_AVC *)MOS_AllocMemory(numSlices * sizeof(DECODE_EVENTDATA_SLICEPARAM_AVC));
-            DecodeEventDataAVCSliceParamInit(pEventData, (PCODEC_AVC_SLICE_PARAMS)(m_ddiDecodeCtx->DecodeParams.m_sliceParams), numSlices);
-            MOS_TraceEvent(EVENT_DECODE_BUFFER_SLICEPARAM_AVC, EVENT_TYPE_INFO, &numSlices, sizeof(uint32_t), pEventData, numSlices * sizeof(DECODE_EVENTDATA_SLICEPARAM_AVC));
-            MOS_FreeMemory(pEventData);
-        }
-        else
-        {
-            DECODE_EVENTDATA_LONGSLICEPARAM_AVC *pEventData = (DECODE_EVENTDATA_LONGSLICEPARAM_AVC *)MOS_AllocMemory(numSlices * sizeof(DECODE_EVENTDATA_LONGSLICEPARAM_AVC));
-            DecodeEventDataAVCLongSliceParamInit(pEventData, (PCODEC_AVC_SLICE_PARAMS)(m_ddiDecodeCtx->DecodeParams.m_sliceParams), numSlices);
-            MOS_TraceEvent(EVENT_DECODE_BUFFER_LONGSLICEPARAM_AVC, EVENT_TYPE_INFO, &numSlices, sizeof(uint32_t), pEventData, numSlices * sizeof(DECODE_EVENTDATA_LONGSLICEPARAM_AVC));
-            MOS_FreeMemory(pEventData);
-        }
-    }
-#endif
-
     return VA_STATUS_SUCCESS;
 }
 
@@ -271,7 +251,8 @@ VAStatus DdiDecodeAVC::ParsePicParams(
     for (i = 0; i < CODEC_MAX_NUM_REF_FRAME; i++)
     {     
         //Check the surface id of reference list
-        if (VA_INVALID_ID == m_ddiDecodeCtx->RecListSurfaceID[avcPicParams->RefFrameList[i].FrameIdx])
+        if (avcPicParams->RefFrameList[i].FrameIdx < CODEC_AVC_NUM_UNCOMPRESSED_SURFACE 
+            && VA_INVALID_ID == m_ddiDecodeCtx->RecListSurfaceID[avcPicParams->RefFrameList[i].FrameIdx])
         {
             //Set invalid flag
             avcPicParams->RefFrameList[i].PicFlags = PICTURE_INVALID;
@@ -327,12 +308,16 @@ VAStatus DdiDecodeAVC::ParsePicParams(
     avcPicParams->frame_num = picParam->frame_num;
 
 #if MOS_EVENT_TRACE_DUMP_SUPPORTED
-    if (MOS_TraceKeyEnabled(TR_KEY_DECODE_PICPARAM))
-    {
-        DECODE_EVENTDATA_PICPARAM_AVC eventData;
-        DecodeEventDataAVCPicParamInit(&eventData, avcPicParams);
-        MOS_TraceEvent(EVENT_DECODE_BUFFER_PICPARAM_AVC, EVENT_TYPE_INFO, &eventData, sizeof(eventData), NULL, 0);
-    }
+    // Picture Info
+    DECODE_EVENTDATA_INFO_PICTUREVA eventData = {0};
+    eventData.CodecFormat                   = m_ddiDecodeCtx->wMode;
+    eventData.FrameType                     = avcPicParams->pic_fields.IntraPicFlag == 1 ? I_TYPE : MIXED_TYPE;
+    eventData.PicStruct                     = avcPicParams->CurrPic.PicFlags;  // 1-Top; 2-Bottom; 3-Frame
+    eventData.Width                         = (avcPicParams->pic_width_in_mbs_minus1 + 1) * MACROBLOCK_WIDTH;
+    eventData.Height                        = (avcPicParams->pic_height_in_mbs_minus1 + 1) * MACROBLOCK_HEIGHT;
+    eventData.Bitdepth                      = avcPicParams->bit_depth_luma_minus8 + 8;
+    eventData.ChromaFormat                  = avcPicParams->seq_fields.chroma_format_idc;  // 0-4:0:0; 1-4:2:0; 2-4:2:2; 3-4:4:4
+    MOS_TraceEvent(EVENT_DECODE_INFO_PICTUREVA, EVENT_TYPE_INFO, &eventData, sizeof(eventData), NULL, 0);
 #endif
 
     return VA_STATUS_SUCCESS;
@@ -440,32 +425,6 @@ VAStatus DdiDecodeAVC::RenderPicture(
             DdiMedia_MediaBufferToMosResource(m_ddiDecodeCtx->BufMgr.pBitStreamBuffObject[index], &m_ddiDecodeCtx->BufMgr.resBitstreamBuffer);
             m_ddiDecodeCtx->DecodeParams.m_dataSize += dataSize;
 
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-            uint8_t * pDataBuf = (uint8_t *)DdiMediaUtil_LockBuffer(m_ddiDecodeCtx->BufMgr.pBitStreamBuffObject[index], MOS_LOCKFLAG_READONLY);
-            DDI_CHK_NULL(pDataBuf, "nullptr bitstream", VA_STATUS_ERROR_INVALID_BUFFER);
-
-            if (MOS_TraceKeyEnabled(TR_KEY_DECODE_BITSTREAM_INFO))
-            {
-                DECODE_EVENTDATA_BITSTREAM eventData;
-                for (int i = 0; i < 32; i++)
-                {
-                    eventData.Data[i] = pDataBuf[i];
-                }
-                MOS_TraceEvent(EVENT_DECODE_INFO_BITSTREAM, EVENT_TYPE_INFO, &eventData, sizeof(eventData), NULL, 0);
-            }
-
-            if (MOS_TraceKeyEnabled(TR_KEY_DECODE_BITSTREAM))
-            {
-                MOS_TraceDataDump(
-                "Decode_Bitstream",
-                0,
-                pDataBuf,
-                m_ddiDecodeCtx->DecodeParams.m_dataSize);
-            }
-                
-            DdiMediaUtil_UnlockBuffer(m_ddiDecodeCtx->BufMgr.pBitStreamBuffObject[index]);
-#endif
-
             break;
         }
         case VASliceParameterBufferType:
@@ -488,18 +447,6 @@ VAStatus DdiDecodeAVC::RenderPicture(
         {
             VAIQMatrixBufferH264 *imxBuf = (VAIQMatrixBufferH264 *)data;
             DDI_CHK_RET(ParseIQMatrix(mediaCtx, imxBuf),"ParseIQMatrix failed!");
-
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-            if (MOS_TraceKeyEnabled(TR_KEY_DECODE_QMATRIX))
-            {
-                MOS_TraceDataDump(
-                    "Decode_QMatrix",
-                    0,
-                    imxBuf,
-                    sizeof(VAIQMatrixBufferH264));
-            }
-#endif
-
             break;
         }
         case VAPictureParameterBufferType:

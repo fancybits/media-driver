@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2022, Intel Corporation
+* Copyright (c) 2017-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -35,7 +35,6 @@
 extern template class MediaFactory<uint32_t, MhwInterfaces>;
 extern template class MediaFactory<uint32_t, MmdDevice>;
 extern template class MediaFactory<uint32_t, McpyDevice>;
-extern template class MediaFactory<uint32_t, MosUtilDevice>;
 extern template class MediaFactory<uint32_t, CodechalDevice>;
 extern template class MediaFactory<uint32_t, CMHalDevice>;
 extern template class MediaFactory<uint32_t, VphalDevice>;
@@ -49,11 +48,12 @@ Register<VphalInterfacesG12Tgllp>((uint32_t)IGFX_TIGERLAKE_LP);
 
 MOS_STATUS VphalInterfacesG12Tgllp::Initialize(
     PMOS_INTERFACE  osInterface,
-    PMOS_CONTEXT    osDriverContext,
     bool            bInitVphalState,
-    MOS_STATUS      *eStatus)
+    MOS_STATUS      *eStatus,
+    bool            clearViewMode)
 {
     MOS_OS_CHK_NULL_RETURN(eStatus);
+    MOS_OS_CHK_NULL_RETURN(osInterface);
 #if LINUX
     bool bApogeiosEnable = true;
     MOS_USER_FEATURE_VALUE_DATA         UserFeatureData;
@@ -93,7 +93,6 @@ MOS_STATUS VphalInterfacesG12Tgllp::Initialize(
         m_vpBase = MOS_New(
             VpPipelineG12Adapter,
             osInterface,
-            osDriverContext,
             *vpPlatformInterface,
             *eStatus);
         if (nullptr == m_vpBase)
@@ -109,7 +108,6 @@ MOS_STATUS VphalInterfacesG12Tgllp::Initialize(
         m_vpBase = MOS_New(
         VphalState,
         osInterface,
-        osDriverContext,
         eStatus);
     }
 
@@ -162,6 +160,7 @@ MOS_STATUS MhwInterfacesG12Tgllp::Initialize(
         MHW_ASSERTMESSAGE("The OS interface is not valid!");
         return MOS_STATUS_INVALID_PARAMETER;
     }
+    m_osInterface = osInterface;
 
     auto gtSystemInfo = osInterface->pfnGetGtSystemInfo(osInterface);
     if (gtSystemInfo == nullptr)
@@ -178,7 +177,7 @@ MOS_STATUS MhwInterfacesG12Tgllp::Initialize(
 
     // MHW_CP and MHW_MI must always be created
     MOS_STATUS status = MOS_STATUS_SUCCESS;
-    m_cpInterface = Create_MhwCpInterface(osInterface);
+    m_cpInterface = osInterface->pfnCreateMhwCpInterface(osInterface);
     if(m_cpInterface == nullptr)
     {
         MOS_OS_ASSERTMESSAGE("new osInterface failed");
@@ -518,18 +517,27 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
         }
     }
     CodechalHwInterface *hwInterface = MOS_New(Hw, osInterface, CodecFunction, mhwInterfaces, disableScalability);
-
     if (hwInterface == nullptr)
     {
         CODECHAL_PUBLIC_ASSERTMESSAGE("hwInterface is not valid!");
         return MOS_STATUS_NO_SPACE;
     }
+    hwInterface->m_hwInterfaceNext                            = MOS_New(CodechalHwInterfaceNext, osInterface);
+    if (hwInterface->m_hwInterfaceNext == nullptr)
+    {
+        MOS_Delete(hwInterface);
+        CODECHAL_PUBLIC_ASSERTMESSAGE("hwInterfaceNext is not valid!");
+        return MOS_STATUS_NO_SPACE;
+    }
+    hwInterface->m_hwInterfaceNext->pfnCreateDecodeSinglePipe = decode::DecodeScalabilitySinglePipe::CreateDecodeSinglePipe;
+    hwInterface->m_hwInterfaceNext->pfnCreateDecodeMultiPipe  = decode::DecodeScalabilityMultiPipe::CreateDecodeMultiPipe;
+    hwInterface->m_hwInterfaceNext->SetMediaSfcInterface(hwInterface->GetMediaSfcInterface());
+
 #if USE_CODECHAL_DEBUG_TOOL
     CodechalDebugInterface *debugInterface = MOS_New(CodechalDebugInterface);
     if (debugInterface == nullptr)
     {
         MOS_Delete(hwInterface);
-        mhwInterfaces->SetDestroyState(true);
         CODECHAL_PUBLIC_ASSERTMESSAGE("debugInterface is not valid!");
         return MOS_STATUS_NO_SPACE;
     }
@@ -544,6 +552,14 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
 #else
     CodechalDebugInterface *debugInterface = nullptr;
 #endif // USE_CODECHAL_DEBUG_TOOL
+
+    auto release_func = [&]() 
+    {
+        MOS_Delete(hwInterface);
+#if USE_CODECHAL_DEBUG_TOOL
+        MOS_Delete(debugInterface);
+#endif  // USE_CODECHAL_DEBUG_TOOL
+    };
 
     if (CodecHalIsDecode(CodecFunction))
     {
@@ -615,7 +631,7 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
             if (m_codechalDevice == nullptr)
             {
                 CODECHAL_PUBLIC_ASSERTMESSAGE("Failed to create decode device!");
-                return MOS_STATUS_NO_SPACE;
+                CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_NO_SPACE, release_func);
             }
  #ifdef _DECODE_PROCESSING_SUPPORTED
 
@@ -629,14 +645,14 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
                 if (decoder == nullptr)
                 {
                     CODECHAL_PUBLIC_ASSERTMESSAGE("Failed to create decode device!");
-                    return MOS_STATUS_NO_SPACE;
+                    CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_NO_SPACE, release_func);
                 }
                 FieldScalingInterface *fieldScalingInterface =
                     MOS_New(Decode::FieldScaling, hwInterface);
                 if (fieldScalingInterface == nullptr)
                 {
                     CODECHAL_PUBLIC_ASSERTMESSAGE("Failed to create field scaling interface!");
-                    return MOS_STATUS_NO_SPACE;
+                    CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_NO_SPACE, release_func);
                 }
                 decoder->m_fieldScalingInterface = fieldScalingInterface;
             }
@@ -748,18 +764,13 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
     #endif
         {
             CODECHAL_PUBLIC_ASSERTMESSAGE("Decode mode requested invalid!");
-            return MOS_STATUS_INVALID_PARAMETER;
+            CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_INVALID_PARAMETER, release_func);
         }
 
         if (m_codechalDevice == nullptr)
         {
-            MOS_Delete(hwInterface);
-            mhwInterfaces->SetDestroyState(true);
-#if USE_CODECHAL_DEBUG_TOOL
-            MOS_Delete(debugInterface);
-#endif
             CODECHAL_PUBLIC_ASSERTMESSAGE("Decoder device creation failed!");
-            return MOS_STATUS_NO_SPACE;
+            CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_NO_SPACE, release_func);
         }
     }
     else if (CodecHalIsEncode(CodecFunction))
@@ -794,7 +805,7 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
             if (encoder == nullptr)
             {
                 CODECHAL_PUBLIC_ASSERTMESSAGE("Encode state creation failed!");
-                return MOS_STATUS_INVALID_PARAMETER;
+                CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_INVALID_PARAMETER, release_func);
             }
             else
             {
@@ -806,35 +817,11 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
 #ifdef _VP9_ENCODE_VDENC_SUPPORTED
         if (info->Mode == CODECHAL_ENCODE_MODE_VP9)
         {
-#ifdef _APOGEIOS_SUPPORTED
-            bool                        apogeiosEnable = false;
-            MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_APOGEIOS_ENABLE_ID,
-                &userFeatureData,
-                hwInterface->GetOsInterface()->pOsContext);
-            apogeiosEnable = userFeatureData.bData ? true : false;
-
-            if (apogeiosEnable)
-            {
-                m_codechalDevice = MOS_New(EncodeVp9VdencPipelineAdapterM12, hwInterface, debugInterface);
-                if (m_codechalDevice == nullptr)
-                {
-                    CODECHAL_PUBLIC_ASSERTMESSAGE("Encode state creation failed!");
-                    return MOS_STATUS_INVALID_PARAMETER;
-                }
-                return MOS_STATUS_SUCCESS;
-            }
-            else
-#endif
-                encoder = MOS_New(Encode::Vp9, hwInterface, debugInterface, info);
+            encoder = MOS_New(Encode::Vp9, hwInterface, debugInterface, info);
             if (encoder == nullptr)
             {
                 CODECHAL_PUBLIC_ASSERTMESSAGE("Encode state creation failed!");
-                return MOS_STATUS_INVALID_PARAMETER;
+                CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_INVALID_PARAMETER, release_func);
             }
             else
             {
@@ -851,7 +838,7 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
             if (encoder == nullptr)
             {
                 CODECHAL_PUBLIC_ASSERTMESSAGE("Encode allocation failed!");
-                return MOS_STATUS_INVALID_PARAMETER;
+                CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_INVALID_PARAMETER, release_func);
             }
             else
             {
@@ -870,7 +857,7 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
             if (encoder == nullptr)
             {
                 CODECHAL_PUBLIC_ASSERTMESSAGE("Encode state creation failed!");
-                return MOS_STATUS_INVALID_PARAMETER;
+                CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_INVALID_PARAMETER, release_func);
             }
             else
             {
@@ -906,7 +893,7 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
             if (encoder == nullptr)
             {
                 CODECHAL_PUBLIC_ASSERTMESSAGE("Encode state creation failed!");
-                return MOS_STATUS_INVALID_PARAMETER;
+                CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_INVALID_PARAMETER, release_func);
             }
             else
             {
@@ -920,7 +907,7 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
 #endif
         {
             CODECHAL_PUBLIC_ASSERTMESSAGE("Unsupported encode function requested.");
-            return MOS_STATUS_INVALID_PARAMETER;
+            CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_INVALID_PARAMETER, release_func);
         }
 #if defined(ENABLE_KERNELS) && !defined(_FULL_OPEN_SOURCE)
         if (info->Mode != CODECHAL_ENCODE_MODE_JPEG)
@@ -930,7 +917,7 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
             {
                 if ((encoder->m_cscDsState = MOS_New(Encode::CscDsMdf, encoder)) == nullptr)
                 {
-                    return MOS_STATUS_INVALID_PARAMETER;
+                    CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_INVALID_PARAMETER, release_func);
                 }
             }
             else
@@ -938,7 +925,7 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
                 // Create CSC and Downscaling interface
                 if ((encoder->m_cscDsState = MOS_New(Encode::CscDs, encoder)) == nullptr)
                 {
-                    return MOS_STATUS_INVALID_PARAMETER;
+                    CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_INVALID_PARAMETER, release_func);
                 }
             }
         }
@@ -947,7 +934,7 @@ MOS_STATUS CodechalInterfacesG12Tgllp::Initialize(
     else
     {
         CODECHAL_PUBLIC_ASSERTMESSAGE("Unsupported codec function requested.");
-        return MOS_STATUS_INVALID_PARAMETER;
+        CODECHAL_PUBLIC_CHK_STATUS_WITH_DESTROY_RETURN(MOS_STATUS_INVALID_PARAMETER, release_func);
     }
 
     return MOS_STATUS_SUCCESS;
@@ -977,40 +964,6 @@ MOS_STATUS CMHalInterfacesG12Tgllp::Initialize(CM_HAL_STATE *pCmState)
     m_cmhalDevice->AddSupportedCisaIDs(cisaIDs, sizeof(cisaIDs)/sizeof(uint32_t));
     m_cmhalDevice->m_l3Plane = TGL_L3_PLANE;
     m_cmhalDevice->m_l3ConfigCount = TGL_L3_CONFIG_NUM;
-    return MOS_STATUS_SUCCESS;
-}
-
-static bool tgllpRegisteredMosUtil =
-    MediaFactory<uint32_t, MosUtilDevice>::
-    Register<MosUtilDeviceG12Tgllp>((uint32_t)IGFX_TIGERLAKE_LP);
-
-MOS_STATUS MosUtilDeviceG12Tgllp::Initialize()
-{
-#define MOSUTIL_FAILURE()                                       \
-{                                                           \
-    if (device != nullptr)                                  \
-    {                                                       \
-        delete device;                                      \
-    }                                                       \
-    return MOS_STATUS_NO_SPACE;                             \
-}
-
-    MosUtil *device = nullptr;
-
-    device = MOS_New(MosUtil);
-    
-    if (device == nullptr)
-    {
-        MOSUTIL_FAILURE();
-    }
-
-    if (device->Initialize() != MOS_STATUS_SUCCESS)
-    {
-        MOSUTIL_FAILURE();
-    }
-
-    m_mosUtilDevice = device;
-
     return MOS_STATUS_SUCCESS;
 }
 

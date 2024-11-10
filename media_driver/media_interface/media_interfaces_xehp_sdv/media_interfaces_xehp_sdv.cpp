@@ -47,7 +47,6 @@ unsigned char *pGPUInit_kernel_isa_xe_xpm = nullptr;
 extern template class MediaFactory<uint32_t, MhwInterfaces>;
 extern template class MediaFactory<uint32_t, MmdDevice>;
 extern template class MediaFactory<uint32_t, McpyDevice>;
-extern template class MediaFactory<uint32_t, MosUtilDevice>;
 extern template class MediaFactory<uint32_t, CodechalDevice>;
 extern template class MediaFactory<uint32_t, CMHalDevice>;
 extern template class MediaFactory<uint32_t, VphalDevice>;
@@ -64,10 +63,11 @@ Register<VphalInterfacesXe_Xpm>((uint32_t)IGFX_XE_HP_SDV);
 
 MOS_STATUS VphalInterfacesXe_Xpm::Initialize(
     PMOS_INTERFACE  osInterface,
-    PMOS_CONTEXT    osDriverContext,
     bool            bInitVphalState,
-    MOS_STATUS      *eStatus)
+    MOS_STATUS      *eStatus,
+    bool            clearViewMode)
 {
+    MOS_OS_CHK_NULL_RETURN(osInterface);
     bool bApogeiosEnable = true;
     MOS_USER_FEATURE_VALUE_DATA         UserFeatureData;
     MOS_ZeroMemory(&UserFeatureData, sizeof(UserFeatureData));
@@ -79,7 +79,7 @@ MOS_STATUS VphalInterfacesXe_Xpm::Initialize(
         nullptr,
         __MEDIA_USER_FEATURE_VALUE_APOGEIOS_ENABLE_ID,
         &UserFeatureData,
-        osDriverContext);
+        osInterface->pOsContext);
     bApogeiosEnable = UserFeatureData.bData ? true : false;
     if (bApogeiosEnable)
     {
@@ -106,7 +106,6 @@ MOS_STATUS VphalInterfacesXe_Xpm::Initialize(
         m_vpBase = MOS_New(
             VpPipelineAdapterXe_Xpm,
             osInterface,
-            osDriverContext,
             *vpPlatformInterface,
             *eStatus);
         if (nullptr == m_vpBase)
@@ -121,7 +120,6 @@ MOS_STATUS VphalInterfacesXe_Xpm::Initialize(
         m_vpBase = MOS_New(
             VphalState,
             osInterface,
-            osDriverContext,
             eStatus);
     }
 
@@ -161,6 +159,7 @@ MOS_STATUS MhwInterfacesXehp_Sdv::Initialize(
         MHW_ASSERTMESSAGE("The OS interface is not valid!");
         return MOS_STATUS_INVALID_PARAMETER;
     }
+    m_osInterface = osInterface;
 
     auto gtSystemInfo = osInterface->pfnGetGtSystemInfo(osInterface);
     if (gtSystemInfo == nullptr)
@@ -177,7 +176,8 @@ MOS_STATUS MhwInterfacesXehp_Sdv::Initialize(
 
     // MHW_CP and MHW_MI must always be created
     MOS_STATUS status;
-    m_cpInterface = Create_MhwCpInterface(osInterface);
+    m_cpInterface = osInterface->pfnCreateMhwCpInterface(osInterface);
+    MHW_MI_CHK_NULL(m_cpInterface);
     m_miInterface = MOS_New(Mi, m_cpInterface, osInterface);
 
     if (params.Flags.m_render)
@@ -414,12 +414,24 @@ MOS_STATUS CodechalInterfacesXe_Xpm::Initialize(
 
     bool disableScalability = true;
     CodechalHwInterface *hwInterface = MOS_New(Hw, osInterface, CodecFunction, mhwInterfaces, disableScalability);
-
     if (hwInterface == nullptr)
     {
         CODECHAL_PUBLIC_ASSERTMESSAGE("hwInterface is not valid!");
         return MOS_STATUS_NO_SPACE;
     }
+    hwInterface->m_hwInterfaceNext                            = MOS_New(CodechalHwInterfaceNext, osInterface);
+    if (hwInterface->m_hwInterfaceNext == nullptr)
+    {
+        MOS_Delete(hwInterface);
+        mhwInterfaces->SetDestroyState(true);
+        CODECHAL_PUBLIC_ASSERTMESSAGE("hwInterfaceNext is not valid!");
+        return MOS_STATUS_NO_SPACE;
+    }
+
+    hwInterface->m_hwInterfaceNext->pfnCreateDecodeSinglePipe = decode::DecodeScalabilitySinglePipe::CreateDecodeSinglePipe;
+    hwInterface->m_hwInterfaceNext->pfnCreateDecodeMultiPipe  = decode::DecodeScalabilityMultiPipe::CreateDecodeMultiPipe;
+    hwInterface->m_hwInterfaceNext->SetMediaSfcInterface(hwInterface->GetMediaSfcInterface());
+
 #if USE_CODECHAL_DEBUG_TOOL
     CodechalDebugInterface *debugInterface = MOS_New(CodechalDebugInterface);
     if (debugInterface == nullptr)
@@ -573,33 +585,7 @@ MOS_STATUS CodechalInterfacesXe_Xpm::Initialize(
 #ifdef _VP9_ENCODE_VDENC_SUPPORTED
         if (info->Mode == CODECHAL_ENCODE_MODE_VP9)
         {
-#ifdef _APOGEIOS_SUPPORTED
-            bool                        apogeiosEnable = false;
-            MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-
-            userFeatureData.i32Data     = apogeiosEnable;
-            userFeatureData.i32DataFlag = MOS_USER_FEATURE_VALUE_DATA_FLAG_CUSTOM_DEFAULT_VALUE_TYPE;
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_APOGEIOS_ENABLE_ID,
-                &userFeatureData,
-                hwInterface->GetOsInterface()->pOsContext);
-            apogeiosEnable = (userFeatureData.i32Data) ? true : false;
-
-            if (apogeiosEnable)
-            {
-                m_codechalDevice = MOS_New(EncodeVp9VdencPipelineAdapterXe_Xpm, hwInterface, debugInterface);
-                if (m_codechalDevice == nullptr)
-                {
-                    CODECHAL_PUBLIC_ASSERTMESSAGE("Encode state creation failed!");
-                    return MOS_STATUS_INVALID_PARAMETER;
-                }
-                return MOS_STATUS_SUCCESS;
-            }
-            else
-#endif
-                encoder = MOS_New(Encode::Vp9, hwInterface, debugInterface, info);
+            encoder = MOS_New(Encode::Vp9, hwInterface, debugInterface, info);
             if (encoder == nullptr)
             {
                 CODECHAL_PUBLIC_ASSERTMESSAGE("Encode state creation failed!");
@@ -754,40 +740,6 @@ MOS_STATUS CMHalInterfacesXe_Xpm::Initialize(CM_HAL_STATE *pCmState)
     return MOS_STATUS_SUCCESS;
 }
 #endif
-
-static bool xehpRegisteredMosUtil =
-    MediaFactory<uint32_t, MosUtilDevice>::
-    Register<MosUtilDeviceXe_Xpm>((uint32_t)IGFX_XE_HP_SDV);
-
-MOS_STATUS MosUtilDeviceXe_Xpm::Initialize()
-{
-#define MOSUTIL_FAILURE()                                       \
-{                                                           \
-    if (device != nullptr)                                  \
-    {                                                       \
-        delete device;                                      \
-    }                                                       \
-    return MOS_STATUS_NO_SPACE;                             \
-}
-
-    MosUtil *device = nullptr;
-
-    device = MOS_New(MosUtil);
-
-    if (device == nullptr)
-    {
-        MOSUTIL_FAILURE();
-    }
-
-    if (device->Initialize() != MOS_STATUS_SUCCESS)
-    {
-        MOSUTIL_FAILURE();
-    }
-
-    m_mosUtilDevice = device;
-
-    return MOS_STATUS_SUCCESS;
-}
 
 static bool xehpRegisteredRenderHal =
     MediaFactory<uint32_t, RenderHalDevice>::

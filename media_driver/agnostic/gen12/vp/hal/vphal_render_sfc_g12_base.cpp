@@ -29,7 +29,7 @@
 #include "mhw_sfc_g12_X.h"
 #include "vphal_render_vebox_base.h"
 #include "vphal_render_sfc_g12_base.h"
-#include "media_user_settings_mgr_g12.h"
+#include "vp_hal_ddi_utils.h"
 
 #if __VPHAL_SFC_SUPPORTED
 
@@ -192,7 +192,7 @@ void VphalSfcStateG12::GetInputWidthHeightAlignUnit(
     heightAlignUnit = 1;
 
     // Apply alignment restriction to Region of the input frame.
-    switch (VpHal_GetSurfaceColorPack(inputFormat))
+    switch (VpHalDDIUtils::GetSurfaceColorPack(inputFormat))
     {
         case VPHAL_COLORPACK_420:
             widthAlignUnit  = 2;
@@ -291,14 +291,16 @@ MOS_STATUS VphalSfcStateG12::SetSfcStateParams(
     sfcStateParams->resSfdLineBuffer = Mos_ResourceIsNull(&m_SFDLineBufferSurface.OsResource) ? nullptr : &m_SFDLineBufferSurface.OsResource;
 
     VPHAL_RENDER_CHK_NULL_RETURN(m_sfcInterface);
+    MhwSfcInterfaceG12 *sfcInterface = dynamic_cast<MhwSfcInterfaceG12 *>(m_sfcInterface);
+    VPHAL_RENDER_CHK_NULL_RETURN(sfcInterface);
     // Output centering
     if (!m_disableOutputCentering)
     {
-        dynamic_cast<MhwSfcInterfaceG12 *>(m_sfcInterface)->IsOutPutCenterEnable(true);
+        sfcInterface->IsOutPutCenterEnable(true);
     }
     else
     {
-        dynamic_cast<MhwSfcInterfaceG12 *>(m_sfcInterface)->IsOutPutCenterEnable(false);
+        sfcInterface->IsOutPutCenterEnable(false);
     }
 
     // ARGB8,ABGR10,A16B16G16R16,VYUY and YVYU output format need to enable swap
@@ -399,8 +401,8 @@ void VphalSfcStateG12::SetRenderingFlags(
     wHeightAlignUnit = 1;
     dwVeboxBottom    = (uint32_t)pSrc->rcSrc.bottom;
     dwVeboxRight     = (uint32_t)pSrc->rcSrc.right;
-    srcColorPack     = VpHal_GetSurfaceColorPack(pSrc->Format);
-    dstColorPack     = VpHal_GetSurfaceColorPack(pRenderTarget->Format);
+    srcColorPack     = VpHalDDIUtils::GetSurfaceColorPack(pSrc->Format);
+    dstColorPack     = VpHalDDIUtils::GetSurfaceColorPack(pRenderTarget->Format);
 
     // Get the SFC input surface size from Vebox
     AdjustBoundary(
@@ -524,7 +526,7 @@ void VphalSfcStateG12::SetRenderingFlags(
     {
         m_renderData.SfcSrcChromaSiting = (CHROMA_SITING_HORZ_LEFT | CHROMA_SITING_VERT_CENTER);
     }
-    switch (VpHal_GetSurfaceColorPack(m_renderData.SfcInputFormat))
+    switch (VpHalDDIUtils::GetSurfaceColorPack(m_renderData.SfcInputFormat))
     {
         case VPHAL_COLORPACK_422:
             m_renderData.SfcSrcChromaSiting = (m_renderData.SfcSrcChromaSiting & 0x7) | CHROMA_SITING_VERT_TOP;

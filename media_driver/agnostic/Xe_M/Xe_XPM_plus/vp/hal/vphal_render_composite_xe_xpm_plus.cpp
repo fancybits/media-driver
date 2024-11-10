@@ -1,6 +1,6 @@
 /*===================== begin_copyright_notice ==================================
 
-# Copyright (c) 2021, Intel Corporation
+# Copyright (c) 2021-2023, Intel Corporation
 
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -28,6 +28,7 @@
 //!           resource allocation/free and rendering
 //!
 #include "vphal_render_composite_xe_xpm_plus.h"
+#include "vp_hal_ddi_utils.h"
 
 extern const Kdll_Layer g_cSurfaceType_Layer[];
 extern const MEDIA_WALKER_KA2_STATIC_DATA g_cInit_MEDIA_WALKER_KA2_STATIC_DATA;
@@ -456,7 +457,7 @@ bool CompositeStateXe_Xpm_Plus::SubmitStates(
                 }
             }
 
-            if (dst_cspace == CSpace_None) // if color space is invlaid return false
+            if (dst_cspace == CSpace_None) // if color space is invalid return false
             {
                 VPHAL_RENDER_ASSERTMESSAGE("Failed to assign dst color spcae for iScale case.");
                 goto finish;
@@ -479,7 +480,7 @@ bool CompositeStateXe_Xpm_Plus::SubmitStates(
             (m_CSpaceSrc     != src_cspace)  ||
             (m_CSpaceDst     != dst_cspace))
         {
-            VpHal_CSC_8(&m_csDst, &Src, src_cspace, dst_cspace);
+            VpUtils::GetCscMatrixForRender8Bit(&m_csDst, &Src, src_cspace, dst_cspace);
 
             // store the values for next iteration
             m_csSrc     = Src;

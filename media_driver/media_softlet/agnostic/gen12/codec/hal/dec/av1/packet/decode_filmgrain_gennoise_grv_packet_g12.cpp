@@ -29,6 +29,7 @@
 #include "decode_av1_feature_defs_g12.h"
 #include "mos_defs.h"
 #include "hal_oca_interface.h"
+#include "codechal_utilities.h"
 
 namespace decode
 {
@@ -53,8 +54,10 @@ FilmGrainGrvPacket::FilmGrainGrvPacket(MediaPipeline *pipeline, MediaTask *task,
         m_vdencInterface = hwInterface->GetVdencInterface();
         m_renderHal      = hwInterface->GetRenderHalInterface();
     }
-
-    m_cpInterface = m_hwInterface->GetCpInterface();
+    if (m_hwInterface != nullptr)
+    {
+        m_cpInterface = m_hwInterface->GetCpInterface();
+    }
 }
 
 MOS_STATUS FilmGrainGrvPacket::Init()
@@ -182,7 +185,7 @@ MOS_STATUS FilmGrainGrvPacket::Submit(MOS_COMMAND_BUFFER *commandBuffer, uint8_t
 
     HalOcaInterface::On1stLevelBBStart(*commandBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle,
         *m_hwInterface->GetMiInterface(), *m_hwInterface->GetMiInterface()->GetMmioRegisters());
-    HalOcaInterface::TraceMessage(*commandBuffer, *m_osInterface->pOsContext, __FUNCTION__, sizeof(__FUNCTION__));
+    HalOcaInterface::TraceMessage(*commandBuffer, (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext, __FUNCTION__, sizeof(__FUNCTION__));
 
     if (pOsInterface)
     {
@@ -344,7 +347,7 @@ MOS_STATUS FilmGrainGrvPacket::KernelStateSetup()
 
     PRENDERHAL_INTERFACE_LEGACY pRenderHalLegacy = (PRENDERHAL_INTERFACE_LEGACY)m_renderHal;
     // Initialize States
-    MOS_ZeroMemory(m_filter, sizeof(m_filter));
+    MOS_ZeroMemory(m_filter, sizeof(Kdll_FilterEntry));
     MOS_ZeroMemory(&m_renderData.KernelEntry, sizeof(Kdll_CacheEntry));
 
     // Set Kernel Parameter

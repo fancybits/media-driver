@@ -124,7 +124,7 @@ public:
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS ContextBufferInit(
+    virtual MOS_STATUS ContextBufferInit(
             uint8_t *ctxBuffer,
             bool setToKey);
 
@@ -405,6 +405,9 @@ protected:
 
     MOS_STATUS DumpDecodeSegmentParams(
         PCODEC_VP9_SEGMENT_PARAMS segmentParams);
+
+    MOS_STATUS DumpDecodeSliceParams(
+        CODEC_VP9_SLICE_PARAMS *slcParams);
 #endif
 };
 

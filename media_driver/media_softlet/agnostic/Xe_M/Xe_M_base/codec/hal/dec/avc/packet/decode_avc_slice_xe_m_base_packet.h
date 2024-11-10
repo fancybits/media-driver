@@ -31,6 +31,7 @@
 #include "decode_avc_pipeline.h"
 #include "decode_utils.h"
 #include "decode_avc_basic_feature.h"
+#include "codechal_hw_g12_X.h"
 
 namespace decode
 {
@@ -39,10 +40,13 @@ class AvcDecodeSlcPktXe_M_Base : public DecodeSubPacket
 {
 public:
     AvcDecodeSlcPktXe_M_Base(AvcPipeline *pipeline, CodechalHwInterface *hwInterface)
-        : DecodeSubPacket(pipeline, hwInterface), m_avcPipeline(pipeline)
+        : DecodeSubPacket(pipeline, *hwInterface), m_avcPipeline(pipeline)
     {
+        m_hwInterface = hwInterface;
         if (m_hwInterface != nullptr)
         {
+            m_miInterface  = m_hwInterface->GetMiInterface();
+            m_osInterface  = m_hwInterface->GetOsInterface();
             m_mfxInterface  =  static_cast<CodechalHwInterfaceG12*>(hwInterface)->GetMfxInterface();
         }
     }
@@ -108,7 +112,9 @@ protected:
 
     uint32_t m_sliceStatesSize      = 0;  //!< Slice state command size
     uint32_t m_slicePatchListSize   = 0;  //!< Slice patch list size
-MEDIA_CLASS_DEFINE_END(decode__AvcDecodeSlcPktXe_M_Base)
+    CodechalHwInterface *m_hwInterface          = nullptr;
+    MhwMiInterface      *m_miInterface          = nullptr;
+    MEDIA_CLASS_DEFINE_END(decode__AvcDecodeSlcPktXe_M_Base)
 };
 
 }  // namespace decode

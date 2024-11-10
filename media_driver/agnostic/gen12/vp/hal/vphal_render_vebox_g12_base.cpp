@@ -35,6 +35,7 @@
 #include "igvpkrn_isa_g12_tgllp.h"
 #endif
 #include "vphal_render_hdr_3dlut_g12.h"
+#include "vp_hal_ddi_utils.h"
 
 const char g_KernelDNDI_Str_g12[KERNEL_VEBOX_BASE_MAX][MAX_PATH] =
 {
@@ -208,25 +209,25 @@ const uint32_t   dwPixRangeWeight5[NOISEFACTOR_MAX + 1] = {
     4 };
 
 const uint32_t   dwLTDThresholdUV[NOISEFACTOR_MAX + 1] = {
-    4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,   4,
-    5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,   5,
-    6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,   6,
-    7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,
-    8 };
+    64,   65,   66,   67,   68,   69,   70,   71,   72,   73,   74,   75,   76,
+    77,   78,   79,   80,   81,   82,   83,   84,   85,   86,   87,   88,   89,
+    90,   91,   92,   93,   94,   95,   96,   97,   98,   99,   100,  101,  102,
+    103,  104,  105,  106,  107,  108,  109,  110,  111,  112,  113,  114,  115,
+    116,  117,  118,  119,  120,  121,  122,  123,  124,  125,  126,  127,  128 };
 
 const uint32_t   dwTDThresholdUV[NOISEFACTOR_MAX + 1] = {
-    10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,  10,
-    11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,  11,
-    12,  12,  12,  12,  12,  12,  12,  12,  12,  12,  12,  12,  12,  12,  12,  12,
-    13,  13,  13,  13,  13,  13,  13,  13,  13,  13,  13,  13,  13,  13,  13,  13,
-    14 };
+    160,  161,  162,  163,  164,  165,  166,  167,  168,  169,  170,  171,  172,
+    173,  174,  175,  176,  177,  178,  179,  180,  181,  182,  183,  184,  185, 
+    186,  187,  188,  189,  190,  191,  192,  193,  194,  195,  196,  197,  198, 
+    199,  200,  201,  202,  203,  204,  205,  206,  207,  208,  209,  210,  211, 
+    212,  213,  214,  215,  216,  217,  218,  219,  220,  221,  222,  223,  224 };
 
 const uint32_t   dwSTADThresholdUV[NOISEFACTOR_MAX + 1] = {
-    128, 128, 128, 128, 129, 129, 129, 129, 130, 130, 130, 130, 131, 131, 131, 131,
-    132, 132, 132, 132, 133, 133, 133, 133, 134, 134, 134, 134, 135, 135, 135, 135,
-    136, 136, 136, 136, 137, 137, 137, 137, 138, 138, 138, 138, 139, 139, 139, 139,
-    140, 140, 140, 140, 141, 141, 141, 141, 142, 142, 142, 142, 143, 143, 143, 143,
-    144 };
+    2048, 2052, 2056, 2060, 2064, 2068, 2072, 2076, 2080, 2084, 2088, 2092, 2096, 
+    2100, 2104, 2108, 2112, 2116, 2120, 2124, 2128, 2132, 2136, 2140, 2144, 2148, 
+    2152, 2156, 2160, 2164, 2168, 2172, 2176, 2180, 2184, 2188, 2192, 2196, 2200, 
+    2204, 2208, 2212, 2216, 2220, 2224, 2228, 2232, 2236, 2240, 2244, 2248, 2252, 
+    2256, 2260, 2264, 2268, 2272, 2276, 2280, 2284, 2288, 2292, 2296, 2300, 2304};
 
 //!
 //! \brief    Vebox format support check
@@ -440,6 +441,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::GetFFDISurfParams(
 {
     PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
 
+    VPHAL_RENDER_CHK_NULL_RETURN(pRenderData);
     if (IS_VPHAL_OUTPUT_PIPE_SFC(pRenderData))
     {
         ColorSpace = m_sfcPipeState->GetInputColorSpace();
@@ -482,6 +484,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::GetOutputSurfParams(
     MOS_TILE_TYPE &TileType)
 {
     PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
+    VPHAL_RENDER_CHK_NULL_RETURN(pRenderData);
 
     if (pRenderData->bDeinterlace)
     {
@@ -516,16 +519,21 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::GetOutputSurfParams(
 bool VPHAL_VEBOX_STATE_G12_BASE::IsDNOnly()
 {
     PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
+    VPHAL_RENDER_CHK_NULL_NO_STATUS(pRenderData);
 
     return pRenderData->bDenoise &&
            (!pRenderData->bDeinterlace) &&
            (!IsQueryVarianceEnabled()) &&
            (!IsIECPEnabled());
+finish:
+    return false;
 }
 
 bool VPHAL_VEBOX_STATE_G12_BASE::IsFFDISurfNeeded()
 {
     PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
+    VPHAL_RENDER_CHK_NULL_NO_STATUS(pRenderData);
+
 
     if (pRenderData->bDeinterlace ||
         IsQueryVarianceEnabled()  ||
@@ -538,17 +546,26 @@ bool VPHAL_VEBOX_STATE_G12_BASE::IsFFDISurfNeeded()
     {
         return false;
     }
+finish:
+    return false;
 }
 
 bool VPHAL_VEBOX_STATE_G12_BASE::IsFFDNSurfNeeded()
 {
-    return GetLastExecRenderData()->bDenoise ? true : false;
+    PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
+    VPHAL_RENDER_CHK_NULL_NO_STATUS(pRenderData);
+    return pRenderData->bDenoise ? true : false;
+finish:
+    return false;
 }
 
 bool VPHAL_VEBOX_STATE_G12_BASE::IsSTMMSurfNeeded()
 {
-
-    return (GetLastExecRenderData()->bDenoise || GetLastExecRenderData()->bDeinterlace);
+    PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
+    VPHAL_RENDER_CHK_NULL_NO_STATUS(pRenderData);
+    return (pRenderData->bDenoise || pRenderData->bDeinterlace);
+finish:
+    return false;
 }
 
 //!
@@ -596,7 +613,10 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::AllocateResources()
     pVeboxInterface         = pVeboxState->m_pVeboxInterface;
     InitValue               = 0;
     // change the init value when null hw is enabled
-    if (NullHW::IsEnabled())
+    VPHAL_RENDER_CHK_NULL(pOsInterface);
+    VPHAL_RENDER_CHK_NULL(pRenderData);
+
+    if (pOsInterface->bNullHwIsEnabled)
     {
         InitValue = 0x80;
     }
@@ -960,7 +980,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::AllocateResources()
         MOS_MMC_DISABLED,
         &bAllocated));
 
-    if (bAllocated && NullHW::IsEnabled())
+    if (bAllocated && pOsInterface->bNullHwIsEnabled)
     {
         // Initialize VeboxRGBHistogram Surface
         VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnFillResource(
@@ -1051,6 +1071,12 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::AllocateResources()
 #if defined(ENABLE_KERNELS) && !defined(_FULL_OPEN_SOURCE)
                 PRENDERHAL_INTERFACE pRenderHal = pVeboxState->m_pRenderHal;
                 m_hdr3DLutGenerator             = MOS_New(Hdr3DLutGeneratorG12, pRenderHal, m_hdr3DLutKernelBinary, m_hdr3DLutKernelBinarySize);
+                if (!m_hdr3DLutGenerator->IsObjectVaild())
+                {
+                    eStatus = MOS_STATUS_NULL_POINTER;
+                    MOS_Delete(m_hdr3DLutGenerator);
+                    VPHAL_RENDER_ASSERTMESSAGE("Failed to creat Hdr3DLutGeneratorG12");
+                }
 #endif
             }
         }
@@ -1170,9 +1196,9 @@ bool VPHAL_VEBOX_STATE_G12_BASE::IsMMCEnabledForCurrOutputSurf()
     VPHAL_RENDER_CHK_NULL_NO_STATUS(pRenderData);
     VPHAL_RENDER_CHK_NULL_NO_STATUS(pRenderData->pRenderTarget);
 
-    return bEnableMMC   &&
+    return bEnableMMC &&
            IsFormatMMCSupported(pRenderData->pRenderTarget->Format) &&
-           (pRenderData->pRenderTarget->CompressionMode == MOS_MMC_MC);
+           (pRenderData->pRenderTarget->CompressionMode != MOS_MMC_DISABLED);
 
 finish:
     return false;
@@ -1207,6 +1233,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::SetupDiIecpStateForOutputSurf(
     pRenderHal      = pVeboxState->m_pRenderHal;
     pVeboxInterface = pVeboxState->m_pVeboxInterface;
 
+    VPHAL_RENDER_CHK_NULL(pRenderData);
     // VEBOX final output surface
     if (IS_VPHAL_OUTPUT_PIPE_VEBOX(pRenderData))
     {
@@ -1306,6 +1333,9 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::SetupDiIecpStateForOutputSurf(
                 (uint32_t *)&(pVeboxDiIecpCmdParams->CurrOutputSurfCtrl.Value)));
         }
     }
+#if (_DEBUG || _RELEASE_INTERNAL)
+    pRenderHal->oldCacheSettingForTargetSurface = (uint8_t)((pVeboxDiIecpCmdParams->CurrOutputSurfCtrl.Value >> 1) & 0x0000003f);
+#endif
 
 finish:
     return eStatus;
@@ -1526,7 +1556,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::SetupDiIecpState(
     pVeboxDiIecpCmdParams->pOsResStatisticsOutput         = &pVeboxState->VeboxStatisticsSurface.OsResource;
     pVeboxDiIecpCmdParams->StatisticsOutputSurfCtrl.Value = pVeboxState->DnDiSurfMemObjCtl.StatisticsOutputSurfMemObjCtl;
 
-    if (pRenderData->bHdr3DLut)
+    if (!Mos_ResourceIsNull(&pVeboxState->VeboxRGBHistogram.OsResource))
     {
         VPHAL_RENDER_CHK_STATUS(pOsInterface->pfnRegisterResource(
             pOsInterface,
@@ -1535,6 +1565,8 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::SetupDiIecpState(
             true));
 
         pVeboxDiIecpCmdParams->pOsResLaceOrAceOrRgbHistogram = &pVeboxState->VeboxRGBHistogram.OsResource;
+        pVeboxDiIecpCmdParams->LaceOrAceOrRgbHistogramSurfCtrl.Value =
+            pVeboxState->DnDiSurfMemObjCtl.LaceOrAceOrRgbHistogramSurfCtrl;
     }
 
 finish:
@@ -1660,6 +1692,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::SetDNParams(
     uint32_t                 dwDenoiseFactor;
     PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
 
+    VPHAL_RENDER_CHK_NULL_RETURN(pRenderData);
     VPHAL_RENDER_ASSERT(pSrcSurface);
     VPHAL_RENDER_ASSERT(pLumaParams);
     VPHAL_RENDER_ASSERT(pChromaParams);
@@ -1867,6 +1900,12 @@ PVPHAL_SURFACE VPHAL_VEBOX_STATE_G12_BASE::GetSurfOutput(
     PVPHAL_VEBOX_STATE_G12_BASE pVeboxState = this;
     PVPHAL_VEBOX_RENDER_DATA    pRenderData = GetLastExecRenderData();
 
+    if (!pRenderData)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("pRenderData is null");
+        return nullptr;
+    }
+
     if (IS_VPHAL_OUTPUT_PIPE_VEBOX(pRenderData))                    // Vebox output pipe
     {
         pSurface = pRenderData->pRenderTarget;
@@ -1912,6 +1951,7 @@ void VPHAL_VEBOX_STATE_G12_BASE::SetupSurfaceStates(
     PVPHAL_VEBOX_STATE_G12_BASE pVeboxState = this;
     PVPHAL_VEBOX_RENDER_DATA    pRenderData = GetLastExecRenderData();
 
+    VPHAL_RENDER_CHK_NULL_NO_STATUS_RETURN(pRenderData);
     MOS_ZeroMemory(pVeboxSurfaceStateCmdParams, sizeof(VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS));
 
     pVeboxSurfaceStateCmdParams->pSurfInput    = pVeboxState->m_currentSurface;
@@ -1919,6 +1959,7 @@ void VPHAL_VEBOX_STATE_G12_BASE::SetupSurfaceStates(
     pVeboxSurfaceStateCmdParams->pSurfSTMM     = &pVeboxState->STMMSurfaces[pRenderData->iCurHistIn];
     pVeboxSurfaceStateCmdParams->pSurfDNOutput = pVeboxState->FFDNSurfaces[pRenderData->iCurDNOut];
     pVeboxSurfaceStateCmdParams->bDIEnable     = bDiVarianceEnable;
+    pVeboxSurfaceStateCmdParams->b3DlutEnable  = pRenderData->bHdr3DLut;
 
 }
 
@@ -1982,7 +2023,7 @@ void VPHAL_VEBOX_STATE_G12_BASE::SetupChromaSampling(
     {
         pSrcSurface->ChromaSiting = (CHROMA_SITING_HORZ_LEFT | CHROMA_SITING_VERT_CENTER);
     }
-    srcColorPack = VpHal_GetSurfaceColorPack(pSrcSurface->Format);
+    srcColorPack = VpHalDDIUtils::GetSurfaceColorPack(pSrcSurface->Format);
     switch (srcColorPack)
     {
         // For 422 format, vertical should be always 0.
@@ -2136,7 +2177,7 @@ void VPHAL_VEBOX_STATE_G12_BASE::SetupChromaSampling(
     {
         pRenderTarget->ChromaSiting = (CHROMA_SITING_HORZ_LEFT | CHROMA_SITING_VERT_CENTER);
     }
-    dstColorPack = VpHal_GetSurfaceColorPack(pRenderTarget->Format);
+    dstColorPack = VpHalDDIUtils::GetSurfaceColorPack(pRenderTarget->Format);
     switch (dstColorPack)
     {
         case VPHAL_COLORPACK_422:
@@ -2542,6 +2583,7 @@ bool VPHAL_VEBOX_STATE_G12_BASE::IsNeeded(
     pSrcSurface   = pRenderPassData->pSrcSurface;
 
     VPHAL_RENDER_CHK_NULL(pSrcSurface);
+    VPHAL_RENDER_CHK_NULL(pRenderData);
 
     // Check whether VEBOX is available
     // VTd doesn't support VEBOX
@@ -2571,6 +2613,14 @@ bool VPHAL_VEBOX_STATE_G12_BASE::IsNeeded(
             pRenderPassData->bCompNeeded = true;
             goto finish;
         }
+    }
+
+    // Force NV12 16K to render
+    if (pRenderTarget->Format == Format_NV12 && pRenderTarget->dwHeight > VPHAL_RNDR_16K_HEIGHT_LIMIT)
+    {
+        VPHAL_RENDER_NORMALMESSAGE("Disable VEBOX/SFC for NV12 16k resolution");
+        pRenderPassData->bCompNeeded = true;
+        goto finish;
     }
 
     pRenderData->Init();
@@ -2759,6 +2809,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::LoadUpdateDenoiseKernelStaticData(
     MOS_STATUS                         eStatus;
     PVPHAL_VEBOX_RENDER_DATA           pRenderData = GetLastExecRenderData();
 
+    VPHAL_RENDER_CHK_NULL(pRenderData);
     VPHAL_RENDER_CHK_NULL(iCurbeOffsetOutDN);
 
     pRenderHal      = m_pRenderHal;
@@ -2833,6 +2884,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::SetupSurfaceStatesForDenoise()
     PVPHAL_VEBOX_RENDER_DATA       pRenderData = GetLastExecRenderData();
 
     VPHAL_RENDER_CHK_NULL(pVeboxState);
+    VPHAL_RENDER_CHK_NULL(pRenderData);
     VPHAL_RENDER_CHK_NULL(pVeboxState->m_pRenderHal);
     VPHAL_RENDER_CHK_NULL(pVeboxState->m_pOsInterface);
 
@@ -2961,7 +3013,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::SetupVeboxKernel(
     MOS_STATUS                  eStatus;                                       // Return code
     PVPHAL_VEBOX_STATE_G12_BASE pVeboxState = this;
     PVPHAL_VEBOX_RENDER_DATA    pRenderData = GetLastExecRenderData();
-
+    VPHAL_RENDER_CHK_NULL(pRenderData);
     // Initialize Variables
     eStatus          = MOS_STATUS_SUCCESS;
     pFilter          = &pVeboxState->SearchFilter[0];
@@ -3146,14 +3198,16 @@ MOS_STATUS VPHAL_VEBOX_STATE_G12_BASE::Initialize(
 #else
     enableMMC         = true;
 #endif
-    ReadUserSetting(
-        m_userSettingPtr,
-        enableMMC,
-        __VPHAL_ENABLE_MMC,
-        MediaUserSetting::Group::Sequence,
-        enableMMC,
-        true);
-
+    if (m_userSettingPtr != nullptr)
+    {
+        ReadUserSetting(
+            m_userSettingPtr,
+            enableMMC,
+            __VPHAL_ENABLE_MMC,
+            MediaUserSetting::Group::Device,
+            enableMMC,
+            true);
+    }
     // Set Vebox MMC enable
     pVeboxState->bEnableMMC = enableMMC && MEDIA_IS_SKU(pVeboxState->m_pSkuTable, FtrE2ECompression);
 

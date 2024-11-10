@@ -31,6 +31,7 @@
 #include "mhw_itf.h"
 #include "mhw_mi_cmdpar.h"
 #include "mhw_cp_interface.h"
+#include "media_defs.h"
 
 #define _MI_CMD_DEF(DEF)                  \
     DEF(MI_SEMAPHORE_WAIT);               \
@@ -53,7 +54,6 @@
     DEF(MI_MATH);                         \
     DEF(MI_COPY_MEM_MEM);                 \
     DEF(MFX_WAIT)
-
 namespace mhw
 {
 namespace mi
@@ -70,6 +70,7 @@ public:
         MI_FLUSH_DW_CMD_NUMBER_OF_ADDRESSES                     = 1,
         MI_CONDITIONAL_BATCH_BUFFER_END_CMD_NUMBER_OF_ADDRESSES = 1,
         MI_STORE_REGISTER_MEM_CMD_NUMBER_OF_ADDRESSES           = 1,
+        MI_LOAD_REGISTER_MEM_CMD_NUMBER_OF_ADDRESSES            = 1,
         MI_COPY_MEM_MEM_CMD_NUMBER_OF_ADDRESSES                 = 4,
         MI_SEMAPHORE_WAIT_CMD_NUMBER_OF_ADDRESSES               = 1,
         MI_ATOMIC_CMD_NUMBER_OF_ADDRESSES                       = 1
@@ -85,7 +86,7 @@ public:
 
     virtual ~Itf() = default;
 
-    virtual MOS_STATUS SetWatchdogTimerThreshold(uint32_t frameWidth, uint32_t frameHeight, bool isEncoder) = 0;
+    virtual MOS_STATUS SetWatchdogTimerThreshold(uint32_t frameWidth, uint32_t frameHeight, bool isEncoder, uint32_t codecMode = CODECHAL_STANDARD_MAX) = 0;
 
     virtual MOS_STATUS SetWatchdogTimerRegisterOffset(MOS_GPU_CONTEXT gpuContext) = 0;
 
@@ -95,17 +96,21 @@ public:
 
     virtual MOS_STATUS AddMiBatchBufferEnd(PMOS_COMMAND_BUFFER cmdBuffer, PMHW_BATCH_BUFFER batchBuffer) = 0;
 
+    virtual MOS_STATUS AddMiBatchBufferEndOnly(PMOS_COMMAND_BUFFER cmdBuffer, PMHW_BATCH_BUFFER batchBuffer) = 0;
+
     virtual MOS_STATUS AddBatchBufferEndInsertionFlag(MOS_COMMAND_BUFFER &constructedCmdBuf) = 0;
 
     virtual MHW_MI_MMIOREGISTERS* GetMmioRegisters() = 0;
 
-    virtual MOS_STATUS SetCpInterface(MhwCpInterface *cpInterface) = 0;
+    virtual MOS_STATUS SetCpInterface(MhwCpInterface *cpInterface, std::shared_ptr<mhw::mi::Itf> m_miItf) = 0;
 
     virtual uint32_t GetMmioInterfaces(MHW_MMIO_REGISTER_OPCODE opCode) = 0;
 
     virtual MOS_STATUS AddProtectedProlog(MOS_COMMAND_BUFFER *cmdBuffer) = 0;
 
-    virtual MOS_STATUS SetPrologCmd(PMOS_COMMAND_BUFFER CmdBuffer) = 0;
+    virtual MOS_STATUS AddVeboxMMIOPrologCmd(PMOS_COMMAND_BUFFER CmdBuffer) = 0;
+
+    virtual MOS_STATUS AddBLTMMIOPrologCmd(PMOS_COMMAND_BUFFER cmdBuffer) = 0;
 
     _MI_CMD_DEF(_MHW_CMD_ALL_DEF_FOR_ITF);
 MEDIA_CLASS_DEFINE_END(mhw__mi__Itf)

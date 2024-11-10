@@ -31,14 +31,14 @@
 #define __DECODE_SCALABILITY_SINGLEPIPE_NEXT_H__
 #include "mos_defs.h"
 #include "mos_os.h"
-#include "codechal_hw.h"
-#include "media_scalability_singlepipe.h"
+#include "codec_hw_next.h"
+#include "media_scalability_singlepipe_next.h"
 #include "decode_scalability_option.h"
 
 namespace decode
 {
 
-class DecodeScalabilitySinglePipeNext: public MediaScalabilitySinglePipe
+class DecodeScalabilitySinglePipeNext: public MediaScalabilitySinglePipeNext
 {
 public:
     //!
@@ -101,6 +101,18 @@ public:
     virtual MOS_STATUS VerifyCmdBuffer(uint32_t requestedSize, 
                 uint32_t requestedPatchListSize, 
                 bool &singleTaskPhaseSupportedInPak)  override;
+    //!
+    //! \brief  Create decode single pipe
+    //! \param  [in] hwInterface
+    //!         void type hw interface
+    //! \param  [in] mediaContext
+    //!         required media context to create single pipe
+    //! \param  [in] componentType
+    //!         Inidcate component.
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    static MOS_STATUS  CreateDecodeSinglePipe(void *hwInterface, MediaContext *mediaContext, uint8_t componentType);
 
 protected:
     //!
@@ -130,7 +142,7 @@ protected:
     virtual MOS_STATUS SendAttrWithFrameTracking(MOS_COMMAND_BUFFER &cmdBuffer, bool frameTrackingRequested) override;
 
 private:
-    CodechalHwInterface *m_hwInterface   = nullptr;
+    CodechalHwInterfaceNext *m_hwInterface = nullptr;
 
 MEDIA_CLASS_DEFINE_END(decode__DecodeScalabilitySinglePipeNext)
 };

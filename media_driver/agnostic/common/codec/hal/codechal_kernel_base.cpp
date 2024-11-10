@@ -148,8 +148,8 @@ MOS_STATUS CodechalKernelBase::CreateKernelState(
     CODECHAL_ENCODE_CHK_NULL_RETURN((*kernelState) = MOS_New(MHW_KERNEL_STATE));
     m_kernelStatePool.insert(std::make_pair(kernelIndex, *kernelState));
 
-    CODECHAL_KERNEL_HEADER kernelHeader;
-    uint32_t               kernelSize;
+    CODECHAL_KERNEL_HEADER kernelHeader = {};
+    uint32_t               kernelSize = 0;
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_callback(m_kernelBinary, operation, kernelOffset, &kernelHeader, &kernelSize));
 
     (*kernelState)->KernelParams.iBTCount          = GetBTCount();
@@ -241,8 +241,8 @@ MOS_STATUS CodechalKernelBase::Run()
         &walkerParams,
         &walkerCodecParams));
 
-    HalOcaInterface::TraceMessage(cmdBuffer, *m_osInterface->pOsContext, __FUNCTION__, sizeof(__FUNCTION__));
-    HalOcaInterface::OnDispatch(cmdBuffer, *m_osInterface->pOsContext, *m_miInterface, *m_renderInterface->GetMmioRegisters());
+    HalOcaInterface::TraceMessage(cmdBuffer, (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext, __FUNCTION__, sizeof(__FUNCTION__));
+    HalOcaInterface::OnDispatch(cmdBuffer, *m_osInterface, *m_miInterface, *m_renderInterface->GetMmioRegisters());
 
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_renderInterface->AddMediaObjectWalkerCmd(
         &cmdBuffer,

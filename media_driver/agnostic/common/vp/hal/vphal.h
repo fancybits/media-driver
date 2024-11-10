@@ -39,8 +39,6 @@
 #include "renderhal_legacy.h"
 
 // YUV input ranges
-#define YUV_RANGE_16_235                1
-#define YUV_RANGE_0_255                 2
 #define YUV_RANGE_FROM_DDI              3
 
 // RGB input ranges
@@ -291,7 +289,6 @@ public:
     //!
     VphalState(
         PMOS_INTERFACE          pOsInterface,
-        PMOS_CONTEXT            pOsDriverContext,
         MOS_STATUS              *peStatus);
 
     //!
@@ -432,6 +429,10 @@ public:
             if (m_veboxItf)
             {
                 eStatus = m_veboxItf->DestroyHeap();
+                if (eStatus != MOS_STATUS_SUCCESS)
+                {
+                    VPHAL_PUBLIC_ASSERTMESSAGE("Failed to destroy Vebox Interface, eStatus:%d.\n", eStatus);
+                }
             }
 
             eStatus = m_veboxInterface->DestroyHeap();
@@ -505,6 +506,11 @@ protected:
     virtual MOS_STATUS CreateRenderer() = 0;
 
     virtual bool IsApoEnabled() override
+    {
+        return false;
+    }
+
+    virtual bool IsRenderContextBasedSchedulingNeeded()
     {
         return false;
     }

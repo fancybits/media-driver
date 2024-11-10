@@ -44,6 +44,7 @@ namespace vp
 #define MAX_LAYER_COUNT VPHAL_MAX_SOURCES
 
 class VpInterface;
+class VpPipelineParamFactory;
 
 struct FeatureSet
 {
@@ -71,6 +72,7 @@ public:
     SwFilter *GetSwFilter(FeatureType type);
     MOS_STATUS AddSwFilterOrdered(SwFilter *swFilter, bool useNewSwFilterSet);
     MOS_STATUS AddSwFilterUnordered(SwFilter *swFilter);
+    MOS_STATUS AddFeatureGraphRTLog();
     bool IsEmpty()
     {
         bool ret = false;
@@ -168,7 +170,8 @@ public:
     MOS_STATUS AddSurface(VP_SURFACE *&surf, bool isInputSurface, uint32_t index);
     MOS_STATUS Update(VP_EXECUTE_CAPS *caps = nullptr);
     uint32_t GetSurfaceCount(bool isInputSurface);
-
+    MOS_STATUS  AddRTLog();
+    MOS_STATUS  AddFeatureGraphRTLog(bool isInputPipe, uint32_t pipeIndex);
     bool IsAllInputPipeEmpty();
     bool IsAllInputPipeSurfaceFeatureEmpty();
     bool IsAllInputPipeSurfaceFeatureEmpty(std::vector<int> &layerIndexes);
@@ -176,6 +179,11 @@ public:
     VP_SURFACE_SETTING &GetSurfacesSetting()
     {
         return m_surfacesSetting;
+    }
+
+    VpInterface &GetVpInterface()
+    {
+        return m_vpInterface;
     }
 
     MOS_STATUS SetSecureProcessFlag(bool secureProcessed)
@@ -197,7 +205,8 @@ public:
 
     RenderTargetType GetRenderTargetType()
     {
-        for (auto subpipe : m_InputPipes)
+        std::vector<SwFilterSubPipe *> &pipes = (m_InputPipes.size() == 0) ? m_OutputPipes : m_InputPipes;
+        for (auto subpipe : pipes)
         {
             if (subpipe)
             {

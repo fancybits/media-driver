@@ -565,6 +565,12 @@ public:
         return MOS_STATUS_SUCCESS;
     };
 
+    virtual bool IsBindlessHeapInUse(
+        PRENDERHAL_INTERFACE pRenderHal)
+    {
+        return false;
+    }
+
     //! \brief    Allocates scratch space buffer.
     //! \details  On some new pltforms, a single scratch space buffer may be allocated and used for
     //!           all threads.
@@ -607,7 +613,7 @@ public:
     virtual MOS_STATUS OnDispatch(
         PRENDERHAL_INTERFACE pRenderHal,
         PMOS_COMMAND_BUFFER  pCmdBuffer,
-        PMOS_CONTEXT         pOsContext,
+        PMOS_INTERFACE       pOsInterface,
         MHW_MI_MMIOREGISTERS *pMmioReg) = 0;
 
     virtual MOS_STATUS CreatePerfProfiler(

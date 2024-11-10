@@ -28,6 +28,7 @@
 //!           resource allocation/free and rendering
 //!
 #include "vphal_render_composite_xe_xpm.h"
+#include "vp_hal_ddi_utils.h"
 
 #define VPHAL_SAMPLER_Y1                 4
 #define VPHAL_SAMPLER_U1                 5
@@ -106,7 +107,7 @@ MOS_STATUS CompositeStateXe_Xpm ::UpdateInlineDataStatus(
         return MOS_STATUS_INVALID_PARAMETER;
     }
 
-    uiBitDepth                = VpHal_GetSurfaceBitDepth(pSurface->Format);
+    uiBitDepth                = VpHalDDIUtils::GetSurfaceBitDepth(pSurface->Format);
     pStatic->DW07.OutputDepth = VPHAL_COMP_P010_DEPTH;
     if (uiBitDepth && !(pSurface->Format == Format_P010 || pSurface->Format == Format_Y210))
     {
@@ -125,13 +126,102 @@ MOS_STATUS CompositeStateXe_Xpm ::UpdateInlineDataStatus(
 //!
 MOS_STATUS CompositeStateXe_Xpm::GetIntermediateOutput(PVPHAL_SURFACE &output)
 {
-    if (output == &m_Intermediate)
+    if (output == m_Intermediate)
     {
-        output = &m_Intermediate1;
+        output = m_Intermediate1;
     }
     else
     {
-        output = &m_Intermediate;
+        output = m_Intermediate;
     }
+    return MOS_STATUS_SUCCESS;
+}
+
+//!
+//! \brief    Decompress the Surface
+//! \details  Decompress the interlaced Surface which is in the RC compression mode
+//! \param    [in,out] pSource
+//!           Pointer to Source Surface
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+//!
+MOS_STATUS CompositeStateXe_Xpm::DecompressInterlacedSurf(PVPHAL_SURFACE pSource)
+{
+    VPHAL_RENDER_CHK_NULL_RETURN(pSource);
+
+    // Interlaced surface in the compression mode needs to decompress
+    if ((pSource->CompressionMode == MOS_MMC_MC                            ||
+         pSource->CompressionMode == MOS_MMC_RC)                           &&
+        (pSource->SampleType == SAMPLE_INTERLEAVED_EVEN_FIRST_TOP_FIELD    ||
+         pSource->SampleType == SAMPLE_INTERLEAVED_EVEN_FIRST_BOTTOM_FIELD ||
+         pSource->SampleType == SAMPLE_INTERLEAVED_ODD_FIRST_TOP_FIELD     ||
+         pSource->SampleType == SAMPLE_INTERLEAVED_ODD_FIRST_BOTTOM_FIELD))
+    {
+        VPHAL_RENDER_CHK_NULL_RETURN(m_pOsInterface);
+        bool bAllocated = false;
+
+        //Use auxiliary surface to sync with decompression
+        VPHAL_RENDER_CHK_STATUS_RETURN(VpHal_ReAllocateSurface(
+            m_pOsInterface,
+            &m_AuxiliarySyncSurface,
+            "AuxiliarySyncSurface",
+            Format_Buffer,
+            MOS_GFXRES_BUFFER,
+            MOS_TILE_LINEAR,
+            32,
+            1,
+            false,
+            MOS_MMC_DISABLED,
+            &bAllocated));
+      
+        VPHAL_RENDER_CHK_STATUS_RETURN(m_pOsInterface->pfnSetDecompSyncRes(m_pOsInterface, &m_AuxiliarySyncSurface.OsResource));
+        VPHAL_RENDER_CHK_STATUS_RETURN(m_pOsInterface->pfnDecompResource(m_pOsInterface, &pSource->OsResource));
+        VPHAL_RENDER_CHK_STATUS_RETURN(m_pOsInterface->pfnSetDecompSyncRes(m_pOsInterface, nullptr));
+        VPHAL_RENDER_CHK_STATUS_RETURN(m_pOsInterface->pfnRegisterResource(m_pOsInterface, &m_AuxiliarySyncSurface.OsResource, true, true));
+
+        MOS_SURFACE osSurface = {};
+        VPHAL_RENDER_CHK_STATUS_RETURN(m_pOsInterface->pfnGetResourceInfo(m_pOsInterface, &pSource->OsResource, &osSurface));
+        // vphal_surface do not have m_mmcstate, so no need to update m_mmcstate
+        pSource->bIsCompressed     = osSurface.bIsCompressed;
+        pSource->CompressionMode   = osSurface.CompressionMode;
+        pSource->CompressionFormat = osSurface.CompressionFormat;
+    }
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS CompositeStateXe_Xpm ::SetSamplerFilterMode(
+    PMHW_SAMPLER_STATE_PARAM&       pSamplerStateParams,
+    PRENDERHAL_SURFACE_STATE_ENTRY  pEntry,
+    PVPHAL_RENDERING_DATA_COMPOSITE pRenderData,
+    uint32_t                        uLayerNum,
+    MHW_SAMPLER_FILTER_MODE         SamplerFilterMode,
+    int32_t*                        pSamplerIndex,
+    PVPHAL_SURFACE                  pSource)
+{
+    VPHAL_RENDER_CHK_NULL_RETURN(pEntry);
+    VPHAL_RENDER_CHK_NULL_RETURN(pSamplerIndex);
+    VPHAL_RENDER_CHK_NULL_RETURN(pSamplerStateParams);
+    VPHAL_RENDER_CHK_NULL_RETURN(pRenderData);
+
+    if (pSource == nullptr || uLayerNum < 2)
+    {
+        pSamplerStateParams->Unorm.SamplerFilterMode = SamplerFilterMode;
+        return MOS_STATUS_SUCCESS;
+    }
+
+    if (MHW_SAMPLER_FILTER_BILINEAR == SamplerFilterMode &&
+            VPHAL_SCALING_BILINEAR != pSource->ScalingMode ||
+        MHW_SAMPLER_FILTER_NEAREST == SamplerFilterMode &&
+            VPHAL_SCALING_NEAREST != pSource->ScalingMode)
+    {
+        pSource->ScalingMode                         = (MHW_SAMPLER_FILTER_BILINEAR == SamplerFilterMode) ? VPHAL_SCALING_BILINEAR : VPHAL_SCALING_NEAREST;
+        VPHAL_RENDER_CHK_STATUS_RETURN(GetSamplerIndex(pSource, pEntry, pSamplerIndex, &pSamplerStateParams->SamplerType));
+        pSamplerStateParams                          = &pRenderData->SamplerStateParams[*pSamplerIndex];
+        pSamplerStateParams->SamplerType             = MHW_SAMPLER_TYPE_3D;
+
+        VPHAL_RENDER_NORMALMESSAGE("Updating scaling mode %d and SamplerIndex %d", pSource->ScalingMode, *pSamplerIndex);
+    }
+    pSamplerStateParams->Unorm.SamplerFilterMode = SamplerFilterMode;
+
     return MOS_STATUS_SUCCESS;
 }

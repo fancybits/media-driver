@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2022, Intel Corporation
+* Copyright (c) 2022-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -40,8 +40,8 @@
 #include "mos_os.h"
 #include "mos_os_specific.h"
 #include "vp_feature_report.h"
+#include "mos_os_cp_interface_specific.h"
 
-class MhwCpInterface;
 class MediaScalability;
 class MediaContext;
 
@@ -62,14 +62,14 @@ class VpExtIntfBase;
 //      DDI layers must set this interface before calling pfnRender
 //-----------------------------------------------------------------------------
 //!
-//! Structure VphalSettings
+//! Structure VpSettings
 //! \brief VPHAL Settings - controls allocation of internal resources in VPHAL
 //!
 struct VpSettings
 {
     //!
-    //! \brief    VphalSettings Constructor
-    //! \details  Creates instance of VphalSettings
+    //! \brief    VpSettings Constructor
+    //! \details  Creates instance of VpSettings
     //!
     VpSettings() : maxPhases(0),
                    mediaStates(0),
@@ -87,7 +87,7 @@ struct VpSettings
     uint32_t kernelUpdate;            //!< For VEBox Copy and Update kernels
     uint32_t disableHdr;              //!< Disable Hdr
     uint32_t veboxParallelExecution;  //!< Control VEBox parallel execution with render engine
-    uint32_t clearVideoViewMode;      //!< Perf Optimize for ClearVideoView DDI
+    bool     clearVideoViewMode;      //!< Perf Optimize for ClearVideoView DDI
 };
 
 struct _VP_MHWINTERFACE
@@ -127,9 +127,11 @@ struct _VP_MHWINTERFACE
     MOS_STATUS (*pfnCreateMultiPipe)(
     void *hwInterface, MediaContext *mediaContext, uint8_t componentType);
 
+    bool m_bIsMediaSfcInterfaceInUse = false;
 };
 
 using VP_MHWINTERFACE  = _VP_MHWINTERFACE;
+using PVP_MHWINTERFACE = VP_MHWINTERFACE *;
 
 class VpBase
 {
@@ -140,9 +142,10 @@ public:
 
     // factory function
     static VpBase* VphalStateFactory(
-        PMOS_INTERFACE osInterface,
-        PMOS_CONTEXT   osDriverContext,
-        MOS_STATUS     *eStatus);
+        PMOS_INTERFACE     osInterface,
+        MOS_CONTEXT_HANDLE osDriverContext,
+        MOS_STATUS         *eStatus,
+        bool               clearViewMode = false);
 
     //!
     //! \brief    Allocate VpPipelineAdapterBase Resources
@@ -180,6 +183,11 @@ public:
     HANDLE m_gpuAppTaskEvent = nullptr;
 
     VpExtIntfBase *extIntf = nullptr;
+
+    virtual bool IsOclFCEnabled()
+    {
+        return false;
+    }
 
 protected:
     virtual bool IsApoEnabled()

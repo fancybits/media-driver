@@ -50,6 +50,7 @@ class MosMutex;
 #else
 #define USER_FEATURE_FILE                   "/etc/igfx_user_feature.txt"
 #define USER_FEATURE_FILE_NEXT              "/etc/igfx_user_feature_next.txt"
+#define USER_FEATURE_FILE_REPORT            "/etc/igfx_user_feature_report.txt"
 #endif
 #define UF_KEY_ID                           "[KEY]"
 #define UF_VALUE_ID                         "[VALUE]"
@@ -89,6 +90,7 @@ class MosMutex;
 
 #define UFKEY_INTERNAL_NEXT                   ""
 #define USER_SETTING_CONFIG_PATH             "[config]"
+#define USER_SETTING_CONFIG_PERF_PATH        "[config]"
 #define USER_SETTING_CONFIG_PERMANENT_PATH   "[config]"
 #define USER_SETTING_REPORT_PATH             "[report]"
 
@@ -403,6 +405,8 @@ public:
     static const char*          m_szUserFeatureFile;
     static MOS_PUF_KEYLIST      m_ufKeyList;
     static int32_t              m_mosTraceFd;
+    static uint64_t             m_filterEnv;
+    static uint32_t             m_levelEnv;
     static const char* const    m_mosTracePath;
     static std::map<std::string, std::map<std::string, std::string>> m_regBuffer;
 

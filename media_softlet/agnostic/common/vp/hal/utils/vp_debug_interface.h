@@ -54,27 +54,30 @@ public:
         MEDIA_WA_TABLE                  *waTable);
 
     MOS_STATUS DumpVpSurfaceArray(
-        PVPHAL_SURFACE                 *ppSurfaces,
-        uint32_t                        uiMaxSurfaces,
-        uint32_t                        uiNumSurfaces,
-        uint32_t                        uiFrameNumber,
-        uint32_t                        Location);
+        PVPHAL_SURFACE *ppSurfaces,
+        uint32_t        uiMaxSurfaces,
+        uint32_t        uiNumSurfaces,
+        uint32_t        uiFrameNumber,
+        uint32_t        Location,
+        uint32_t        uiDDI = VPHAL_SURF_DUMP_DDI_UNKNOWN);
 
     MOS_STATUS DumpVpSurface(
         PVPHAL_SURFACE pSurf,
         uint32_t       uiFrameNumber,
         uint32_t       uiCounter,
-        uint32_t       Location);
+        uint32_t       Location,
+        uint32_t       uiDDI = VPHAL_SURF_DUMP_DDI_UNKNOWN);
 
     MOS_STATUS DumpVpSurface(
         PVP_SURFACE pSurf,
         uint32_t    uiFrameNumber,
         uint32_t    uiCounter,
-        uint32_t    Location);
+        uint32_t    Location,
+        uint32_t    uiDDI = VPHAL_SURF_DUMP_DDI_UNKNOWN);
 
 protected:
-    MOS_USER_FEATURE_VALUE_ID SetOutputPathKey() override;
-    MOS_USER_FEATURE_VALUE_ID InitDefaultOutput() override;
+    std::string SetOutputPathKey() override;
+    std::string InitDefaultOutput() override;
 
     VpSurfaceDumper   *m_surfaceDumper   = nullptr;
     VpParameterDumper *m_parameterDumper = nullptr;

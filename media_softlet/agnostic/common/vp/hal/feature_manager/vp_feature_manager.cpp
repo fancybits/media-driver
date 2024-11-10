@@ -55,7 +55,9 @@ MOS_STATUS VpFeatureManagerNext::Init(void* settings)
         m_policy = MOS_New(Policy, m_vpInterface);
     }
     VP_PUBLIC_CHK_NULL_RETURN(m_policy);
-
+    vp::VpPlatformInterface *vpPlatformInterface = m_vpInterface.GetHwInterface()->m_vpPlatformInterface;
+    VP_PUBLIC_CHK_NULL_RETURN(vpPlatformInterface);
+    VP_PUBLIC_CHK_STATUS_RETURN(vpPlatformInterface->InitVpFeatureSupportBits());
     VP_PUBLIC_CHK_STATUS_RETURN(RegisterFeatures());
     return m_policy->Initialize();
 }
@@ -186,6 +188,10 @@ MOS_STATUS VpFeatureManagerNext::RegisterFeatures()
     VP_PUBLIC_CHK_NULL_RETURN(p);
     m_featureHandler.insert(std::make_pair(FeatureTypeAlpha, p));
 
+    p = MOS_New(SwFilterCgcHandler, m_vpInterface);
+    VP_PUBLIC_CHK_NULL_RETURN(p);
+    m_featureHandler.insert(std::make_pair(FeatureTypeCgc, p));
+
     m_isFeatureRegistered = true;
     return MOS_STATUS_SUCCESS;
 }
@@ -235,12 +241,6 @@ MOS_STATUS VPFeatureManager::CheckFeatures(void * params, bool &bApgFuncSupporte
     PVP_PIPELINE_PARAMS pvpParams = (PVP_PIPELINE_PARAMS)params;
     bApgFuncSupported = false;
 
-    if (!m_hwInterface->m_osInterface->apoMosEnabled)
-    {
-        VP_PUBLIC_NORMALMESSAGE("Fallback to legacy since APO mos not enabled.");
-        return MOS_STATUS_SUCCESS;
-    }
-
     // Color fill does not need to check src params.
     if (0 == pvpParams->uSrcCount)
     {
@@ -266,14 +266,6 @@ MOS_STATUS VPFeatureManager::CheckFeatures(void * params, bool &bApgFuncSupporte
 
     if (pvpParams->pConstriction)
     {
-        return MOS_STATUS_SUCCESS;
-    }
-
-    // Disable FP16 mode in APO path.
-    bool bFP16 = IS_RGB64_FLOAT_FORMAT(pvpParams->pTarget[0]->Format) || IS_RGB64_FLOAT_FORMAT(pvpParams->pSrc[0]->Format);
-    if (bFP16)
-    {
-        VP_PUBLIC_NORMALMESSAGE("Disable FP16 mode in APO path.");
         return MOS_STATUS_SUCCESS;
     }
 

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2021, Intel Corporation
+* Copyright (c) 2019-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -37,6 +37,7 @@ namespace encode
 #define AV1_ENCODE_GET_REF_FALG(i) (0x1 << i)
 
 class Av1BasicFeature;
+class Av1VdencPipeline;
 
 class Av1ReferenceFrames : public mhw::vdbox::vdenc::Itf::ParSetting, public mhw::vdbox::avp::Itf::ParSetting
 {
@@ -67,8 +68,6 @@ public:
     //!
     MOS_STATUS Update();
 
-    MOS_STATUS UpdateEncRefBufType(BufferType ref, BufferType ref4x, BufferType ref8x);
-
     MOS_STATUS UpdateRefFrameSize(uint32_t width, uint32_t height);
 
     //! \brief   Check if low delay mode
@@ -89,6 +88,22 @@ public:
     //!         Pointer of current reference list
     //!
     CODEC_REF_LIST_AV1 *GetCurrRefList() const { return m_currRefList; };
+
+    //!
+    //! \brief  Get reference list
+    //! \return  PCODEC_REF_LIST *
+    //!         Pointer of current reference list
+    //!
+    PCODEC_REF_LIST_AV1 *GetRefList() { return m_refList; };
+
+    //!
+    //! \brief  Get picture idx
+    //! \param  [in] idx
+    //!         id of RefFrameList 
+    //! \return  CODEC_PIC_ID
+    //!         CODEC_PIC_ID refer to the FrameIdx
+    //!
+    CODEC_PIC_ID GetPicId(uint8_t idx) { return m_picIdx[idx]; };
 
     //!
     //! \brief  Get Prime frame's reference list
@@ -139,8 +154,38 @@ public:
     //!
     std::vector<PMOS_SURFACE> GetPakRefSurface() const;
 
+    //!
+    //! \brief  Get  get the forward and backward reference surface
+    //! \param  [in] refsPicList
+    //!         A vector contain forward and backward reference surface
+    //!
+    void GetFwdBwdRefPicList(CODEC_PICTURE (&refsPicList)[2][15]);
+
+    //! \brief  Get  get current frame display order
+    //! \return int32_t
+    //!         frame display order
+    //!
+    int32_t GetFrameDisplayOrder();
+
+    //!
+    //! \brief  Get  get the Picture Order Count values of reference pictures 
+    //!          corresponding to the entries of RefFrameList[]. 
+    //! \param  [in] refsPOCList
+    //!         A vector contain reference frame POC
+    //!         [in] orderHint
+    //!         frame display order
+    //!
+    void GetRefFramePOC(int32_t (&refsPOCList)[15], int32_t const orderHint);
+
     bool CheckSegmentForPrimeFrame();
     uint8_t RefFrameL0L1(CODEC_Ref_Frame_Ctrl_AV1 const &ref_frame_ctrl) const;
+
+     //!
+    //! \brief  Dump input resources or infomation before submit
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS DumpInput(Av1VdencPipeline *pipeline);
 
     MHW_SETPAR_DECL_HDR(VDENC_PIPE_BUF_ADDR_STATE);
 
@@ -224,6 +269,10 @@ protected:
     bool                    m_PFrame   = true;                       //!< P frame flag
     bool                    m_enable_order_hint = false;
     uint8_t                 m_orderHintBitsMinus1 = 0;
+    uint8_t                 m_orderHintCount[ENCODE_AV1_ORDER_HINT_SIZE];
+    int32_t                 m_frameOut = 0;                        //!<frame output number
+    int32_t                 m_prevFrameOffset = 0;
+    int32_t                 m_prevFrameDisplayerOrder = 0;
 
     bool       m_encUsePostCdefAsRef = false;
     BufferType m_encRefBufType       = BufferType::postCdefReconSurface;

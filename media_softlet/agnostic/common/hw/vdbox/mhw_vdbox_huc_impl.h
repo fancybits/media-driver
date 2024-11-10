@@ -42,6 +42,7 @@ static constexpr uint32_t MEMORY_ADDRESS_ATTRIBUTES_MOCS_CLEAN_MASK = 0xFFFFFF81
 static constexpr uint32_t HUC_UKERNEL_HDR_INFO_REG_OFFSET_NODE_1_INIT = 0x1C2014;
 static constexpr uint32_t HUC_STATUS_REG_OFFSET_NODE_1_INIT           = 0x1C2000;
 static constexpr uint32_t HUC_STATUS2_REG_OFFSET_NODE_1_INIT          = 0x1C23B0;
+static constexpr uint32_t HUC_LOAD_INFO_REG_OFFSET_NODE_1_INIT        = 0xC1DC;
 
 template <typename cmd_t>
 class Impl : public Itf, public mhw::Impl
@@ -90,8 +91,14 @@ private:
         mmioRegisters->hucUKernelHdrInfoRegOffset = HUC_UKERNEL_HDR_INFO_REG_OFFSET_NODE_1_INIT;
         mmioRegisters->hucStatusRegOffset         = HUC_STATUS_REG_OFFSET_NODE_1_INIT;
         mmioRegisters->hucStatus2RegOffset        = HUC_STATUS2_REG_OFFSET_NODE_1_INIT;
+        mmioRegisters->hucLoadInfoOffset          = HUC_LOAD_INFO_REG_OFFSET_NODE_1_INIT;
 
         m_mmioRegisters[MHW_VDBOX_NODE_2] = m_mmioRegisters[MHW_VDBOX_NODE_1];
+    }
+
+    uint32_t GetHucStatusReEncodeMask() override
+    {
+        return m_hucStatusReEncodeMask;
     }
 
     uint32_t GetHucStatusHevcS2lFailureMask() override
@@ -118,6 +125,7 @@ protected:
     using base_t = Itf;
     HucMmioRegisters      m_mmioRegisters[MHW_VDBOX_NODE_MAX] = {};  //!< HuC mmio registers
     MhwCpInterface        *m_cpItf = nullptr;
+    static const uint32_t m_hucStatusReEncodeMask             = 0x80000000;
     static const uint32_t m_hucStatusHevcS2lFailureMask       = 0x8000;
     static const uint32_t m_hucStatus2ImemLoadedMask          = 0x40;
     static const uint32_t m_hucErrorFlagsMask                 = 0xFFFE;          //!< HuC error 2 flags mask
@@ -130,11 +138,6 @@ protected:
         m_cpItf = cpItf;
 
         InitMmioRegisters();
-    }
-
-    virtual uint32_t GetMocsValue(MOS_HW_RESOURCE_DEF hwResType)
-    {
-        return this->m_cacheabilitySettings[hwResType].Gen12_7.Index;
     }
 
     _MHW_SETCMD_OVERRIDE_DECL(HUC_PIPE_MODE_SELECT)
@@ -178,9 +181,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            cmd.HucIndirectStreamInObjectbaseAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-                GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         if (!Mos_ResourceIsNull(params.StreamOutObjectBuffer))
@@ -198,10 +198,6 @@ protected:
                 this->m_osItf,
                 this->m_currentCmdBuf,
                 &resourceParams));
-
-            // base address of the stream out buffer
-            cmd.HucIndirectStreamOutObjectbaseAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-                GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
 
         return MOS_STATUS_SUCCESS;
@@ -266,9 +262,6 @@ protected:
 
             // set data length
             cmd.DW5.HucDataLength = params.dataLength >> MHW_VDBOX_HUC_GENERAL_STATE_SHIFT;
-
-            cmd.HucDataSourceAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-                GetMocsValue(MOS_CODEC_RESOURCE_USAGE_SURFACE_UNCACHED);
         }
         return MOS_STATUS_SUCCESS;
     }
@@ -300,9 +293,6 @@ protected:
                     this->m_osItf,
                     this->m_currentCmdBuf,
                     &resourceParams));
-
-                cmd.HucVirtualAddressRegion[i].HucSurfaceVirtualaddrregion015.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-                    GetMocsValue(MOS_CODEC_RESOURCE_USAGE_HUC_VIRTUAL_ADDR_REGION_BUFFER_CODEC);
             }
         }
         return MOS_STATUS_SUCCESS;

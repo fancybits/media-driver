@@ -30,13 +30,16 @@
 #include "encode_av1_brc.h"
 #include "encode_av1_vdenc_packet.h"
 #include "encode_av1_vdenc_lpla_enc.h"
+#if _MEDIA_RESERVED
+#include "encode_av1_scc.h"
+#endif
 
 namespace encode
 {
     MOS_STATUS Av1BrcUpdatePkt::Init()
     {
         ENCODE_FUNC_CALL();
-        HUC_CHK_STATUS_RETURN(EncodeHucBasic::Init());
+        HUC_CHK_STATUS_RETURN(EncodeHucPkt::Init());
 
         ENCODE_CHK_NULL_RETURN(m_pipeline);
         m_allocator = m_pipeline->GetEncodeAllocator();
@@ -60,11 +63,8 @@ namespace encode
         uint32_t hucPatchListSize = 0;
         MHW_VDBOX_STATE_CMDSIZE_PARAMS stateCmdSizeParams;
 
-        if (m_hwInterface->m_hwInterfaceNext)
-        {
-            ENCODE_CHK_STATUS_RETURN(m_hwInterface->m_hwInterfaceNext->GetHucStateCommandSize(
-                m_basicFeature->m_mode, (uint32_t*)&hucCommandsSize, (uint32_t*)&hucPatchListSize, &stateCmdSizeParams));
-        }
+        ENCODE_CHK_STATUS_RETURN(m_hwInterface->GetHucStateCommandSize(
+            m_basicFeature->m_mode, (uint32_t*)&hucCommandsSize, (uint32_t*)&hucPatchListSize, &stateCmdSizeParams));
 
         commandBufferSize = hucCommandsSize;
         requestedPatchListSize = osInterface->bUsesPatchList ? hucPatchListSize : 0;
@@ -83,7 +83,7 @@ namespace encode
     MOS_STATUS Av1BrcUpdatePkt::AllocateResources()
     {
         ENCODE_FUNC_CALL();
-        ENCODE_CHK_STATUS_RETURN(EncodeHucBasic::AllocateResources());
+        ENCODE_CHK_STATUS_RETURN(EncodeHucPkt::AllocateResources());
 
         MOS_ALLOC_GFXRES_PARAMS allocParamsForBufferLinear;
         MOS_ZeroMemory(&allocParamsForBufferLinear, sizeof(MOS_ALLOC_GFXRES_PARAMS));
@@ -98,6 +98,7 @@ namespace encode
             // Const Data buffer
             allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_vdencBrcConstDataBufferSize, CODECHAL_PAGE_SIZE);
             allocParamsForBufferLinear.pBufName = "VDENC BRC Const Data Buffer";
+            allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_WRITE;
             allocatedbuffer       = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
             ENCODE_CHK_NULL_RETURN(allocatedbuffer);
             m_vdencBrcConstDataBuffer[k] = *allocatedbuffer;
@@ -105,6 +106,7 @@ namespace encode
             // Pak insert buffer (input for HuC FW)
             allocParamsForBufferLinear.dwBytes  = CODECHAL_PAGE_SIZE;
             allocParamsForBufferLinear.pBufName = "VDENC Read Batch Buffer";
+            allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_WRITE;
             allocatedbuffer                     = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
             ENCODE_CHK_NULL_RETURN(allocatedbuffer);
             m_vdencPakInsertBatchBuffer[k] = *allocatedbuffer;
@@ -113,14 +115,24 @@ namespace encode
             {
                 // VDEnc read batch buffer (input for HuC FW)
                 allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_hwInterface->m_vdencReadBatchBufferSize, CODECHAL_PAGE_SIZE);
-                allocParamsForBufferLinear.pBufName = "VDENC Read Batch Buffer";
+                allocParamsForBufferLinear.pBufName = "VDENC Read Origin Batch Buffer";
+                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_WRITE;
                 allocatedbuffer                     = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
                 ENCODE_CHK_NULL_RETURN(allocatedbuffer);
-                m_vdencReadBatchBuffer[k][i] = *allocatedbuffer;
+                m_vdencReadBatchBufferOrigin[k][i] = *allocatedbuffer;
+
+                // VDEnc read batch buffer (input for HuC FW)
+                allocParamsForBufferLinear.dwBytes      = MOS_ALIGN_CEIL(m_hwInterface->m_vdencReadBatchBufferSize, CODECHAL_PAGE_SIZE);
+                allocParamsForBufferLinear.pBufName     = "VDENC Read TU7 Batch Buffer";
+                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_WRITE;
+                allocatedbuffer                         = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
+                ENCODE_CHK_NULL_RETURN(allocatedbuffer);
+                m_vdencReadBatchBufferTU7[k][i] = *allocatedbuffer;
 
                 // BRC update DMEM
                 allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_vdencBrcUpdateDmemBufferSize, CODECHAL_CACHELINE_SIZE);
                 allocParamsForBufferLinear.pBufName = "VDENC BrcUpdate DmemBuffer";
+                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_WRITE;
                 allocatedbuffer                     = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
                 ENCODE_CHK_NULL_RETURN(allocatedbuffer);
                 m_vdencBrcUpdateDmemBuffer[k][i] = *allocatedbuffer;
@@ -152,8 +164,19 @@ namespace encode
 
         ENCODE_CHK_NULL_RETURN(m_basicFeature);
         ENCODE_CHK_NULL_RETURN(m_basicFeature->m_recycleBuf);
+        ENCODE_CHK_NULL_RETURN(m_basicFeature->m_av1PicParams);
+        ENCODE_CHK_NULL_RETURN(m_basicFeature->m_av1SeqParams);
 
-        ENCODE_CHK_STATUS_RETURN(ConstructBatchBufferHuCBRC(&m_vdencReadBatchBuffer[m_pipeline->m_currRecycledBufIdx][m_pipeline->GetCurrentPass()]));
+        ENCODE_CHK_STATUS_RETURN(ConstructBatchBufferHuCBRC(&m_vdencReadBatchBufferOrigin[m_pipeline->m_currRecycledBufIdx][m_pipeline->GetCurrentPass()]));
+    
+        if (m_basicFeature->m_av1PicParams->AdaptiveTUEnabled != 0)
+        {
+            auto original_TU              = m_basicFeature->m_targetUsage;
+            m_basicFeature->m_targetUsage = m_basicFeature->m_av1SeqParams->TargetUsage = 7;
+            ENCODE_CHK_STATUS_RETURN(ConstructBatchBufferHuCBRC(&m_vdencReadBatchBufferTU7[m_pipeline->m_currRecycledBufIdx][m_pipeline->GetCurrentPass()]));
+            m_basicFeature->m_targetUsage = m_basicFeature->m_av1SeqParams->TargetUsage = original_TU;
+        }        
+
         ENCODE_CHK_STATUS_RETURN(ConstructPakInsertHucBRC(&m_vdencPakInsertBatchBuffer[m_pipeline->m_currRecycledBufIdx]));
 
         bool firstTaskInPhase = packetPhase & firstPacket;
@@ -271,6 +294,14 @@ namespace encode
         /*----Group4----*/
         slbData.avpPicStateOffset = (uint16_t)constructedCmdBuf.iOffset;
         ENCODE_CHK_STATUS_RETURN(AddAvpPicStateBaseOnTile(constructedCmdBuf, slbData));
+
+        /*----Group5----*/
+        if (m_basicFeature->m_av1PicParams->PicFlags.fields.PaletteModeEnable)
+        {
+            slbData.vdencTileSliceStateOffset = (uint16_t)constructedCmdBuf.iOffset;
+            ENCODE_CHK_STATUS_RETURN(AddVdencTileSliceBaseOnTile(constructedCmdBuf, slbData));
+        }
+
         slbData.slbSize = (uint16_t)constructedCmdBuf.iOffset - slbData.avpSegmentStateOffset;
 
         RUN_FEATURE_INTERFACE_NO_RETURN(Av1Brc, Av1FeatureIDs::av1BrcFeature, SetSLBData, slbData);
@@ -291,14 +322,20 @@ namespace encode
         auto batchbufferAddr = (uint8_t *)m_allocator->LockResourceForWrite(batchBuffer);
         ENCODE_CHK_NULL_RETURN(batchbufferAddr);
 
-        MhwVdboxAvpPakInsertObjParams pakInsertObjectParams;
         MOS_COMMAND_BUFFER            constructedCmdBuf;
         MOS_ZeroMemory(&constructedCmdBuf, sizeof(constructedCmdBuf));
         constructedCmdBuf.pCmdBase = constructedCmdBuf.pCmdPtr = (uint32_t *)batchbufferAddr;
         constructedCmdBuf.iRemaining                           = MOS_ALIGN_CEIL(m_hwInterface->m_vdencReadBatchBufferSize, CODECHAL_PAGE_SIZE);
 
+        auto brcFeature = dynamic_cast<Av1Brc *>(m_featureManager->GetFeature(Av1FeatureIDs::av1BrcFeature));
+        ENCODE_CHK_NULL_RETURN(brcFeature);
+        auto slbData = brcFeature->GetSLBData();
+
         ENCODE_CHK_STATUS_RETURN(AddAllCmds_AVP_PAK_INSERT_OBJECT(&constructedCmdBuf));
         ENCODE_CHK_STATUS_RETURN(AddBBEnd(m_miItf, constructedCmdBuf));
+
+        slbData.pakInsertSlbSize = (uint16_t)constructedCmdBuf.iOffset;
+        RUN_FEATURE_INTERFACE_NO_RETURN(Av1Brc, Av1FeatureIDs::av1BrcFeature, SetSLBData, slbData);
 
         return MOS_STATUS_SUCCESS;
     }
@@ -312,6 +349,7 @@ namespace encode
         bool firstTileInGroup = false;
         uint32_t tileGroupIdx = 0;
         RUN_FEATURE_INTERFACE_RETURN(Av1EncodeTile, Av1FeatureIDs::encodeTile, GetTileRowColumns, numTileRows, numTileColumns);
+        slbData.tileNum = numTileRows * numTileColumns;
 
         for (uint32_t tileRow = 0; tileRow < numTileRows; tileRow++)
         {
@@ -319,6 +357,9 @@ namespace encode
             {
                 RUN_FEATURE_INTERFACE_RETURN(Av1EncodeTile, Av1FeatureIDs::encodeTile, SetCurrentTile, tileRow, tileCol, m_pipeline);
                 RUN_FEATURE_INTERFACE_NO_RETURN(Av1EncodeTile, Av1FeatureIDs::encodeTile, IsFirstTileInGroup, firstTileInGroup, tileGroupIdx);
+#if _MEDIA_RESERVED
+                RUN_FEATURE_INTERFACE_RETURN(Av1Scc, Av1FeatureIDs::av1Scc, UpdateIBCStatusForCurrentTile);
+#endif
                 if (firstTileInGroup)
                 {
                     SETPAR_AND_ADDCMD(AVP_PIC_STATE, m_avpItf, &cmdBuffer);
@@ -339,6 +380,44 @@ namespace encode
                 break;
             }
         }
+
+        // Add MI_NOOPs to align with CODECHAL_CACHELINE_SIZE
+        uint32_t size = (MOS_ALIGN_CEIL(cmdBuffer.iOffset, CODECHAL_CACHELINE_SIZE) - cmdBuffer.iOffset) / sizeof(uint32_t);
+        for (uint32_t i = 0; i < size; i++)
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_NOOP)(&cmdBuffer));
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS Av1BrcUpdatePkt::AddVdencTileSliceBaseOnTile(MOS_COMMAND_BUFFER& cmdBuffer, SlbData& slbData)
+    {
+        ENCODE_FUNC_CALL();
+
+        uint16_t numTileColumns = 1;
+        uint16_t numTileRows = 1;
+        RUN_FEATURE_INTERFACE_RETURN(Av1EncodeTile, Av1FeatureIDs::encodeTile, GetTileRowColumns, numTileRows, numTileColumns);
+
+        auto& par = m_vdencItf->MHW_GETPAR_F(VDENC_HEVC_VP9_TILE_SLICE_STATE)();
+        par = {};
+
+        for (uint32_t tileRow = 0; tileRow < numTileRows; tileRow++)
+        {
+            for (uint32_t tileCol = 0; tileCol < numTileColumns; tileCol++)
+            {
+                RUN_FEATURE_INTERFACE_RETURN(Av1EncodeTile, Av1FeatureIDs::encodeTile, SetCurrentTile, tileRow, tileCol, m_pipeline);
+                auto tileIdx = tileRow * numTileColumns + tileCol;
+
+                m_basicFeature->m_vdencTileSliceStart[tileIdx] = cmdBuffer.iOffset;
+                SETPAR_AND_ADDCMD(VDENC_HEVC_VP9_TILE_SLICE_STATE, m_vdencItf, &cmdBuffer);
+                ENCODE_CHK_STATUS_RETURN(AddBBEnd(m_miItf, cmdBuffer));
+
+                // Add MI_NOOPs to align with CODECHAL_CACHELINE_SIZE
+                uint32_t size = (MOS_ALIGN_CEIL(cmdBuffer.iOffset, CODECHAL_CACHELINE_SIZE) - cmdBuffer.iOffset) / sizeof(uint32_t);
+                for (uint32_t i = 0; i < size; i++)
+                    ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_NOOP)(&cmdBuffer));
+            }
+        }
+
         return MOS_STATUS_SUCCESS;
     }
 
@@ -378,6 +457,7 @@ namespace encode
     {
         ENCODE_FUNC_CALL();
 
+        ENCODE_CHK_NULL_RETURN(m_osInterface);
         auto& params = m_avpItf->MHW_GETPAR_F(AVP_PAK_INSERT_OBJECT)();
         params      = {};
 
@@ -395,28 +475,28 @@ namespace encode
             uint32_t nalNum = 0;
             for (uint32_t i = 0; i < MAX_NUM_OBU_TYPES && m_basicFeature->m_nalUnitParams[i]->uiSize > 0; i++)
             {
-                nalNum = i;
+                nalNum++;
             }
 
             params.bsBuffer             = &m_basicFeature->m_bsBuffer;
             params.endOfHeaderInsertion = false;
 
             // Support multiple packed header buffer
-            for (uint32_t i = 0; i <= nalNum; i++)
+            for (uint32_t i = 0; i < nalNum; i++)
             {
                 uint32_t nalUnitSize   = m_basicFeature->m_nalUnitParams[i]->uiSize;
                 uint32_t nalUnitOffset = m_basicFeature->m_nalUnitParams[i]->uiOffset;
 
-                CODECHAL_ENCODE_ASSERT(nalUnitSize < CODECHAL_ENCODE_AV1_PAK_INSERT_UNCOMPRESSED_HEADER);
+                ENCODE_ASSERT(nalUnitSize < CODECHAL_ENCODE_AV1_PAK_INSERT_UNCOMPRESSED_HEADER);
 
                 if (IsFrameHeader(*(m_basicFeature->m_bsBuffer.pBase + nalUnitOffset)))
                 {
                     params.bitSize    = nalUnitSize * 8;
                     params.offset     = nalUnitOffset;
-                    params.lastHeader = !tgOBUValid && (i == nalNum);
+                    params.lastHeader = !tgOBUValid && (i+1 == nalNum);
 
                     m_avpItf->MHW_ADDCMD_F(AVP_PAK_INSERT_OBJECT)(cmdBuffer);
-                    Mos_AddCommand(cmdBuffer, GetExtraData(), GetExtraSize());
+                    m_osInterface->pfnAddCommand(cmdBuffer, GetExtraData(), GetExtraSize());
                 }
             }
         }
@@ -441,11 +521,15 @@ namespace encode
 
         ENCODE_CHK_STATUS_RETURN(DumpRegion(0, "_BrcHistory", true, hucRegionDumpUpdate, 6080));
         ENCODE_CHK_STATUS_RETURN(DumpRegion(1, "_VdencStats", true, hucRegionDumpUpdate, 48*4));
-        ENCODE_CHK_STATUS_RETURN(DumpRegion(3, "_InputSLBB", true, hucRegionDumpUpdate, 300*4));
+        ENCODE_CHK_STATUS_RETURN(DumpRegion(3, "_InputSLBB_Origin", true, hucRegionDumpUpdate, 600*4));
         ENCODE_CHK_STATUS_RETURN(DumpRegion(5, "_ConstData", true, hucRegionDumpUpdate, MOS_ALIGN_CEIL(m_vdencBrcConstDataBufferSize, CODECHAL_PAGE_SIZE)));
         ENCODE_CHK_STATUS_RETURN(DumpRegion(7, "_PakMmio", true, hucRegionDumpUpdate, 16*4));
         ENCODE_CHK_STATUS_RETURN(DumpRegion(8, "_InputPakInsert", true, hucRegionDumpUpdate, 100));
         ENCODE_CHK_STATUS_RETURN(DumpRegion(10, "_InputCdfTable", true, hucRegionDumpUpdate, 4 * MOS_ALIGN_CEIL(m_basicFeature->m_cdfMaxNumBytes, CODECHAL_CACHELINE_SIZE)));
+        if (m_basicFeature->m_av1PicParams->AdaptiveTUEnabled != 0)
+        {
+            ENCODE_CHK_STATUS_RETURN(DumpRegion(12, "_InputSLBB_TU7", true, hucRegionDumpUpdate, 600 * 4));
+        }
 
         return MOS_STATUS_SUCCESS;
     }
@@ -456,7 +540,7 @@ namespace encode
 
         ENCODE_CHK_STATUS_RETURN(DumpRegion(0, "_BrcHistory", false, hucRegionDumpUpdate, 6080));
         ENCODE_CHK_STATUS_RETURN(DumpRegion(4, "_BrcData", false, hucRegionDumpUpdate, 32));
-        ENCODE_CHK_STATUS_RETURN(DumpRegion(6, "_OutputSLBB", false, hucRegionDumpUpdate, 300 * 4));
+        ENCODE_CHK_STATUS_RETURN(DumpRegion(6, "_OutputSLBB", false, hucRegionDumpUpdate, 600 * 4));
         ENCODE_CHK_STATUS_RETURN(DumpRegion(9, "_OutputPakInsert", false, hucRegionDumpUpdate, 100));
         ENCODE_CHK_STATUS_RETURN(DumpRegion(11, "_OutputCdfTable", false, hucRegionDumpUpdate, MOS_ALIGN_CEIL(m_basicFeature->m_cdfMaxNumBytes, CODECHAL_CACHELINE_SIZE)));
 
@@ -537,8 +621,8 @@ namespace encode
         // Region 1 - VDenc Stats Buffer (Input)
         params.regionParams[1].presRegion = resTileBasedStatisticsBuffer;
         params.regionParams[1].dwOffset   = offset;
-        // Region 3 - Input SLB Buffer (Input)
-        params.regionParams[3].presRegion = const_cast<PMOS_RESOURCE>(&m_vdencReadBatchBuffer[bufIdx][currentPass]);
+        // Region 3 - Input SLB Buffer (Input Origin)
+        params.regionParams[3].presRegion = const_cast<PMOS_RESOURCE>(&m_vdencReadBatchBufferOrigin[bufIdx][currentPass]);
         // Region 4 - BRC Data for next frame's width/height - (Output)
         params.regionParams[4].presRegion = resBrcDataBuffer;
         params.regionParams[4].isWritable = true;
@@ -559,6 +643,11 @@ namespace encode
         // Region 11 - CDF (output)
         params.regionParams[11].presRegion = m_basicFeature->m_defaultCdfBufferInUse;
         params.regionParams[11].isWritable = true;
+        // Region 12 - Input SLB Buffer (Input TU7)
+        if (m_basicFeature->m_av1PicParams->AdaptiveTUEnabled != 0)
+        {
+            params.regionParams[12].presRegion = const_cast<PMOS_RESOURCE>(&m_vdencReadBatchBufferTU7[bufIdx][currentPass]);
+        }
 
         return MOS_STATUS_SUCCESS;
     }

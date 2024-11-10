@@ -41,11 +41,10 @@
 #include "mhw_vebox_itf.h"
 #include "mhw_sfc_itf.h"
 #include "mhw_render_itf.h"
+#include "mhw_vdbox_vvcp_itf.h"
 
 // forward declarations
 class MhwCpInterface;
-class MhwMiInterface;
-class MhwRenderInterface;
 class MhwSfcInterface;
 class XMHW_STATE_HEAP_INTERFACE;
 class MhwVeboxInterface;
@@ -103,16 +102,11 @@ public:
     //! \brief These interfaces are responsible for constructing instructions,
      //!           structures, and registers for hardware.
     MhwCpInterface            *m_cpInterface        = nullptr;
-    MhwMiInterface            *m_miInterface        = nullptr;
-    MhwRenderInterface        *m_renderInterface    = nullptr;
     MhwSfcInterface           *m_sfcInterface       = nullptr;
     XMHW_STATE_HEAP_INTERFACE *m_stateHeapInterface = nullptr;
     MhwVeboxInterface         *m_veboxInterface     = nullptr;
-    MhwVdboxMfxInterface      *m_mfxInterface       = nullptr;
-    MhwVdboxHcpInterface      *m_hcpInterface       = nullptr;
-    MhwVdboxVdencInterface    *m_vdencInterface     = nullptr;
     MhwBltInterface           *m_bltInterface       = nullptr;
-
+    PMOS_INTERFACE            m_osInterface         = nullptr;
     /* New mhw sub interfaces*/
     std::shared_ptr<mhw::vdbox::avp::Itf>   m_avpItf    = nullptr;
     std::shared_ptr<mhw::vdbox::vdenc::Itf> m_vdencItf  = nullptr;
@@ -124,6 +118,7 @@ public:
     std::shared_ptr<mhw::sfc::Itf>          m_sfcItf    = nullptr;
     std::shared_ptr<mhw::blt::Itf>          m_bltItf    = nullptr;
     std::shared_ptr<mhw::render::Itf>       m_renderItf = nullptr;
+    std::shared_ptr<mhw::vdbox::vvcp::Itf>  m_vvcpItf   = nullptr;
 
     //!
     //! \brief    Calls the factory function to initialize all requested interfaces.

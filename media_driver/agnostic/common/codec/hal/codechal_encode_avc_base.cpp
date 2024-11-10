@@ -2250,7 +2250,7 @@ MOS_STATUS CodechalEncodeAvcBase::AllocateEncResources()
     {
         if (m_hmeKernel)
         {
-            m_hmeKernel->AllocateResources();
+            CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hmeKernel->AllocateResources());
         }
         else
         {
@@ -2365,8 +2365,6 @@ MOS_STATUS CodechalEncodeAvcBase::SetSequenceStructs()
     // main & high profile support only 8bpp
     seqParams->bit_depth_luma_minus8   = 0;
     seqParams->bit_depth_chroma_minus8 = 0;
-
-    seqParams->NumRefFrames = seqParams->NumRefFrames * 2;
 
     // setup parameters corresponding to H264 bit stream definition
     seqParams->pic_height_in_map_units_minus1       = seqParams->frame_mbs_only_flag ? CODECHAL_GET_HEIGHT_IN_MACROBLOCKS(seqParams->FrameHeight) - 1 : (CODECHAL_GET_HEIGHT_IN_MACROBLOCKS(seqParams->FrameHeight) + 1) / 2 - 1;
@@ -2841,6 +2839,14 @@ MOS_STATUS CodechalEncodeAvcBase::SetPictureStructs()
         }
     }
 
+    //save reference surface
+    for (uint8_t i = 0; i < CODEC_AVC_MAX_NUM_REF_FRAME; i++)
+    {
+        if (picParams->RefFrameListSurface[i].dwSize != 0 && avcRefList[i] != NULL)
+        {
+            avcRefList[i]->sRefReconBuffer = picParams->RefFrameListSurface[i];
+        }
+    }
     return eStatus;
 }
 
@@ -3095,8 +3101,8 @@ MOS_STATUS CodechalEncodeAvcBase::EncodeMeKernel(
         &walkerParams,
         &walkerCodecParams));
 
-    HalOcaInterface::TraceMessage(cmdBuffer, *m_osInterface->pOsContext, __FUNCTION__, sizeof(__FUNCTION__));
-    HalOcaInterface::OnDispatch(cmdBuffer, *m_osInterface->pOsContext, *m_miInterface, *m_renderEngineInterface->GetMmioRegisters());
+    HalOcaInterface::TraceMessage(cmdBuffer, (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext, __FUNCTION__, sizeof(__FUNCTION__));
+    HalOcaInterface::OnDispatch(cmdBuffer, *m_osInterface, *m_miInterface, *m_renderEngineInterface->GetMmioRegisters());
 
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_renderEngineInterface->AddMediaObjectWalkerCmd(
         &cmdBuffer,
@@ -3247,10 +3253,6 @@ MOS_STATUS CodechalEncodeAvcBase::SetSliceStructs()
         if ((picParams->pic_init_qp_minus26 + 26 + slcParams->slice_qp_delta) > CODECHAL_ENCODE_AVC_MAX_SLICE_QP)
         {
             slcParams->slice_qp_delta = CODECHAL_ENCODE_AVC_MAX_SLICE_QP - (picParams->pic_init_qp_minus26 + 26);
-        }
-        else
-        {
-            slcParams->slice_qp_delta = slcParams->slice_qp_delta;
         }
         slcParams->redundant_pic_cnt                  = 0;
         slcParams->sp_for_switch_flag                 = 0;
@@ -3535,6 +3537,139 @@ MOS_STATUS CodechalEncodeAvcBase::StoreNumPasses(
     CODECHAL_ENCODE_CHK_STATUS_RETURN(miInterface->AddMiStoreDataImmCmd(cmdBuffer, &storeDataParams));
 
     return MOS_STATUS_SUCCESS;
+}
+
+void CodechalEncodeAvcBase::fill_pad_with_value(PMOS_SURFACE psSurface, uint32_t real_height, uint32_t aligned_height)
+{
+    CODECHAL_ENCODE_CHK_NULL_NO_STATUS_RETURN(psSurface);
+
+    // unaligned surfaces only
+    if (aligned_height <= real_height || aligned_height > psSurface->dwHeight)
+    {
+        return;
+    }
+
+    if (psSurface->OsResource.TileType == MOS_TILE_INVALID)
+    {
+        return;
+    }
+
+    if (psSurface->Format == Format_NV12 || psSurface->Format == Format_P010)
+    {
+        uint32_t pitch         = psSurface->dwPitch;
+        uint32_t UVPlaneOffset = psSurface->UPlaneOffset.iSurfaceOffset;
+        uint32_t YPlaneOffset  = psSurface->dwOffset;
+        uint32_t pad_rows      = aligned_height - real_height;
+        uint32_t y_plane_size  = pitch * real_height;
+        uint32_t uv_plane_size = pitch * real_height / 2;
+
+        MOS_LOCK_PARAMS lockFlags;
+        MOS_ZeroMemory(&lockFlags, sizeof(MOS_LOCK_PARAMS));
+        lockFlags.WriteOnly = 1;
+
+        // padding for the linear format buffer.
+        if (psSurface->OsResource.TileType == MOS_TILE_LINEAR)
+        {
+            uint8_t *src_data = (uint8_t *)m_osInterface->pfnLockResource(m_osInterface, &(psSurface->OsResource), &lockFlags);
+            CODECHAL_ENCODE_CHK_NULL_NO_STATUS_RETURN(src_data);
+
+            uint8_t *src_data_y     = src_data + YPlaneOffset;
+            uint8_t *src_data_y_end = src_data_y + y_plane_size;
+            for (uint32_t i = 0; i < pad_rows; i++)
+            {
+                MOS_SecureMemcpy(src_data_y_end + i * pitch, pitch, src_data_y_end - pitch, pitch);
+            }
+
+            uint8_t *src_data_uv     = src_data + UVPlaneOffset;
+            uint8_t *src_data_uv_end = src_data_uv + uv_plane_size;
+            for (uint32_t i = 0; i < pad_rows / 2; i++)
+            {
+                MOS_SecureMemcpy(src_data_uv_end + i * pitch, pitch, src_data_uv_end - pitch, pitch);
+            }
+
+            m_osInterface->pfnUnlockResource(m_osInterface, &(psSurface->OsResource));
+        }
+        else
+        {
+            // we don't copy out the whole tiled buffer to linear and padding on the tiled buffer directly.
+            lockFlags.TiledAsTiled = 1;
+
+            uint8_t *src_data = (uint8_t *)m_osInterface->pfnLockResource(m_osInterface, &(psSurface->OsResource), &lockFlags);
+            CODECHAL_ENCODE_CHK_NULL_NO_STATUS_RETURN(src_data);
+
+            uint8_t *padding_data = (uint8_t *)MOS_AllocMemory(pitch * pad_rows);
+            CODECHAL_ENCODE_CHK_NULL_NO_STATUS_RETURN(padding_data);
+
+            // Copy last Y row data to linear padding data.
+            GMM_RES_COPY_BLT gmmResCopyBlt = {0};
+            gmmResCopyBlt.Gpu.pData        = src_data;
+            gmmResCopyBlt.Gpu.OffsetX      = 0;
+            gmmResCopyBlt.Gpu.OffsetY      = (YPlaneOffset + y_plane_size - pitch) / pitch;
+            gmmResCopyBlt.Sys.pData        = padding_data;
+            gmmResCopyBlt.Sys.RowPitch     = pitch;
+            gmmResCopyBlt.Sys.BufferSize   = pitch * pad_rows;
+            gmmResCopyBlt.Sys.SlicePitch   = pitch;
+            gmmResCopyBlt.Blt.Slices       = 1;
+            gmmResCopyBlt.Blt.Upload       = false;
+            gmmResCopyBlt.Blt.Width        = psSurface->dwWidth;
+            gmmResCopyBlt.Blt.Height       = 1;
+            psSurface->OsResource.pGmmResInfo->CpuBlt(&gmmResCopyBlt);
+            // Fill the remain padding lines with last Y row data.
+            for (uint32_t i = 1; i < pad_rows; i++)
+            {
+                MOS_SecureMemcpy(padding_data + i * pitch, pitch, padding_data, pitch);
+            }
+            // Filling the padding for Y.
+            gmmResCopyBlt.Gpu.pData      = src_data;
+            gmmResCopyBlt.Gpu.OffsetX    = 0;
+            gmmResCopyBlt.Gpu.OffsetY    = (YPlaneOffset + y_plane_size) / pitch;
+            gmmResCopyBlt.Sys.pData      = padding_data;
+            gmmResCopyBlt.Sys.RowPitch   = pitch;
+            gmmResCopyBlt.Sys.BufferSize = pitch * pad_rows;
+            gmmResCopyBlt.Sys.SlicePitch = pitch;
+            gmmResCopyBlt.Blt.Slices     = 1;
+            gmmResCopyBlt.Blt.Upload     = true;
+            gmmResCopyBlt.Blt.Width      = psSurface->dwWidth;
+            gmmResCopyBlt.Blt.Height     = pad_rows;
+            psSurface->OsResource.pGmmResInfo->CpuBlt(&gmmResCopyBlt);
+
+            // Copy last UV row data to linear padding data.
+            gmmResCopyBlt.Gpu.pData      = src_data;
+            gmmResCopyBlt.Gpu.OffsetX    = 0;
+            gmmResCopyBlt.Gpu.OffsetY    = (UVPlaneOffset + uv_plane_size - pitch) / pitch;
+            gmmResCopyBlt.Sys.pData      = padding_data;
+            gmmResCopyBlt.Sys.RowPitch   = pitch;
+            gmmResCopyBlt.Sys.BufferSize = pitch * pad_rows / 2;
+            gmmResCopyBlt.Sys.SlicePitch = pitch;
+            gmmResCopyBlt.Blt.Slices     = 1;
+            gmmResCopyBlt.Blt.Upload     = false;
+            gmmResCopyBlt.Blt.Width      = psSurface->dwWidth;
+            gmmResCopyBlt.Blt.Height     = 1;
+            psSurface->OsResource.pGmmResInfo->CpuBlt(&gmmResCopyBlt);
+            // Fill the remain padding lines with last UV row data.
+            for (uint32_t i = 1; i < pad_rows / 2; i++)
+            {
+                MOS_SecureMemcpy(padding_data + i * pitch, pitch, padding_data, pitch);
+            }
+            // Filling the padding for UV.
+            gmmResCopyBlt.Gpu.pData      = src_data;
+            gmmResCopyBlt.Gpu.OffsetX    = 0;
+            gmmResCopyBlt.Gpu.OffsetY    = (UVPlaneOffset + uv_plane_size) / pitch;
+            gmmResCopyBlt.Sys.pData      = padding_data;
+            gmmResCopyBlt.Sys.RowPitch   = pitch;
+            gmmResCopyBlt.Sys.BufferSize = pitch * pad_rows / 2;
+            gmmResCopyBlt.Sys.SlicePitch = pitch;
+            gmmResCopyBlt.Blt.Slices     = 1;
+            gmmResCopyBlt.Blt.Upload     = true;
+            gmmResCopyBlt.Blt.Width      = psSurface->dwWidth;
+            gmmResCopyBlt.Blt.Height     = pad_rows / 2;
+            psSurface->OsResource.pGmmResInfo->CpuBlt(&gmmResCopyBlt);
+
+            MOS_FreeMemory(padding_data);
+            padding_data = nullptr;
+            m_osInterface->pfnUnlockResource(m_osInterface, &(psSurface->OsResource));
+        }
+    }
 }
 
 #if USE_CODECHAL_DEBUG_TOOL
@@ -3929,6 +4064,7 @@ MOS_STATUS CodechalEncodeAvcBase::DumpPicParams(
 
     return MOS_STATUS_SUCCESS;
 }
+
 
 MOS_STATUS CodechalEncodeAvcBase::DumpFeiPicParams(
     CodecEncodeAvcFeiPicParams *feiPicParams)
@@ -4701,4 +4837,42 @@ MOS_STATUS CodechalEncodeAvcBase::AddVdencSliceStateCmd(
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_vdencInterface->AddVdencSliceStateCmd(cmdBuffer, params));
 
     return MOS_STATUS_SUCCESS;
+}
+MOS_STATUS CodechalEncodeAvcBase::GetStatusReport(
+    EncodeStatus* encodeStatus,
+    EncodeStatusReport* encodeStatusReport)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    encodeStatusReport->CodecStatus = CODECHAL_STATUS_SUCCESSFUL;
+    encodeStatusReport->bitstreamSize =
+        encodeStatus->dwMFCBitstreamByteCountPerFrame + encodeStatus->dwHeaderBytesInserted;
+
+    // dwHeaderBytesInserted is for WAAVCSWHeaderInsertion
+    // and is 0 otherwise
+    encodeStatusReport->QpY = encodeStatus->BrcQPReport.DW0.QPPrimeY;
+    encodeStatusReport->SuggestedQpYDelta =
+        encodeStatus->ImageStatusCtrl.CumulativeSliceDeltaQP;
+    encodeStatusReport->NumberPasses = (uint8_t)encodeStatus->dwNumberPasses;
+    ENCODE_VERBOSEMESSAGE("statusReportData->numberPasses: %d\n", encodeStatusReport->NumberPasses);
+    encodeStatusReport->SceneChangeDetected =
+        (encodeStatus->dwSceneChangedFlag & CODECHAL_ENCODE_SCENE_CHANGE_DETECTED_MASK) ? 1 : 0;
+
+    CODECHAL_ENCODE_CHK_NULL_RETURN(m_skuTable);
+
+    if (m_picWidthInMb != 0 && m_frameFieldHeightInMb != 0)
+    {
+        encodeStatusReport->AverageQp = (unsigned char)(((uint32_t)encodeStatus->QpStatusCount.cumulativeQP) / (m_picWidthInMb * m_frameFieldHeightInMb));
+    }
+    encodeStatusReport->PanicMode = encodeStatus->ImageStatusCtrl.Panic;
+
+    // If Num slices is greater than spec limit set NumSlicesNonCompliant to 1 and report error
+    PMHW_VDBOX_PAK_NUM_OF_SLICES numSlices = &encodeStatus->NumSlices;
+    if (numSlices->NumberOfSlices > m_maxNumSlicesAllowed)
+    {
+        encodeStatusReport->NumSlicesNonCompliant = 1;
+    }
+    encodeStatusReport->NumberSlices = numSlices->NumberOfSlices;
+
+    return eStatus;
 }

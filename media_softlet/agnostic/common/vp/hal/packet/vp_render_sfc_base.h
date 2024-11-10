@@ -1,4 +1,4 @@
-/* Copyright (c) 2022, Intel Corporation
+/* Copyright (c) 2022-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -32,7 +32,7 @@
 #include "vp_sfc_common.h"
 #include "vp_vebox_common.h"
 #include "vp_allocator.h"
-#include "codec_def_decode_jpeg.h"
+#include "media_defs.h"
 #include "mhw_sfc_itf.h"
 #include "media_feature.h"
 
@@ -108,6 +108,19 @@ public:
     virtual MOS_STATUS SetupSfcState(PVP_SURFACE targetSurface);
 
     virtual MOS_STATUS UpdateCscParams(FeatureParamCsc &cscParams);
+
+    //!
+    //! \brief    check whether SFC Write have offset which may hit compresed write limitation
+    //! \details  check whether SFC Write have offset which may hit compresed write limitation
+    //! \param    [in] targetSurface
+    //!           Pointer to targetSurface
+    //! \return   the output pipe compression state
+    //!
+    virtual bool IsSFCUncompressedWriteNeeded(PVP_SURFACE targetSurface)
+    {
+        VP_FUNC_CALL();
+        return false;
+    }
 
     //!
     //! \brief    Set scaling parameters
@@ -428,16 +441,12 @@ protected:
     //! \details  Allocate line buffer
     //! \param    [in/out] lineBufferArray
     //!           pointer to line buffer.
-    //! \param    [in] numPipe
-    //!           size of pipe.
-    //! \param    [in] size
-    //!           size of line buffer.
-    //! \param    [in] bufName
-    //!           name of line buffer.
+    //! \param    [in] count
+    //!           count of line buffer.
     //! \return   MOS_STATUS
     //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
     //!
-    MOS_STATUS DestroyLineBufferArray(VP_SURFACE **&lineBufferArray);
+    MOS_STATUS DestroyLineBufferArray(VP_SURFACE **&lineBufferArray, int32_t count);
 
     //!
     //! \brief    Allocate Resources for SFC Pipe
@@ -565,6 +574,11 @@ protected:
     MHW_SFC_OUT_SURFACE_PARAMS      m_outSurfaceParam = {};
 
     bool                            m_disableSfcDithering = false;
+
+    VP_SURFACE                      **m_AVSLineBufferSurfaceArrayfor1stPassofSfc2Pass = nullptr;  //!< AVS Line Buffer Surface for SFC 1st Pass of Sfc 2Pass
+    VP_SURFACE                      **m_IEFLineBufferSurfaceArrayfor1stPassofSfc2Pass = nullptr;  //!< IEF Line Buffer Surface for SFC 1st Pass of Sfc 2Pass
+    VP_SURFACE                      **m_SFDLineBufferSurfaceArrayfor1stPassofSfc2Pass = nullptr;  //!< SFD Line Buffer Surface for SFC 1st Pass of Sfc 2Pass
+    int                             m_lineBufferAllocatedInArrayfor1stPassofSfc2Pass  = 1;        //!< Line buffer allocated in array for SFC 1st Pass of Sfc 2Pass
 
 MEDIA_CLASS_DEFINE_END(vp__SfcRenderBase)
 };

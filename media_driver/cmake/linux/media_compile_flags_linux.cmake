@@ -36,6 +36,7 @@ set(MEDIA_COMPILER_FLAGS_COMMON
     -Werror=format-security
     -Werror=non-virtual-dtor
     -Werror=return-type
+    -Wno-overloaded-virtual
 
     # General optimization options
     -finline-functions
@@ -51,6 +52,8 @@ set(MEDIA_COMPILER_FLAGS_COMMON
     -ffunction-sections
     -Wl,--gc-sections
 
+    # Enable c++14 features
+    -std=c++14
     # -m32 or -m64
     -m${ARCH}
 
@@ -167,6 +170,11 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
          -Wno-missing-braces
          -Wno-overloaded-virtual
          -Wbitfield-constant-conversion
+         -Wno-extern-c-compat
+         -Wno-inconsistent-missing-override
+         # for verison under clang-17
+         -Wno-ignored-optimization-argument
+         -gdwarf-4
         )
     list(REMOVE_ITEM MEDIA_COMPILER_FLAGS_COMMON
          -funswitch-loops

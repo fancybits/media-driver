@@ -122,7 +122,9 @@ namespace mi
         MHW_MMIO_VE1_AUX_TABLE_INVALIDATE  = 21,
         MHW_MMIO_CCS0_AUX_TABLE_BASE_LOW   = 22,
         MHW_MMIO_CCS0_AUX_TABLE_BASE_HIGH  = 23,
-        MHW_MMIO_CCS0_AUX_TABLE_INVALIDATE = 24,
+        MHW_MMIO_BLT_AUX_TABLE_BASE_LOW    = 24,
+        MHW_MMIO_BLT_AUX_TABLE_BASE_HIGH   = 25,
+        MHW_MMIO_CCS0_AUX_TABLE_INVALIDATE = 26,
     };
 
     struct MHW_MI_ALU_PARAMS
@@ -188,6 +190,7 @@ namespace mi
         bool                    bInvalidateTextureCache       = false;
         bool                    bGenericMediaStateClear       = false;
         bool                    bIndirectStatePointersDisable = false;
+        bool                    bUnTypedDataPortCacheFlush    = false;
         bool                    bHdcPipelineFlush             = false;
         bool                    bKernelFenceEnabled           = false;
         bool                    bPPCFlush                     = false;
@@ -195,7 +198,8 @@ namespace mi
 
     struct _MHW_PAR_T(MI_BATCH_BUFFER_START)
     {
-        PMOS_RESOURCE               presResource = nullptr;
+        PMOS_RESOURCE               presResource           = nullptr;
+        bool                        secondLevelBatchBuffer = true;
     };
 
     struct _MHW_PAR_T(MI_CONDITIONAL_BATCH_BUFFER_END)

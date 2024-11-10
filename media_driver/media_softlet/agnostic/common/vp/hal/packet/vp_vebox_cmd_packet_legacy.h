@@ -33,6 +33,7 @@
 #include "vp_vebox_common.h"
 #include "vp_render_sfc_base.h"
 #include "vp_filter.h"
+#include "vp_user_feature_control.h"
 
 namespace vp {
 
@@ -105,7 +106,7 @@ public:
     //! \return   void
     //!
     virtual void SetupSurfaceStates(
-        PVPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS  pVeboxSurfaceStateCmdParams);
+        PVP_VEBOX_SURFACE_STATE_CMD_PARAMS  pVeboxSurfaceStateCmdParams);
 
     //!
     //! \brief    Setup surface states for Vebox
@@ -133,9 +134,19 @@ public:
     //!
     virtual MOS_STATUS SetScalingParams(PSFC_SCALING_PARAMS scalingParams) override;
 
+    virtual MOS_STATUS ConfigureSteParams(VpVeboxRenderData *renderData, bool bEnableSte, uint32_t dwSTEFactor, bool bEnableStd, uint32_t stdparaSizeInBytes, void *stdparam);
+    virtual MOS_STATUS ConfigureTccParams(VpVeboxRenderData *renderData, bool bEnableTcc, uint8_t magenta, uint8_t red, uint8_t yellow, uint8_t green, uint8_t cyan, uint8_t blue);
+    virtual MOS_STATUS ConfigureProcampParams(VpVeboxRenderData *renderData, bool bEnableProcamp, float fBrightness, float fContrast, float fHue, float fSaturation);
+    virtual MOS_STATUS ConfigureDenoiseParams(VpVeboxRenderData *renderData, float fDenoiseFactor);
+
     virtual MOS_STATUS UpdateCscParams(FeatureParamCsc &params) override;
+    virtual MOS_STATUS UpdateDenoiseParams(FeatureParamDenoise &params) override;
     virtual MOS_STATUS UpdateTccParams(FeatureParamTcc &params) override;
     virtual MOS_STATUS UpdateSteParams(FeatureParamSte &params) override;
+    virtual MOS_STATUS UpdateProcampParams(FeatureParamProcamp &params) override;
+
+    virtual void AddCommonOcaMessage(PMOS_COMMAND_BUFFER pCmdBufferInUse, MOS_CONTEXT *pOsContext, PMOS_INTERFACE pOsInterface, PRENDERHAL_INTERFACE pRenderHal, PMHW_MI_MMIOREGISTERS pMmioRegisters, PMHW_MI_INTERFACE pMhwMiInterface);
+
 
     //!
     //! \brief    Setup CSC Params for Vebox/SFC
@@ -246,6 +257,16 @@ public:
     //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
     //!
     virtual MOS_STATUS SetDiParams(PVEBOX_DI_PARAMS diParams) override;
+
+    //!
+    //! \brief    Setup CGC Params for Vebox
+    //! \details  Setup surface CGC Params for Vebox
+    //! \param    [in] cgcParams
+    //!           CGC Params
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    virtual MOS_STATUS SetCgcParams(PVEBOX_CGC_PARAMS cgcParams) override;
 
     //!
     //! \brief    Get DN luma parameters
@@ -491,7 +512,7 @@ public:
     virtual MOS_STATUS IsCmdParamsValid(
         const MHW_VEBOX_STATE_CMD_PARAMS            &VeboxStateCmdParams,
         const MHW_VEBOX_DI_IECP_CMD_PARAMS          &VeboxDiIecpCmdParams,
-        const VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS  &VeboxSurfaceStateCmdParams);
+        const VP_VEBOX_SURFACE_STATE_CMD_PARAMS  &VeboxSurfaceStateCmdParams);
 
     virtual MOS_STATUS QueryStatLayout(
         VEBOX_STAT_QUERY_TYPE QueryType,
@@ -633,7 +654,7 @@ protected:
     virtual MOS_STATUS RenderVeboxCmd(
         MOS_COMMAND_BUFFER                      *CmdBuffer,
         MHW_VEBOX_DI_IECP_CMD_PARAMS            &VeboxDiIecpCmdParams,
-        VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS    &VeboxSurfaceStateCmdParams,
+        VP_VEBOX_SURFACE_STATE_CMD_PARAMS    &VeboxSurfaceStateCmdParams,
         MHW_VEBOX_SURFACE_STATE_CMD_PARAMS      &MhwVeboxSurfaceStateCmdParams,
         MHW_VEBOX_STATE_CMD_PARAMS              &VeboxStateCmdParams,
         MHW_MI_FLUSH_DW_PARAMS                  &FlushDwParams,
@@ -668,7 +689,7 @@ protected:
       PMOS_COMMAND_BUFFER                 pCmdBuffer);
 
     virtual MOS_STATUS InitVeboxSurfaceStateCmdParams(
-        PVPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS    pVpHalVeboxSurfaceStateCmdParams,
+        PVP_VEBOX_SURFACE_STATE_CMD_PARAMS    pVpHalVeboxSurfaceStateCmdParams,
         PMHW_VEBOX_SURFACE_STATE_CMD_PARAMS      pMhwVeboxSurfaceStateCmdParams);
 
     virtual MOS_STATUS InitVeboxSurfaceParams(
@@ -775,9 +796,25 @@ protected:
 
     virtual MOS_STATUS SetupHDRLuts(
         PMHW_VEBOX_STATE_CMD_PARAMS pVeboxStateCmdParams);
+
     virtual MOS_STATUS Init3DLutTable(PVP_SURFACE surf3DLut);
+
+    void UpdateCpPrepareResources();
+
     MOS_STATUS SetupVebox3DLutForHDR(
         PMHW_VEBOX_STATE_CMD_PARAMS pVeboxStateCmdParams);
+
+    MOS_STATUS SetupVeboxExternal3DLutforHDR(
+        PMHW_VEBOX_STATE_CMD_PARAMS pVeboxStateCmdParams);
+
+protected:
+#if (_DEBUG || _RELEASE_INTERNAL)
+    virtual MOS_STATUS StallBatchBuffer(
+        PMOS_COMMAND_BUFFER cmdBuffer)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+#endif
 
 private:
 
@@ -860,7 +897,6 @@ protected:
     uint32_t                    m_dwGlobalNoiseLevelV = 0;                        //!< Global Noise Level for V
     uint32_t                    m_dwGlobalNoiseLevel = 0;                         //!< Global Noise Level
     PVP_VEBOX_CACHE_CNTL        m_surfMemCacheCtl = nullptr;                      //!< Surface memory cache control
-    uint32_t                    m_DNDIFirstFrame = 0;
     uint32_t                    m_DIOutputFrames = MEDIA_VEBOX_DI_OUTPUT_CURRENT; //!< default value is 2 for non-DI case.
 
     // Statistics
@@ -876,6 +912,7 @@ protected:
     bool                        m_useKernelResource        = false;               //!< Use Vebox Kernel Resource 
     uint32_t                    m_inputDepth               = 0;
     std::shared_ptr<mhw::vebox::Itf> m_veboxItf            = nullptr;
+    vp::VpUserFeatureControl   *m_vpUserFeatureControl = nullptr;
 
 MEDIA_CLASS_DEFINE_END(vp__VpVeboxCmdPacketLegacy)
 };

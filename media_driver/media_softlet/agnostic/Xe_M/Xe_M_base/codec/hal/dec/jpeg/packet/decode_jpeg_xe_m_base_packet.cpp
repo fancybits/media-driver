@@ -26,9 +26,9 @@
 
 #include "decode_jpeg_xe_m_base_packet.h"
 #include "decode_utils.h"
-#include "decode_marker_packet.h"
+#include "decode_marker_packet_g12.h"
 #include "decode_status_report_defs.h"
-#include "decode_predication_packet.h"
+#include "decode_predication_packet_g12.h"
 #include "codechal_debug.h"
 
 namespace decode {
@@ -82,7 +82,9 @@ void JpegDecodePktXe_M_Base::SetPerfTag(CODECHAL_MODE mode, uint16_t picCodingTy
     DECODE_FUNC_CALL();
 
     uint16_t perfTag = ((mode << 4) & 0xF0) | (picCodingType & 0xF);
+    m_osInterface->pfnIncPerfFrameID(m_osInterface);
     m_osInterface->pfnSetPerfTag(m_osInterface, perfTag);
+    m_osInterface->pfnResetPerfBufferID(m_osInterface);
 }
 
 bool JpegDecodePktXe_M_Base::IsPrologRequired()
@@ -111,7 +113,7 @@ MOS_STATUS JpegDecodePktXe_M_Base::SendPrologWithFrameTracking(MOS_COMMAND_BUFFE
     DECODE_FUNC_CALL();
 
     DecodeSubPacket* subPacket = m_jpegPipeline->GetSubPacket(DecodePacketId(m_jpegPipeline, markerSubPacketId));
-    DecodeMarkerPkt *makerPacket = dynamic_cast<DecodeMarkerPkt*>(subPacket);
+    DecodeMarkerPktG12 *makerPacket = dynamic_cast<DecodeMarkerPktG12*>(subPacket);
     DECODE_CHK_NULL(makerPacket);
     DECODE_CHK_STATUS(makerPacket->Execute(cmdBuffer));
 
@@ -136,7 +138,7 @@ MOS_STATUS JpegDecodePktXe_M_Base::SendPrologWithFrameTracking(MOS_COMMAND_BUFFE
     DECODE_CHK_STATUS(Mhw_SendGenericPrologCmd(&cmdBuffer, &genericPrologParams));
 
     subPacket = m_jpegPipeline->GetSubPacket(DecodePacketId(m_jpegPipeline, predicationSubPacketId));
-    DecodePredicationPkt *predicationPacket = dynamic_cast<DecodePredicationPkt*>(subPacket);
+    DecodePredicationPktG12 *predicationPacket = dynamic_cast<DecodePredicationPktG12*>(subPacket);
     DECODE_CHK_NULL(predicationPacket);
     DECODE_CHK_STATUS(predicationPacket->Execute(cmdBuffer));
 
@@ -241,7 +243,8 @@ MOS_STATUS JpegDecodePktXe_M_Base::StartStatusReport(uint32_t srType, MOS_COMMAN
 
     DECODE_CHK_STATUS(MediaPacket::StartStatusReport(srType, cmdBuffer));
 
-    SetPerfTag(CODECHAL_DECODE_MODE_JPEG, m_jpegBasicFeature->m_pictureCodingType);
+    // no frame type for Jpeg decode, use I as default value here
+    SetPerfTag(CODECHAL_DECODE_MODE_JPEG, I_TYPE);
 
     MediaPerfProfiler* perfProfiler = MediaPerfProfiler::Instance();
     DECODE_CHK_NULL(perfProfiler);

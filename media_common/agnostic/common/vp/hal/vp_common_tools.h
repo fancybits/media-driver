@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2022, Intel Corporation
+* Copyright (c) 2022-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -100,6 +100,7 @@ typedef enum _VPREP_STATUS
 //!
 typedef struct _VP_CONFIG
 {
+    bool       featureReportInitialized;   // feature report has been initialized
     bool       bVpComponentReported;       // Vp Component has been reported
     uint32_t   dwVpPath;                   // Video Processing path
     uint32_t   dwVpComponent;              // Video Processing Component
@@ -124,6 +125,12 @@ typedef struct _VP_CONFIG
     uint32_t   dwRTCompressibleReported;   // RT MMC Reported compressible flag
     uint32_t   dwRTCompressMode;           // RT MMC Compression Mode
     uint32_t   dwRTCompressModeReported;   // RT MMC Reported Compression Mode
+    uint32_t   dwRTCacheSetting;           // RT cache usage
+    uint32_t   dwRTCacheSettingReported;   // RT cache Reported usage
+#if (_DEBUG || _RELEASE_INTERNAL)
+    uint32_t   dwRTOldCacheSetting;
+    uint32_t   dwRTOldCacheSettingReported;
+#endif
     uint32_t   dwFFDICompressible;         // FFDI Compressible flag
     uint32_t   dwFFDICompressMode;         // FFDI Compression mode
     uint32_t   dwFFDNCompressible;         // FFDN Compressible flag
@@ -160,6 +167,14 @@ typedef struct _VP_CONFIG
     bool       bAdvancedScalingInUseReported;      // Reported Advanced Scaling Enabled
     bool       isPacketReused;              // true if vp packet reused.
     bool       isPacketReusedReported;      // Reported vp packet reused.
+    bool       isDnEnabled;                 // true if vp Dn enabled.
+    bool       isDnEnabledReported;         // Reported vp Dn reported
+    uint32_t   dwCurrentVeboxScalability;   // Current Vebox Scalability
+    uint32_t   dwReportedVeboxScalability;  // Reported Vebox Scalability
+    uint32_t   dwCurrentVPApogeios;         // Current VP Apogieos
+    uint32_t   dwReportedVPApogeios;        // Reported VP Apogieos
+    uint32_t   dwCurrentSFCLinearOutputByTileConvert;   // Current enableSFCLinearOutputByTileConvert
+    uint32_t   dwReportedSFCLinearOutputByTileConvert;  // Reported enableSFCLinearOutputByTileConvert
 
     // Configurations for cache control
     uint32_t   dwDndiReferenceBuffer;
@@ -187,6 +202,9 @@ typedef struct _VP_CONFIG
 
     // Optimize Cpu timing for VEBOX/SFC
     bool       bOptimizeCpuTiming;
+
+    // Output Regkey for whitelist
+    bool       bOutputRegkey;
 } VP_CONFIG, *PVP_CONFIG;
 
 //!

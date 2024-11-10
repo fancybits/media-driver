@@ -85,7 +85,7 @@ CodechalDecodeVp9G12::CodechalDecodeVp9G12(
 
     CODECHAL_DECODE_CHK_NULL_NO_STATUS_RETURN(m_osInterface);
 
-    Mos_CheckVirtualEngineSupported(m_osInterface, true, true);
+    m_osInterface->pfnVirtualEngineSupported(m_osInterface, true, true);
 
 #if (_DEBUG || _RELEASE_INTERNAL)
     MOS_USER_FEATURE_VALUE_DATA userFeatureData;
@@ -398,6 +398,7 @@ MOS_STATUS CodechalDecodeVp9G12::SetAndPopulateVEHintParams(
     if (static_cast<MhwVdboxMfxInterfaceG12*>(m_mfxInterface)->IsScalabilitySupported())
     {
         CODECHAL_DECODE_SCALABILITY_SETHINT_PARMS scalSetParms;
+        MOS_ZeroMemory(&scalSetParms, sizeof(CODECHAL_DECODE_SCALABILITY_SETHINT_PARMS));
         if (!MOS_VE_CTXBASEDSCHEDULING_SUPPORTED(m_osInterface))
         {
             scalSetParms.bNeedSyncWithPrevious       = true;
@@ -545,7 +546,7 @@ MOS_STATUS CodechalDecodeVp9G12::AddPicStateMhwCmds(
     // Send VD_CONTROL_STATE Pipe Initialization
     MOS_ZeroMemory(&vdCtrlParam, sizeof(MHW_MI_VD_CONTROL_STATE_PARAMS));
     vdCtrlParam.initialization = true;
-    static_cast<MhwMiInterfaceG12*>(m_miInterface)->AddMiVdControlStateCmd(cmdBuffer, &vdCtrlParam);
+    CODECHAL_DECODE_CHK_STATUS_RETURN(static_cast<MhwMiInterfaceG12 *>(m_miInterface)->AddMiVdControlStateCmd(cmdBuffer, &vdCtrlParam));
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_hcpInterface->AddHcpPipeModeSelectCmd(
         cmdBuffer,
@@ -557,7 +558,7 @@ MOS_STATUS CodechalDecodeVp9G12::AddPicStateMhwCmds(
         // Send VD_CONTROL_STATE HcpPipeLock
         MOS_ZeroMemory(&vdCtrlParam, sizeof(MHW_MI_VD_CONTROL_STATE_PARAMS));
         vdCtrlParam.scalableModePipeLock = true;
-        static_cast<MhwMiInterfaceG12*>(m_miInterface)->AddMiVdControlStateCmd(cmdBuffer, &vdCtrlParam);
+        CODECHAL_DECODE_CHK_STATUS_RETURN(static_cast<MhwMiInterfaceG12 *>(m_miInterface)->AddMiVdControlStateCmd(cmdBuffer, &vdCtrlParam));
     }
 #ifdef _DECODE_PROCESSING_SUPPORTED
     if (!CodecHalDecodeScalabilityIsFEPhase(m_scalabilityState))
@@ -798,12 +799,12 @@ MOS_STATUS CodechalDecodeVp9G12 :: DecodeStateLevel()
         }
         else
         {
-            CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StartPredicate(m_miInterface, cmdBufferInUse));
+            CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StartPredicate(m_osInterface, m_miInterface, cmdBufferInUse));
         }
     }
     else
     {
-        CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StartPredicate(m_miInterface, cmdBufferInUse));
+        CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StartPredicate(m_osInterface, m_miInterface, cmdBufferInUse));
     }
 
     if (CodecHalDecodeScalabilityIsScalableMode(m_scalabilityState))
@@ -924,7 +925,7 @@ MOS_STATUS CodechalDecodeVp9G12 :: DecodePrimitiveLevel()
     // Send VD_CONTROL_STATE Memory Implict Flush
     MOS_ZeroMemory(&vdCtrlParam, sizeof(MHW_MI_VD_CONTROL_STATE_PARAMS));
     vdCtrlParam.memoryImplicitFlush = true;
-    static_cast<MhwMiInterfaceG12*>(m_miInterface)->AddMiVdControlStateCmd(cmdBufferInUse, &vdCtrlParam);
+    CODECHAL_DECODE_CHK_STATUS_RETURN(static_cast<MhwMiInterfaceG12 *>(m_miInterface)->AddMiVdControlStateCmd(cmdBufferInUse, &vdCtrlParam));
 
     if (CodecHalDecodeScalabilityIsScalableMode(m_scalabilityState) &&
         CodecHalDecodeScalabilityIsBEPhaseG12(m_scalabilityState))
@@ -932,7 +933,7 @@ MOS_STATUS CodechalDecodeVp9G12 :: DecodePrimitiveLevel()
         // Send VD_CONTROL_STATE HCP Pipe Unlock
         MOS_ZeroMemory(&vdCtrlParam, sizeof(MHW_MI_VD_CONTROL_STATE_PARAMS));
         vdCtrlParam.scalableModePipeUnlock = true;
-        static_cast<MhwMiInterfaceG12*>(m_miInterface)->AddMiVdControlStateCmd(cmdBufferInUse, &vdCtrlParam);
+        CODECHAL_DECODE_CHK_STATUS_RETURN(static_cast<MhwMiInterfaceG12 *>(m_miInterface)->AddMiVdControlStateCmd(cmdBufferInUse, &vdCtrlParam));
     }
 
     // Send VD Pipe Flush command for SKL+
@@ -1051,12 +1052,12 @@ MOS_STATUS CodechalDecodeVp9G12 :: DecodePrimitiveLevel()
         }
         else
         {
-            CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StopPredicate(m_miInterface, cmdBufferInUse));
+            CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StopPredicate(m_osInterface, m_miInterface, cmdBufferInUse));
         }
     }
     else
     {
-        CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StopPredicate(m_miInterface, cmdBufferInUse));
+        CODECHAL_DECODE_CHK_STATUS_RETURN(NullHW::StopPredicate(m_osInterface, m_miInterface, cmdBufferInUse));
     }
 
     MOS_ZeroMemory(&flushDwParams, sizeof(flushDwParams));

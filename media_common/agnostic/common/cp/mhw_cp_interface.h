@@ -31,9 +31,15 @@
 #include "mhw_mi.h"
 #include "mos_os.h"
 #include "mos_util_debug.h"
-#include "codec_def_common.h"
 
 class MhwMiInterface;
+namespace mhw
+{
+    namespace mi
+    {
+        class Itf;
+    }
+}  // namespace mhw
 
 typedef int32_t CP_MODE;
 #define CP_TYPE_NONE 0
@@ -67,6 +73,7 @@ typedef struct _MHW_ADD_CP_COPY_PARAMS
     PMOS_RESOURCE presDst;
     uint32_t      size;
     uint64_t      offset;
+    bool          bypass;
 } MHW_ADD_CP_COPY_PARAMS, *PMHW_ADD_CP_COPY_PARAMS;
 
 static void MhwStubMessage()
@@ -281,6 +288,15 @@ public:
         return MOS_STATUS_SUCCESS;
     }
 
+    virtual MOS_STATUS RegisterMiInterfaceNext(
+        std::shared_ptr<mhw::mi::Itf> m_miItf)
+    {
+        MOS_UNUSED(m_miItf);
+
+        MhwStubMessage();
+        return MOS_STATUS_SUCCESS;
+    }
+
     virtual void GetCpStateLevelCmdSize(
         uint32_t &cmdSize,
         uint32_t &patchListSize)
@@ -328,6 +344,8 @@ public:
         MhwStubMessage();
         return MOS_STATUS_SUCCESS;
     }
+
+    MEDIA_CLASS_DEFINE_END(MhwCpInterface)
 };
 
 //!

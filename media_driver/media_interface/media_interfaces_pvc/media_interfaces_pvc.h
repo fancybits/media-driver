@@ -35,7 +35,6 @@
 #include "media_interfaces_mmd.h"
 #include "media_interfaces_mcpy.h"
 #include "media_interfaces_cmhal.h"
-#include "media_interfaces_mosutil.h"
 #include "media_interfaces_vphal.h"
 #include "media_interfaces_renderhal.h"
 #include "media_interfaces_nv12top010.h"
@@ -44,12 +43,13 @@
 #include "mhw_cp_interface.h"
 #include "mhw_mi_xe_xpm_base.h"
 #include "mhw_render_xe_hpc.h"
+#include "mhw_render_xe_hpg.h"
 #include "mhw_sfc_xe_xpm.h"
 #include "mhw_state_heap_xe_xpm.h"
 #include "mhw_vebox_xe_xpm.h"
 #include "mhw_vdbox_mfx_xe_xpm.h"
-#include "mhw_vdbox_hcp_impl_legacy_xe_xpm_plus.h"
 #include "mhw_vdbox_avp_xe_xpm.h"
+#include "mhw_vdbox_hcp_xe_xpm_plus.h"
 #include "mhw_vdbox_huc_xe_xpm_plus.h"
 #include "mhw_vdbox_avp_g12_X.h"
 #ifdef IGFX_PVC_ENABLE_NON_UPSTREAM
@@ -120,7 +120,6 @@
 #include "codechal_vdenc_avc_xe_xpm_plus.h"
 #endif
 
-#include "codechal_memdecomp_g11_icl.h"
 
 #ifdef _VP9_ENCODE_VDENC_SUPPORTED
 #include "codechal_vdenc_vp9_g12.h"
@@ -134,9 +133,10 @@
 #endif
 #include "vphal_xe_xpm.h"
 #include "renderhal_xe_hpc.h"
-#include "media_user_settings_mgr_g12_plus.h"
 
 #include "codechal_decode_histogram.h"
+#include "decode_scalability_singlepipe.h"
+#include "decode_scalability_multipipe.h"
 
 class MhwInterfacesPvc : public MhwInterfaces
 {
@@ -194,6 +194,10 @@ public:
     //! \details  If the HAL creation fails, this is used for cleanup
     //!
     virtual void Destroy();
+
+    std::shared_ptr<MhwMiInterface> m_miInterface = nullptr;
+
+    MhwRenderInterface *m_renderInterface = nullptr;
 };
 
 class MmdDeviceXe_Xpm_Plus : public MmdDevice
@@ -305,13 +309,13 @@ private:
                                        CODECHAL_FUNCTION      CodecFunction,
                                        bool                   disableScalability);
 
-    MOS_STATUS CreateCodecHalInterface(MhwInterfaces          *mhwInterfaces,
-                                       MhwInterfacesNext      *&pMhwInterfacesNext,
-                                       CodechalHwInterface    *&pHwInterface,
-                                       CodechalDebugInterface *&pDebugInterface,
-                                       PMOS_INTERFACE         osInterface,
-                                       CODECHAL_FUNCTION      CodecFunction,
-                                       bool                   disableScalability);
+    MOS_STATUS CreateCodecHalInterface(MhwInterfaces *mhwInterfaces,
+        MhwInterfacesNext                           *&pMhwInterfacesNext,
+        CodechalHwInterfaceNext                     *&pHwInterface,
+        CodechalDebugInterface                      *&pDebugInterface,
+        PMOS_INTERFACE                              osInterface,
+        CODECHAL_FUNCTION                           CodecFunction,
+        bool                                        disableScalability);
 };
 
 #define PVC_L3_CONFIG_COUNT     6
@@ -336,14 +340,6 @@ protected:
 };
 #endif
 
-class MosUtilDeviceXe_Xpm_Plus : public MosUtilDevice
-{
-public:
-    using MosUtil = MediaUserSettingsMgr_Xe_M_base;
-
-    MOS_STATUS Initialize();
-};
-
 class VphalInterfacesXe_Xpm_Plus : public VphalDevice
 {
 public:
@@ -351,9 +347,9 @@ public:
 
     MOS_STATUS Initialize(
         PMOS_INTERFACE  osInterface,
-        PMOS_CONTEXT    osDriverContext,
         bool            bInitVphalState,
-        MOS_STATUS      *eStatus);
+        MOS_STATUS      *eStatus,
+        bool            clearViewMode = false);
 };
 
 class RenderHalInterfacesXe_Hpc : public RenderHalDevice

@@ -184,92 +184,59 @@ void VpHal_GetCscMatrix(
     }
 }
 
+//! \brief    Transfer float type to half precision float type
+//! \details  Transfer float type to half precision float (16bit) type
+//! \param    [in] fInput
+//!           input FP32 number
+//! \return   uint16_t
+//!           half precision float value in bit
 //!
-//! \brief    Get the color pack type of a surface
-//! \details  Map mos surface format to color pack format and return.
-//!           For unknown format return VPHAL_COLORPACK_UNKNOWN
-//! \param    [in] Format
-//!           MOS_FORMAT of a surface
-//! \return   VPHAL_COLORPACK
-//!           Color pack type of the surface
-//!
-VPHAL_COLORPACK VpHal_GetSurfaceColorPack(
-    MOS_FORMAT Format)
+uint16_t VpHal_FloatToHalfFloat(
+    float fInput)
 {
-    VPHAL_COLORPACK ColorPack;
+    bool                       Sign;
+    int32_t                    Exp;
+    bool                       ExpSign;
+    uint32_t                   Mantissa;
+    uint32_t                   dwInput;
+    VPHAL_HALF_PRECISION_FLOAT outFloat;
 
-    ColorPack = VPHAL_COLORPACK_UNKNOWN;
+    dwInput  = *((uint32_t *)(&fInput));
+    Sign     = (dwInput >> 31) & 0x01;
+    Exp      = (dwInput >> 23) & 0x0FF;
+    Mantissa = dwInput & 0x07FFFFF;
 
-    switch (Format)
+    outFloat.Sign     = Sign;
+    outFloat.Mantissa = (Mantissa >> 13) & 0x03ff;  // truncate to zero
+
+    if (Exp == 0)
     {
-    case Format_Y8:
-    case Format_Y16S:
-    case Format_Y16U:
-        ColorPack = VPHAL_COLORPACK_400;
-        break;
+        outFloat.Exponent = 0;
+    }
+    else if (Exp == 0xff)
+    {
+        // There is one accuracy issue in this fuction.
+        // If FP32 is 0x7C800001(NaN), FP16 should be 0x7C01(NaN), but this function returns 0x7C00 instead of 0x7C01.
+        // VpHal_FloatToHalfFloatA fixes this accuracy issue.
+        outFloat.Exponent = 31;
+    }
+    else
+    {
+        // Transfer 15-bit exponent to 4-bit exponent
+        Exp -= 0x7f;
+        Exp += 0xf;
 
-    case Format_IMC1:
-    case Format_IMC2:
-    case Format_IMC3:
-    case Format_IMC4:
-    case Format_NV12:
-    case Format_NV21:
-    case Format_YV12:
-    case Format_I420:
-    case Format_IYUV:
-    case Format_P010:
-    case Format_P016:
-        ColorPack = VPHAL_COLORPACK_420;
-        break;
+        if (Exp < 1)
+        {
+            Exp = 1;
+        }
+        else if (Exp > 30)
+        {
+            Exp = 30;
+        }
 
-    case Format_YUY2:
-    case Format_YUYV:
-    case Format_YVYU:
-    case Format_UYVY:
-    case Format_VYUY:
-    case Format_P208:
-    case Format_422H:
-    case Format_422V:
-    case Format_Y210:
-    case Format_Y216:
-        ColorPack = VPHAL_COLORPACK_422;
-        break;
-
-    case Format_A8R8G8B8:
-    case Format_X8R8G8B8:
-    case Format_A8B8G8R8:
-    case Format_X8B8G8R8:
-    case Format_A16B16G16R16:
-    case Format_A16R16G16B16:
-    case Format_R5G6B5:
-    case Format_R8G8B8:
-    case Format_RGBP:
-    case Format_BGRP:
-    case Format_Y416:
-    case Format_Y410:
-    case Format_AYUV:
-    case Format_AUYV:
-    case Format_444P:
-    case Format_R10G10B10A2:
-    case Format_B10G10R10A2:
-    case Format_A16B16G16R16F:
-    case Format_A16R16G16B16F:
-        ColorPack = VPHAL_COLORPACK_444;
-        break;
-
-    case Format_400P:
-        ColorPack = VPHAL_COLORPACK_400;
-        break;
-
-    case Format_411P:
-        ColorPack = VPHAL_COLORPACK_411;
-        break;
-
-    default:
-        VP_PUBLIC_ASSERTMESSAGE("Input format color pack unknown.");
-        ColorPack = VPHAL_COLORPACK_UNKNOWN;
-        break;
+        outFloat.Exponent = Exp;
     }
 
-    return ColorPack;
+    return outFloat.value;
 }

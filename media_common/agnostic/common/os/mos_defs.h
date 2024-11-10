@@ -293,7 +293,9 @@ using MOS_CONTEXT_HANDLE = void *;
 //! \def MOS_UNUSED(param)
 //! Fix compiling warning for unused parameter
 //!
+#ifndef MOS_UNUSED
 #define MOS_UNUSED(param) (void)(param)
+#endif
 
 #define MOS_BITFIELD_VALUE(_x, _bits)         ((_x) & ((1 << (_bits)) - 1))
 
@@ -442,6 +444,7 @@ typedef enum _MOS_GPU_COMPONENT_ID
     MOS_GPU_COMPONENT_CM,
     MOS_GPU_COMPONENT_DECODE,
     MOS_GPU_COMPONENT_ENCODE,
+    MOS_GPU_COMPONENT_MCPY,
     MOS_GPU_COMPONENT_DEFAULT,
     MOS_GPU_COMPONENT_ID_MAX
 } MOS_GPU_COMPONENT_ID;
@@ -492,6 +495,26 @@ enum MOS_MEMCOMP_STATE
 typedef enum MOS_MEMCOMP_STATE *PMOS_MEMCOMP_STATE;
 typedef uint32_t               GPU_CONTEXT_HANDLE;
 
+//!
+//! \brief Enum for OS component
+//!
+enum MOS_COMPONENT
+{
+    COMPONENT_UNKNOWN = 0,
+    COMPONENT_LibVA,
+    COMPONENT_EMULATION,
+    COMPONENT_CM,
+    COMPONENT_Encode,
+    COMPONENT_Decode,
+    COMPONENT_VPCommon,
+    COMPONENT_VPreP,
+    COMPONENT_CP,
+    COMPONENT_MEMDECOMP,
+    COMPONENT_MCPY,
+    COMPONENT_OCA,
+};
+C_ASSERT(COMPONENT_OCA == 11);  // When adding, update assert
+
 #define MOS_MAX_ENGINE_INSTANCE_PER_CLASS   8
 #define MOS_BUF_NAME_LENGTH 64
 
@@ -504,7 +527,20 @@ namespace MediaUserSetting {
     class Value;
 };
 
+typedef enum _NATIVE_FENCE_MODE
+{
+    NATIVE_FENCE_MODE_DISABLE         = 0,
+    NATIVE_FENCE_MODE_GPU_SYNC_BY_API = 1,
+    NATIVE_FENCE_MODE_GPU_SYNC_BY_CMD = 2
+} NATIVE_FENCE_MODE;
+
 using MediaUserSettingSharedPtr = std::shared_ptr<MediaUserSetting::MediaUserSetting>;
 
+const unsigned int BITS_PER_BYTE = 8;
 
+class OsContextNext;
+typedef OsContextNext    OsDeviceContext;
+typedef OsDeviceContext *MOS_DEVICE_HANDLE;
+
+struct MOS_CONTEXT_INTERFACE;
 #endif // __MOS_DEFS_H__

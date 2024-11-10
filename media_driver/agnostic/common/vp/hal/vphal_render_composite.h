@@ -498,6 +498,15 @@ protected:
         bool*                           pbColorfill);
 
     //!
+    //! \brief    Adjust Params Based On Fc Limit
+    //! \param    [in,out] PCVPHAL_RENDER_PARAMS
+    //!           Pointer to pcRenderParam parameters.
+    //! \return   bool
+    //!
+    bool AdjustParamsBasedOnFcLimit(
+        PCVPHAL_RENDER_PARAMS pcRenderParam);
+
+    //!
     //! \brief    Set Sampler AVS parameters
     //! \param    [in] pRenderingData
     //!           pointer to render data
@@ -705,6 +714,34 @@ protected:
         PMHW_SAMPLER_TYPE                   pSamplerType);
 
     //!
+    //! \brief    Update SamplerStateParams associated with a surface state for composite
+    //! \param    [in] pSamplerStateParams
+    //!           Pointer to SamplerStateParams
+    //! \param    [in] pEntry
+    //!           Pointer to Surface state
+    //! \param    [in] pRenderData
+    //!           Pointer to RenderData
+    //! \param    [in] uLayerNum
+    //!           Layer total number
+    //! \param    [in] SamplerFilterMode
+    //!           SamplerFilterMode to be set
+    //! \param    [out] pSamplerIndex
+    //!           Pointer to Sampler Index
+    //! \param    [out] pSurface
+    //!           point to Surface
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise MOS_STATUS_UNKNOWN
+    //!
+    virtual MOS_STATUS SetSamplerFilterMode(
+        PMHW_SAMPLER_STATE_PARAM       &pSamplerStateParams,
+        PRENDERHAL_SURFACE_STATE_ENTRY  pEntry,
+        PVPHAL_RENDERING_DATA_COMPOSITE pRenderData,
+        uint32_t                        uLayerNum,
+        MHW_SAMPLER_FILTER_MODE         SamplerFilterMode,
+        int32_t                        *pSamplerIndex,
+        PVPHAL_SURFACE                  pSource);
+
+    //!
     //! \brief    Check whether the 3Dsampler use for Y plane
     //! \param    [in] SamplerID
     //!           sampler ID
@@ -847,6 +884,20 @@ protected:
     //!
     virtual bool SubmitStates(
         PVPHAL_RENDERING_DATA_COMPOSITE     pRenderingData);
+
+    virtual bool IsDisableAVSSampler(
+        int32_t         iSources,
+        bool            isTargetY);
+
+    //!
+    //! \brief    Decompress the Surface
+    //! \details  Decompress the interlaced Surface which is in the RC compression mode
+    //! \param    [in,out] pSource
+    //!           Pointer to Source Surface
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    virtual MOS_STATUS DecompressInterlacedSurf(PVPHAL_SURFACE pSource);
 
 private:
     //!
@@ -1024,16 +1075,6 @@ private:
         PRENDERHAL_SURFACE_STATE_PARAMS pSurfaceParams);
 
     //!
-    //! \brief    Decompress the Surface
-    //! \details  Decompress the interlaced Surface which is in the RC compression mode
-    //! \param    [in,out] pSource
-    //!           Pointer to Source Surface
-    //! \return   MOS_STATUS
-    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
-    //!
-    MOS_STATUS DecompressInterlacedSurfInRCMode(PVPHAL_SURFACE pSource);
-
-    //!
     //! \brief    Allocate Composite BatchBuffer
     //! \details  Allocate Composite BatchBuffer, search from existing BBs for a match. If
     //!           none, allocate new BB
@@ -1117,6 +1158,9 @@ private:
     //!
     virtual MOS_STATUS GetIntermediateOutput(PVPHAL_SURFACE &output);
 
+    virtual PVPHAL_SURFACE GetIntermediateSurface();
+    virtual PVPHAL_SURFACE GetIntermediate1Surface();
+    virtual PVPHAL_SURFACE GetIntermediate2Surface();
     // Procamp
     int32_t                         m_iMaxProcampEntries;
     int32_t                         m_iProcampVersion;
@@ -1183,9 +1227,12 @@ protected:
 
     static const int                AVS_CACHE_SIZE = 4;           //!< AVS coefficients cache size
     AvsCoeffsCache<AVS_CACHE_SIZE>  m_AvsCoeffsCache;             //!< AVS coefficients calculation is expensive, add cache to mitigate
-    VPHAL_SURFACE                   m_Intermediate  = {};         //!< Intermediate surface (multiple phase / constriction support)
-    VPHAL_SURFACE                   m_Intermediate1 = {};         //!< Intermediate surface (multiple phase / constriction support)
-    VPHAL_SURFACE                   m_Intermediate2 = {};         //!< Rotation output intermediate surface
+    VPHAL_SURFACE                   m_IntermediateSurface  = {};  //!< Intermediate surface (multiple phase / constriction support)
+    VPHAL_SURFACE                   m_IntermediateSurface1 = {};  //!< Intermediate surface (multiple phase / constriction support)
+    VPHAL_SURFACE                   *m_Intermediate  = nullptr;   //!< Intermediate surface (multiple phase / constriction support)
+    VPHAL_SURFACE                   *m_Intermediate1 = nullptr;   //!< Intermediate surface (multiple phase / constriction support)
+    VPHAL_SURFACE                   *m_Intermediate2 = nullptr;   //!< Rotation output intermediate surface
+    VPHAL_SURFACE                   m_IntermediateSurface2 = {};  //!< Rotation output intermediate surface
     
     VPHAL_SURFACE                   m_AuxiliarySyncSurface = {};  //!< This Auxiliary surface is used to sync engine workload
 

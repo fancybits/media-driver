@@ -31,6 +31,74 @@
 #include "media_ddi_encode_const.h"
 #include "media_ddi_factory.h"
 #include "codechal_encoder_base.h"
+#include "codec_def_encode_hevc_trace.h"
+
+namespace
+{
+namespace APISticker
+{
+#define APIMAP_ELEM(e) {#e, __LINE__ - START_LINE}
+constexpr uint32_t START_LINE = __LINE__ + 2;
+const std::map<std::string, uint32_t> APIMap = {
+        APIMAP_ELEM(DdiEncodeHevc::ContextInitialize),
+        APIMAP_ELEM(RenderPicture),
+        APIMAP_ELEM(EncodeInCodecHal),
+        APIMAP_ELEM(ResetAtFrameLevel),
+        APIMAP_ELEM(ParseSeqParams),
+        APIMAP_ELEM(ParsePicParams),
+        APIMAP_ELEM(ParseSlcParams),
+        APIMAP_ELEM(Qmatrix),
+        APIMAP_ELEM(FindNalUnitStartCodes),
+        APIMAP_ELEM(ParsePackedHeaderParams),
+        APIMAP_ELEM(ParsePackedHeaderData),
+        APIMAP_ELEM(ParseMiscParams),
+};
+#undef APIMAP_ELEM
+
+inline void TraceEnter(const char *api)
+{
+    try
+    {
+        auto data = APIMap.at(api);
+
+        MOS_TraceEventExt(
+            TR_KEY_ENCODE_EVENT_API_STICKER,
+            MT_EVENT_LEVEL::ALWAYS,
+            EVENT_ENCODE_API_STICKER_HEVC,
+            EVENT_TYPE_START,
+            &data,
+            sizeof(data));
+    }
+    catch (...)
+    {
+        return;
+    }
+}
+
+inline void TraceExit(const char *api, VAStatus ret)
+{
+    try
+    {
+        uint32_t data[] = {APIMap.at(api), static_cast<uint32_t>(ret)};
+
+        MOS_TraceEventExt(
+            TR_KEY_ENCODE_EVENT_API_STICKER,
+            MT_EVENT_LEVEL::CRITICAL,
+            EVENT_ENCODE_API_STICKER_HEVC,
+            EVENT_TYPE_END,
+            data,
+            sizeof(data));
+    }
+    catch (...)
+    {
+        return;
+    }
+}
+
+#define API_STICKER_TRACE_ENTER() APISticker::TraceEnter(__func__)
+#define API_STICKER_TRACE_EXIT(ret) APISticker::TraceExit(__func__, ret)
+}
+}
 
 extern template class MediaDdiFactoryNoArg<DdiEncodeBase>;
 
@@ -93,6 +161,8 @@ DdiEncodeHevc::~DdiEncodeHevc()
 VAStatus DdiEncodeHevc::ContextInitialize(
     CodechalSetting *codecHalSettings)
 {
+    API_STICKER_TRACE_ENTER();
+
     DDI_CHK_NULL(m_encodeCtx, "nullptr m_encodeCtx.", VA_STATUS_ERROR_INVALID_CONTEXT);
     DDI_CHK_NULL(m_encodeCtx->pCpDdiInterface, "nullptr m_encodeCtx->pCpDdiInterface.", VA_STATUS_ERROR_INVALID_CONTEXT);
     DDI_CHK_NULL(codecHalSettings, "nullptr codecHalSettings.", VA_STATUS_ERROR_INVALID_CONTEXT);
@@ -177,8 +247,9 @@ VAStatus DdiEncodeHevc::ContextInitialize(
     }
 
     // Allocate SliceParams
+    uint32_t picSizeInMb = m_encodeCtx->wPicHeightInMB * m_encodeCtx->wPicWidthInMB;
     // Supports one LCU per slice, with minimum LCU size of 16x16
-    m_encodeCtx->pSliceParams = (void *)MOS_AllocAndZeroMemory(m_encodeCtx->wPicHeightInMB * m_encodeCtx->wPicWidthInMB * sizeof(CODEC_HEVC_ENCODE_SLICE_PARAMS));
+    m_encodeCtx->pSliceParams = (void *)MOS_AllocAndZeroMemory(picSizeInMb * sizeof(CODEC_HEVC_ENCODE_SLICE_PARAMS));
     DDI_CHK_NULL(m_encodeCtx->pSliceParams, "nullptr m_encodeCtx->pSliceParams.", VA_STATUS_ERROR_ALLOCATION_FAILED);
 
     // Allocate Encode Status Report
@@ -194,22 +265,24 @@ VAStatus DdiEncodeHevc::ContextInitialize(
     DDI_CHK_NULL(m_encodeCtx->pQmatrixParams, "nullptr QMatrixParams", VA_STATUS_ERROR_ALLOCATION_FAILED);
 
     // for slice header from application
-    m_encodeCtx->pSliceHeaderData = (CODEC_ENCODER_SLCDATA *)MOS_AllocAndZeroMemory(m_encodeCtx->wPicHeightInMB * m_encodeCtx->wPicWidthInMB * sizeof(CODEC_ENCODER_SLCDATA));
+    m_encodeCtx->pSliceHeaderData = (CODEC_ENCODER_SLCDATA *)MOS_AllocAndZeroMemory(picSizeInMb * sizeof(CODEC_ENCODER_SLCDATA));
     DDI_CHK_NULL(m_encodeCtx->pSliceHeaderData, "nullptr m_encodeCtx->pSliceHeaderData.", VA_STATUS_ERROR_ALLOCATION_FAILED);
 
     // Create the bit stream buffer to hold the packed headers from application
     m_encodeCtx->pbsBuffer = (BSBuffer *)MOS_AllocAndZeroMemory(sizeof(BSBuffer));
     DDI_CHK_NULL(m_encodeCtx->pbsBuffer, "nullptr m_encodeCtx->pbsBuffer.", VA_STATUS_ERROR_ALLOCATION_FAILED);
 
-    m_encodeCtx->pbsBuffer->BufferSize = m_encodeCtx->wPicHeightInMB * m_encodeCtx->wPicWidthInMB * PACKED_HEADER_SIZE_PER_ROW;
+    m_encodeCtx->pbsBuffer->BufferSize = picSizeInMb * PACKED_HEADER_SIZE_PER_ROW;
     m_encodeCtx->pbsBuffer->pBase      = (uint8_t *)MOS_AllocAndZeroMemory(m_encodeCtx->pbsBuffer->BufferSize);
     DDI_CHK_NULL(m_encodeCtx->pbsBuffer->pBase, "nullptr m_encodeCtx->pbsBuffer->pBase.", VA_STATUS_ERROR_ALLOCATION_FAILED);
 
+    API_STICKER_TRACE_EXIT(eStatus);
     return eStatus;
 }
 
 VAStatus DdiEncodeHevc::RenderPicture(VADriverContextP ctx, VAContextID context, VABufferID *buffers, int32_t numBuffers)
 {
+    API_STICKER_TRACE_ENTER();
     VAStatus vaStatus = VA_STATUS_SUCCESS;
 
     DDI_FUNCTION_ENTER();
@@ -288,11 +361,13 @@ VAStatus DdiEncodeHevc::RenderPicture(VADriverContextP ctx, VAContextID context,
     }
 
     DDI_FUNCTION_EXIT(vaStatus);
+    API_STICKER_TRACE_EXIT(vaStatus);
     return vaStatus;
 }
 
 VAStatus DdiEncodeHevc::EncodeInCodecHal(uint32_t numSlices)
 {
+    API_STICKER_TRACE_ENTER();
     DDI_CHK_NULL(m_encodeCtx, "nullptr m_encodeCtx", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(m_encodeCtx->pCodecHal, "nullptr m_encodeCtx->pCodecHal", VA_STATUS_ERROR_INVALID_PARAMETER);
 
@@ -407,11 +482,13 @@ VAStatus DdiEncodeHevc::EncodeInCodecHal(uint32_t numSlices)
         return VA_STATUS_ERROR_ENCODING_ERROR;
     }
 
+    API_STICKER_TRACE_EXIT(VA_STATUS_SUCCESS);
     return VA_STATUS_SUCCESS;
 }
 
 VAStatus DdiEncodeHevc::ResetAtFrameLevel()
 {
+    API_STICKER_TRACE_ENTER();
     DDI_CHK_NULL(m_encodeCtx, "nullptr m_encodeCtx", VA_STATUS_ERROR_INVALID_PARAMETER);
 
     // Assume there is only one SPS parameter
@@ -438,11 +515,13 @@ VAStatus DdiEncodeHevc::ResetAtFrameLevel()
     m_encodeCtx->bLastPackedHdrIsSlice = false;
     m_encodeCtx->bMBQpEnable           = false;
 
+    API_STICKER_TRACE_EXIT(VA_STATUS_SUCCESS);
     return VA_STATUS_SUCCESS;
 }
 
 VAStatus DdiEncodeHevc::ParseSeqParams(void *ptr)
 {
+    API_STICKER_TRACE_ENTER();
     DDI_CHK_NULL(m_encodeCtx, "nullptr m_encodeCtx", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(ptr, "nullptr ptr", VA_STATUS_ERROR_INVALID_PARAMETER);
 
@@ -507,6 +586,9 @@ VAStatus DdiEncodeHevc::ParseSeqParams(void *ptr)
         hevcSeqParams->motion_vector_resolution_control_idc = 0;
     }
 
+    CodecDefEncodeHevcTrace::TraceDDI(*hevcSeqParams);
+
+    API_STICKER_TRACE_EXIT(VA_STATUS_SUCCESS);
     return VA_STATUS_SUCCESS;
 }
 
@@ -514,6 +596,7 @@ VAStatus DdiEncodeHevc::ParsePicParams(
     DDI_MEDIA_CONTEXT *mediaCtx,
     void              *ptr)
 {
+    API_STICKER_TRACE_ENTER();
     DDI_CHK_NULL(mediaCtx, "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(ptr, "nullptr ptr", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(m_encodeCtx, "nullptr m_encodeCtx", VA_STATUS_ERROR_INVALID_PARAMETER);
@@ -709,6 +792,9 @@ VAStatus DdiEncodeHevc::ParsePicParams(
     RemoveFromStatusReportQueue(buf);
     DdiMedia_MediaBufferToMosResource(buf, &(m_encodeCtx->resBitstreamBuffer));
 
+    CodecDefEncodeHevcTrace::TraceDDI(*hevcPicParams);
+
+    API_STICKER_TRACE_EXIT(VA_STATUS_SUCCESS);
     return VA_STATUS_SUCCESS;
 }
 
@@ -717,6 +803,7 @@ VAStatus DdiEncodeHevc::ParseSlcParams(
     void              *ptr,
     uint32_t          numSlices)
 {
+    API_STICKER_TRACE_ENTER();
     DDI_CHK_NULL(mediaCtx, "nullptr mediaCtx", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(m_encodeCtx, "nullptr m_encodeCtx", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(ptr, "nullptr ptr", VA_STATUS_ERROR_INVALID_PARAMETER);
@@ -852,17 +939,21 @@ VAStatus DdiEncodeHevc::ParseSlcParams(
             }
         }
 
+        CodecDefEncodeHevcTrace::TraceDDI(*hevcSlcParams);
+
         vaEncSlcParamsHEVC++;
     }
 
     hevcPicParams->NumSlices += numSlices;
     m_encodeCtx->dwNumSlices = hevcPicParams->NumSlices;
 
+    API_STICKER_TRACE_EXIT(VA_STATUS_SUCCESS);
     return VA_STATUS_SUCCESS;
 }
 
 VAStatus DdiEncodeHevc::Qmatrix(void *ptr)
 {
+    API_STICKER_TRACE_ENTER();
     DDI_CHK_NULL(m_encodeCtx, "nullptr m_encodeCtx", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(ptr, "nullptr ptr", VA_STATUS_ERROR_INVALID_PARAMETER);
 
@@ -871,20 +962,26 @@ VAStatus DdiEncodeHevc::Qmatrix(void *ptr)
 
     VAQMatrixBufferHEVC *vaQMatrixHEVC = (VAQMatrixBufferHEVC *)ptr;
 
-    MOS_SecureMemcpy((void *)&QmatrixParams->ucScalingLists0[0][0], sizeof(QmatrixParams->ucScalingLists0),
-        (void *)&vaQMatrixHEVC->scaling_lists_4x4[0][0][0], sizeof(vaQMatrixHEVC->scaling_lists_4x4));
-    MOS_SecureMemcpy((void *)&QmatrixParams->ucScalingLists1[0][0], sizeof(QmatrixParams->ucScalingLists1),
-        (void *)&vaQMatrixHEVC->scaling_lists_8x8[0][0][0], sizeof(vaQMatrixHEVC->scaling_lists_8x8));
-    MOS_SecureMemcpy((void *)&QmatrixParams->ucScalingLists2[0][0], sizeof(QmatrixParams->ucScalingLists2),
-        (void *)&vaQMatrixHEVC->scaling_lists_16x16[0][0][0], sizeof(vaQMatrixHEVC->scaling_lists_16x16));
+    for (uint8_t j = 0; j < 2; j++)
+    {
+        for (uint8_t i = 0; i < 3; i++)
+        {
+            MOS_SecureMemcpy((void *)&QmatrixParams->ucScalingLists0[3 * j + i][0], sizeof(QmatrixParams->ucScalingLists0[3 * j + i]),
+                (void *)&vaQMatrixHEVC->scaling_lists_4x4[i][j][0], sizeof(vaQMatrixHEVC->scaling_lists_4x4[i][j]));
+            MOS_SecureMemcpy((void *)&QmatrixParams->ucScalingLists1[3 * j + i][0], sizeof(QmatrixParams->ucScalingLists1[3 * j + i]),
+                (void *)&vaQMatrixHEVC->scaling_lists_8x8[i][j][0], sizeof(vaQMatrixHEVC->scaling_lists_8x8[i][j]));
+            MOS_SecureMemcpy((void *)&QmatrixParams->ucScalingLists2[3 * j + i][0], sizeof(QmatrixParams->ucScalingLists2[3 * j + i]),
+                (void *)&vaQMatrixHEVC->scaling_lists_16x16[i][j][0], sizeof(vaQMatrixHEVC->scaling_lists_16x16[i][j]));
+            QmatrixParams->ucScalingListDCCoefSizeID2[3 * j + i] = vaQMatrixHEVC->scaling_list_dc_16x16[i][j];
+        }
+    }
+    
     MOS_SecureMemcpy((void *)&QmatrixParams->ucScalingLists3[0][0], sizeof(QmatrixParams->ucScalingLists3),
         (void *)&vaQMatrixHEVC->scaling_lists_32x32[0][0], sizeof(vaQMatrixHEVC->scaling_lists_32x32));
-
-    MOS_SecureMemcpy((void *)&QmatrixParams->ucScalingListDCCoefSizeID2[0], sizeof(QmatrixParams->ucScalingListDCCoefSizeID2),
-        (void *)&vaQMatrixHEVC->scaling_list_dc_16x16[0][0], sizeof(QmatrixParams->ucScalingListDCCoefSizeID2));
     MOS_SecureMemcpy((void *)&QmatrixParams->ucScalingListDCCoefSizeID3[0], sizeof(QmatrixParams->ucScalingListDCCoefSizeID3),
         (void *)&vaQMatrixHEVC->scaling_list_dc_32x32[0], sizeof(QmatrixParams->ucScalingListDCCoefSizeID3));
 
+    API_STICKER_TRACE_EXIT(VA_STATUS_SUCCESS);
     return VA_STATUS_SUCCESS;
 }
 
@@ -894,6 +991,7 @@ VAStatus DdiEncodeHevc::FindNalUnitStartCodes(
     uint32_t * startCodesOffset,
     uint32_t * startCodesLength)
 {
+    API_STICKER_TRACE_ENTER();
     uint8_t i = 0;
 
     while (((i + 3) < size) &&
@@ -928,11 +1026,13 @@ VAStatus DdiEncodeHevc::FindNalUnitStartCodes(
         *startCodesLength = 3;
     }
 
+    API_STICKER_TRACE_EXIT(VA_STATUS_SUCCESS);
     return VA_STATUS_SUCCESS;
 }
 
 VAStatus DdiEncodeHevc::ParsePackedHeaderParams(void *ptr)
 {
+    API_STICKER_TRACE_ENTER();
     DDI_CHK_NULL(m_encodeCtx, "nullptr m_encodeCtx.", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(ptr, "nullptr ptr.", VA_STATUS_ERROR_INVALID_PARAMETER);
 
@@ -965,11 +1065,13 @@ VAStatus DdiEncodeHevc::ParsePackedHeaderParams(void *ptr)
         m_encodeCtx->ppNALUnitParams[m_encodeCtx->indexNALUnit]->uiOffset                  = 0;
     }
 
+    API_STICKER_TRACE_EXIT(VA_STATUS_SUCCESS);
     return VA_STATUS_SUCCESS;
 }
 
 VAStatus DdiEncodeHevc::ParsePackedHeaderData(void *ptr)
 {
+    API_STICKER_TRACE_ENTER();
     DDI_CHK_NULL(m_encodeCtx, "nullptr m_encodeCtx.", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(ptr, "nullptr ptr.", VA_STATUS_ERROR_INVALID_PARAMETER);
 
@@ -1056,11 +1158,13 @@ VAStatus DdiEncodeHevc::ParsePackedHeaderData(void *ptr)
     bsBuffer->SliceOffset += hdrDataSize;
     bsBuffer->BitSize += hdrDataSize * 8;
 
+    API_STICKER_TRACE_EXIT(VA_STATUS_SUCCESS);
     return VA_STATUS_SUCCESS;
 }
 
 VAStatus DdiEncodeHevc::ParseMiscParams(void *ptr)
 {
+    API_STICKER_TRACE_ENTER();
     DDI_CHK_NULL(m_encodeCtx, "nullptr m_encodeCtx", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(ptr, "nullptr ptr", VA_STATUS_ERROR_INVALID_PARAMETER);
     DDI_CHK_NULL(m_encodeCtx->pSeqParams, "nullptr m_encodeCtx->pSeqParams", VA_STATUS_ERROR_INVALID_PARAMETER);
@@ -1149,7 +1253,14 @@ VAStatus DdiEncodeHevc::ParseMiscParams(void *ptr)
         {
             seqParams->TargetBitRate = MOS_ROUNDUP_DIVIDE(vaEncMiscParamRC->bits_per_second, CODECHAL_ENCODE_BRC_KBPS);
         }
-        seqParams->MBBRC         = (vaEncMiscParamRC->rc_flags.bits.mb_rate_control <= mbBrcDisabled) ? vaEncMiscParamRC->rc_flags.bits.mb_rate_control : 0;
+        if (VA_RC_CQP != m_encodeCtx->uiRCMethod && (VA_RC_MB & m_encodeCtx->uiRCMethod) && vaEncMiscParamRC->rc_flags.bits.mb_rate_control <= mbBrcDisabled)
+        {
+            seqParams->MBBRC = vaEncMiscParamRC->rc_flags.bits.mb_rate_control;
+        }
+        else
+        {
+            seqParams->MBBRC = mbBrcDisabled;
+        }
         //enable parallelBRC for Android and Linux
         seqParams->ParallelBRC = vaEncMiscParamRC->rc_flags.bits.enable_parallel_brc;
 
@@ -1435,6 +1546,7 @@ VAStatus DdiEncodeHevc::ParseMiscParams(void *ptr)
         return VA_STATUS_ERROR_INVALID_PARAMETER;
     }
 
+    API_STICKER_TRACE_EXIT(VA_STATUS_SUCCESS);
     return VA_STATUS_SUCCESS;
 }
 

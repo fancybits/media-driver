@@ -25,6 +25,9 @@
 //!
 
 #include "codechal_vdenc_hevc.h"
+#if USE_CODECHAL_DEBUG_TOOL
+#include "codechal_debug_kernel.h"
+#endif
 
 //!< \cond SKIP_DOXYGEN
 const uint8_t CodechalVdencHevcState::m_estRateThreshP0[7] =
@@ -808,12 +811,17 @@ MOS_STATUS CodechalVdencHevcState::SetupMbQpStreamIn(PMOS_RESOURCE streamIn)
                                                          streamIn,
                                                          &LockFlags);
     CODECHAL_ENCODE_CHK_NULL_RETURN(dataGfx);
-    MOS_SURFACE surfInfo;
+    MOS_SURFACE surfInfo = {};
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnGetResourceInfo(m_osInterface, streamIn, &surfInfo));
+
     uint32_t uiSize = surfInfo.dwSize;
-    auto data = (uint8_t*)MOS_AllocMemory(uiSize);
+    uint32_t uiAlign = 64;
+    auto data = (uint8_t*)MOS_AllocMemory(uiSize + uiAlign);
     CODECHAL_ENCODE_CHK_NULL_RETURN(data);
-    MOS_SecureMemcpy(data, uiSize, dataGfx, uiSize);
+
+    auto dataBase = (uint8_t*)((((uint64_t)(data) + uiAlign - 1) / uiAlign) * uiAlign);
+
+    MOS_SecureMemcpy(dataBase, uiSize, dataGfx, uiSize);
 
     uint32_t streamInWidth = (MOS_ALIGN_CEIL(m_frameWidth, 64) / 32);
     uint32_t streamInHeight = (MOS_ALIGN_CEIL(m_frameHeight, 64) / 32);
@@ -853,7 +861,7 @@ MOS_STATUS CodechalVdencHevcState::SetupMbQpStreamIn(PMOS_RESOURCE streamIn)
 
     MOS_SecureMemcpy(pInputData, surfInfo.dwSize, pInputDataGfx, surfInfo.dwSize);
 
-    MHW_VDBOX_VDENC_STREAMIN_STATE_PARAMS streaminDataParams;
+    MHW_VDBOX_VDENC_STREAMIN_STATE_PARAMS streaminDataParams = {};
 
     for (uint32_t h = 0; h < streamInHeight; h++)
     {
@@ -877,7 +885,7 @@ MOS_STATUS CodechalVdencHevcState::SetupMbQpStreamIn(PMOS_RESOURCE streamIn)
             streaminDataParams.forceQp[2] = (int8_t) ( pInputData[(h * 2 + 1) * m_encodeParams.psMbQpDataSurface->dwPitch + (w * 2)]);
             streaminDataParams.forceQp[3] = (int8_t) ( pInputData[(h * 2 + 1) * m_encodeParams.psMbQpDataSurface->dwPitch + (w * 2 + 1)]);
 
-            SetStreaminDataPerRegion(streamInWidth, h, h+1, w, w+1, &streaminDataParams, data);
+            SetStreaminDataPerRegion(streamInWidth, h, h+1, w, w+1, &streaminDataParams, dataBase);
 
         }
     }
@@ -906,10 +914,10 @@ MOS_STATUS CodechalVdencHevcState::SetupMbQpStreamIn(PMOS_RESOURCE streamIn)
 
     for (auto i = 0; i < streamInNumCUs; i++)
     {
-        SetStreaminDataPerLcu(&streaminDataParams, data + (i * 64));
+        SetStreaminDataPerLcu(&streaminDataParams, dataBase + (i * 64));
     }
 
-    MOS_SecureMemcpy(dataGfx, uiSize, data, uiSize);
+    MOS_SecureMemcpy(dataGfx, uiSize, dataBase, uiSize);
     MOS_SafeFreeMemory(data);
     MOS_SafeFreeMemory(pInputData);
 
@@ -1255,9 +1263,9 @@ MOS_STATUS CodechalVdencHevcState::SetRegionsHuCBrcUpdate(PMHW_VDBOX_HUC_VIRTUAL
     virtualAddrParams->regionParams[7].presRegion = &m_resLcuBaseAddressBuffer;  // Region 7  Slice Stat Streamout (Input)
     virtualAddrParams->regionParams[8].presRegion =
         (MOS_RESOURCE*)m_allocator->GetResource(m_standard, pakInfo);                        // Region 8 - PAK Information (Input)
-    virtualAddrParams->regionParams[9].presRegion = &m_resVdencStreamInBuffer[m_currRecycledBufIdx];          // Region 9 – Streamin Buffer for ROI (Input)
-    virtualAddrParams->regionParams[10].presRegion = &m_vdencDeltaQpBuffer[m_currRecycledBufIdx];                  // Region 10 – Delta QP Buffer for ROI (Input)
-    virtualAddrParams->regionParams[11].presRegion = &m_vdencOutputROIStreaminBuffer;        // Region 11 – Streamin Buffer for ROI (Output)
+    virtualAddrParams->regionParams[9].presRegion = &m_resVdencStreamInBuffer[m_currRecycledBufIdx];          // Region 9 - Streamin Buffer for ROI (Input)
+    virtualAddrParams->regionParams[10].presRegion = &m_vdencDeltaQpBuffer[m_currRecycledBufIdx];                  // Region 10 - Delta QP Buffer for ROI (Input)
+    virtualAddrParams->regionParams[11].presRegion = &m_vdencOutputROIStreaminBuffer;        // Region 11 - Streamin Buffer for ROI (Output)
     virtualAddrParams->regionParams[11].isWritable = true;
 
     // region 15 always in clear
@@ -1482,6 +1490,13 @@ void CodechalVdencHevcState::SetVdencPipeBufAddrParams(
     MHW_VDBOX_PIPE_BUF_ADDR_PARAMS& pipeBufAddrParams)
 {
     pipeBufAddrParams = {};
+
+    //set MMC flag
+    if (m_mmcState->IsMmcEnabled())
+    {
+        pipeBufAddrParams.bMmcEnabled = true;
+    }
+
     pipeBufAddrParams.Mode = CODECHAL_ENCODE_MODE_HEVC;
     pipeBufAddrParams.psRawSurface = m_rawSurfaceToPak;
     pipeBufAddrParams.ps4xDsSurface = m_trackedBuf->Get4xDsReconSurface(CODEC_CURR_TRACKED_BUFFER);
@@ -2922,7 +2937,7 @@ MOS_STATUS CodechalVdencHevcState::SetPictureStructs()
         if ((m_lookaheadDepth > 0) && (m_prevTargetFrameSize > 0))
         {
             int64_t targetBufferFulness = (int64_t)m_targetBufferFulness;
-            targetBufferFulness += (int64_t)(m_prevTargetFrameSize << 3) - (int64_t)m_averageFrameSize;
+            targetBufferFulness += (((int64_t)m_prevTargetFrameSize) << 3) - (int64_t)m_averageFrameSize;
             m_targetBufferFulness = targetBufferFulness < 0 ? 0 : (targetBufferFulness > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)targetBufferFulness);
         }
 
@@ -3222,7 +3237,7 @@ MOS_STATUS CodechalVdencHevcState::GetStatusReport(
         if (m_prevTargetFrameSize > 0)
         {
             int64_t encTargetBufferFulness = (int64_t)m_targetBufferFulness;
-            encTargetBufferFulness += (int64_t)(m_prevTargetFrameSize << 3) - (int64_t)m_averageFrameSize;
+            encTargetBufferFulness += (((int64_t)m_prevTargetFrameSize) << 3) - (int64_t)m_averageFrameSize;
             m_targetBufferFulness = encTargetBufferFulness < 0 ?
                 0 : (encTargetBufferFulness > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)encTargetBufferFulness);
             int32_t deltaBits = (int32_t)((int64_t)(encodeStatus->lookaheadStatus.targetBufferFulness) + m_bufferFulnessError - (int64_t)(m_targetBufferFulness));

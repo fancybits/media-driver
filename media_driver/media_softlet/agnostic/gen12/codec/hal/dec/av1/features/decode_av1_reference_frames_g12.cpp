@@ -145,6 +145,10 @@ namespace decode
         for(auto i = 0; i < av1NumInterRefFrames; i++)
         {
             auto index = m_picParams->m_refFrameIdx[i];
+            if (index >= av1TotalRefsPerFrame)
+            {
+                continue;
+            }
             uint8_t frameIdx = m_picParams->m_refFrameMap[index].FrameIdx;
             if (frameIdx >= m_basicFeature->m_maxFrameIndex)
             {
@@ -258,7 +262,7 @@ namespace decode
                             picParams.m_picInfoFlags.m_fields.m_largeScaleTile && (picParams.m_currPic.FrameIdx >= CODECHAL_MAX_DPB_NUM_LST_AV1)),
                         "Invalid frame index of current frame");
         m_currRefList = m_refList[picParams.m_currPic.FrameIdx];
-        MOS_ZeroMemory(m_currRefList, sizeof(m_currRefList));
+        MOS_ZeroMemory(m_currRefList, sizeof(CODEC_REF_LIST_AV1));
 
         DECODE_CHK_STATUS(UpdateCurResource(m_currRefList));
         m_currRefList->m_frameWidth     = picParams.m_superResUpscaledWidthMinus1 + 1;  //DPB buffer are always stored in full frame resolution (Super-Res up-scaled resolution)
@@ -529,7 +533,6 @@ namespace decode
             {
                 if (hasValidRefIndex == false)
                 {
-                    uint8_t validfPicIndex = 0;
                     //Get valid reference frame index
                     hr = GetValidReferenceIndex(&validfPicIndex);
                     hasValidRefIndex = true;

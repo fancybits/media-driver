@@ -30,7 +30,7 @@ namespace encode {
     MOS_STATUS Av1BrcInitPkt::Init()
     {
         ENCODE_FUNC_CALL();
-        ENCODE_CHK_STATUS_RETURN(EncodeHucBasic::Init());
+        ENCODE_CHK_STATUS_RETURN(EncodeHucPkt::Init());
         ENCODE_CHK_NULL_RETURN(m_featureManager);
 
         m_basicFeature = dynamic_cast<Av1BasicFeature *>(m_featureManager->GetFeature(Av1FeatureIDs::basicFeature));
@@ -41,7 +41,7 @@ namespace encode {
 
     MOS_STATUS Av1BrcInitPkt::AllocateResources()
     {
-        ENCODE_CHK_STATUS_RETURN(EncodeHucBasic::AllocateResources());
+        ENCODE_CHK_STATUS_RETURN(EncodeHucPkt::AllocateResources());
 
         // initiate allocation paramters
         MOS_ALLOC_GFXRES_PARAMS allocParamsForBufferLinear;
@@ -49,6 +49,7 @@ namespace encode {
         allocParamsForBufferLinear.Type = MOS_GFXRES_BUFFER;
         allocParamsForBufferLinear.TileType = MOS_TILE_LINEAR;
         allocParamsForBufferLinear.Format = Format_Buffer;
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_WRITE;
         MOS_RESOURCE *allocatedbuffer;
         for (auto k = 0; k < CODECHAL_ENCODE_RECYCLED_BUFFER_NUM; k++)
         {
@@ -66,6 +67,8 @@ namespace encode {
     MOS_STATUS Av1BrcInitPkt::Submit(MOS_COMMAND_BUFFER *commandBuffer, uint8_t packetPhase)
     {
         ENCODE_FUNC_CALL();
+
+        ENCODE_CHK_STATUS_RETURN(m_miItf->SetWatchdogTimerThreshold(m_basicFeature->m_frameWidth, m_basicFeature->m_frameHeight, true));
 
         bool firstTaskInPhase = packetPhase & firstPacket;
         bool requestProlog = false;
@@ -100,11 +103,8 @@ namespace encode {
         uint32_t hucPatchListSize = 0;
         MHW_VDBOX_STATE_CMDSIZE_PARAMS stateCmdSizeParams;
 
-        if (m_hwInterface->m_hwInterfaceNext)
-        {
-            ENCODE_CHK_STATUS_RETURN(m_hwInterface->m_hwInterfaceNext->GetHucStateCommandSize(
-                m_basicFeature->m_mode, (uint32_t*)&hucCommandsSize, (uint32_t*)&hucPatchListSize, &stateCmdSizeParams));
-        }
+        ENCODE_CHK_STATUS_RETURN(m_hwInterface->GetHucStateCommandSize(
+            m_basicFeature->m_mode, (uint32_t*)&hucCommandsSize, (uint32_t*)&hucPatchListSize, &stateCmdSizeParams));
 
         commandBufferSize = hucCommandsSize;
         requestedPatchListSize = osInterface->bUsesPatchList ? hucPatchListSize : 0;

@@ -26,34 +26,33 @@
 //!
 
 #include "codechal_common.h"
-#include "codechal_hw.h"
+#include "codec_hw_next.h"
 #include "codechal_debug.h"
 #include "mos_solo_generic.h"
 #include "codechal_setting.h"
 
 Codechal::Codechal(
-    CodechalHwInterface    *hwInterface,
+    CodechalHwInterfaceNext *hwInterface,
     CodechalDebugInterface *debugInterface)
 {
     CODECHAL_PUBLIC_FUNCTION_ENTER;
-
-    CODECHAL_PUBLIC_CHK_NULL_NO_STATUS_RETURN(hwInterface);
-    CODECHAL_PUBLIC_CHK_NULL_NO_STATUS_RETURN(hwInterface->GetOsInterface());
-    MOS_UNUSED(debugInterface);
-
-    m_hwInterface       = hwInterface;
-    m_osInterface       = hwInterface->GetOsInterface();
-
-    if (m_hwInterface->bEnableVdboxBalancingbyUMD && m_osInterface->bEnableVdboxBalancing)
+    if (hwInterface)
     {
-        m_hwInterface->m_getVdboxNodeByUMD = true;
-    }
-    m_userSettingPtr = m_osInterface->pfnGetUserSettingInstance(m_osInterface);;
+        CODECHAL_PUBLIC_CHK_NULL_NO_STATUS_RETURN(hwInterface->GetOsInterface());
+        MOS_UNUSED(debugInterface);
 
+        m_hwInterface = hwInterface;
+        m_osInterface = hwInterface->GetOsInterface();
+
+        m_userSettingPtr = m_osInterface->pfnGetUserSettingInstance(m_osInterface);
+        ;
+    }
 #if USE_CODECHAL_DEBUG_TOOL
-    CODECHAL_PUBLIC_CHK_NULL_NO_STATUS_RETURN(debugInterface);
-    m_debugInterface    = debugInterface;
-#endif // USE_CODECHAL_DEBUG_TOOL
+        CODECHAL_PUBLIC_CHK_NULL_NO_STATUS_RETURN(debugInterface);
+        m_debugInterface = debugInterface;
+#endif  // USE_CODECHAL_DEBUG_TOOL
+
+
 }
 
 Codechal::~Codechal()
@@ -161,6 +160,12 @@ MOS_STATUS Codechal::BeginFrame()
 }
 
 MOS_STATUS Codechal::EndFrame()
+{
+    CODECHAL_PUBLIC_FUNCTION_ENTER;
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS Codechal::Reformat()
 {
     CODECHAL_PUBLIC_FUNCTION_ENTER;
     return MOS_STATUS_SUCCESS;

@@ -33,6 +33,8 @@
 #include "decode_av1_feature_manager_g12.h"
 #include "decode_mem_compression_g12.h"
 #include "decode_av1_feature_defs_g12.h"
+#include "decode_marker_packet_g12.h"
+#include "decode_predication_packet_g12.h"
 
 namespace decode
 {
@@ -60,6 +62,11 @@ namespace decode
         DECODE_CHK_STATUS(RegisterPacket(DecodePacketId(this, av1DecodePacketId), m_av1DecodePkt));
         DECODE_CHK_STATUS(m_av1DecodePkt->Init());
 
+        if (m_numVdbox == 2)
+        {
+            m_allowVirtualNodeReassign = true;
+        }
+
         return MOS_STATUS_SUCCESS;
     }
 
@@ -84,13 +91,26 @@ namespace decode
         }
         scalPars.numVdbox = m_numVdbox;
 
-        m_mediaContext->SwitchContext(VdboxDecodeFunc, &scalPars, &m_scalability);
+        if (m_allowVirtualNodeReassign)
+        {
+            // reassign decoder virtual node at the first frame for each stream
+            DECODE_CHK_STATUS(m_mediaContext->ReassignContextForDecoder(basicFeature->m_frameNum, &scalPars, &m_scalability));
+            m_mediaContext->SetLatestDecoderVirtualNode();
+        }
+        else
+        {
+            DECODE_CHK_STATUS(m_mediaContext->SwitchContext(VdboxDecodeFunc, &scalPars, &m_scalability));
+        }
         DECODE_CHK_NULL(m_scalability);
 
         m_decodeContext = m_osInterface->pfnGetGpuContext(m_osInterface);
+        m_decodeContextHandle = m_osInterface->CurrentGpuContextHandle;
         DECODE_CHK_STATUS(basicFeature->m_tileCoding.CalcNumPass(*basicFeature->m_av1PicParams, basicFeature->m_av1TileParams));
         m_passNum = basicFeature->m_tileCoding.GetNumPass();
         m_scalability->SetPassNumber(m_passNum);
+
+        if (scalPars.disableScalability)
+            m_osInterface->pfnSetMultiEngineEnabled(m_osInterface, COMPONENT_Decode, false);
 
         return MOS_STATUS_SUCCESS;
     }
@@ -131,6 +151,13 @@ namespace decode
                 inputParameters.currOriginalPic            = basicFeature->m_curRenderPic;
                 inputParameters.currDecodedPicRes          = basicFeature->m_destSurface.OsResource;
                 inputParameters.numUsedVdbox               = m_numVdbox;
+
+                CODECHAL_DEBUG_TOOL(
+                    if (m_streamout != nullptr)  
+                    {  
+                        DECODE_CHK_STATUS(m_streamout->InitStatusReportParam(inputParameters));  
+                    }  
+                );
 
 #if (_DEBUG || _RELEASE_INTERNAL)
                 auto filmGrainFeature = dynamic_cast<Av1DecodeFilmGrainG12*>(m_featureManager->GetFeature(
@@ -192,13 +219,6 @@ namespace decode
                             "AV1_DEC_Secondary"));
                     })
 
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-                if (MOS_TraceKeyEnabled(TR_KEY_DECODE_COMMAND))
-                {
-                    TraceDataDump2ndLevelBB(m_av1DecodePkt->GetSecondLvlBB());
-                }
-#endif
-
 #if (_DEBUG || _RELEASE_INTERNAL)
                 DECODE_CHK_STATUS(StatusCheck());
 #endif
@@ -207,7 +227,9 @@ namespace decode
                 {
                     DECODE_CHK_STATUS(UserFeatureReport());
                 }
-                basicFeature->m_frameNum++;
+
+                DecodeFrameIndex++;
+                basicFeature->m_frameNum = DecodeFrameIndex;
 
                 DECODE_CHK_STATUS(m_statusReport->Reset());
             }
@@ -261,19 +283,19 @@ namespace decode
         DECODE_CHK_STATUS(InitMmcState());
 
         auto *codecSettings     = (CodechalSetting *)settings;
-        m_fgCoordValSurfInitPipeline = MOS_New(FilmGrainSurfaceInit, this, m_task, m_numVdbox);
+        m_fgCoordValSurfInitPipeline = MOS_New(FilmGrainSurfaceInit, this, m_task, m_numVdbox, m_hwInterface);
         DECODE_CHK_NULL(m_fgCoordValSurfInitPipeline);
         DECODE_CHK_STATUS(m_preSubPipeline->Register(*m_fgCoordValSurfInitPipeline));
         DECODE_CHK_STATUS(m_fgCoordValSurfInitPipeline->Init(*codecSettings));
 
         //pre subpipeline for generate noise
-        m_fgGenNoiseSubPipeline = MOS_New(FilmGrainPreSubPipeline, this, m_task, m_numVdbox);
+        m_fgGenNoiseSubPipeline = MOS_New(FilmGrainPreSubPipeline, this, m_task, m_numVdbox, m_hwInterface);
         DECODE_CHK_NULL(m_fgGenNoiseSubPipeline);
         DECODE_CHK_STATUS(m_preSubPipeline->Register(*m_fgGenNoiseSubPipeline));
         DECODE_CHK_STATUS(m_fgGenNoiseSubPipeline->Init(*codecSettings));
 
         //post subpipeline for apply noise
-        m_fgAppNoiseSubPipeline = MOS_New(FilmGrainPostSubPipeline, this, m_task, m_numVdbox);
+        m_fgAppNoiseSubPipeline = MOS_New(FilmGrainPostSubPipeline, this, m_task, m_numVdbox, m_hwInterface);
         DECODE_CHK_NULL(m_fgAppNoiseSubPipeline);
         DECODE_CHK_STATUS(m_postSubPipeline->Register(*m_fgAppNoiseSubPipeline));
         DECODE_CHK_STATUS(m_fgAppNoiseSubPipeline->Init(*codecSettings));
@@ -290,10 +312,12 @@ namespace decode
             pair.second->Destroy();
         }
 
+#ifdef _MMC_SUPPORTED
         if (m_mmcState != nullptr)
         {
             MOS_Delete(m_mmcState);
         }
+#endif
 
         return Av1PipelineG12_Base::Uninitialize();
     }
@@ -307,7 +331,15 @@ namespace decode
 
     MOS_STATUS Av1PipelineG12::CreateSubPackets(DecodeSubPacketManager &subPacketManager, CodechalSetting &codecSettings)
     {
-        DECODE_CHK_STATUS(DecodePipeline::CreateSubPackets(subPacketManager, codecSettings));
+        DecodePredicationPktG12 *predicationPkt = MOS_New(DecodePredicationPktG12, this, m_hwInterface);
+        DECODE_CHK_NULL(predicationPkt);
+        DECODE_CHK_STATUS(subPacketManager.Register(
+            DecodePacketId(this, predicationSubPacketId), *predicationPkt));
+
+        DecodeMarkerPktG12 *markerPkt = MOS_New(DecodeMarkerPktG12, this, m_hwInterface);
+        DECODE_CHK_NULL(markerPkt);
+        DECODE_CHK_STATUS(subPacketManager.Register(
+            DecodePacketId(this, markerSubPacketId), *markerPkt));
 
         Av1DecodePicPktG12 *pictureDecodePkt = MOS_New(Av1DecodePicPktG12, this, m_hwInterface);
         DECODE_CHK_NULL(pictureDecodePkt);
@@ -368,10 +400,10 @@ namespace decode
     }
 #endif
 
-    MOS_STATUS Av1PipelineG12::CreateFeatureManager()
+    MOS_STATUS Av1PipelineG12::CreateFeatureManager()  
     {
         DECODE_FUNC_CALL();
-        m_featureManager = MOS_New(DecodeAv1FeatureManagerG12, m_allocator, m_hwInterface);
+        m_featureManager = MOS_New(DecodeAv1FeatureManagerG12, m_allocator, m_hwInterface, m_osInterface);
         DECODE_CHK_NULL(m_featureManager);
         return MOS_STATUS_SUCCESS;
     }

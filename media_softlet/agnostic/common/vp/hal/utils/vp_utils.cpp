@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021-2022, Intel Corporation
+* Copyright (c) 2021-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -20,139 +20,11 @@
 * OTHER DEALINGS IN THE SOFTWARE.
 */
 
-#include <algorithm>
-#include <map>
-#include <utility>
+#include <cmath>
 #include "vp_utils.h"
 #include "vp_common.h"
 #include "hal_kerneldll_next.h"
-#include "media_common_defs.h"
-#include "media_user_setting_configure.h"
 #include "mos_interface.h"
-
-MOS_SURFACE VpUtils::VpHalConvertVphalSurfaceToMosSurface(PVPHAL_SURFACE surface)
-{
-    VP_FUNC_CALL();
-
-    MOS_SURFACE outSurface = {};
-    MOS_ZeroMemory(&outSurface, sizeof(MOS_SURFACE));
-
-    if (surface)
-    {
-        outSurface.OsResource        = surface->OsResource;
-        outSurface.Format            = surface->Format;
-        outSurface.dwWidth           = surface->dwWidth;
-        outSurface.dwHeight          = surface->dwHeight;
-        outSurface.TileType          = surface->TileType;
-        outSurface.TileModeGMM       = surface->TileModeGMM;
-        outSurface.bGMMTileEnabled   = surface->bGMMTileEnabled;
-        outSurface.dwDepth           = surface->dwDepth;
-        outSurface.dwPitch           = surface->dwPitch;
-        outSurface.dwSlicePitch      = surface->dwSlicePitch;
-        outSurface.dwOffset          = surface->dwOffset;
-        outSurface.bCompressible     = surface->bCompressible;
-        outSurface.bIsCompressed     = surface->bIsCompressed;
-        outSurface.CompressionMode   = surface->CompressionMode;
-        outSurface.CompressionFormat = surface->CompressionFormat;
-    }
-
-    return outSurface;
-}
-
-VPHAL_COLORPACK VpUtils::GetSurfaceColorPack(
-    MOS_FORMAT format)
-{
-    VPHAL_COLORPACK colorPack = VPHAL_COLORPACK_UNKNOWN;
-
-    VP_FUNC_CALL();
-    
-    static const std::map<const VPHAL_COLORPACK, const MosFormatArray> colorPackMap =
-    {
-        {VPHAL_COLORPACK_400, {Format_Y8,
-                               Format_Y16S,
-                               Format_Y16U,
-                               Format_400P}},
-        {VPHAL_COLORPACK_420, {Format_IMC1,
-                               Format_IMC2,
-                               Format_IMC3,
-                               Format_IMC4,
-                               Format_NV12,
-                               Format_NV21,
-                               Format_YV12,
-                               Format_I420,
-                               Format_IYUV,
-                               Format_P010,
-                               Format_P016}},
-        {VPHAL_COLORPACK_422, {Format_YUY2,
-                               Format_YUYV,
-                               Format_YVYU,
-                               Format_UYVY,
-                               Format_VYUY,
-                               Format_P208,
-                               Format_422H,
-                               Format_422V,
-                               Format_Y210,
-                               Format_Y216}},
-        {VPHAL_COLORPACK_444, {Format_A8R8G8B8,
-                               Format_X8R8G8B8,
-                               Format_A8B8G8R8,
-                               Format_X8B8G8R8,
-                               Format_A16B16G16R16,
-                               Format_A16R16G16B16,
-                               Format_R5G6B5,
-                               Format_R8G8B8,
-                               Format_RGBP,
-                               Format_BGRP,
-                               Format_Y416,
-                               Format_Y410,
-                               Format_AYUV,
-                               Format_AUYV,
-                               Format_444P,
-                               Format_R10G10B10A2,
-                               Format_B10G10R10A2,
-                               Format_A16B16G16R16F,
-                               Format_A16R16G16B16F}},
-        {VPHAL_COLORPACK_411, {Format_411P}}
-    };
-    for (auto mapIt = colorPackMap.begin(); mapIt != colorPackMap.end(); mapIt++)
-    {
-        auto &iFormatArray = mapIt->second;
-        auto  iter         = std::find(iFormatArray.begin(), iFormatArray.end(), format);
-        if (iter == iFormatArray.end())
-        {
-            continue;
-        }
-        return mapIt->first;
-    }
-
-    VP_PUBLIC_ASSERTMESSAGE("Input format color pack unknown.");
-    return VPHAL_COLORPACK_UNKNOWN;
-}
-
-bool VpUtils::GetCscMatrixForRender8Bit(
-    VPHAL_COLOR_SAMPLE_8  *output,
-    VPHAL_COLOR_SAMPLE_8  *input,
-    VPHAL_CSPACE          srcCspace,
-    VPHAL_CSPACE          dstCspace)
-{
-    float   pfCscMatrix[12] = {0};
-    int32_t iCscMatrix[12]  = {0};
-    bool    bResult         = false;
-    int32_t i               = 0;
-
-    KernelDll_GetCSCMatrix(srcCspace, dstCspace, pfCscMatrix);
-
-    // convert float to fixed point format for the 3x4 matrix
-    for (i = 0; i < 12; i++)
-    {
-        // multiply by 2^20 and round up
-        iCscMatrix[i] = (int32_t)((pfCscMatrix[i] * 1048576.0f) + 0.5f);
-    }
-
-    bResult = GetCscMatrixForRender8BitWithCoeff(output, input, srcCspace, dstCspace, iCscMatrix);
-
-    return bResult;
-}
 
 MOS_STATUS VpUtils::ReAllocateSurface(
     PMOS_INTERFACE        osInterface,
@@ -196,9 +68,11 @@ MOS_STATUS VpUtils::ReAllocateSurface(
         goto finish;
     }
 
-    if (osInterface->bOptimizeCpuTiming &&
-        (defaultResType == MOS_GFXRES_BUFFER) &&
-        (surface->dwWidth >= dwWidth))
+    // reuse the allocated buffer if the allocated size was larger than request size when OptimizeCpuTiming is enabled
+    if (osInterface->bOptimizeCpuTiming                             &&
+        !Mos_ResourceIsNull(&surface->OsResource)                   &&
+        (Format_Buffer                        == format)            &&
+        (surface->dwWidth * surface->dwHeight >= dwWidth * dwHeight))
     {
         goto finish;
     }
@@ -251,6 +125,13 @@ finish:
     return eStatus;
 }
 
+bool VpUtils::IsVerticalRotation(VPHAL_ROTATION rotation) {
+    return (rotation != VPHAL_ROTATION_IDENTITY &&
+            rotation != VPHAL_ROTATION_180 &&
+            rotation != VPHAL_MIRROR_VERTICAL &&
+            rotation != VPHAL_MIRROR_HORIZONTAL);
+}
+
 bool VpUtils::IsSyncFreeNeededForMMCSurface(PVPHAL_SURFACE surface, PMOS_INTERFACE osInterface)
 {
     if (nullptr == surface || nullptr == osInterface)
@@ -270,97 +151,6 @@ bool VpUtils::IsSyncFreeNeededForMMCSurface(PVPHAL_SURFACE surface, PMOS_INTERFA
     }
 
     return false;
-}
-
-bool VpUtils::GetCscMatrixForRender8BitWithCoeff(
-    VPHAL_COLOR_SAMPLE_8  *output,
-    VPHAL_COLOR_SAMPLE_8  *input,
-    VPHAL_CSPACE          srcCspace,
-    VPHAL_CSPACE          dstCspace,
-    int32_t               *iCscMatrix)
-{
-    bool    bResult = true;
-    int32_t a = 0, r = 0, g = 0, b = 0;
-    int32_t y1 = 0, u1 = 0, v1 = 0;
-
-    y1 = r = input->YY;
-    u1 = g = input->Cb;
-    v1 = b = input->Cr;
-    a      = input->Alpha;
-
-    if (srcCspace == dstCspace)
-    {
-        // no conversion needed
-        if ((dstCspace == CSpace_sRGB) || (dstCspace == CSpace_stRGB) || IS_COLOR_SPACE_BT2020_RGB(dstCspace))
-        {
-            output->A = (uint8_t)a;
-            output->R = (uint8_t)r;
-            output->G = (uint8_t)g;
-            output->B = (uint8_t)b;
-        }
-        else
-        {
-            output->a = (uint8_t)a;
-            output->Y = (uint8_t)y1;
-            output->U = (uint8_t)u1;
-            output->V = (uint8_t)v1;
-        }
-    }
-    else
-    {
-        // conversion needed
-        r = (y1 * iCscMatrix[0] + u1 * iCscMatrix[1] +
-                v1 * iCscMatrix[2] + iCscMatrix[3] + 0x00080000) >>
-            20;
-        g = (y1 * iCscMatrix[4] + u1 * iCscMatrix[5] +
-                v1 * iCscMatrix[6] + iCscMatrix[7] + 0x00080000) >>
-            20;
-        b = (y1 * iCscMatrix[8] + u1 * iCscMatrix[9] +
-                v1 * iCscMatrix[10] + iCscMatrix[11] + 0x00080000) >>
-            20;
-
-        switch (dstCspace)
-        {
-        case CSpace_sRGB:
-            output->A = (uint8_t)a;
-            output->R = MOS_MIN(MOS_MAX(0, r), 255);
-            output->G = MOS_MIN(MOS_MAX(0, g), 255);
-            output->B = MOS_MIN(MOS_MAX(0, b), 255);
-            break;
-
-        case CSpace_stRGB:
-            output->A = (uint8_t)a;
-            output->R = MOS_MIN(MOS_MAX(16, r), 235);
-            output->G = MOS_MIN(MOS_MAX(16, g), 235);
-            output->B = MOS_MIN(MOS_MAX(16, b), 235);
-            break;
-
-        case CSpace_BT601:
-        case CSpace_BT709:
-            output->a = (uint8_t)a;
-            output->Y = MOS_MIN(MOS_MAX(16, r), 235);
-            output->U = MOS_MIN(MOS_MAX(16, g), 240);
-            output->V = MOS_MIN(MOS_MAX(16, b), 240);
-            break;
-
-        case CSpace_xvYCC601:
-        case CSpace_xvYCC709:
-        case CSpace_BT601_FullRange:
-        case CSpace_BT709_FullRange:
-            output->a = (uint8_t)a;
-            output->Y = MOS_MIN(MOS_MAX(0, r), 255);
-            output->U = MOS_MIN(MOS_MAX(0, g), 255);
-            output->V = MOS_MIN(MOS_MAX(0, b), 255);
-            break;
-
-        default:
-            VP_PUBLIC_NORMALMESSAGE("Unsupported Output ColorSpace %d.", (uint32_t)dstCspace);
-            bResult = false;
-            break;
-        }
-    }
-
-    return bResult;
 }
 
 void VpUtils::GetCscMatrixForVeSfc8Bit(
@@ -503,266 +293,281 @@ void VpUtils::GetCscMatrixForVeSfc8Bit(
     }
 }
 
-uint32_t VpUtils::GetSurfaceBitDepth(
-    MOS_FORMAT format)
+bool VpUtils::GetCscMatrixForRender8Bit(
+    VPHAL_COLOR_SAMPLE_8 *output,
+    VPHAL_COLOR_SAMPLE_8 *input,
+    VPHAL_CSPACE          srcCspace,
+    VPHAL_CSPACE          dstCspace)
 {
-    uint32_t bitDepth = 0;
+    float   pfCscMatrix[12] = {0};
+    int32_t iCscMatrix[12]  = {0};
+    bool    bResult         = false;
+    int32_t i               = 0;
 
-    VP_FUNC_CALL();
+    KernelDll_GetCSCMatrix(srcCspace, dstCspace, pfCscMatrix);
 
-    static const std::map<const uint32_t, const MosFormatArray> bitDepthMap =
+    // convert float to fixed point format for the 3x4 matrix
+    for (i = 0; i < 12; i++)
     {
-        {8, {Format_IMC1,
-             Format_IMC2,
-             Format_IMC3,
-             Format_IMC4,
-             Format_NV12,
-             Format_NV21,
-             Format_YV12,
-             Format_I420,
-             Format_IYUV,
-             Format_YUY2,
-             Format_YUYV,
-             Format_YVYU,
-             Format_UYVY,
-             Format_VYUY,
-             Format_P208,
-             Format_422H,
-             Format_422V,
-             Format_R5G6B5,
-             Format_R8G8B8,
-             Format_A8R8G8B8,
-             Format_X8R8G8B8,
-             Format_A8B8G8R8,
-             Format_X8B8G8R8,
-             Format_444P,
-             Format_AYUV,
-             Format_AUYV,
-             Format_RGBP,
-             Format_BGRP}},
-        {10, {Format_P010,
-              Format_R10G10B10A2,
-              Format_B10G10R10A2,
-              Format_Y210,
-              Format_Y410,
-              Format_P210}},
-        {16, {Format_A16B16G16R16,
-              Format_A16R16G16B16,
-              Format_A16B16G16R16F,
-              Format_A16R16G16B16F,
-              Format_P016,
-              Format_Y416,
-              Format_Y216,
-              Format_P216}},
-    };
-    for (auto mapIt = bitDepthMap.begin(); mapIt != bitDepthMap.end(); mapIt++)
-    {
-        auto &iFormatArray = mapIt->second;
-        auto  iter         = std::find(iFormatArray.begin(), iFormatArray.end(), format);
-        if (iter == iFormatArray.end())
-        {
-            continue;
-        }
-        return mapIt->first;
+        // multiply by 2^20 and round up
+        iCscMatrix[i] = (int32_t)((pfCscMatrix[i] * 1048576.0f) + 0.5f);
     }
 
-    VP_PUBLIC_ASSERTMESSAGE("Unknown Input format for bit depth.");
-    return 0;
+    bResult = GetCscMatrixForRender8BitWithCoeff(output, input, srcCspace, dstCspace, iCscMatrix);
+
+    return bResult;
 }
 
-MOS_STATUS VpUtils::DeclareUserSettings(MediaUserSettingSharedPtr userSettingPtr)
+bool VpUtils::GetCscMatrixForRender8BitWithCoeff(
+    VPHAL_COLOR_SAMPLE_8 *output,
+    VPHAL_COLOR_SAMPLE_8 *input,
+    VPHAL_CSPACE          srcCspace,
+    VPHAL_CSPACE          dstCspace,
+    int32_t              *iCscMatrix)
 {
-    DeclareUserSettingKey(  //For debugging purpose. true for disabling SFC
-        userSettingPtr,
-        __VPHAL_VEBOX_DISABLE_SFC,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+    bool    bResult = true;
+    int32_t a = 0, r = 0, g = 0, b = 0;
+    int32_t y1 = 0, u1 = 0, v1 = 0;
 
-    DeclareUserSettingKey(  //Disabling SFC DTR output. 1: Disable, 0: Enable
-        userSettingPtr,
-        __MEDIA_USER_FEATURE_VALUE_SFC_OUTPUT_DTR_DISABLE,
-        MediaUserSetting::Group::Sequence,
-        1,
-        true);
+    y1 = r = input->YY;
+    u1 = g = input->Cb;
+    v1 = b = input->Cr;
+    a      = input->Alpha;
 
-    DeclareUserSettingKey(  // For Notify which datapath Vebox used
-        userSettingPtr,
-        __VPHAL_VEBOX_OUTPUTPIPE_MODE,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+    if (srcCspace == dstCspace)
+    {
+        // no conversion needed
+        if ((dstCspace == CSpace_sRGB) || (dstCspace == CSpace_stRGB) || IS_COLOR_SPACE_BT2020_RGB(dstCspace))
+        {
+            output->A = (uint8_t)a;
+            output->R = (uint8_t)r;
+            output->G = (uint8_t)g;
+            output->B = (uint8_t)b;
+        }
+        else
+        {
+            output->a = (uint8_t)a;
+            output->Y = (uint8_t)y1;
+            output->U = (uint8_t)u1;
+            output->V = (uint8_t)v1;
+        }
+    }
+    else
+    {
+        // conversion needed
+        r = (y1 * iCscMatrix[0] + u1 * iCscMatrix[1] +
+                v1 * iCscMatrix[2] + iCscMatrix[3] + 0x00080000) >>
+            20;
+        g = (y1 * iCscMatrix[4] + u1 * iCscMatrix[5] +
+                v1 * iCscMatrix[6] + iCscMatrix[7] + 0x00080000) >>
+            20;
+        b = (y1 * iCscMatrix[8] + u1 * iCscMatrix[9] +
+                v1 * iCscMatrix[10] + iCscMatrix[11] + 0x00080000) >>
+            20;
 
-    DeclareUserSettingKey(//For Notify which feature Vebox used
-        userSettingPtr,
-        __VPHAL_VEBOX_FEATURE_INUSE,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+        switch (dstCspace)
+        {
+        case CSpace_sRGB:
+            output->A = (uint8_t)a;
+            output->R = MOS_MIN(MOS_MAX(0, r), 255);
+            output->G = MOS_MIN(MOS_MAX(0, g), 255);
+            output->B = MOS_MIN(MOS_MAX(0, b), 255);
+            break;
 
-    DeclareUserSettingKey( //Disabling SFC Centering output. 1 -- Disable, 0 -- Enable.
-        userSettingPtr,
-        __MEDIA_USER_FEATURE_VALUE_SFC_OUTPUT_CENTERING_DISABLE,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+        case CSpace_stRGB:
+            output->A = (uint8_t)a;
+            output->R = MOS_MIN(MOS_MAX(16, r), 235);
+            output->G = MOS_MIN(MOS_MAX(16, g), 235);
+            output->B = MOS_MIN(MOS_MAX(16, b), 235);
+            break;
 
-    DeclareUserSettingKey( // VP Bypass Composition Mode
-        userSettingPtr,
-        __VPHAL_BYPASS_COMPOSITION,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+        case CSpace_BT601:
+        case CSpace_BT709:
+            output->a = (uint8_t)a;
+            output->Y = MOS_MIN(MOS_MAX(16, r), 235);
+            output->U = MOS_MIN(MOS_MAX(16, g), 240);
+            output->V = MOS_MIN(MOS_MAX(16, b), 240);
+            break;
 
-    DeclareUserSettingKey(  //Enable memory compression
-        userSettingPtr,
-        __VPHAL_ENABLE_MMC,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+        case CSpace_xvYCC601:
+        case CSpace_xvYCC709:
+        case CSpace_BT601_FullRange:
+        case CSpace_BT709_FullRange:
+            output->a = (uint8_t)a;
+            output->Y = MOS_MIN(MOS_MAX(0, r), 255);
+            output->U = MOS_MIN(MOS_MAX(0, g), 255);
+            output->V = MOS_MIN(MOS_MAX(0, b), 255);
+            break;
 
-    DeclareUserSettingKey(
-        userSettingPtr,
-        __MEDIA_USER_FEATURE_VALUE_VEBOX_TGNE_ENABLE_VP,
-        MediaUserSetting::Group::Sequence,
-        1,
-        true);  // Enable Vebox GNE. 1: Enable, 0: Disable
+        default:
+            VP_PUBLIC_NORMALMESSAGE("Unsupported Output ColorSpace %d.", (uint32_t)dstCspace);
+            bResult = false;
+            break;
+        }
+    }
 
-    DeclareUserSettingKey(//Slice Shutdown Control
-        userSettingPtr,
-        __VPHAL_RNDR_SSD_CONTROL,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+    return bResult;
+}
 
-    DeclareUserSettingKey(  // FALSE if CSC coefficient setting mode is Patch mode, otherwise Curbe mode
-        userSettingPtr,
-        __MEDIA_USER_FEATURE_VALUE_CSC_COEFF_PATCH_MODE_DISABLE,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+MOS_STATUS VpUtils::GetPixelWithCSCForColorFill(
+    VPHAL_COLOR_SAMPLE_8 &input,
+    float                 output[4],
+    VPHAL_CSPACE          srcCspace,
+    VPHAL_CSPACE          dstCspace)
+{
+    VPHAL_COLOR_SAMPLE_8 dstColor = {};
+    if (IS_COLOR_SPACE_BT2020(srcCspace))
+    {
+        VP_PUBLIC_ASSERTMESSAGE("Not support color fill input color space BT2020. Because DDI struct only contains 8 bit, which cannot accommodate BT2020");
+    }
+    else if (IS_COLOR_SPACE_BT2020(dstCspace))
+    {
+        // Target is BT2020, which is not supported by legacy convert
+        VP_PUBLIC_NORMALMESSAGE("Will do special convert to BT2020. Source Cspace %d. Target Cspace %d", srcCspace, dstCspace);
+        float pCscMatrix[12]     = {};
+        auto  SDRDegamma_sRGB_x1 = [](float c) -> float {
+            if (c <= VPHAL_HDR_EOTF_COEFF1_TRADITIONNAL_GAMMA_SRGB)
+            {
+                return c * VPHAL_HDR_EOTF_COEFF2_TRADITIONNAL_GAMMA_SRGB;
+            }
+            else
+            {
+                return pow(VPHAL_HDR_EOTF_COEFF3_TRADITIONNAL_GAMMA_SRGB * c + VPHAL_HDR_EOTF_COEFF4_TRADITIONNAL_GAMMA_SRGB, VPHAL_HDR_EOTF_COEFF5_TRADITIONNAL_GAMMA_SRGB);
+            }
+        };
+        auto HDRGamma_x1 = [](float c) -> float {
+            if (c <= 0.0181)
+            {
+                return c * 4.5f;
+            }
+            else
+            {
+                return 1.0993f * pow(c, 0.45f) - 0.0993f;
+            }
+        };
 
-    DeclareUserSettingKey(  
-        userSettingPtr,
-        __MEDIA_USER_FEATURE_VALUE_DISABLE_DN,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+        //Convert to sRGB
+        VPHAL_COLOR_SAMPLE_8 interColorRGB = {};
+        if (!GetCscMatrixForRender8Bit(&interColorRGB, &input, srcCspace, CSpace_sRGB))
+        {
+            VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_UNIMPLEMENTED);
+        }
+        //Degamma sRGB IEC 61966-2-1:1999
+        float R   = SDRDegamma_sRGB_x1((float)interColorRGB.R / 255);
+        float G   = SDRDegamma_sRGB_x1((float)interColorRGB.G / 255);
+        float B   = SDRDegamma_sRGB_x1((float)interColorRGB.B / 255);
+        output[3] = (float)interColorRGB.A / 255;
 
-    DeclareUserSettingKey(
-        userSettingPtr,
-        __MEDIA_USER_FEATURE_VALUE_DISABLE_PACKET_REUSE,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+        //CCM ITU-R BT.2087-0
+        float R2020 = 0.329282097415f * G + 0.043313797587f * B + 0.627404078626f * R;
+        float G2020 = 0.919541035593f * G + 0.011361189924f * B + 0.069097233123f * R;
+        float B2020 = 0.088013255546f * G + 0.895595009604f * B + 0.016391587664f * R;
 
-#if (_DEBUG || _RELEASE_INTERNAL)
-    DeclareUserSettingKeyForDebug(  // FORCE VP DECOMPRESSED OUTPUT
-        userSettingPtr,
-        __VPHAL_RNDR_FORCE_VP_DECOMPRESSED_OUTPUT,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+        //Gamma BT2020 ITU-R BT.2020-2
+        R2020 = HDRGamma_x1(MOS_CLAMP_MIN_MAX(R2020, 0.f, 1.f));
+        G2020 = HDRGamma_x1(MOS_CLAMP_MIN_MAX(G2020, 0.f, 1.f));
+        B2020 = HDRGamma_x1(MOS_CLAMP_MIN_MAX(B2020, 0.f, 1.f));
 
-    DeclareUserSettingKeyForDebug(  //Software Scoreboard enable Control
-        userSettingPtr,
-        __VPHAL_RNDR_SCOREBOARD_CONTROL,
-        MediaUserSetting::Group::Sequence,
-        1,
-        true);
+        KernelDll_GetCSCMatrix(CSpace_BT2020_RGB, dstCspace, pCscMatrix);
+        output[0] = pCscMatrix[0] * R2020 + pCscMatrix[1] * G2020 + pCscMatrix[2] * B2020 + pCscMatrix[3] / 1023;
+        output[1] = pCscMatrix[4] * R2020 + pCscMatrix[5] * G2020 + pCscMatrix[6] * B2020 + pCscMatrix[7] / 1023;
+        output[2] = pCscMatrix[8] * R2020 + pCscMatrix[9] * G2020 + pCscMatrix[10] * B2020 + pCscMatrix[11] / 1023;
 
-    DeclareUserSettingKeyForDebug(  // CM based FC enable Control
-        userSettingPtr,
-        __VPHAL_RNDR_CMFC_CONTROL,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+        //clamp
+        output[0] = MOS_CLAMP_MIN_MAX(output[0], 0.f, 1.f);
+        output[1] = MOS_CLAMP_MIN_MAX(output[1], 0.f, 1.f);
+        output[2] = MOS_CLAMP_MIN_MAX(output[2], 0.f, 1.f);
+    }
+    else if (srcCspace == dstCspace)
+    {
+        // no conversion needed
+        output[0] = (float)input.YY / 255;     //R or Y
+        output[1] = (float)input.Cb / 255;     //G or U
+        output[2] = (float)input.Cr / 255;     //B or V
+        output[3] = (float)input.Alpha / 255;  //A       
+    }
+    else if (dstCspace == CSpace_BT601Gray || dstCspace == CSpace_BT601Gray_FullRange)
+    {
+        //Target is Gray Color Space, not supported by legacy convert
+        VP_PUBLIC_NORMALMESSAGE("Will do special convert to Gray CSpace. Source Cspace %d. Target Cspace %d", srcCspace, dstColor);
+        float        pCscMatrix[12] = {};
+        int32_t      iCscMatrix[12] = {};
+        VPHAL_CSPACE interCSpace    = (dstCspace == CSpace_BT601Gray_FullRange ? CSpace_BT601_FullRange : CSpace_BT601);
+        KernelDll_GetCSCMatrix(srcCspace, interCSpace, pCscMatrix);
 
-    DeclareUserSettingKeyForDebug(  //Enable 1K 1DLUT
-        userSettingPtr,
-        __VPHAL_ENABLE_1K_1DLUT,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+        // convert float to fixed point format for the 3x4 matrix
+        for (int32_t i = 0; i < 12; ++i)
+        {
+            // multiply by 2^20 and round up
+            iCscMatrix[i] = (int32_t)((pCscMatrix[i] * 1048576.0f) + 0.5f);
+        }
 
-    DeclareUserSettingKeyForDebug(
-        userSettingPtr,
-        __VPHAL_VEBOX_HDR_MODE,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true); //"HDR Mode. 0x1: H2S kernel, 0x3: H2H kernel, 0x21 65size H2S, 0x23 65size H2H, 0x31 33size H2S, 0x33 33size H2H."
+        int32_t luma = (input.YY * iCscMatrix[0] + input.Cb * iCscMatrix[1] + input.Cr * iCscMatrix[2] + iCscMatrix[3] + 0x00080000) >> 20;
+        output[0]    = (float)MOS_CLAMP_MIN_MAX(luma, 0, 255) / 255;
+        output[1]    = 0;
+        output[2]    = 0;
+        output[3]    = (float)input.Alpha / 255;
+    }
+    else
+    {
+        //legacy convert
+        if (VpUtils::GetCscMatrixForRender8Bit(&dstColor, &input, srcCspace, dstCspace))
+        {
+            if ((dstCspace == CSpace_sRGB) || (dstCspace == CSpace_stRGB) || IS_COLOR_SPACE_BT2020_RGB(dstCspace))
+            {
+                output[0] = (float)dstColor.R / 255;
+                output[1] = (float)dstColor.G / 255;
+                output[2] = (float)dstColor.B / 255;
+                output[3] = (float)dstColor.A / 255;
+            }
+            else
+            {
+                output[0] = (float)dstColor.Y / 255;
+                output[1] = (float)dstColor.U / 255;
+                output[2] = (float)dstColor.V / 255;
+                output[3] = (float)dstColor.a / 255;
+            }
+        }
+        else
+        {
+            VP_PUBLIC_ASSERTMESSAGE("Not supported color fill cspace convert. Source Cspace %d. Target Cspace %d", srcCspace, dstColor);
+        }
+    } 
 
-    DeclareUserSettingKeyForDebug(  // VP Enable Compute Context
-        userSettingPtr,
-        __VPHAL_ENABLE_COMPUTE_CONTEXT,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+    return MOS_STATUS_SUCCESS;
+}
 
-    DeclareUserSettingKeyForDebug(  // Force VP Memorycopy Outputcompressed
-        userSettingPtr,
-        __VPHAL_VEBOX_FORCE_VP_MEMCOPY_OUTPUTCOMPRESSED,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+MOS_STATUS VpUtils::GetNormalizedCSCMatrix(
+    MEDIA_CSPACE src,
+    MEDIA_CSPACE dst,
+    float        cscMatrix[12])
+{
+    VP_PUBLIC_CHK_NULL_RETURN(cscMatrix);
 
-    DeclareUserSettingKeyForDebug(  // VP Composition 8Tap Adaptive Enable
-        userSettingPtr,
-        __VPHAL_COMP_8TAP_ADAPTIVE_ENABLE,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+    if ((IS_COLOR_SPACE_BT2020(src) && !IS_COLOR_SPACE_BT2020(dst)) ||
+        (!IS_COLOR_SPACE_BT2020(src) && IS_COLOR_SPACE_BT2020(dst)))
+    {
+        VP_PUBLIC_ASSERTMESSAGE("Not support hdr to sdr or sdr to hdr csc convert. Src CSpace %d, Dst CSpace %d", src, dst);
+    }
 
-    DeclareUserSettingKeyForDebug(  // Set SFC NV12/P010 Linear Output
-        userSettingPtr,
-        __VPHAL_ENABLE_SFC_NV12_P010_LINEAR_OUTPUT,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
+    KernelDll_GetCSCMatrix(src, dst, cscMatrix);
 
-    DeclareUserSettingKeyForDebug(  // Set SFC RGBP Linear/Tile RGB24 Linear Output
-        userSettingPtr,
-        __VPHAL_ENABLE_SFC_RGBP_RGB24_OUTPUT,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
-
-    DeclareUserSettingKeyForDebug(  // VP Parameters Dump Outfile
-        userSettingPtr,
-        __VPHAL_DBG_PARAM_DUMP_OUTFILE_KEY_NAME,
-        MediaUserSetting::Group::Sequence,
-        "",
-        true);
-
-    DeclareUserSettingKeyForDebug(  // VP Parameters Dump Start Frame
-        userSettingPtr,
-        __VPHAL_DBG_PARAM_DUMP_START_FRAME_KEY_NAME,
-        MediaUserSetting::Group::Sequence,
-        1,
-        true);
-
-    DeclareUserSettingKeyForDebug(  // VP Parameters Dump End Frame
-        userSettingPtr,
-        __VPHAL_DBG_PARAM_DUMP_END_FRAME_KEY_NAME,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
-
-    DeclareUserSettingKeyForDebug(  // Vphal Debug Dump Output Directory
-        userSettingPtr,
-        __VPHAL_DBG_DUMP_OUTPUT_DIRECTORY,
-        MediaUserSetting::Group::Sequence,
-        "",
-        true);
-
-    DeclareUserSettingKeyForDebug(  // VP parameter dump sku and wa info enable
-        userSettingPtr,
-        __VPHAL_DBG_PARA_DUMP_ENABLE_SKUWA_DUMP,
-        MediaUserSetting::Group::Sequence,
-        0,
-        true);
-
-#endif
+    //for BT2020RGB convert to BT2020RGB, KernelDll_GetCSCMatrix use 1023 as max bias
+    //for other cases, such as sRGB/BT709/BT601 and BT2020YUV convert BT2020RGB, KernelDll_GetCSCMatrix use 255 as max bias
+    //so need to normalize w/ different value
+    if ((src == CSpace_BT2020_stRGB && dst == CSpace_BT2020_RGB) ||
+        (src == CSpace_BT2020_RGB && dst == CSpace_BT2020_stRGB))
+    {
+        cscMatrix[3] /= 1023.f;
+        cscMatrix[7] /= 1023.f;
+        cscMatrix[11] /= 1023.f;
+    }
+    else
+    {
+        cscMatrix[3] /= 255.f;
+        cscMatrix[7] /= 255.f;
+        cscMatrix[11] /= 255.f;
+    }
 
     return MOS_STATUS_SUCCESS;
 }

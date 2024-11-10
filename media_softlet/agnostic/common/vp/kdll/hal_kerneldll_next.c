@@ -321,6 +321,15 @@ void KernelDll_UpdateCscCoefficients(Kdll_State *pState,
             {
                 csctype = CSC_YUV_RGB;
             }
+            else if (KernelDll_IsCspace(src, CSpace_BT2020_RGB) && KernelDll_IsCspace(dst, CSpace_BT2020_RGB))
+            {
+                csctype = CSC_RGB_RGB;
+
+                // Kernel params didn't support 10bit, it need transformation from 10bit to 8bit.
+                m[3]  = ROUND_FLOAT(m[3], 0.25f);   // 10bit to 8bit (value/4)
+                m[7]  = ROUND_FLOAT(m[7], 0.25f);   // 10bit to 8bit (value/4)
+                m[11] = ROUND_FLOAT(m[11], 0.25f);  // 10bit to 8bit (value/4)
+            }
             else
             {
                 csctype = CSC_YUV_YUV;
@@ -803,7 +812,7 @@ void KernelDll_3x3MatrixProduct(
 | Return    : true if success else false
 \---------------------------------------------------------------------------*/
 bool KernelDll_CalcYuvToYuvMatrix(
-    Kdll_CSpace src,    // [in] RGB Color space
+    Kdll_CSpace src,    // [in] YUV Color space
     Kdll_CSpace dst,    // [in] YUV Color space
     float *     pOutMatrix)  // [out] Conversion matrix (3x4)
 {
@@ -818,6 +827,21 @@ bool KernelDll_CalcYuvToYuvMatrix(
     {
         res = KernelDll_CalcYuvToRgbMatrix(src, CSpace_sRGB, (float *)g_cCSC_BT601_YUV_RGB, fYuvToRgb);
     }
+    else if(IS_COLOR_SPACE_BT2020_YUV(src))
+    {
+        switch (src)
+        {
+            case CSpace_BT2020:
+                res = KernelDll_CalcYuvToRgbMatrix(CSpace_BT2020, CSpace_sRGB, (float *)g_cCSC_BT2020_LimitedYUV_RGB, fYuvToRgb);
+                break;
+            case CSpace_BT2020_FullRange:
+                res = KernelDll_CalcYuvToRgbMatrix(CSpace_BT2020_FullRange, CSpace_sRGB, (float *)g_cCSC_BT2020_YUV_RGB, fYuvToRgb);
+                break;
+            default:
+                res = false;
+                break;
+        }
+    }
     else
     {
         res = KernelDll_CalcYuvToRgbMatrix(src, CSpace_sRGB, (float *)g_cCSC_BT709_YUV_RGB, fYuvToRgb);
@@ -831,6 +855,21 @@ bool KernelDll_CalcYuvToYuvMatrix(
     if (IS_BT601_CSPACE(dst))
     {
         res = KernelDll_CalcRgbToYuvMatrix(CSpace_sRGB, dst, (float *)g_cCSC_BT601_RGB_YUV, fRgbToYuv);
+    }
+    else if (IS_COLOR_SPACE_BT2020_YUV(dst))
+    {
+        switch (dst)
+        {
+            case CSpace_BT2020_FullRange:
+                res = KernelDll_CalcRgbToYuvMatrix(CSpace_sRGB, dst, (float *)g_cCSC_BT2020_RGB_YUV, fRgbToYuv);
+                break;
+            case CSpace_BT2020:
+                res = KernelDll_CalcRgbToYuvMatrix(CSpace_sRGB, dst, (float *)g_cCSC_BT2020_RGB_LimitedYUV, fRgbToYuv);
+                break;
+            default:
+                res = false;
+                break;
+        }
     }
     else
     {
@@ -963,6 +1002,21 @@ void KernelDll_GetCSCMatrix(
         {
             KernelDll_CalcYuvToYuvMatrix(temp, dst, pCSC_Matrix);
         }
+        else if (KernelDll_IsCspace(temp, CSpace_BT2020_RGB))
+        {
+            if (temp == CSpace_BT2020_RGB)  //BT2020_RGB to BT2020_limited_RGB conversions
+            {
+                MOS_SecureMemcpy(pCSC_Matrix, sizeof(g_cCSC_BT2020RGB_BT2020stRGB), (void *)g_cCSC_BT2020RGB_BT2020stRGB, sizeof(g_cCSC_BT2020RGB_BT2020stRGB));
+            }
+            else if (temp == CSpace_BT2020_stRGB)  //BT2020_limited_RGB to BT2020_RGB conversions
+            {
+                MOS_SecureMemcpy(pCSC_Matrix, sizeof(g_cCSC_BT2020stRGB_BT2020RGB), (void *)g_cCSC_BT2020stRGB_BT2020RGB, sizeof(g_cCSC_BT2020stRGB_BT2020RGB));
+            }
+        }
+        else if (KernelDll_IsCspace(temp, CSpace_BT2020))  // BT2020 limited_YUV to BT2020_FullRange_YUV conversions
+        {
+            KernelDll_CalcYuvToYuvMatrix(temp, dst, pCSC_Matrix);
+        }
         else
         {
             VP_RENDER_ASSERTMESSAGE("Not supported color space conversion(from %d to %d)", src, dst);
@@ -1048,17 +1102,17 @@ bool KernelDll_MapCSCMatrix(
 
     default:
         //CSC_RGB_RGB
-        coeff[2]  = FLOAT_TO_SHORT(matrix[0]);   // M0   --> C2
         coeff[0]  = FLOAT_TO_SHORT(matrix[1]);   // M1   --> C0
         coeff[1]  = FLOAT_TO_SHORT(matrix[2]);   // M2   --> C1
+        coeff[2]  = FLOAT_TO_SHORT(matrix[0]);   // M0   --> C2
         coeff[3]  = FLOAT_TO_SHORT(matrix[3]);   // M3   --> C3
-        coeff[6]  = FLOAT_TO_SHORT(matrix[4]);   // M4   --> C6
         coeff[4]  = FLOAT_TO_SHORT(matrix[5]);   // M5   --> C4
         coeff[5]  = FLOAT_TO_SHORT(matrix[6]);   // M6   --> C5
+        coeff[6]  = FLOAT_TO_SHORT(matrix[4]);   // M4   --> C6
         coeff[7]  = FLOAT_TO_SHORT(matrix[7]);   // M7   --> C7
-        coeff[10] = FLOAT_TO_SHORT(matrix[8]);   // M8   --> C10
         coeff[8]  = FLOAT_TO_SHORT(matrix[9]);   // M9   --> C8
         coeff[9]  = FLOAT_TO_SHORT(matrix[10]);  // M10  --> C9
+        coeff[10] = FLOAT_TO_SHORT(matrix[8]);   // M8   --> C10
         coeff[11] = FLOAT_TO_SHORT(matrix[11]);  // M11  --> C11
         break;
     }
@@ -2324,6 +2378,7 @@ bool KernelDll_SetupCSC(
     Kdll_CSC_Matrix  curr_matrix;
     Kdll_CSC_Matrix *matrix   = pCSC->Matrix;    // Color Space conversion matrix
     uint8_t *        matrixID = pCSC->MatrixID;  // CSC coefficient allocation table
+    bool forceToTargetColorSpace = false;
 
     // Clear all CSC matrices
     MOS_ZeroMemory(matrix, sizeof(pCSC->Matrix));
@@ -2341,6 +2396,10 @@ bool KernelDll_SetupCSC(
     //---------------------------------------------------------------//
     for (i = iFilterSize, pFilter = pSearchState->Filter; i > 0; i--, pFilter++)
     {
+        if (pFilter->forceToTargetColorSpace)
+        {
+            forceToTargetColorSpace = true;
+        }
         // Disable Procamp for all layers except Main Video
         // Disable Procamp if source is RGB
         if (pFilter->layer != Layer_MainVideo ||
@@ -2402,44 +2461,51 @@ bool KernelDll_SetupCSC(
     //---------------------------------------------------------------//
     if (sel_cspace == CSpace_Any)
     {
-        int cs;
-        for (cs = (CSpace_Any + 1); cs < CSpace_Count; cs++)
+        if (forceToTargetColorSpace)
         {
-            // Skip color spaces not in use
-            cspace = (VPHAL_CSPACE)cs;
-            if (!cspace_in_use[cspace])
+            sel_cspace = out_cspace;
+        }
+        else
+        {
+            int cs;
+            for (cs = (CSpace_Any + 1); cs < CSpace_Count; cs++)
             {
-                continue;
-            }
-
-            // xvYCC and BT are treated as same for CSC considerations (BT.x to xvYCC.x matrix is I)
-            cspace = KernelDll_TranslateCspace(cspace);
-
-            // Count # of CS conversions and matrices
-            csc_count = 0;
-            for (i = iFilterSize, pFilter = pSearchState->Filter; i > 0; i--, pFilter++)
-            {
-                // Ignore layers where the Color Space may be set in software (colorfill, palletized)
-                if (pFilter->cspace == CSpace_Any)
+                // Skip color spaces not in use
+                cspace = (VPHAL_CSPACE)cs;
+                if (!cspace_in_use[cspace])
                 {
                     continue;
                 }
 
-                // Check if CSC/PA is required
-                if (KernelDll_TranslateCspace(pFilter->cspace) != cspace ||
-                    pFilter->procamp != DL_PROCAMP_DISABLED)
-                {
-                    csc_count++;
-                }
-            }
+                // xvYCC and BT are treated as same for CSC considerations (BT.x to xvYCC.x matrix is I)
+                cspace = KernelDll_TranslateCspace(cspace);
 
-            // Save best choice as requiring minimum number of CSC operations
-            if ((sel_csc_count < 0) ||                              // Initial value
-                (csc_count < sel_csc_count) ||                      // Minimum number of CSC operations
-                (csc_count == sel_csc_count && cs == main_cspace))  // Use main cspace as default if same CSC count
-            {
-                sel_cspace    = cspace;
-                sel_csc_count = csc_count;
+                // Count # of CS conversions and matrices
+                csc_count = 0;
+                for (i = iFilterSize, pFilter = pSearchState->Filter; i > 0; i--, pFilter++)
+                {
+                    // Ignore layers where the Color Space may be set in software (colorfill, palletized)
+                    if (pFilter->cspace == CSpace_Any)
+                    {
+                        continue;
+                    }
+
+                    // Check if CSC/PA is required
+                    if (KernelDll_TranslateCspace(pFilter->cspace) != cspace ||
+                        pFilter->procamp != DL_PROCAMP_DISABLED)
+                    {
+                        csc_count++;
+                    }
+                }
+
+                // Save best choice as requiring minimum number of CSC operations
+                if ((sel_csc_count < 0) ||                              // Initial value
+                    (csc_count < sel_csc_count) ||                      // Minimum number of CSC operations
+                    (csc_count == sel_csc_count && cs == main_cspace))  // Use main cspace as default if same CSC count
+                {
+                    sel_cspace    = cspace;
+                    sel_csc_count = csc_count;
+                }
             }
         }
     }
@@ -2528,6 +2594,7 @@ bool KernelDll_SetupCSC(
                 // Exceeded number of CSC matrices allowed
                 if (matrix_count == DL_CSC_MAX)
                 {
+                    VP_RENDER_ASSERTMESSAGE("CSC matrix count %d exceeded number of CSC matrices allowed!", matrix_count);
                     return false;
                 }
 
@@ -2623,7 +2690,8 @@ static uint8_t *KernelDll_GetPatchData(
                 }
                 else
                 {
-                    VP_RENDER_NORMALMESSAGE("Patch CSC coefficient exceed limitation");
+                    VP_RENDER_ASSERTMESSAGE("Patch CSC coefficient number %d exceed limitation %d!", pSearchState->CscParams.PatchMatrixNum, DL_CSC_MAX);
+                    return nullptr;
                 }
             }
 
@@ -2632,7 +2700,7 @@ static uint8_t *KernelDll_GetPatchData(
     }
     else
     {
-        VP_RENDER_NORMALMESSAGE("Invalid patch kind %d.", iPatchKind);
+        VP_RENDER_ASSERTMESSAGE("Invalid patch kind %d.", iPatchKind);
     }
 
     return nullptr;
@@ -3865,7 +3933,7 @@ bool KernelDll_BuildKernel_CmFc(Kdll_State *pState, Kdll_SearchState *pSearchSta
 
     // Disable pop-up box window for STL assertion to avoid VM hang in auto test.
 #if (!LINUX)
-    ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+    uint32_t prevErrorMode = ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 #if defined(_MSC_VER)
     ::_set_error_mode(_OUT_TO_STDERR);
     _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
@@ -3994,6 +4062,9 @@ bool KernelDll_BuildKernel_CmFc(Kdll_State *pState, Kdll_SearchState *pSearchSta
     res = true;
 
 finish:
+#if (!LINUX)
+    ::SetErrorMode(prevErrorMode);
+#endif
     return res;
 }
 

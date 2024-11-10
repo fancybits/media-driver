@@ -164,8 +164,12 @@ MOS_STATUS VpAllocator::DestroySurface(MOS_SURFACE *surface, MOS_GFXRES_FREE_FLA
 {
     VP_FUNC_CALL();
     VP_PUBLIC_CHK_NULL_RETURN(m_allocator);
-
-    return m_allocator->DestroySurface(surface, flags);
+    MOS_GFXRES_FREE_FLAGS resFreeFlags = {0};
+    if (IsSyncFreeNeededForMMCSurface(surface))
+    {
+        resFreeFlags.SynchronousDestroy = 1;
+    }
+    return m_allocator->DestroySurface(surface, resFreeFlags);
 }
 
 VP_SURFACE* VpAllocator::AllocateVpSurface(MOS_ALLOC_GFXRES_PARAMS &param, bool zeroOnAllocate, VPHAL_CSPACE ColorSpace, uint32_t ChromaSiting)
@@ -266,6 +270,44 @@ VP_SURFACE *VpAllocator::AllocateVpSurface(VPHAL_SURFACE &vphalSurf)
     // For example, format_420O is mapped to Format_NV12 in VpHal.
     // But it is mapped to several different Formats in CodecHal under different conditions.
     osSurface.Format                            = vphalSurf.Format;
+
+    // Add offset info
+    osSurface.dwOffset                    = vphalSurf.dwOffset;
+    osSurface.YPlaneOffset.iSurfaceOffset = vphalSurf.YPlaneOffset.iSurfaceOffset;
+    osSurface.YPlaneOffset.iXOffset       = vphalSurf.YPlaneOffset.iXOffset;
+    osSurface.YPlaneOffset.iYOffset       = vphalSurf.YPlaneOffset.iYOffset;
+    if (IS_RGB32_FORMAT(osSurface.Format) ||
+        IS_RGB16_FORMAT(osSurface.Format) ||
+        IS_RGB64_FORMAT(osSurface.Format) ||
+        osSurface.Format == Format_RGB ||
+        osSurface.Format == Format_Y410)
+    {
+        osSurface.dwOffset                    = vphalSurf.dwOffset;
+        osSurface.YPlaneOffset.iSurfaceOffset = vphalSurf.YPlaneOffset.iSurfaceOffset;
+        osSurface.YPlaneOffset.iXOffset       = vphalSurf.YPlaneOffset.iXOffset;
+        osSurface.YPlaneOffset.iYOffset       = vphalSurf.YPlaneOffset.iYOffset;
+    }
+    else  // YUV or PL3_RGB
+    {
+        // Get Y plane information (plane offset, X/Y offset)
+        osSurface.dwOffset                        = vphalSurf.dwOffset;
+        osSurface.YPlaneOffset.iSurfaceOffset     = vphalSurf.YPlaneOffset.iSurfaceOffset;
+        osSurface.YPlaneOffset.iXOffset           = vphalSurf.YPlaneOffset.iXOffset;
+        osSurface.YPlaneOffset.iYOffset           = vphalSurf.YPlaneOffset.iYOffset;
+        osSurface.YPlaneOffset.iLockSurfaceOffset = vphalSurf.YPlaneOffset.iLockSurfaceOffset;
+
+        // Get U/UV plane information (plane offset, X/Y offset)
+        osSurface.UPlaneOffset.iSurfaceOffset     = vphalSurf.UPlaneOffset.iSurfaceOffset;
+        osSurface.UPlaneOffset.iXOffset           = vphalSurf.UPlaneOffset.iXOffset;
+        osSurface.UPlaneOffset.iYOffset           = vphalSurf.UPlaneOffset.iYOffset;
+        osSurface.UPlaneOffset.iLockSurfaceOffset = vphalSurf.UPlaneOffset.iLockSurfaceOffset;
+
+        // Get V plane information (plane offset, X/Y offset)
+        osSurface.VPlaneOffset.iSurfaceOffset     = vphalSurf.VPlaneOffset.iSurfaceOffset;
+        osSurface.VPlaneOffset.iXOffset           = vphalSurf.VPlaneOffset.iXOffset;
+        osSurface.VPlaneOffset.iYOffset           = vphalSurf.VPlaneOffset.iYOffset;
+        osSurface.VPlaneOffset.iLockSurfaceOffset = vphalSurf.VPlaneOffset.iLockSurfaceOffset;
+    }
 
     // Initialize other parameters in vp surface according to vphal surface.
     surf->ColorSpace                            = vphalSurf.ColorSpace;
@@ -443,6 +485,29 @@ MOS_STATUS VpAllocator::DestroyVpSurface(VP_SURFACE* &surface, bool deferredDest
 
     if (surface->isResourceOwner)
     {
+#if !EMUL
+    MT_LOG5(MT_VP_HAL_DESTROY_SURF, MT_NORMAL,
+        MT_VP_HAL_SURF_ALLOC_PARAM_PTR, *(int64_t *)(&surface),
+        MT_VP_HAL_SURF_ALLOC_PARAM_MOS_SURF_PTR, *(int64_t *)(&surface->osSurface),
+        MT_VP_HAL_SURF_ALLOC_PARAM_IS_RES_OWNER, surface->isResourceOwner,
+        MT_VP_HAL_SURF_ALLOC_PARAM_HANDLE, static_cast<int64_t>(surface->GetAllocationHandle(m_osInterface)),
+        MT_VP_HAL_SURF_ALLOC_PARAM_SIZE, static_cast<int64_t>(surface->osSurface->OsResource.pGmmResInfo ? surface->osSurface->OsResource.pGmmResInfo->GetSizeAllocation() : 0));
+    VP_PUBLIC_NORMALMESSAGE(
+        "VP_HAL_DESTROY_SURF. "
+        "VP_HAL_Surface: %p, "
+        "VP_HAL_OsSurface: %p, "
+        "VP_HAL_isResourceOwner: %d, "
+        "VP_HAL_Surface_Handle: 0x%llx, "
+        "VP_HAL_Surface_Size: 0x%llx",
+        surface,
+        surface->osSurface,
+        surface->isResourceOwner ? 1 : 0,
+        surface->GetAllocationHandle(m_osInterface),
+        surface->osSurface->OsResource.pGmmResInfo ? surface->osSurface->OsResource.pGmmResInfo->GetSizeAllocation() : 0);
+
+        int64_t currentSize = static_cast<int64_t>(surface->osSurface->OsResource.pGmmResInfo ? surface->osSurface->OsResource.pGmmResInfo->GetSizeAllocation() : 0);
+        m_totalSize         = m_totalSize - currentSize;
+#endif 
         status = DestroySurface(surface->osSurface, flags);
     }
     else
@@ -550,6 +615,9 @@ MOS_STATUS VpAllocator::GetSurfaceInfo(VPHAL_SURFACE *surface, VPHAL_GET_SURFACE
     surface->dwWidth         = resDetails.dwWidth;
     surface->dwHeight        = resDetails.dwHeight;
     surface->dwPitch         = resDetails.dwPitch;
+    surface->dwYPitch        = resDetails.dwYPitch;
+    surface->dwUPitch        = resDetails.dwUPitch;
+    surface->dwVPitch        = resDetails.dwVPitch;
     surface->dwSlicePitch    = resDetails.dwSlicePitch;
     surface->dwDepth         = resDetails.dwDepth;
     surface->TileType        = resDetails.TileType;
@@ -560,6 +628,7 @@ MOS_STATUS VpAllocator::GetSurfaceInfo(VPHAL_SURFACE *surface, VPHAL_GET_SURFACE
     surface->Format          = resDetails.Format;
     surface->bCompressible   = resDetails.bCompressible ? true : false;
     surface->bIsCompressed   = resDetails.bIsCompressed ? true : false;
+    surface->CacheSetting    = resDetails.CacheSetting;
 
     if (IS_RGB32_FORMAT(surface->Format) ||
         IS_RGB16_FORMAT(surface->Format) ||
@@ -600,7 +669,8 @@ MOS_STATUS VpAllocator::GetSurfaceInfo(VPHAL_SURFACE *surface, VPHAL_GET_SURFACE
          surface->TileType == MOS_TILE_YS))
     {
         surface->bCompressible   = true;
-        surface->CompressionMode = (MOS_RESOURCE_MMC_MODE)mmcMode;
+        surface->CompressionMode = (mmcMode == MOS_MEMCOMP_MC) ? MOS_MMC_MC :
+                                   (mmcMode == MOS_MEMCOMP_RC) ? MOS_MMC_RC : MOS_MMC_DISABLED;
     }
     else
     {
@@ -656,6 +726,7 @@ MOS_STATUS VpAllocator::GetSurfaceInfo(VP_SURFACE* surface, VPHAL_GET_SURFACE_IN
     surface->osSurface->Format          = resDetails.Format;
     surface->osSurface->bCompressible   = resDetails.bCompressible ? true : false;
     surface->osSurface->bIsCompressed   = resDetails.bIsCompressed ? true : false;
+    surface->osSurface->CacheSetting    = resDetails.CacheSetting;
     
     return MOS_STATUS_SUCCESS;
 }
@@ -734,7 +805,8 @@ MOS_STATUS VpAllocator::ReAllocateSurface(
         MOS_TILE_MODE_GMM       tileModeByForce,
         Mos_MemPool             memType,
         bool                    isNotLockable,
-        void *                  systemMemory)
+        void *                  systemMemory,
+        uint32_t                depth)
 {
     VP_FUNC_CALL();
     MOS_STATUS              eStatus = MOS_STATUS_SUCCESS;
@@ -759,7 +831,9 @@ MOS_STATUS VpAllocator::ReAllocateSurface(
                                 return  (surface->osSurface->Format               == format)          &&
                                         ((surface->osSurface->bCompressible != 0) == compressible)    &&
                                         (surface->osSurface->CompressionMode      == compressionMode) &&
-                                        (surface->osSurface->TileType             == defaultTileType) &&
+                                        (surface->osSurface->TileType             == defaultTileType  ||
+                                        MOS_TILE_Y                                == defaultTileType  &&
+                                        IS_Y_MAJOR_TILE_FORMAT(surface->osSurface->TileType))         &&
                                         ((Format_Buffer                           == format           &&
                                         surface->bufferWidth                      == width            &&
                                         surface->bufferHeight                     == height)          ||
@@ -774,6 +848,17 @@ MOS_STATUS VpAllocator::ReAllocateSurface(
         surface->osSurface                                            &&
         !Mos_ResourceIsNull(&surface->osSurface->OsResource)          &&
         surfInfoCheck(surface)                                        )
+    {
+        return eStatus;
+    }
+
+    // reuse the allocated buffer if the allocated size was larger than request size when OptimizeCpuTiming is enabled
+    if (m_osInterface->bOptimizeCpuTiming                               &&
+        surface                                                         &&
+        surface->osSurface                                              &&
+        (!Mos_ResourceIsNull(&surface->osSurface->OsResource))          &&
+        (Format_Buffer                                == format)        &&
+        (surface->bufferWidth * surface->bufferHeight >= width * height))
     {
         return eStatus;
     }
@@ -797,6 +882,7 @@ MOS_STATUS VpAllocator::ReAllocateSurface(
 
     allocParams.dwWidth         = width;
     allocParams.dwHeight        = height;
+    allocParams.dwDepth         = depth;
     allocParams.Format          = format;
     allocParams.bIsCompressible = compressible;
     allocParams.CompressionMode = compressionMode;
@@ -818,13 +904,55 @@ MOS_STATUS VpAllocator::ReAllocateSurface(
 
     if (!surfInfoCheck(surface))
     {
-        VP_PUBLIC_ASSERTMESSAGE("Incorrect surface parameters.");
+        VP_PUBLIC_ASSERTMESSAGE("Allocated surface is not matched with allocating parameter.");
+        VP_PUBLIC_ASSERTMESSAGE("Allocated surface : format %d, compressible %d, compressionMode %d, tileType %d, bufferWidth %d, bufferHeight %d, width %d, height %d",
+            surface->osSurface->Format,
+            surface->osSurface->bCompressible,
+            surface->osSurface->CompressionMode,
+            surface->osSurface->TileType,
+            surface->bufferWidth,
+            surface->bufferHeight,
+            surface->osSurface->dwWidth,
+            surface->osSurface->dwHeight);
+        VP_PUBLIC_ASSERTMESSAGE("Parameter to allocate : format %d, compressible %d, compressionMode %d, tileType %d, width %d, height %d",
+            format,
+            compressible,
+            compressionMode,
+            defaultTileType,
+            width,
+            height);
     }
 
     MT_LOG7(MT_VP_HAL_REALLOC_SURF, MT_NORMAL, MT_VP_HAL_INTER_SURF_TYPE, surfaceName ? *((int64_t*)surfaceName) : 0,
         MT_SURF_WIDTH, width, MT_SURF_HEIGHT, height, MT_SURF_MOS_FORMAT, format, MT_SURF_TILE_MODE, surface->osSurface->TileModeGMM,
         MT_SURF_COMP_ABLE, surface->osSurface->bCompressible, MT_SURF_COMP_MODE, surface->osSurface->CompressionMode);
 
+#if !EMUL
+    MT_LOG6(MT_VP_HAL_REALLOC_SURF, MT_NORMAL,
+        MT_VP_HAL_SURF_ALLOC_PARAM_PTR, *(int64_t *)(&surface),
+        MT_VP_HAL_SURF_ALLOC_PARAM_MOS_SURF_PTR, *(int64_t *)(&surface->osSurface),
+        MT_VP_HAL_SURF_ALLOC_PARAM_IS_RES_OWNER, surface->isResourceOwner,
+        MT_VP_HAL_SURF_ALLOC_PARAM_HANDLE, static_cast<int64_t>(surface->GetAllocationHandle(m_osInterface)),
+        MT_VP_HAL_SURF_ALLOC_PARAM_SIZE, static_cast<int64_t>(surface->osSurface->OsResource.pGmmResInfo ? surface->osSurface->OsResource.pGmmResInfo->GetSizeAllocation() : 0),
+        MT_VP_HAL_SURF_ALLOC_PARAM_NAME, surfaceName ? *((int64_t *)surfaceName) : 0);
+    VP_PUBLIC_NORMALMESSAGE(
+        "VP_HAL_REALLOC_SURF. "
+        "VP_HAL_Surface: %p, "
+        "VP_HAL_OsSurface: %p, "
+        "VP_HAL_isResourceOwner: %d, "
+        "VP_HAL_Surface_Handle: 0x%llx, "
+        "VP_HAL_Surface_Size: 0x%llx, "
+        "VP_HAL_Surface_Name: %s",
+        surface,
+        surface->osSurface,
+        surface->isResourceOwner ? 1 : 0,
+        surface->GetAllocationHandle(m_osInterface),
+        surface->osSurface->OsResource.pGmmResInfo ? surface->osSurface->OsResource.pGmmResInfo->GetSizeAllocation() : 0,
+        surfaceName ? surfaceName : "");
+    int64_t currentSize  = static_cast<int64_t>(surface->osSurface->OsResource.pGmmResInfo ? surface->osSurface->OsResource.pGmmResInfo->GetSizeAllocation() : 0);
+    m_totalSize          = m_totalSize + currentSize;
+    m_peakSize           = m_peakSize > m_totalSize ? m_peakSize : m_totalSize;
+#endif
     allocated = true;
     return MOS_STATUS_SUCCESS;
 }
@@ -867,6 +995,15 @@ MOS_STATUS VpAllocator::ReAllocateSurface(
         (surface->bCompressible == compressible) &&
         (surface->CompressionMode == compressionMode) &&
         (surface->TileType == defaultTileType))
+    {
+        return eStatus;
+    }
+
+    // reuse the allocated buffer if the allocated size was larger than request size when OptimizeCpuTiming is enabled
+    if (m_osInterface->bOptimizeCpuTiming                       &&
+        (!Mos_ResourceIsNull(&surface->OsResource))           &&
+        (Format_Buffer                        == format)        &&
+        (surface->dwWidth * surface->dwHeight >= width * height))
     {
         return eStatus;
     }
@@ -1174,6 +1311,68 @@ void VpAllocator::CleanRecycler()
     }
 }
 
+MOS_STATUS VpAllocator::AllocateCPUResource(PMOS_RESOURCE osResource, size_t linearAddress, uint32_t dataSize, uint32_t height, uint64_t width, uint64_t planePitch, uint32_t CpTag, GMM_RESOURCE_FORMAT Format)
+{
+    VP_FUNC_CALL();
+    MOS_STATUS eStatusKey = MOS_STATUS_SUCCESS;
+    //Create MOS_GFXRES_BUFFER type resource
+    
+    size_t   linearAddressAligned = 0;
+    uint32_t addedShiftLeftOffset = 0;
+    MOS_ALLOC_GFXRES_PARAMS sParams;
+
+    if ((linearAddress & 0xf) || (linearAddress == 0))
+    {
+        VP_PUBLIC_NORMALMESSAGE("Error: Start address of system memory is not 16-byte aligned!");
+        return MOS_STATUS_UNKNOWN;
+    }
+    if (sizeof(void *) == 8)  //64-bit
+    {
+        linearAddressAligned = linearAddress & ADDRESS_PAGE_ALIGNMENT_MASK_X64;
+    }
+    else  //32-bit
+    {
+        linearAddressAligned = linearAddress & ADDRESS_PAGE_ALIGNMENT_MASK_X86;
+    }
+    //Calculate  Left Shift offset
+    addedShiftLeftOffset = (uint32_t)(linearAddress - linearAddressAligned);
+    VP_PUBLIC_NORMALMESSAGE("System memory address: 0x%x, Aligned address: 0x%x, offset: %u", linearAddress, linearAddressAligned, addedShiftLeftOffset);
+
+    MOS_ZeroMemory(&sParams, sizeof(MOS_ALLOC_GFXRES_PARAMS));
+    sParams.Type           = MOS_GFXRES_BUFFER;
+    sParams.dwBytes        = dataSize + addedShiftLeftOffset;
+    sParams.pSystemMemory  = (void *)linearAddressAligned;
+    sParams.TileType       = MOS_TILE_LINEAR;
+    sParams.Format         = Format_Buffer;
+    sParams.pBufName       = "cpuResourceBuffer_1D";
+    sParams.bBypassMODImpl = 1;
+    sParams.bIsPersistent  = 1;
+    
+    eStatusKey = m_osInterface->pfnAllocateResource(m_osInterface, &sParams, osResource);
+    if (eStatusKey != MOS_STATUS_SUCCESS)
+    {
+        VP_PUBLIC_NORMALMESSAGE("Error: m_osInterface.pfnAllocateResource failed!");
+        return eStatusKey;
+    }
+#if !EMUL
+    osResource->pGmmResInfo->GetSetCpSurfTag(true, CpTag);
+    osResource->pGmmResInfo->OverridePitch(planePitch);
+
+    osResource->pGmmResInfo->OverrideSurfaceFormat(Format);
+    osResource->pGmmResInfo->OverrideSurfaceType(RESOURCE_2D);
+    osResource->pGmmResInfo->OverrideBaseWidth(width);
+    osResource->pGmmResInfo->OverrideBaseHeight(height);
+
+    osResource->pGmmResInfo->OverridePlanarXOffset(GMM_NO_PLANE, (GMM_GFX_SIZE_T)addedShiftLeftOffset);
+    osResource->pGmmResInfo->OverridePlanarYOffset(GMM_NO_PLANE, 0);
+    osResource->pGmmResInfo->OverridePlanarXOffset(GMM_PLANE_Y, (GMM_GFX_SIZE_T)addedShiftLeftOffset);
+    osResource->pGmmResInfo->OverridePlanarYOffset(GMM_PLANE_Y, 0);
+#endif
+
+    return eStatusKey;
+
+}
+
 bool VP_SURFACE::IsEmpty()
 {
     VP_FUNC_CALL();
@@ -1217,9 +1416,12 @@ MOS_STATUS VP_SURFACE::Clean()
 uint64_t VP_SURFACE::GetAllocationHandle(MOS_INTERFACE* osIntf)
 {
     VP_FUNC_CALL();
-
+    if (nullptr == osIntf)
+    {
+        return 0;
+    }
 #if MOS_MEDIASOLO_SUPPORTED
-    if (Mos_Solo_IsInUse(osIntf))
+    if (osIntf && osIntf->bSoloInUse)
     {
         uint64_t handle = osSurface ? (uint64_t)osSurface->OsResource.pData : 0;
         if (handle)
@@ -1231,30 +1433,11 @@ uint64_t VP_SURFACE::GetAllocationHandle(MOS_INTERFACE* osIntf)
     }
 #endif
 
-#if(LINUX) && !(WDDM_LINUX)
-    if (osSurface && osSurface->OsResource.bo)
-    {
-        return osSurface->OsResource.bo->handle;
-    }
-    else
+    if (nullptr == osSurface || nullptr == osIntf)
     {
         return 0;
     }
-#elif (_VULKAN)
-    return 0;
-#elif (EMUL)
-    uint64_t handle = osSurface ? (uint64_t)osSurface->OsResource.pData : 0;
-    if (handle)
-    {
-        return handle;
-    }
-    else
-    {
-        return 0;
-    }
-#else
-    return osSurface ? osSurface->OsResource.AllocationInfo.m_AllocationHandle : 0;
-#endif
+    return osIntf->pfnGetResourceHandle(osIntf->osStreamState, &osSurface->OsResource);
 }
 
 MOS_STATUS VpAllocator::SetMmcFlags(MOS_SURFACE &osSurface)
@@ -1272,7 +1455,7 @@ MOS_STATUS VpAllocator::SetMmcFlags(MOS_SURFACE &osSurface)
 
         osSurface.bCompressible   = true;
         osSurface.bIsCompressed   = true;
-        m_mmc->GetSurfaceMmcFormat(&osSurface, &mmcFormat);
+        VP_PUBLIC_CHK_STATUS_RETURN(m_mmc->GetSurfaceMmcFormat(&osSurface, &mmcFormat));
         osSurface.CompressionFormat = mmcFormat;
     }
     else
@@ -1285,4 +1468,19 @@ MOS_STATUS VpAllocator::SetMmcFlags(MOS_SURFACE &osSurface)
     }
 
     return MOS_STATUS_SUCCESS;
+}
+
+MOS_HW_RESOURCE_DEF VpAllocator::GetResourceCache(uint32_t feature, bool bOut, ENGINE_TYPE engineType, MOS_COMPONENT id)
+{
+    VP_FUNC_CALL();
+    MOS_CACHE_ELEMENT element(MOS_CODEC_RESOURCE_USAGE_BEGIN_CODEC, MOS_CODEC_RESOURCE_USAGE_BEGIN_CODEC);
+    bool              res = m_osInterface->pfnGetCacheSetting(id, SUFACE_TYPE_ASSIGNED(feature), bOut, engineType, element, false);
+    if (res == false)
+    {
+        VP_PUBLIC_ASSERTMESSAGE("Resource %u was not found in cache manager, use default usage MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER!", feature);
+        return MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER;
+    }
+
+    VP_PUBLIC_NORMALMESSAGE("Resource %u was found in cache manager, use mocs usage %u!", feature, element.mocsUsageType);
+    return element.mocsUsageType;
 }

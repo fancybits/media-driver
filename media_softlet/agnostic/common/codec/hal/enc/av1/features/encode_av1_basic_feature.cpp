@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2021, Intel Corporation
+* Copyright (c) 2019-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,6 @@
 
 #include "encode_av1_basic_feature.h"
 #include "encode_utils.h"
-#include "codechal_utilities.h"
 #include "encode_allocator.h"
 #include "encode_av1_vdenc_const_settings.h"
 #include "mos_solo_generic.h"
@@ -63,6 +62,7 @@ MOS_STATUS Av1BasicFeature::Init(void *setting)
         MediaUserSetting::Group::Sequence,
         m_osInterface->pOsContext);
     m_enableSWStitching = outValue.Get<bool>();
+    m_enableTileStitchByHW = !m_enableSWStitching;
 
     ReadUserSettingForDebug(
         m_userSettingPtr,
@@ -83,7 +83,9 @@ MOS_STATUS Av1BasicFeature::Init(void *setting)
         outValue,
         "AV1 Encode Adaptive Rounding Enable",
         MediaUserSetting::Group::Sequence);
-    m_adaptiveRounding = outValue.Get<bool>();
+    bool adaptiveRounding = outValue.Get<bool>();
+    if (adaptiveRounding)
+        m_roundingMethod = RoundingMethod::adaptiveRounding;
 #endif
     return MOS_STATUS_SUCCESS;
 }
@@ -108,9 +110,9 @@ MOS_STATUS Av1BasicFeature::Update(void *params)
     ENCODE_FUNC_CALL();
     ENCODE_CHK_NULL_RETURN(params);
 
-    EncodeBasicFeature::Update(params);
+    ENCODE_CHK_STATUS_RETURN(EncodeBasicFeature::Update(params));
 
-    EncoderParams* encodeParams = (EncoderParams*)params;
+    EncoderParamsAV1 *encodeParams = (EncoderParamsAV1 *)params;
 
     m_av1SeqParams = static_cast<PCODEC_AV1_ENCODE_SEQUENCE_PARAMS>(encodeParams->pSeqParams);
     ENCODE_CHK_NULL_RETURN(m_av1SeqParams);
@@ -125,6 +127,7 @@ MOS_STATUS Av1BasicFeature::Update(void *params)
         ENCODE_ASSERTMESSAGE("The num of OBU header exceeds the max value.");
         return MOS_STATUS_USER_CONTROL_MAX_DATA_SIZE;
     }
+    m_AV1metaDataOffset = encodeParams->AV1metaDataOffset;
 
     m_appHdrSize = m_appHdrSizeExcludeFrameHdr = 0;
     m_targetUsage = m_av1SeqParams->TargetUsage;
@@ -136,7 +139,7 @@ MOS_STATUS Av1BasicFeature::Update(void *params)
         // The lock operation will bring functional issue under "asyc != 1" condition, as well as pref issue need to be considered.
         // So we choose to by default disable adaptive rounding for CQP, but for BRC, statistics read operation will move to HuC. it's all 
         // fine by nature. so we will open adaptive rounding for BRC all the time as it will bring quality gain.
-        m_adaptiveRounding = true;
+        m_roundingMethod = RoundingMethod::adaptiveRounding;
     }
 
     for (uint32_t i = 0; i < m_NumNalUnits; i++)
@@ -144,7 +147,7 @@ MOS_STATUS Av1BasicFeature::Update(void *params)
         m_appHdrSize += m_nalUnitParams[i]->uiSize;
         if (IsFrameHeader(*(m_bsBuffer.pBase + m_nalUnitParams[i]->uiOffset)))
         {
-            continue;
+            break;
         }
         m_appHdrSizeExcludeFrameHdr += m_nalUnitParams[i]->uiSize;
     }
@@ -186,9 +189,10 @@ MOS_STATUS Av1BasicFeature::Update(void *params)
     m_picWidthInSb = m_miCols >> mibSizeLog2;
     m_picHeightInSb = m_miRows >> mibSizeLog2;
 
+    // EnableFrameOBU thread safety
     if (m_av1PicParams->PicFlags.fields.EnableFrameOBU)
     {
-        m_frameHdrOBUSizeByteOffset[m_av1PicParams->CurrOriginalPic.FrameIdx % ASYNC_NUM] = m_av1PicParams->FrameHdrOBUSizeByteOffset;
+        m_frameHdrOBUSizeByteOffset = m_av1PicParams->FrameHdrOBUSizeByteOffset;
     }
 
     // Only for first frame
@@ -224,6 +228,10 @@ MOS_STATUS Av1BasicFeature::Update(void *params)
     }
 
     ENCODE_CHK_STATUS_RETURN(CheckLrParams(*m_av1PicParams));
+
+    m_enableCDEF = !(IsFrameLossless(*m_av1PicParams) 
+        || m_av1PicParams->PicFlags.fields.allow_intrabc
+        || !(m_av1SeqParams->CodingToolFlags.fields.enable_cdef));
 
     // Update reference frames
     ENCODE_CHK_STATUS_RETURN(m_ref.Update());
@@ -282,12 +290,14 @@ MOS_STATUS Av1BasicFeature::UpdateTrackedBufferParameters()
     {
         allocParams.dwBytes  = sizeOfSegmentIdMap;
         allocParams.pBufName = "segmentIdStreamOutBuffer";
+        allocParams.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
 
         ENCODE_CHK_STATUS_RETURN(m_trackedBuf->RegisterParam(encode::BufferType::segmentIdStreamOutBuffer, allocParams));
     }
 
     allocParams.dwBytes  = MOS_ALIGN_CEIL(m_cdfMaxNumBytes, CODECHAL_PAGE_SIZE);
     allocParams.pBufName = "bwdAdaptCdfBuffer";
+    allocParams.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
     ENCODE_CHK_STATUS_RETURN(m_trackedBuf->RegisterParam(encode::BufferType::bwdAdaptCdfBuffer, allocParams));
 
     uint32_t sizeOfMvTemporalbuffer = CODECHAL_CACHELINE_SIZE * ((m_isSb128x128) ? 16 : 4) * totalSbPerFrame;
@@ -295,6 +305,7 @@ MOS_STATUS Av1BasicFeature::UpdateTrackedBufferParameters()
     {
         allocParams.dwBytes  = sizeOfMvTemporalbuffer;
         allocParams.pBufName = "mvTemporalBuffer";
+        allocParams.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
 
         ENCODE_CHK_STATUS_RETURN(m_trackedBuf->RegisterParam(encode::BufferType::mvTemporalBuffer, allocParams));
     }
@@ -342,6 +353,7 @@ MOS_STATUS Av1BasicFeature::UpdateFormat(void *params)
     switch(m_rawSurface.Format)
     {
     case Format_P010:
+    case Format_R10G10B10A2:
         m_is10Bit  = true;
         m_bitDepth = 10;
         break;
@@ -374,7 +386,7 @@ MOS_STATUS Av1BasicFeature::UpdateDefaultCdfTable()
         allocParams.Format          = Format_Buffer;
         allocParams.dwBytes         = cdfTableSize * 4;  // totally 4 cdf tables according to spec
         allocParams.pBufName        = "Av1CdfTablesBuffer";
-        allocParams.ResUsageType    = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
+        allocParams.ResUsageType    = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ;
         m_defaultCdfBuffers         = m_allocator->AllocateResource(allocParams, true);
 
         auto data = (uint16_t *)m_allocator->LockResourceForWrite(m_defaultCdfBuffers);
@@ -393,6 +405,7 @@ MOS_STATUS Av1BasicFeature::UpdateDefaultCdfTable()
         {
             allocParams.dwBytes           = cdfTableSize;
             allocParams.pBufName          = "ActiveAv1CdfTableBuffer";
+            allocParams.ResUsageType    = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ;
             m_defaultCdfBufferInUse       = m_allocator->AllocateResource(allocParams, true);
             m_defaultCdfBufferInUseOffset = 0;
         }
@@ -452,8 +465,9 @@ MOS_STATUS Av1BasicFeature::GetSurfaceMmcInfo(PMOS_SURFACE surface, MOS_MEMCOMP_
     ENCODE_FUNC_CALL();
 
     ENCODE_CHK_NULL_RETURN(surface);
-    ENCODE_CHK_NULL_RETURN(m_mmcState);
 
+#ifdef _MMC_SUPPORTED
+    ENCODE_CHK_NULL_RETURN(m_mmcState);
     if (m_mmcState->IsMmcEnabled())
     {
         ENCODE_CHK_STATUS_RETURN(m_mmcState->GetSurfaceMmcState(surface, &mmcState));
@@ -463,6 +477,7 @@ MOS_STATUS Av1BasicFeature::GetSurfaceMmcInfo(PMOS_SURFACE surface, MOS_MEMCOMP_
     {
         mmcState = MOS_MEMCOMP_DISABLED;
     }
+#endif
 
     return MOS_STATUS_SUCCESS;
 }
@@ -639,14 +654,23 @@ MHW_SETPAR_DECL_SRC(VDENC_PIPE_MODE_SELECT, Av1BasicFeature)
     params.streamIn          = false;
     params.randomAccess      = !m_ref.IsLowDelay();
 
-    params.rgbEncodingMode = m_rgbEncodingEnable;
+    params.rgbEncodingMode                       = m_rgbEncodingEnable;
+    params.bt2020RGB2YUV                         = m_av1SeqParams->InputColorSpace == ECOLORSPACE_P2020;
+    params.rgbInputStudioRange                   = params.bt2020RGB2YUV ? m_av1SeqParams->SeqFlags.fields.RGBInputStudioRange : 0;
+    params.convertedYUVStudioRange               = params.bt2020RGB2YUV ? m_av1SeqParams->SeqFlags.fields.ConvertedYUVStudioRange : 0;
     if (m_captureModeEnable)
     {
         params.captureMode = 1;
         params.tailPointerReadFrequency = 0x50;
     }
 
-    params.frameStatisticsStreamOut = IsRateControlBrc(m_av1SeqParams->RateControlMethod) || m_adaptiveRounding;
+    if (m_dualEncEnable)
+    {
+        params.scalabilityMode = true;
+        params.tileBasedReplayMode = true;
+    }
+
+    params.frameStatisticsStreamOut = IsRateControlBrc(m_av1SeqParams->RateControlMethod) || m_roundingMethod == RoundingMethod::adaptiveRounding;
 
     return MOS_STATUS_SUCCESS;
 }
@@ -703,13 +727,13 @@ MHW_SETPAR_DECL_SRC(VDENC_REF_SURFACE_STATE, Av1BasicFeature)
         {
             params.pitch = m_reconSurface.dwPitch / 4;
         }
-        params.uOffset = m_rawSurfaceToPak->dwHeight;
-        params.vOffset = m_rawSurfaceToPak->dwHeight << 1;
+        params.uOffset = MOS_ALIGN_CEIL(m_rawSurfaceToPak->dwHeight, 8);
+        params.vOffset = MOS_ALIGN_CEIL(m_rawSurfaceToPak->dwHeight, 8) << 1;
     }
-    else if (m_reconSurface.Format == Format_Y216 || m_reconSurface.Format == Format_YUY2 || m_reconSurface.Format == Format_YUYV)
+    else if (m_reconSurface.Format == Format_Y216 || m_reconSurface.Format == Format_Y210 || m_reconSurface.Format == Format_YUY2)
     {
-        params.uOffset = m_rawSurfaceToPak->dwHeight;
-        params.vOffset = m_rawSurfaceToPak->dwHeight;
+        params.uOffset = MOS_ALIGN_CEIL(m_rawSurfaceToPak->dwHeight, 8);
+        params.vOffset = MOS_ALIGN_CEIL(m_rawSurfaceToPak->dwHeight, 8);
     }
 
     return MOS_STATUS_SUCCESS;
@@ -752,6 +776,8 @@ MHW_SETPAR_DECL_SRC(VDENC_DS_REF_SURFACE_STATE, Av1BasicFeature)
 
 MHW_SETPAR_DECL_SRC(VDENC_PIPE_BUF_ADDR_STATE, Av1BasicFeature)
 {
+#ifdef _MMC_SUPPORTED    
+    ENCODE_CHK_NULL_RETURN(m_mmcState);
     if (m_mmcState->IsMmcEnabled())
     {
         params.mmcEnabled = true;
@@ -764,6 +790,7 @@ MHW_SETPAR_DECL_SRC(VDENC_PIPE_BUF_ADDR_STATE, Av1BasicFeature)
         params.mmcStateRaw          = MOS_MEMCOMP_DISABLED;
         params.compressionFormatRaw = GMM_FORMAT_INVALID;
     }
+#endif
 
     params.surfaceRaw                    = m_rawSurfaceToEnc;
     params.surfaceDsStage1               = m_8xDSSurface;
@@ -841,7 +868,7 @@ MHW_SETPAR_DECL_SRC(VDENC_CMD2, Av1BasicFeature)
     ENCODE_CHK_NULL_RETURN(waTable);
     if (MEDIA_IS_WA(waTable, Wa_22011549751) &&
         !m_osInterface->bSimIsActive &&
-        !Mos_Solo_Extension(m_osInterface->pOsContext) &&
+        !Mos_Solo_Extension((MOS_CONTEXT_HANDLE)m_osInterface->pOsContext) &&
         m_av1PicParams->PicFlags.fields.frame_type == keyFrame)
     {
         params.pictureType = 1;
@@ -878,11 +905,8 @@ MHW_SETPAR_DECL_SRC(AVP_PIC_STATE, Av1BasicFeature)
     params.reducedTxSetUsed     = m_av1PicParams->PicFlags.fields.reduced_tx_set_used ? true : false;
     params.txMode               = m_av1PicParams->dwModeControlFlags.fields.tx_mode;
     params.skipModePresent      = m_av1PicParams->dwModeControlFlags.fields.skip_mode_present ? true : false;
-
-    // overridden when in frame-level coded lossless or when intraBC is enabled
-    params.enableCDEF = !(params.codedLossless || m_av1PicParams->PicFlags.fields.allow_intrabc 
-        || !(m_av1SeqParams->CodingToolFlags.fields.enable_cdef));
-
+    params.enableCDEF           = m_enableCDEF;
+    
     for (uint8_t i = 0; i < 7; i++)
         params.globalMotionType[i] = static_cast<uint8_t>(m_av1PicParams->wm[i].wmtype);
 
@@ -928,6 +952,12 @@ MHW_SETPAR_DECL_SRC(AVP_PIC_STATE, Av1BasicFeature)
     params.minFramSizeUnits = 3;
     params.minFramSize      = MOS_ALIGN_CEIL(minFrameBytes, 16) / 16;
 
+    auto waTable = m_osInterface->pfnGetWaTable(m_osInterface);
+    if (MEDIA_IS_WA(waTable, Wa_15013355402))
+    {
+        params.minFramSize = MOS_ALIGN_CEIL(13 * 64, 16) / 16;
+    }
+
     params.bitOffsetForFirstPartitionSize = 0;
 
     params.class0_SSE_Threshold0 = 0;
@@ -936,17 +966,15 @@ MHW_SETPAR_DECL_SRC(AVP_PIC_STATE, Av1BasicFeature)
     params.sbMaxSizeReportMask = false;
     params.sbMaxBitSizeAllowed = 0;
 
-    params.autoBistreamStitchingInHardware = !m_enableSWStitching;
+    params.autoBistreamStitchingInHardware = !m_enableSWStitching && !m_dualEncEnable;
 
     // special fix to avoid zero padding for low resolution/bitrates and restore up to 20% BdRate quality
-    if (m_av1PicParams->tile_cols * m_av1PicParams->tile_rows == 1)
+    if ((m_av1PicParams->tile_cols * m_av1PicParams->tile_rows == 1) || m_dualEncEnable || m_enableSWStitching)
     {
         params.minFramSize = 0;
         params.minFramSizeUnits                = 0;
         params.autoBistreamStitchingInHardware = false;
     }
-
-    params.postCdefReconPixelStreamoutEn = true;  // Always needed, since this is recon for VDENC
 
     MHW_CHK_STATUS_RETURN(m_ref.MHW_SETPAR_F(AVP_PIC_STATE)(params));
 
@@ -990,7 +1018,8 @@ MHW_SETPAR_DECL_SRC(AVP_INLOOP_FILTER_STATE, Av1BasicFeature)
         params.LoopRestorationType[1] == 0 &&
         params.LoopRestorationType[2] == 0)
     {
-        params.LoopRestorationSizeLuma = 0;
+        params.LoopRestorationSizeLuma             = 0;
+        params.UseSameLoopRestorationSizeForChroma = false;
     }
     else
     {
@@ -1004,7 +1033,6 @@ MHW_SETPAR_DECL_SRC(AVP_INLOOP_FILTER_STATE, Av1BasicFeature)
 MHW_SETPAR_DECL_SRC(AVP_PIPE_BUF_ADDR_STATE, Av1BasicFeature)
 {
     params.bsLineRowstoreBuffer            = m_bitstreamDecoderEncoderLineRowstoreReadWriteBuffer;
-    params.bsTileLineRowstoreBuffer        = m_bitstreamDecoderEncoderTileLineRowstoreReadWriteBuffer;
     params.intraPredLineRowstoreBuffer     = m_resMfdIntraRowStoreScratchBuffer;
     params.intraPredTileLineRowstoreBuffer = m_intraPredictionTileLineRowstoreReadWriteBuffer;
     params.spatialMVLineBuffer             = m_spatialMotionVectorLineReadWriteBuffer;
@@ -1020,18 +1048,6 @@ MHW_SETPAR_DECL_SRC(AVP_PIPE_BUF_ADDR_STATE, Av1BasicFeature)
     params.deblockLineYBuffer              = m_deblockerFilterLineReadWriteYBuffer;
     params.deblockLineUBuffer              = m_deblockerFilterLineReadWriteUBuffer;
     params.deblockLineVBuffer              = m_deblockerFilterLineReadWriteVBuffer;
-    params.deblockTileLineYBuffer          = m_deblockerFilterTileLineReadWriteYBuffer;
-    params.deblockTileLineUBuffer          = m_deblockerFilterTileLineReadWriteUBuffer;
-    params.deblockTileLineVBuffer          = m_deblockerFilterTileLineReadWriteVBuffer;
-    params.deblockTileColumnYBuffer        = m_deblockerFilterTileColumnReadWriteYBuffer;
-    params.deblockTileColumnUBuffer        = m_deblockerFilterTileColumnReadWriteUBuffer;
-    params.deblockTileColumnVBuffer        = m_deblockerFilterTileColumnReadWriteVBuffer;
-    params.cdefLineBuffer                  = m_cdefFilterLineReadWriteBuffer;
-    params.cdefTileLineBuffer              = m_cdefFilterTileLineReadWriteBuffer;
-    params.cdefTileColumnBuffer            = m_cdefFilterTileColumnReadWriteBuffer;
-    params.cdefMetaTileLineBuffer          = m_cdefFilterMetaTileLineReadWriteBuffer;
-    params.cdefMetaTileColumnBuffer        = m_cdefFilterMetaTileColumnReadWriteBuffer;
-    params.cdefTopLeftCornerBuffer         = m_cdefFilterTopLeftCornerReadWriteBuffer;
     params.superResTileColumnYBuffer       = m_superResTileColumnReadWriteYBuffer;
     params.superResTileColumnUBuffer       = m_superResTileColumnReadWriteUBuffer;
     params.superResTileColumnVBuffer       = m_superResTileColumnReadWriteVBuffer;
@@ -1049,6 +1065,8 @@ MHW_SETPAR_DECL_SRC(AVP_PIPE_BUF_ADDR_STATE, Av1BasicFeature)
     params.postCDEFpixelsBuffer = postCdefSurface;
 
     // code from SetAvpPipeBufAddr
+ #ifdef _MMC_SUPPORTED    
+    ENCODE_CHK_NULL_RETURN(m_mmcState);
     if (m_mmcState->IsMmcEnabled())
     {
         ENCODE_CHK_STATUS_RETURN(m_mmcState->GetSurfaceMmcState(const_cast<PMOS_SURFACE>(&m_reconSurface), &params.mmcStatePreDeblock));
@@ -1061,6 +1079,7 @@ MHW_SETPAR_DECL_SRC(AVP_PIPE_BUF_ADDR_STATE, Av1BasicFeature)
         params.mmcStateRawSurf       = MOS_MEMCOMP_DISABLED;
         params.postCdefSurfMmcState  = MOS_MEMCOMP_DISABLED;
     }
+#endif
 
     params.decodedPic              = const_cast<PMOS_SURFACE>(&m_reconSurface);
     params.decodedPic->MmcState    = params.mmcStatePreDeblock;  // This is for MMC report only

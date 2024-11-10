@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2022, Intel Corporation
+* Copyright (c) 2009-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -26,19 +26,17 @@
 
 #ifndef __MOS_OS_SPECIFIC_H__
 #define __MOS_OS_SPECIFIC_H__
-
+#include "mos_defs.h"
+#include "media_fourcc.h"
 #include "media_skuwa_specific.h"
 #include "GmmLib.h"
 #include "mos_resource_defs.h"
-#include "mos_defs.h"
-#include "mos_os_cp_interface_specific.h"
+#include "mos_os_hw.h"
+#include "mos_utilities.h"
 #ifdef ANDROID
 #include <utils/Log.h>
 #endif
-#include "i915_drm.h"
 #include "mos_bufmgr.h"
-#include "xf86drm.h"
-
 #include <vector>
 
 typedef unsigned int MOS_OS_FORMAT;
@@ -50,12 +48,127 @@ class MosOcaInterface;
 class GraphicsResourceNext;
 
 ////////////////////////////////////////////////////////////////////
+extern PerfUtility *g_perfutility;
+
+#define PERF_DECODE "DECODE"
+#define PERF_ENCODE "ENCODE"
+#define PERF_VP "VP"
+#define PERF_CP "CP"
+#define PERF_MOS "MOS"
+
+#define PERF_LEVEL_DDI "DDI"
+#define PERF_LEVEL_HAL "HAL"
+
+#define DECODE_DDI (1)
+#define DECODE_HAL (1 << 1)
+#define ENCODE_DDI (1 << 4)
+#define ENCODE_HAL (1 << 5)
+#define VP_DDI     (1 << 8)
+#define VP_HAL     (1 << 9)
+#define CP_DDI     (1 << 12)
+#define CP_HAL     (1 << 13)
+#define MOS_DDI    (1 << 16)
+#define MOS_HAL    (1 << 17)
+
+#define PERFUTILITY_IS_ENABLED(sCOMP,sLEVEL)                                                              \
+    (((sCOMP == "DECODE" && sLEVEL == "DDI") && (g_perfutility->dwPerfUtilityIsEnabled & DECODE_DDI)) ||  \
+     ((sCOMP == "DECODE" && sLEVEL == "HAL") && (g_perfutility->dwPerfUtilityIsEnabled & DECODE_HAL)) ||  \
+     ((sCOMP == "ENCODE" && sLEVEL == "DDI") && (g_perfutility->dwPerfUtilityIsEnabled & ENCODE_DDI)) ||  \
+     ((sCOMP == "ENCODE" && sLEVEL == "HAL") && (g_perfutility->dwPerfUtilityIsEnabled & ENCODE_HAL)) ||  \
+     ((sCOMP == "VP" && sLEVEL == "DDI") && (g_perfutility->dwPerfUtilityIsEnabled & VP_DDI)) ||          \
+     ((sCOMP == "VP" && sLEVEL == "HAL") && (g_perfutility->dwPerfUtilityIsEnabled & VP_HAL)) ||          \
+     ((sCOMP == "CP" && sLEVEL == "DDI") && (g_perfutility->dwPerfUtilityIsEnabled & CP_DDI)) ||          \
+     ((sCOMP == "CP" && sLEVEL == "HAL") && (g_perfutility->dwPerfUtilityIsEnabled & CP_HAL)) ||          \
+     ((sCOMP == "MOS" && sLEVEL == "DDI") && (g_perfutility->dwPerfUtilityIsEnabled & MOS_DDI)) ||        \
+     ((sCOMP == "MOS" && sLEVEL == "HAL") && (g_perfutility->dwPerfUtilityIsEnabled & MOS_HAL)))
+
+#define PERF_UTILITY_START(TAG,COMP,LEVEL)                                 \
+    do                                                                     \
+    {                                                                      \
+        if (PERFUTILITY_IS_ENABLED((std::string)COMP,(std::string)LEVEL))  \
+        {                                                                  \
+            g_perfutility->startTick(TAG);                                 \
+        }                                                                  \
+    } while(0)
+
+#define PERF_UTILITY_STOP(TAG, COMP, LEVEL)                                \
+    do                                                                     \
+    {                                                                      \
+        if (PERFUTILITY_IS_ENABLED((std::string)COMP,(std::string)LEVEL))  \
+        {                                                                  \
+            g_perfutility->stopTick(TAG);                                  \
+        }                                                                  \
+    } while (0)
+
+static int perf_count_start = 0;
+static int perf_count_stop = 0;
+
+#define PERF_UTILITY_START_ONCE(TAG, COMP,LEVEL)                           \
+    do                                                                     \
+    {                                                                      \
+        if (perf_count_start == 0                                          \
+            && PERFUTILITY_IS_ENABLED((std::string)COMP,(std::string)LEVEL))  \
+        {                                                                  \
+                g_perfutility->startTick(TAG);                             \
+        }                                                                  \
+        perf_count_start++;                                                \
+    } while(0)
+
+#define PERF_UTILITY_STOP_ONCE(TAG, COMP, LEVEL)                           \
+    do                                                                     \
+    {                                                                      \
+        if (perf_count_stop == 0                                           \
+            && PERFUTILITY_IS_ENABLED((std::string)COMP,(std::string)LEVEL))  \
+        {                                                                  \
+            g_perfutility->stopTick(TAG);                                  \
+        }                                                                  \
+        perf_count_stop++;                                                 \
+    } while (0)
+
+#define PERF_UTILITY_AUTO(TAG,COMP,LEVEL) AutoPerfUtility apu(TAG,COMP,LEVEL)
+
+#define PERF_UTILITY_PRINT                         \
+    do                                             \
+    {                                              \
+        if (g_perfutility->dwPerfUtilityIsEnabled && MosUtilities::MosIsProfilerDumpEnabled()) \
+        {                                          \
+            g_perfutility->savePerfData();         \
+        }                                          \
+    } while(0)
+
+class AutoPerfUtility
+{
+public:
+    AutoPerfUtility(std::string tag, std::string comp, std::string level)
+    {
+        if (PERFUTILITY_IS_ENABLED(comp, level))
+        {
+            g_perfutility->startTick(tag);
+            autotag = tag;
+            bEnable = true;
+        }
+    }
+    ~AutoPerfUtility()
+    {
+        if (bEnable)
+        {
+            g_perfutility->stopTick(autotag);
+        }
+    }
+
+private:
+    bool bEnable = false;
+    std::string autotag ="intialized";
+};
+
+////////////////////////////////////////////////////////////////////
 
 typedef void* HINSTANCE;
 
-#define MAKEFOURCC(ch0, ch1, ch2, ch3)  \
-    ((uint32_t)(uint8_t)(ch0) | ((uint32_t)(uint8_t)(ch1) << 8) |  \
-    ((uint32_t)(uint8_t)(ch2) << 16) | ((uint32_t)(uint8_t)(ch3) << 24 ))
+#define Mos_InitInterface(osInterface, osDriverContext, component)                 \
+    Mos_InitOsInterface(osInterface, osDriverContext, component)
+
+#define Mos_ResourceIsNull(resource)    MosInterface::MosResourceIsNull(resource)
 
 #define GMM_LIBVA_LINUX 3
 
@@ -175,13 +288,13 @@ typedef enum _MOS_MEDIA_OPERATION
 //!
 typedef enum _MOS_GPU_NODE
 {
-    MOS_GPU_NODE_3D      = I915_EXEC_RENDER,
-    MOS_GPU_NODE_COMPUTE = (5<<0), //To change to compute CS later when linux define the name
-    MOS_GPU_NODE_VE      = I915_EXEC_VEBOX,
-    MOS_GPU_NODE_VIDEO   = I915_EXEC_BSD,
-    MOS_GPU_NODE_VIDEO2  = I915_EXEC_VCS2,
-    MOS_GPU_NODE_BLT     = I915_EXEC_BLT,
-    MOS_GPU_NODE_MAX     = 7//GFX_MAX(I915_EXEC_RENDER, I915_EXEC_VEBOX, I915_EXEC_BSD, I915_EXEC_VCS2, I915_EXEC_BLT) + 1
+    MOS_GPU_NODE_3D      = DRM_EXEC_RENDER,
+    MOS_GPU_NODE_COMPUTE = DRM_EXEC_COMPUTE,
+    MOS_GPU_NODE_VE      = DRM_EXEC_VEBOX,
+    MOS_GPU_NODE_VIDEO   = DRM_EXEC_BSD,
+    MOS_GPU_NODE_VIDEO2  = DRM_EXEC_VCS2,
+    MOS_GPU_NODE_BLT     = DRM_EXEC_BLT,
+    MOS_GPU_NODE_MAX     = 7//GFX_MAX(DRM_EXEC_RENDER, DRM_EXEC_COMPUTE, DRM_EXEC_VEBOX, DRM_EXEC_BSD, DRM_EXEC_VCS2, DRM_EXEC_BLT) + 1
 } MOS_GPU_NODE, *PMOS_GPU_NODE;
 
 //!
@@ -248,7 +361,7 @@ struct _MOS_SPECIFIC_RESOURCE
     MOS_FORMAT          Format;
     int32_t             iCount;
     int32_t             iAllocationIndex[MOS_GPU_CONTEXT_MAX];
-    uint32_t            dwGfxAddress;
+    uint64_t            dwGfxAddress;
     uint8_t             *pData;
     const char          *bufname;
     uint32_t            isTiled;
@@ -262,6 +375,7 @@ struct _MOS_SPECIFIC_RESOURCE
     MOS_PLANE_OFFSET    YPlaneOffset;       //!< Y surface plane offset
     MOS_PLANE_OFFSET    UPlaneOffset;       //!< U surface plane offset
     MOS_PLANE_OFFSET    VPlaneOffset;       //!< V surface plane offset
+    uint32_t            dwOffsetForMono;    // This filed is used for mono surface only. DO NOT USE IT FOR OTHER USAGE.
 
     //!< to sync render target for multi-threading decoding mode
     struct
@@ -336,7 +450,10 @@ struct MOS_SURFACE
     uint32_t            dwOffset;                                               // Surface Offset (Y/Base)
     MOS_PLANE_OFFSET    YPlaneOffset;                                           // Y surface plane offset
     MOS_PLANE_OFFSET    UPlaneOffset;                                           // U surface plane offset
-    MOS_PLANE_OFFSET    VPlaneOffset;                                           // V surface plane
+    MOS_PLANE_OFFSET    VPlaneOffset;                                           // V surface plane offset
+    uint32_t            dwYPitch;                                               // Y surface plane pitch
+    uint32_t            dwUPitch;                                               // U surface plane pitch
+    uint32_t            dwVPitch;                                               // V surface plane pitch
 
     union
     {
@@ -373,6 +490,11 @@ struct MOS_SURFACE
     bool                bGMMTileEnabled;                                        //!< [out] GMM defined tile mode flag
     uint32_t            YoffsetForUplane;                                       //!< [out] Y offset from U plane to Y plane.
     uint32_t            YoffsetForVplane;                                       //!< [out] Y offset from V plane to Y plane.
+    // Surface cache Usage
+    uint32_t CacheSetting;
+#if (_DEBUG || _RELEASE_INTERNAL)
+    uint32_t oldCacheSetting;
+#endif
 };
 typedef MOS_SURFACE *PMOS_SURFACE;
 
@@ -504,8 +626,8 @@ struct MOS_CONTEXT_OFFSET
 
 // APO related
 #define FUTURE_PLATFORM_MOS_APO   1234
-bool SetupApoMosSwitch(int32_t fd);
-bool SetupApoDdiSwitch(int32_t fd);
+bool SetupApoMosSwitch(int32_t fd, MediaUserSettingSharedPtr userSettingPtr);
+bool SetupApoDdiSwitch(int32_t fd, MediaUserSettingSharedPtr userSettingPtr);
 bool SetupMediaSoloSwitch();
 
 enum OS_SPECIFIC_RESOURCE_TYPE
@@ -527,80 +649,83 @@ typedef struct _MOS_OS_CONTEXT MOS_CONTEXT, *PMOS_CONTEXT, MOS_OS_CONTEXT, *PMOS
 struct _MOS_OS_CONTEXT
 {
     // Context must be freed by os emul layer
-    int32_t             bFreeContext;
+    int32_t             bFreeContext        = 0;
 
-    uint32_t            uIndirectStateSize;
+    uint32_t            uIndirectStateSize  = 0;
 
-    MOS_OS_GPU_CONTEXT  OsGpuContext[MOS_GPU_CONTEXT_MAX];
+    MOS_OS_GPU_CONTEXT OsGpuContext[MOS_GPU_CONTEXT_MAX] = {};
 
     // Buffer rendering
-    LARGE_INTEGER       Frequency;                //!< Frequency
-    LARGE_INTEGER       LastCB;                   //!< End time for last CB
+    LARGE_INTEGER       Frequency   = {};                //!< Frequency
+    LARGE_INTEGER       LastCB      = {};                   //!< End time for last CB
 
-    CMD_BUFFER_BO_POOL  CmdBufferPool;
+    CMD_BUFFER_BO_POOL CmdBufferPool = {};
 
     // Emulated platform, sku, wa tables
-    PLATFORM            platform;
-    MEDIA_FEATURE_TABLE   SkuTable;
-    MEDIA_WA_TABLE            WaTable;
-    MEDIA_SYSTEM_INFO      gtSystemInfo;
+    PLATFORM                  m_platform    = {};
+    MEDIA_FEATURE_TABLE       m_skuTable    = {};
+    MEDIA_WA_TABLE            m_waTable     = {};
+    MEDIA_SYSTEM_INFO         m_gtSystemInfo = {};
 
     // Controlled OS resources (for analysis)
-    MOS_BUFMGR       *bufmgr;
-    MOS_LINUX_CONTEXT   *intel_context;
-    int32_t             submit_fence;
-    uint32_t            uEnablePerfTag;           //!< 0: Do not pass PerfTag to KMD, perf data collection disabled;
-                                                  //!< 1: Pass PerfTag to MVP driver, perf data collection enabled;
-                                                  //!< 2: Pass PerfTag to DAPC driver, perf data collection enabled;
-    int32_t             bDisableKmdWatchdog;      //!< 0: Do not disable kmd watchdog, that is to say, pass I915_EXEC_ENABLE_WATCHDOG flag to KMD;
-                                                  //!< 1: Disable kmd watchdog, that is to say, DO NOT pass I915_EXEC_ENABLE_WATCHDOG flag to KMD;
-    PERF_DATA           *pPerfData;               //!< Add Perf Data for KMD to capture perf tag
+    MOS_BUFMGR          *bufmgr             = nullptr;
+    MOS_LINUX_CONTEXT   *intel_context      = nullptr;
+    int32_t             submit_fence        = 0;
+    uint32_t            uEnablePerfTag      = 0;        //!< 0: Do not pass PerfTag to KMD, perf data collection disabled;
+                                                        //!< 1: Pass PerfTag to MVP driver, perf data collection enabled;
+                                                        //!< 2: Pass PerfTag to DAPC driver, perf data collection enabled;
+    int32_t             bDisableKmdWatchdog = 0;        //!< 0: Do not disable kmd watchdog, that is to say, pass I915_EXEC_ENABLE_WATCHDOG flag to KMD;
+                                                        //!< 1: Disable kmd watchdog, that is to say, DO NOT pass I915_EXEC_ENABLE_WATCHDOG flag to KMD;
+    PERF_DATA           *pPerfData          = nullptr;  //!< Add Perf Data for KMD to capture perf tag
 
-    int32_t             bHybridDecoderRunningFlag;      //!< Flag to indicate if hybrid decoder is running
+    int32_t             bHybridDecoderRunningFlag = 0;  //!< Flag to indicate if hybrid decoder is running
 
-    int                 iDeviceId;
-    int                 wRevision;
-    int32_t             bIsAtomSOC;
-    int                 fd;                     //!< handle for /dev/dri/card0
+    int                 iDeviceId   = 0;
+    int                 wRevision   = 0;
+    int32_t             bIsAtomSOC  = 0;
+    int                 fd          = 0;                //!< handle for /dev/dri/card0
 
-    int32_t             bUse64BitRelocs;
-    bool                bUseSwSwizzling;
-    bool                bTileYFlag;
+    int32_t             bUse64BitRelocs = 0;
+    bool                bUseSwSwizzling = false;
+    bool                bTileYFlag      = false;
 
-    void                **ppMediaMemDecompState; //!<Media memory decompression data structure
-    void                **ppMediaCopyState;      //!<Media memory copy data structure
+    void                **ppMediaMemDecompState = nullptr;      //!<Media memory decompression data structure
+    void                **ppMediaCopyState      = nullptr;      //!<Media memory copy data structure
 
     // For modulized GPU context
-    void*               m_gpuContextMgr;
-    void*               m_cmdBufMgr;
-    MOS_DEVICE_HANDLE   m_osDeviceContext = nullptr;
+    void*               m_gpuContextMgr         = nullptr;
+    void*               m_cmdBufMgr             = nullptr;
+    MOS_DEVICE_HANDLE   m_osDeviceContext       = nullptr;
 
     //For 2VD box
-    int32_t             bKMDHasVCS2;
-    bool                bPerCmdBufferBalancing;
-    int32_t             semid;
-    int32_t             shmid;
-    void                *pShm;
+    int32_t             bKMDHasVCS2             = 0;
+    bool                bPerCmdBufferBalancing  = false;
+    int32_t             semid                   = 0;
+    int32_t             shmid                   = 0;
+    void                *pShm                   = nullptr;
 
-    uint32_t            *pTranscryptedKernels;     //!< The cached version for current set of transcrypted and authenticated kernels
-    uint32_t            uiTranscryptedKernelsSize; //!< Size in bytes of the cached version of transcrypted and authenticated kernels
-    void                *pLibdrmHandle;
+    uint32_t            *pTranscryptedKernels   = nullptr;     //!< The cached version for current set of transcrypted and authenticated kernels
+    uint32_t            uiTranscryptedKernelsSize   = 0;       //!< Size in bytes of the cached version of transcrypted and authenticated kernels
+    void                *pLibdrmHandle          = nullptr;
 
-    GMM_CLIENT_CONTEXT  *pGmmClientContext;   //UMD specific ClientContext object in GMM
-    AuxTableMgr         *m_auxTableMgr;
+    GMM_CLIENT_CONTEXT  *pGmmClientContext      = nullptr;   //UMD specific ClientContext object in GMM
+    AuxTableMgr         *m_auxTableMgr          = nullptr;
    
     // GPU Status Buffer
-    PMOS_RESOURCE   pGPUStatusBuffer;
+    PMOS_RESOURCE       pGPUStatusBuffer        = nullptr;
 
-    std::vector< struct MOS_CONTEXT_OFFSET> contextOffsetList;
+    std::vector<struct MOS_CONTEXT_OFFSET> contextOffsetList = {};
 
-    bool                bSimIsActive = false;   //!< To indicate if simulation environment
-    bool                m_apoMosEnabled;  //!< apo mos or not
+    bool                bSimIsActive            = false;   //!< To indicate if simulation environment
+    bool                m_apoMosEnabled         = false;   //!< apo mos or not
+    bool                m_protectedGEMContext   = false;   //!< Indicates to create protected GEM content
+
+    MediaUserSettingSharedPtr m_userSettingPtr  = nullptr;  // used to save user setting instance
 
     // Media memory decompression function
     void (* pfnMemoryDecompress)(
         PMOS_CONTEXT                pOsContext,
-        PMOS_RESOURCE               pOsResource);
+        PMOS_RESOURCE               pOsResource) = nullptr;
 
     //!
     //! \brief  the function ptr for surface copy function
@@ -609,7 +734,7 @@ struct _MOS_OS_CONTEXT
         PMOS_CONTEXT       pOsContext,
         PMOS_RESOURCE      pInputResource,
         PMOS_RESOURCE      pOutputResource,
-        bool               bOutputCompressed);
+        bool               bOutputCompressed) = nullptr;
 
     //!
     //! \brief  the function ptr for Media Memory 2D copy function
@@ -623,7 +748,7 @@ struct _MOS_OS_CONTEXT
         uint32_t           copyInputOffset,
         uint32_t           copyOutputOffset,
         uint32_t           bpp,
-        bool               bOutputCompressed);
+        bool               bOutputCompressed) = nullptr;
 
     //!
     //! \brief  the function ptr for Media copy function
@@ -633,60 +758,59 @@ struct _MOS_OS_CONTEXT
     void (* pfnDestroy)(
         struct _MOS_OS_CONTEXT      *pOsContext,
         int32_t                     MODSEnabled,
-        int32_t                     MODSForGpuContext);
+        int32_t                     MODSForGpuContext) = nullptr;
 
     int32_t (* pfnRefresh)(
-        struct _MOS_OS_CONTEXT      *pOsContext);
+        struct _MOS_OS_CONTEXT      *pOsContext) = nullptr;
 
     int32_t (* pfnGetCommandBuffer)(
         struct _MOS_OS_CONTEXT      *pOsContext,
         PMOS_COMMAND_BUFFER         pCmdBuffer,
-        int32_t                     iSize);
+        int32_t                     iSize) = nullptr;
 
     void (* pfnReturnCommandBuffer)(
         struct _MOS_OS_CONTEXT      *pOsContext,
         MOS_GPU_CONTEXT             GpuContext,
-        PMOS_COMMAND_BUFFER         pCmdBuffer);
+        PMOS_COMMAND_BUFFER         pCmdBuffer) = nullptr;
 
     int32_t (* pfnFlushCommandBuffer)(
         struct _MOS_OS_CONTEXT      *pOsContext,
-        MOS_GPU_CONTEXT             GpuContext);
+        MOS_GPU_CONTEXT             GpuContext) = nullptr;
 
     MOS_STATUS (* pfnInsertCmdBufferToPool)(
         struct _MOS_OS_CONTEXT      *pOsContext,
-        PMOS_COMMAND_BUFFER         pCmdBuffer);
+        PMOS_COMMAND_BUFFER         pCmdBuffer) = nullptr;
 
     MOS_STATUS (* pfnWaitAndReleaseCmdBuffer)(
         struct _MOS_OS_CONTEXT      *pOsContext,
-        int32_t                     index);
+        int32_t                     index) = nullptr;
 
     uint32_t (* GetDmaBufID ) (
-        struct _MOS_OS_CONTEXT      *pOsContext);
+        struct _MOS_OS_CONTEXT      *pOsContext) = nullptr;
 
     void (* SetDmaBufID ) (
         struct _MOS_OS_CONTEXT      *pOsContext,
-        uint32_t                    dwDmaBufID);
+        uint32_t                    dwDmaBufID) = nullptr;
 
     void (* SetPerfHybridKernelID ) (
         struct _MOS_OS_CONTEXT      *pOsContext,
-        uint32_t                    KernelID);
+        uint32_t                    KernelID) = nullptr;
 
     uint32_t (* pfnGetGpuCtxBufferTag)(
         PMOS_CONTEXT               pOsContext,
-        MOS_GPU_CONTEXT            GpuContext);
+        MOS_GPU_CONTEXT            GpuContext) = nullptr;
 
     void (* pfnIncGpuCtxBufferTag)(
         PMOS_CONTEXT               pOsContext,
-        MOS_GPU_CONTEXT            GpuContext);
+        MOS_GPU_CONTEXT            GpuContext) = nullptr;
 
     uint32_t (* GetGPUTag)(
         PMOS_INTERFACE             pOsInterface,
-        MOS_GPU_CONTEXT            GpuContext);
+        MOS_GPU_CONTEXT            GpuContext) = nullptr;
 
     GMM_CLIENT_CONTEXT* (* GetGmmClientContext)(
-        PMOS_CONTEXT               pOsContext);
+        PMOS_CONTEXT               pOsContext) = nullptr;
 
-    MosOcaInterface* (*GetOcaInterface)();
 };
 
 //!
@@ -915,46 +1039,81 @@ MOS_STATUS Mos_Specific_IsResourceReleasable(
     PMOS_INTERFACE         pOsInterface,
     PMOS_RESOURCE          pOsResource);
 
+struct _MOS_SPECIFIC_VE_HINT_PARAMS;
+typedef struct _MOS_SPECIFIC_VE_HINT_PARAMS *PMOS_VIRTUALENGINE_HINT_PARAMS;
+struct _MOS_VIRTUALENGINE_INIT_PARAMS;
+typedef struct _MOS_VIRTUALENGINE_INIT_PARAMS MOS_VIRTUALENGINE_INIT_PARAMS, *PMOS_VIRTUALENGINE_INIT_PARAMS;
+
+//!
+//! \brief    Virtual Engine Init for media Scalability
+//! \details  
+//! \param    PMOS_INTERFACE pOsInterface
+//!           [in] Pointer to OS interface structure
+//! \param    MOS_VE_HANDLE pVeState
+//!           [out] Virtual Engine State
+//! \param    PMOS_VIRTUALENGINE_HINT_PARAMS veHitParams
+//!           [out] Pointer to Virtual Engine hint parameters
+//! \param    PMOS_VIRTUALENGINE_INTERFACE veInterface
+//!           [out] Pointer to Virtual Engine Interface
+//! \return   MOS_STATUS
+//!           MOS_STATUS_SUCCESS if succeeded, otherwise error code
+//!
+MOS_STATUS Mos_Specific_Virtual_Engine_Init(
+    PMOS_INTERFACE                  pOsInterface,
+    PMOS_VIRTUALENGINE_HINT_PARAMS* veHitParams,
+    MOS_VIRTUALENGINE_INIT_PARAMS&  veInParams);
+
+struct _MOS_VIRTUALENGINE_SET_PARAMS;
+typedef struct _MOS_VIRTUALENGINE_SET_PARAMS  MOS_VIRTUALENGINE_SET_PARAMS, *PMOS_VIRTUALENGINE_SET_PARAMS;
+
+//!
+//! \brief    Set hint parameters
+//! \details  
+//! \param    PMOS_INTERFACE pOsInterface
+//!           [in] Pointer to OS interface structure
+//! \param    MOS_VIRTUALENGINE_SET_PARAMS veParams
+//!           [out] VIRTUALENGINE SET PARAMS
+//! \return   MOS_STATUS
+//!           MOS_STATUS_SUCCESS if succeeded, otherwise error code
+//!
+MOS_STATUS Mos_Specific_SetHintParams(
+    PMOS_INTERFACE               pOsInterface,
+    PMOS_VIRTUALENGINE_SET_PARAMS veParams);
+
+typedef struct _MOS_VIRTUALENGINE_INTERFACE *PMOS_VIRTUALENGINE_INTERFACE;
+
+//!
+//! \brief    Destroy veInterface
+//! \details  
+//! \param    PMOS_VIRTUALENGINE_INTERFACE *veInterface
+//!           [in] Pointer to PMOS_VIRTUALENGINE_INTERFACE
+//! \return   MOS_STATUS
+//!           MOS_STATUS_SUCCESS if succeeded, otherwise error code
+//!
+MOS_STATUS Mos_Specific_DestroyVeInterface(
+    PMOS_VIRTUALENGINE_INTERFACE *veInterface);
+
 #if (_DEBUG || _RELEASE_INTERNAL)
 MOS_LINUX_BO * Mos_GetNopCommandBuffer_Linux(
     PMOS_INTERFACE        pOsInterface);
 
 MOS_LINUX_BO * Mos_GetBadCommandBuffer_Linux(
     PMOS_INTERFACE        pOsInterface);
-#endif
 
 //!
-//! \brief    Check is cp enabled
-//! \details  Check is cp enabled
+//! \brief    gpuCtxCreateOption Init for media Scalability
+//! \details  
 //! \param    PMOS_INTERFACE pOsInterface
 //!           [in] Pointer to OS interface structure
-//! \return   bool
-//!           return true if cp enabled
-//!
-bool Mos_Specific_IsCpEnabled(
-    PMOS_INTERFACE        pOsInterface);
-
-//!
-//! \brief    Prepare source and target surface in cp
-//! \details  The function checks hardware protection states in input, and determine the protected surface
-//!           state for the output.
-//! \param    [in] PMOS_INTERFACE pOsInterface
-//!           Pointer to OS interface structure
-//! \param    [in] source
-//!           Refernce to list of OsResources
-//! \param    [in] sourceCount
-//!           Refernce to the number of OsResources
-//! \param    [in] target
-//!           Refernce to list of OsResources
-//! \param    [in] targetCount
-//!           Refernce to the number of OsResources
+//! \param    uint8_t id
+//!           [out] EngineLogicId
 //! \return   MOS_STATUS
-//!           MOS_STATUS_SUCCESS if success, else fail reason
+//!           MOS_STATUS_SUCCESS if succeeded, otherwise error code
 //!
-MOS_STATUS Mos_Specific_PrepareResources(
-    PMOS_INTERFACE osInterface,
-    void *source[], uint32_t sourceCount,
-    void *target[], uint32_t targetCount);
+MOS_STATUS Mos_Specific_GetEngineLogicId(
+    PMOS_INTERFACE                 pOsInterface,
+    uint8_t&                       id);
+#endif
 
 #ifdef __cplusplus
 }

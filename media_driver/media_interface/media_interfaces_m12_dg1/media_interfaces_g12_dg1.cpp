@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2020, Intel Corporation
+* Copyright (c) 2011-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -29,7 +29,6 @@
 extern template class MediaFactory<uint32_t, MhwInterfaces>;
 extern template class MediaFactory<uint32_t, MmdDevice>;
 extern template class MediaFactory<uint32_t, McpyDevice>;
-extern template class MediaFactory<uint32_t, MosUtilDevice>;
 extern template class MediaFactory<uint32_t, CodechalDevice>;
 extern template class MediaFactory<uint32_t, CMHalDevice>;
 extern template class MediaFactory<uint32_t, VphalDevice>;
@@ -67,10 +66,6 @@ static bool dg1RegisteredCMHal =
     MediaFactory<uint32_t, CMHalDevice>::
     Register<CMHalInterfacesG12Dg1>((uint32_t)IGFX_DG1);
 
-static bool dg1RegisteredMosUtil =
-    MediaFactory<uint32_t, MosUtilDevice>::
-    Register<MosUtilDeviceG12Tgllp>((uint32_t)IGFX_DG1);
-
 static bool dg1RegisteredDecodeHistogram =
 MediaFactory<uint32_t, DecodeHistogramDevice>::
 Register<DecodeHistogramDeviceG12Tgllp>((uint32_t)IGFX_DG1);
@@ -78,6 +73,10 @@ Register<DecodeHistogramDeviceG12Tgllp>((uint32_t)IGFX_DG1);
 static bool dg1RegisteredRenderHal =
     MediaFactory<uint32_t, RenderHalDevice>::
     Register<RenderHalInterfacesG12Dg1>((uint32_t)IGFX_DG1);
+
+static bool dg1RegisteredHwInfo =
+    MediaFactory<uint32_t, MediaInterfacesHwInfoDevice>::
+    Register<MediaInterfacesHwInfoDeviceG12Tgllp>((uint32_t)IGFX_DG1);
 
 MOS_STATUS RenderHalInterfacesG12Dg1::Initialize()
 {

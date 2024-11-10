@@ -26,18 +26,18 @@
 
 #include "decode_vp9_basic_feature.h"
 #include "decode_utils.h"
-#include "codechal_utilities.h"
 #include "decode_allocator.h"
 #include "decode_resource_auto_lock.h"
+#include "mos_os_cp_interface_specific.h"
 
 namespace decode
 {
-Vp9BasicFeature::Vp9BasicFeature(DecodeAllocator *allocator, CodechalHwInterface *hwInterface) : DecodeBasicFeature(allocator, hwInterface)
+Vp9BasicFeature::Vp9BasicFeature(DecodeAllocator *allocator, void *hwInterface, PMOS_INTERFACE osInterface) : DecodeBasicFeature(allocator, hwInterface, osInterface)
 {
     if (hwInterface != nullptr)
     {
-        m_osInterface  = hwInterface->GetOsInterface();
-        m_hcpItf       = hwInterface->GetHcpInterfaceNext();
+        m_osInterface  = osInterface;
+        m_hcpItf       = ((CodechalHwInterfaceNext*)hwInterface)->GetHcpInterfaceNext();
     }
 
     for (uint8_t i = 0; i < CODEC_VP9_NUM_CONTEXTS; i++)
@@ -64,17 +64,20 @@ Vp9BasicFeature::Vp9BasicFeature(DecodeAllocator *allocator, CodechalHwInterface
 
 Vp9BasicFeature::~Vp9BasicFeature()
 {
-    for (uint8_t i = 0; i < CODEC_VP9_NUM_CONTEXTS + 1; i++)
+    if (m_allocator != nullptr)
     {
-        if (!m_allocator->ResourceIsNull(&m_resVp9ProbBuffer[i]->OsResource))
+        for (uint8_t i = 0; i < CODEC_VP9_NUM_CONTEXTS + 1; i++)
         {
-            m_allocator->Destroy(m_resVp9ProbBuffer[i]);
+            if (!m_allocator->ResourceIsNull(&m_resVp9ProbBuffer[i]->OsResource))
+            {
+                m_allocator->Destroy(m_resVp9ProbBuffer[i]);
+            }
         }
-    }
 
-    if (!m_allocator->ResourceIsNull(&m_resVp9SegmentIdBuffer->OsResource))
-    {
-        m_allocator->Destroy(m_resVp9SegmentIdBuffer);
+        if (!m_allocator->ResourceIsNull(&m_resVp9SegmentIdBuffer->OsResource))
+        {
+            m_allocator->Destroy(m_resVp9SegmentIdBuffer);
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2021, Intel Corporation
+* Copyright (c) 2020-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -62,11 +62,14 @@ MOS_STATUS VpScalabilityMultiPipe::Destroy()
     }
     else
     {
-        // For VE not enabled/supported case, such as vp vebox on some platform, m_veInterface is nullptr.
-        // MOS_STATUS_SUCCESS should be returned for such case.
-        if (MOS_VE_SUPPORTED(m_osInterface))
+        if (!m_osInterface->apoMosEnabled)
         {
-            SCALABILITY_CHK_NULL_RETURN(m_veInterface);
+            // For VE not enabled/supported case, such as vp vebox on some platform, m_veInterface is nullptr.
+            // MOS_STATUS_SUCCESS should be returned for such case.
+            if (MOS_VE_SUPPORTED(m_osInterface))
+            {
+                SCALABILITY_CHK_NULL_RETURN(m_veInterface);
+            }
         }
     }
 
@@ -80,7 +83,6 @@ MOS_STATUS VpScalabilityMultiPipe::Initialize(const MediaScalabilityOption &opti
     SCALABILITY_FUNCTION_ENTER;
 
     SCALABILITY_CHK_NULL_RETURN(m_hwInterface);
-    m_miInterface = m_hwInterface->m_mhwMiInterface;
 
     m_osInterface = m_hwInterface->m_osInterface;
     SCALABILITY_CHK_NULL_RETURN(m_osInterface);
@@ -105,27 +107,21 @@ MOS_STATUS VpScalabilityMultiPipe::Initialize(const MediaScalabilityOption &opti
     {
         SCALABILITY_CHK_NULL_RETURN(m_osInterface->osStreamState);
         m_osInterface->osStreamState->component = COMPONENT_VPCommon;
-
-        SCALABILITY_CHK_STATUS_RETURN(MosInterface::CreateVirtualEngineState(
-            m_osInterface->osStreamState, &veInitParms, m_veState));
+        SCALABILITY_CHK_STATUS_RETURN(m_osInterface->pfnVirtualEngineInit(m_osInterface, &m_veHitParams, veInitParms));
+        m_veState = m_osInterface->osStreamState->virtualEngineInterface;
         SCALABILITY_CHK_NULL_RETURN(m_veState);
-
-        SCALABILITY_CHK_STATUS_RETURN(MosInterface::GetVeHintParams(m_osInterface->osStreamState, true, &m_veHitParams));
         SCALABILITY_CHK_NULL_RETURN(m_veHitParams);
     }
     else
     {
-        SCALABILITY_CHK_STATUS_RETURN(Mos_VirtualEngineInterface_Initialize(m_osInterface, &veInitParms));
+        SCALABILITY_CHK_STATUS_RETURN(m_osInterface->pfnVirtualEngineInit(m_osInterface, &m_veHitParams, veInitParms));
         m_veInterface = m_osInterface->pVEInterf;
         SCALABILITY_CHK_NULL_RETURN(m_veInterface);
-
         if (m_veInterface->pfnVEGetHintParams != nullptr)
         {
-            SCALABILITY_CHK_STATUS_RETURN(m_veInterface->pfnVEGetHintParams(m_veInterface, true, &m_veHitParams));
             SCALABILITY_CHK_NULL_RETURN(m_veHitParams);
         }
     }
-
     m_pipeNum            = m_scalabilityOption->GetNumPipe();
     m_pipeIndexForSubmit = m_pipeNum;
 
@@ -139,10 +135,10 @@ MOS_STATUS VpScalabilityMultiPipe::Initialize(const MediaScalabilityOption &opti
     {
         if (m_osInterface->apoMosEnabled)
         {
-            for (uint32_t i = 0; i < MosInterface::GetVeEngineCount(m_osInterface->osStreamState); i++)
+            for (uint32_t i = 0; i < m_osInterface->pfnGetVeEngineCount(m_osInterface->osStreamState); i++)
             {
                 gpuCtxCreateOption->EngineInstance[i] =
-                    MosInterface::GetEngineLogicId(m_osInterface->osStreamState, i);
+                    m_osInterface->pfnGetEngineLogicIdByIdx(m_osInterface->osStreamState, i);
             }
         }
         else
@@ -167,6 +163,8 @@ MOS_STATUS VpScalabilityMultiPipe::Initialize(const MediaScalabilityOption &opti
 //!
 //! \param    [in] semaMem
 //!           Reource of Hw semphore
+//! \param    [in] offset
+//!           offset of semMem
 //! \param    [in] semaData
 //!           Data of Hw semphore
 //! \param    [in] opCode
@@ -179,6 +177,7 @@ MOS_STATUS VpScalabilityMultiPipe::Initialize(const MediaScalabilityOption &opti
 //!
 MOS_STATUS VpScalabilityMultiPipe::SendHwSemaphoreWaitCmd(
     PMOS_RESOURCE                             semaMem,
+    uint32_t                                  offset,
     uint32_t                                  semaData,
     MHW_COMMON_MI_SEMAPHORE_COMPARE_OPERATION opCode,
     PMOS_COMMAND_BUFFER                       cmdBuffer)
@@ -199,6 +198,7 @@ MOS_STATUS VpScalabilityMultiPipe::SendHwSemaphoreWaitCmd(
         auto &params             = m_miItf->MHW_GETPAR_F(MI_SEMAPHORE_WAIT)();
         params                   = {};
         params.presSemaphoreMem = semaMem;
+        params.dwResourceOffset = offset;
         params.bPollingWaitMode = true;
         params.dwSemaphoreData  = semaData;
         params.CompareOperation = (mhw::mi::MHW_COMMON_MI_SEMAPHORE_COMPARE_OPERATION) opCode;
@@ -208,6 +208,7 @@ MOS_STATUS VpScalabilityMultiPipe::SendHwSemaphoreWaitCmd(
     {
         MOS_ZeroMemory((&miSemaphoreWaitParams), sizeof(miSemaphoreWaitParams));
         miSemaphoreWaitParams.presSemaphoreMem = semaMem;
+        miSemaphoreWaitParams.dwResourceOffset = offset;
         miSemaphoreWaitParams.bPollingWaitMode = true;
         miSemaphoreWaitParams.dwSemaphoreData  = semaData;
         miSemaphoreWaitParams.CompareOperation = opCode;
@@ -224,6 +225,8 @@ finish:
 //!
 //! \param    [in] resource
 //!           Reource used in mi atomic dword cmd
+//! \param    [in] offset
+//!           offset of resource
 //! \param    [in] immData
 //!           Immediate data
 //! \param    [in] opCode
@@ -236,6 +239,7 @@ finish:
 //!
 MOS_STATUS VpScalabilityMultiPipe::SendMiAtomicDwordCmd(
     PMOS_RESOURCE               resource,
+    uint32_t                    offset,
     uint32_t                    immData,
     MHW_COMMON_MI_ATOMIC_OPCODE opCode,
     PMOS_COMMAND_BUFFER         cmdBuffer)
@@ -256,6 +260,7 @@ MOS_STATUS VpScalabilityMultiPipe::SendMiAtomicDwordCmd(
         auto &params             = m_miItf->MHW_GETPAR_F(MI_ATOMIC)();
         params                   = {};
         params.pOsResource       = resource;
+        params.dwResourceOffset  = offset;
         params.dwDataSize        = sizeof(uint32_t);
         params.Operation         = (mhw::mi::MHW_COMMON_MI_ATOMIC_OPCODE) opCode;
         params.bInlineData       = true;
@@ -266,6 +271,7 @@ MOS_STATUS VpScalabilityMultiPipe::SendMiAtomicDwordCmd(
     {
         MOS_ZeroMemory((&atomicParams), sizeof(atomicParams));
         atomicParams.pOsResource       = resource;
+        atomicParams.dwResourceOffset  = offset;
         atomicParams.dwDataSize        = sizeof(uint32_t);
         atomicParams.Operation         = opCode;
         atomicParams.bInlineData       = true;
@@ -315,7 +321,7 @@ MOS_STATUS VpScalabilityMultiPipe::AddMiFlushDwCmd(
             parFlush.pOsResource = semaMem;
             parFlush.dwDataDW1   = semaData + 1;
         }
-        m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer);
+        SCALABILITY_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer));
     }
     else
     {
@@ -339,6 +345,8 @@ MOS_STATUS VpScalabilityMultiPipe::AddMiFlushDwCmd(
 //!
 //! \param    [in] resource
 //!           Reource used in mi store dat dword cmd
+//! \param    [in] offset
+//!           offset of resource
 //! \param    [in,out] cmdBuffer
 //!           command buffer
 //!
@@ -347,6 +355,7 @@ MOS_STATUS VpScalabilityMultiPipe::AddMiFlushDwCmd(
 //!
 MOS_STATUS VpScalabilityMultiPipe::AddMiStoreDataImmCmd(
     PMOS_RESOURCE               resource,
+    uint32_t                    offset,
     PMOS_COMMAND_BUFFER         cmdBuffer)
 {
     VP_FUNC_CALL();
@@ -365,7 +374,7 @@ MOS_STATUS VpScalabilityMultiPipe::AddMiStoreDataImmCmd(
         auto &params             = m_miItf->MHW_GETPAR_F(MI_STORE_DATA_IMM)();
         params                   = {};
         params.pOsResource       = resource;
-        params.dwResourceOffset  = 0;
+        params.dwResourceOffset  = offset;
         params.dwValue           = 0;
         eStatus                  = m_miItf->MHW_ADDCMD_F(MI_STORE_DATA_IMM)(cmdBuffer);
     }
@@ -373,7 +382,7 @@ MOS_STATUS VpScalabilityMultiPipe::AddMiStoreDataImmCmd(
     {
         MHW_MI_STORE_DATA_PARAMS dataParams = {};
         dataParams.pOsResource      = resource;
-        dataParams.dwResourceOffset = 0;
+        dataParams.dwResourceOffset = offset;
         dataParams.dwValue          = 0;
 
         // Reset current pipe semaphore
@@ -425,8 +434,8 @@ MOS_STATUS VpScalabilityMultiPipe::GetCmdBuffer(PMOS_COMMAND_BUFFER cmdBuffer, b
             submissionType |= SUBMISSION_TYPE_MULTI_PIPE_FLAGS_LAST_PIPE;
         }
         SCALABILITY_CHK_NULL_RETURN(m_osInterface->osStreamState);
-        SCALABILITY_CHK_STATUS_RETURN(MosInterface::SetVeSubmissionType(
-            m_osInterface->osStreamState, &(m_secondaryCmdBuffers[bufIdx]), submissionType));
+        SCALABILITY_CHK_NULL_RETURN(m_osInterface->osStreamState->virtualEngineInterface);
+        SCALABILITY_CHK_STATUS_RETURN(m_osInterface->osStreamState->virtualEngineInterface->SetSubmissionType(&(m_secondaryCmdBuffers[bufIdx]), submissionType));
     }
     else
     {
@@ -458,7 +467,7 @@ MOS_STATUS VpScalabilityMultiPipe::SetHintParams()
     VP_FUNC_CALL();
 
     SCALABILITY_FUNCTION_ENTER;
-
+    SCALABILITY_CHK_NULL_RETURN(m_osInterface);
     if (m_osInterface->apoMosEnabled)
     {
         SCALABILITY_CHK_NULL_RETURN(m_osInterface->osStreamState);
@@ -477,14 +486,7 @@ MOS_STATUS VpScalabilityMultiPipe::SetHintParams()
     veParams.ucScalablePipeNum = m_pipeNum;
     veParams.bScalableMode     = true;
 
-    if (m_osInterface->apoMosEnabled)
-    {
-        SCALABILITY_CHK_STATUS_RETURN(MosInterface::SetVeHintParams(m_osInterface->osStreamState, &veParams));
-    }
-    else
-    {
-        SCALABILITY_CHK_STATUS_RETURN(m_veInterface->pfnVESetHintParams(m_veInterface, &veParams));
-    }
+    SCALABILITY_CHK_STATUS_RETURN(m_osInterface->pfnSetHintParams(m_osInterface, &veParams));
 
     return MOS_STATUS_SUCCESS;
 }

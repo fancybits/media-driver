@@ -220,7 +220,6 @@ MOS_STATUS PacketPipe::SetOutputPipeMode(EngineType engineType)
     default:
         m_outputPipeMode = VPHAL_OUTPUT_PIPE_MODE_INVALID;
         VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
-        break;
     }
 
     return MOS_STATUS_SUCCESS;
@@ -316,10 +315,11 @@ MOS_STATUS PacketPipe::Execute(MediaStatusReport *statusReport, MediaScalability
             if(handle.first && handle.second)
             {
                 VP_SURFACE_DUMP(m_PacketFactory.m_debugInterface,
-                handle.second,
-                0,
-                handle.first,
-                VPHAL_DUMP_TYPE_POST_COMP);
+                    handle.second,
+                    0,
+                    handle.first,
+                    VPHAL_DUMP_TYPE_POST_COMP,
+                    VPHAL_SURF_DUMP_DDI_VP_BLT);
             }
         }
 #endif
@@ -371,6 +371,13 @@ void PacketPipeFactory::ReturnPacketPipe(PacketPipe *&pPipe)
         return;
     }
     pPipe->Clean();
-    m_Pool.push_back(pPipe);
+    if (std::find(m_Pool.begin(), m_Pool.end(), pPipe) == m_Pool.end())
+    {
+        m_Pool.push_back(pPipe);
+    }
+    else
+    {
+        VP_PUBLIC_ASSERTMESSAGE("packetPipe %p is existing in m_Pool!, m_Pool size is %d.", pPipe, (uint32_t)m_Pool.size());
+    }
     pPipe = nullptr;
 }

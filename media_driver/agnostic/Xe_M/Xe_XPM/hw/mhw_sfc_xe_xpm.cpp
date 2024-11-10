@@ -32,6 +32,7 @@
 #include "mhw_sfc_xe_xpm.h"
 #include "mhw_sfc_hwcmd_xe_xpm.h"
 #include "mhw_utilities_xe_xpm.h"
+#include "vp_hal_ddi_utils.h"
 
 #define VALUE_XOFFSET 3
 
@@ -288,11 +289,12 @@ MOS_STATUS MhwSfcInterfaceXe_Xpm::AddSfcState(
     // Set DW13
     cmd.DW13.AlphaDefaultValue           = MOS_CLAMP_MIN_MAX(MOS_F_ROUND(pSfcStateparamsXe_Xpm->fAlphaPixel * 1024.0F), 0, 1023); // U10
 
+    // Use round to zero for the scaling factor calculation to resolve tdr issue in scalability case
     // Set DW14
-    cmd.DW14.ScalingFactorHeight         = MOS_UF_ROUND((double)pSfcStateparamsXe_Xpm->dwSourceRegionHeight / (double)pSfcStateparamsXe_Xpm->dwScaledRegionHeight * 524288.0F); // U4.19
+    cmd.DW14.ScalingFactorHeight         = (uint32_t)((double)pSfcStateparamsXe_Xpm->dwSourceRegionHeight / (double)pSfcStateparamsXe_Xpm->dwScaledRegionHeight * 524288.0F); // U4.19
 
     // Set DW15
-    cmd.DW15.ScaleFactorWidth          = MOS_UF_ROUND((double)pSfcStateparamsXe_Xpm->dwSourceRegionWidth / (double)pSfcStateparamsXe_Xpm->dwScaledRegionWidth * 524288.0F); // U4.19
+    cmd.DW15.ScaleFactorWidth          = (uint32_t)((double)pSfcStateparamsXe_Xpm->dwSourceRegionWidth / (double)pSfcStateparamsXe_Xpm->dwScaledRegionWidth * 524288.0F); // U4.19
 
     // Set DW19
     if (pSfcStateparamsXe_Xpm->bMMCEnable            &&
@@ -768,7 +770,7 @@ MOS_STATUS MhwSfcInterfaceXe_Xpm::AddSfcState(
             }
         }
 
-        if (VpHal_GetSurfaceColorPack(pSfcStateparamsXe_Xpm->OutputFrameFormat) != VPHAL_COLORPACK_444 &&
+        if (VpHalDDIUtils::GetSurfaceColorPack(pSfcStateparamsXe_Xpm->OutputFrameFormat) != VPHAL_COLORPACK_444 &&
             (dest_startX[m_indexofSfc] %2 != 0))
         {
             if (dest_startX[m_indexofSfc] >= 1)
@@ -820,7 +822,7 @@ MOS_STATUS MhwSfcInterfaceXe_Xpm::AddSfcState(
         MHW_NORMALMESSAGE("SFC%d STATE: dest startx %d endx %d", m_indexofSfc, cmd.DW35.Destinationstartx, cmd.DW35.Destinationendx);
     }
 
-    MHW_CHK_STATUS_RETURN(Mos_AddCommand(pCmdBuffer, &cmd, cmd.byteSize));
+    MHW_CHK_STATUS_RETURN(pOsInterface->pfnAddCommand(pCmdBuffer, &cmd, cmd.byteSize));
 
     return MOS_STATUS_SUCCESS;
 }

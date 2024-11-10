@@ -46,7 +46,8 @@ namespace encode {
     };
 
     EncoderStatusReport::EncoderStatusReport(
-        EncodeAllocator *allocator, bool enableMfx, bool enableRcs, bool enablecp):
+        EncodeAllocator *allocator, PMOS_INTERFACE pOsInterface, bool enableMfx, bool enableRcs, bool enablecp):
+        m_osInterface(pOsInterface),
         m_enableMfx(enableMfx),
         m_enableRcs(enableRcs),
         m_enableCp(enablecp),
@@ -70,6 +71,7 @@ namespace encode {
         param.TileType = MOS_TILE_LINEAR;
         param.Format   = Format_Buffer;
         param.dwBytes  = sizeof(uint32_t) * 2;
+        param.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
         param.pBufName = "StatusQueryBufferGlobalCount";
         // keeping status buffer persistent since its used in all command buffers
         param.bIsPersistent = true;
@@ -190,6 +192,11 @@ namespace encode {
             m_statusReportData[submitIndex].currRefList        = inputParameters->currRefList;
             m_statusReportData[submitIndex].numberTilesInFrame = inputParameters->numberTilesInFrame;
 
+            m_statusReportData[submitIndex].av1EnableFrameOBU            = inputParameters->av1EnableFrameObu;
+            m_statusReportData[submitIndex].av1FrameHdrOBUSizeByteOffset = inputParameters->av1FrameHdrOBUSizeByteOffset;
+            m_statusReportData[submitIndex].frameWidth                   = inputParameters->frameWidth;
+            m_statusReportData[submitIndex].frameHeight                  = inputParameters->frameHeight;
+
             uint64_t pairIndex = GetIdForCodecFuncToFuncIdPairs(inputParameters->codecFunction);
             if (pairIndex >= m_maxCodecFuncNum)
             {
@@ -299,6 +306,9 @@ namespace encode {
         EncodeStatusRcs *encodeStatusRcs,
         bool completed)
     {
+        ENCODE_CHK_NULL_RETURN(statusReportData);
+        ENCODE_CHK_NULL_RETURN(encodeStatusRcs);
+
         if (statusReportData->func != CODECHAL_ENCODE_ENC_ID &&
             statusReportData->func != CODECHAL_ENCODE_FEI_ENC_ID &&
             !completed)
@@ -344,6 +354,7 @@ namespace encode {
 
         statusReportData->pFrmStatsInfo = ((EncodeStatusReportData *)report)->pFrmStatsInfo;
         statusReportData->pBlkStatsInfo = ((EncodeStatusReportData *)report)->pBlkStatsInfo;
+        statusReportData->pBlkQualityInfo = ((EncodeStatusReportData*)report)->pBlkQualityInfo;
 
         if (m_enableRcs)
         {
@@ -369,14 +380,20 @@ namespace encode {
         // Need add GPU Hang check here
         UpdateCodecStatus(statusReportData, encodeStatusRcs, completed);
 
+        if ((statusReportData->codecStatus == CODECHAL_STATUS_ERROR) && encodeStatusMfx && (encodeStatusMfx->lookaheadStatus.targetFrameSize != 0))
+        {
+            statusReportData->codecStatus = CODECHAL_STATUS_SUCCESSFUL;
+        }
+
         // The frame is completed, notify the observers
         if (statusReportData->codecStatus == CODECHAL_STATUS_SUCCESSFUL)
         {
             eStatus = NotifyObservers(encodeStatusMfx, encodeStatusRcs, statusReportData);
         }
 
-        NullHW::StatusReport((uint32_t &)statusReportData->codecStatus,
-                                         statusReportData->bitstreamSize);
+        NullHW::StatusReport(m_osInterface, 
+                             (uint32_t &)statusReportData->codecStatus,
+                             statusReportData->bitstreamSize);
 
         *((EncodeStatusReportData *)report) = *statusReportData;
         return eStatus;

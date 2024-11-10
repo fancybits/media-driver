@@ -119,7 +119,7 @@ MOS_STATUS RenderCopy_Xe_Xpm_Plus::SubmitCMD( )
     PMHW_WALKER_PARAMS          pWalkerParams = nullptr;
     MHW_GPGPU_WALKER_PARAMS     ComputeWalkerParams = {0};
     PMHW_GPGPU_WALKER_PARAMS    pComputeWalkerParams = nullptr;
-    MOS_GPUCTX_CREATOPTIONS     createOption;
+    MOS_GPUCTX_CREATOPTIONS_ENHANCED createOption = {};
 
     pRenderHal   = pRenderCopy->m_renderHal;
     pOsInterface = pRenderCopy->m_osInterface;
@@ -130,6 +130,11 @@ MOS_STATUS RenderCopy_Xe_Xpm_Plus::SubmitCMD( )
         MOS_GPU_NODE_COMPUTE,
         &createOption));
 
+    // Register context with the Batch Buffer completion event
+    MCPY_CHK_STATUS_RETURN(m_osInterface->pfnRegisterBBCompleteNotifyEvent(
+        m_osInterface,
+        MOS_GPU_CONTEXT_COMPUTE));
+
     // Set GPU Context to Render Engine
     MCPY_CHK_STATUS_RETURN(pOsInterface->pfnSetGpuContext(pOsInterface, MOS_GPU_CONTEXT_COMPUTE));
 
@@ -138,28 +143,6 @@ MOS_STATUS RenderCopy_Xe_Xpm_Plus::SubmitCMD( )
 
     // Register the resource of GSH
     MCPY_CHK_STATUS_RETURN(pRenderHal->pfnReset(pRenderHal));
-
-    // Register the input resource;
-    MCPY_CHK_STATUS_RETURN(pOsInterface->pfnRegisterResource(
-        pOsInterface,
-        (PMOS_RESOURCE)&pRenderCopy->m_KernelResource,
-        true,
-        true));
-
-    // Ensure input can be read
-    pOsInterface->pfnSyncOnResource(
-        pOsInterface,
-        &pRenderCopy->m_Source.OsResource,
-        pOsInterface->CurrentGpuContextOrdinal,
-        false);
-
-    // Ensure Output can be read
-    pOsInterface->pfnSyncOnResource(
-        pOsInterface,
-        &pRenderCopy->m_Target.OsResource,
-        pOsInterface->CurrentGpuContextOrdinal,
-        false);
-
 
     // Set copy kernel
     pRenderCopy->SetupKernel(m_currKernelId);

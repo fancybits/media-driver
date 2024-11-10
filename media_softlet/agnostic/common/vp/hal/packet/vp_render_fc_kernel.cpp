@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2021, Intel Corporation
+* Copyright (c) 2021-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -29,6 +29,7 @@
 #include "hal_kerneldll_next.h"
 #include "hal_oca_interface_next.h"
 #include "vp_user_feature_control.h"
+#include "vp_hal_ddi_utils.h"
 
 using namespace vp;
 
@@ -77,10 +78,9 @@ const int32_t VpRenderFcKernel::s_bindingTableIndexField[] =
 };
 
 VpRenderFcKernel::VpRenderFcKernel(PVP_MHWINTERFACE hwInterface, PVpAllocator allocator) :
-    VpRenderKernelObj(hwInterface, allocator)
+    VpRenderKernelObj(hwInterface, (VpKernelID)kernelCombinedFc, 0, VpRenderKernel::s_kernelNameNonAdvKernels, allocator)
 {
     m_kernelBinaryID = IDR_VP_EOT;
-    m_kernelId       = kernelCombinedFc;
 
     if (m_hwInterface && m_hwInterface->m_vpPlatformInterface &&
         m_hwInterface->m_vpPlatformInterface->GetKernelPool().end() != m_hwInterface->m_vpPlatformInterface->GetKernelPool().find(VpRenderKernel::s_kernelNameNonAdvKernels))
@@ -113,7 +113,15 @@ VpRenderFcKernel::VpRenderFcKernel(PVP_MHWINTERFACE hwInterface, PVpAllocator al
 
     if (m_renderHal && m_renderHal->pRenderHalPltInterface && m_hwInterface->m_vpPlatformInterface)
     {
-        m_cscCoeffPatchModeEnabled = m_hwInterface->m_vpPlatformInterface->GetKernelConfig().IsFcCscCoeffPatchModeEnabled();
+        VpKernelConfig *vpKernelConfig = m_hwInterface->m_vpPlatformInterface->GetKernelConfig();
+        if (vpKernelConfig == nullptr)
+        {
+            VP_RENDER_ASSERTMESSAGE("vpKernelConfig is nullptr");
+        }
+        else
+        {
+            m_cscCoeffPatchModeEnabled = vpKernelConfig->IsFcCscCoeffPatchModeEnabled();
+        }
 
         if (m_hwInterface->m_osInterface)
         {
@@ -234,8 +242,9 @@ MOS_STATUS VpRenderFcKernel::SetSurfaceParams(KERNEL_SURFACE_STATE_PARAM &surfPa
         renderSurfParams.b2PlaneNV12NeededByKernel = true;
     }
 
-    surfParam.surfaceEntries = layer.surfaceEntries;
-    surfParam.sizeOfSurfaceEntries = &layer.numOfSurfaceEntries;
+    surfParam.surfaceEntries         = layer.surfaceEntries;
+    surfParam.iCapcityOfSurfaceEntry = MHW_MAX_SURFACE_PLANES;
+    surfParam.sizeOfSurfaceEntries   = &layer.numOfSurfaceEntries;
 
     VP_RENDER_NORMALMESSAGE("SurfaceTYpe %d, bAVS %d, b2PlaneNV12NeededByKernel %d",
         renderSurfParams.Type,
@@ -256,6 +265,7 @@ MOS_STATUS VpRenderFcKernel::SetupSurfaceState()
     VP_COMPOSITE_PARAMS &compParams = m_fcParams->compParams;
 
     m_surfaceState.clear();
+    m_surfaceBindingIndex.clear();
 
     for (i = 0; i < compParams.sourceCount; ++i)
     {
@@ -271,7 +281,33 @@ MOS_STATUS VpRenderFcKernel::SetupSurfaceState()
             VP_RENDER_ASSERTMESSAGE("layer->layerID = d% is out of range!", layer->layerID);
             return MOS_STATUS_INVALID_PARAMETER;
         }
-        surfParam.surfaceOverwriteParams.bindIndex = s_bindingTableIndex[layer->layerID];
+
+        VpUserFeatureControl *userFeatureControl = m_hwInterface->m_userFeatureControl;
+
+        if (nullptr != userFeatureControl && userFeatureControl->IsDecompForInterlacedSurfWaEnabled())
+        {
+            auto        decompressionSycSurfaceID = m_surfaceGroup->find(SurfaceTypeDecompressionSync);
+            VP_SURFACE *pDecompressionSycSurface  = (m_surfaceGroup->end() != decompressionSycSurfaceID) ? decompressionSycSurfaceID->second : nullptr;
+            auto        pSrcID                    = m_surfaceGroup->find(SurfaceType(SurfaceTypeFcInputLayer0 + i));
+            VP_SURFACE *pSrc                      = (m_surfaceGroup->end() != pSrcID) ? pSrcID->second : nullptr;
+            // Interlaced surface in the compression mode needs to decompress
+            if (pDecompressionSycSurface && pSrc && pSrc->SampleType != SAMPLE_PROGRESSIVE && (pSrc->osSurface->CompressionMode == MOS_MMC_MC || pSrc->osSurface->CompressionMode == MOS_MMC_RC))
+            {
+                VP_RENDER_CHK_STATUS_RETURN(m_hwInterface->m_osInterface->pfnSetDecompSyncRes(m_hwInterface->m_osInterface, &pDecompressionSycSurface->osSurface->OsResource))
+                VP_RENDER_CHK_STATUS_RETURN(m_hwInterface->m_osInterface->pfnDecompResource(m_hwInterface->m_osInterface, &pSrc->osSurface->OsResource));
+                VP_RENDER_CHK_STATUS_RETURN(m_hwInterface->m_osInterface->pfnSetDecompSyncRes(m_hwInterface->m_osInterface, nullptr));
+                VP_RENDER_CHK_STATUS_RETURN(m_hwInterface->m_osInterface->pfnRegisterResource(m_hwInterface->m_osInterface, &pDecompressionSycSurface->osSurface->OsResource, true, true));
+
+                MOS_SURFACE osSurface = {};
+                VP_RENDER_CHK_STATUS_RETURN(m_hwInterface->m_osInterface->pfnGetResourceInfo(m_hwInterface->m_osInterface, &pSrc->osSurface->OsResource, &osSurface));
+                pSrc->osSurface->bIsCompressed     = osSurface.bIsCompressed;
+                pSrc->osSurface->CompressionMode   = osSurface.CompressionMode;
+                pSrc->osSurface->CompressionFormat = osSurface.CompressionFormat;
+                pSrc->osSurface->MmcState          = osSurface.MmcState;
+            }
+        }
+
+        UpdateCurbeBindingIndex(SurfaceType(SurfaceTypeFcInputLayer0 + layer->layerID), s_bindingTableIndex[layer->layerID]);
 
         SetSurfaceParams(surfParam, *layer, false);
         surfParam.surfaceOverwriteParams.renderSurfaceParams.bChromasiting = layer->calculatedParams.chromaSitingEnabled;
@@ -295,7 +331,7 @@ MOS_STATUS VpRenderFcKernel::SetupSurfaceState()
                 surfParamField.surfaceOverwriteParams.renderSurfaceParams.bVertStrideOffs = true;
             }
 
-            surfParamField.surfaceOverwriteParams.bindIndex = s_bindingTableIndexField[layer->layerID];
+            UpdateCurbeBindingIndex(SurfaceType(SurfaceTypeFcInputLayer0Field1Dual + layer->layerID), s_bindingTableIndexField[layer->layerID]);
             m_surfaceState.insert(std::make_pair(SurfaceType(SurfaceTypeFcInputLayer0Field1Dual + layer->layerID), surfParamField));
 
             //update render GMM resource usage type
@@ -333,11 +369,11 @@ MOS_STATUS VpRenderFcKernel::SetupSurfaceState()
         surfParam.surfaceOverwriteParams.bindedKernel = true;
         if (compParams.targetCount > 1 && 0 == i)
         {
-            surfParam.surfaceOverwriteParams.bindIndex = VP_COMP_BTINDEX_RT_SECOND;
+            UpdateCurbeBindingIndex(SurfaceType(SurfaceTypeFcTarget0 + i), VP_COMP_BTINDEX_RT_SECOND);
         }
         else
         {
-            surfParam.surfaceOverwriteParams.bindIndex = VP_COMP_BTINDEX_RENDERTARGET;
+            UpdateCurbeBindingIndex(SurfaceType(SurfaceTypeFcTarget0 + i), VP_COMP_BTINDEX_RENDERTARGET);
         }
 
         SetSurfaceParams(surfParam, compParams.target[i], is32MWColorFillKern);
@@ -367,7 +403,7 @@ MOS_STATUS VpRenderFcKernel::SetupSurfaceState()
         surfParam.surfaceOverwriteParams.updatedSurfaceParams = true;
         // Only need to specify binding index in surface parameters.
         surfParam.surfaceOverwriteParams.bindedKernel = true;
-        surfParam.surfaceOverwriteParams.bindIndex = VP_COMP_BTINDEX_CSC_COEFF;
+        UpdateCurbeBindingIndex(SurfaceTypeFcCscCoeff, VP_COMP_BTINDEX_CSC_COEFF);
 
         surfParam.surfaceOverwriteParams.updatedRenderSurfaces             = true;
         surfParam.surfaceOverwriteParams.renderSurfaceParams.Type          = RENDERHAL_SURFACE_TYPE_G10;
@@ -562,9 +598,16 @@ MOS_STATUS VpRenderFcKernel::InitRenderHalSurface(
 
     VP_RENDER_CHK_STATUS_RETURN(osInterface->pfnGetMemoryCompressionMode(osInterface,
         &src->surf->osSurface->OsResource, &renderHalSurface->OsSurface.MmcState));
-
-    VP_RENDER_CHK_STATUS_RETURN(osInterface->pfnGetMemoryCompressionFormat(osInterface,
-        &src->surf->osSurface->OsResource, &renderHalSurface->OsSurface.CompressionFormat));
+    
+    if (m_hwInterface->m_waTable && MEDIA_IS_WA(m_hwInterface->m_waTable, Wa_16023363837))
+    {
+        VP_RENDER_CHK_STATUS_RETURN(InitRenderHalSurfaceCMF(src->surf->osSurface, renderHalSurface));
+    }
+    else
+    {
+        VP_RENDER_CHK_STATUS_RETURN(osInterface->pfnGetMemoryCompressionFormat(osInterface,
+            &src->surf->osSurface->OsResource, &renderHalSurface->OsSurface.CompressionFormat));
+    }
 
     renderHalSurface->rcSrc                        = src->surf->rcSrc;
     renderHalSurface->rcDst                        = src->surf->rcDst;
@@ -633,7 +676,7 @@ MOS_STATUS VpRenderFcKernel::InitRenderHalSurface(
 
 void VpRenderFcKernel::OcaDumpKernelInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext)
 {
-    HalOcaInterfaceNext::DumpVpKernelInfo(cmdBuffer, mosContext, m_kernelId, m_kernelSearch.KernelCount, m_kernelSearch.KernelID);
+    HalOcaInterfaceNext::DumpVpKernelInfo(cmdBuffer, (MOS_CONTEXT_HANDLE)&mosContext, m_kernelId, m_kernelSearch.KernelCount, m_kernelSearch.KernelID);
 }
 
 bool IsRenderAlignmentWANeeded(VP_SURFACE *surface)
@@ -739,6 +782,13 @@ MOS_STATUS VpRenderFcKernel::BuildFilter(
 
     for (i = 0; (i < (int)compParams->sourceCount) && (iMaxFilterSize > 0); i++)
     {
+        if (i > 0)
+        {
+            if (!RECT1_CONTAINS_RECT2(compParams->source[0].surf->rcDst, compParams->source[i].surf->rcDst))
+            {
+                pFilter->forceToTargetColorSpace = true;
+            }
+        }
         src = &compParams->source[i];
 
         //--------------------------------
@@ -750,20 +800,15 @@ MOS_STATUS VpRenderFcKernel::BuildFilter(
         }
 
         //--------------------------------
-        // Composition path does not support conversion from BT2020 RGB to BT2020 YUV, BT2020->BT601/BT709, BT601/BT709 -> BT2020
+        // Composition path does not support conversions: BT2020->BT601/BT709, BT601/BT709 -> BT2020
         //--------------------------------
-        if (IS_COLOR_SPACE_BT2020_RGB(src->surf->ColorSpace)   &&
-            IS_COLOR_SPACE_BT2020_YUV(compParams->target[0].surf->ColorSpace))  //BT2020 RGB->BT2020 YUV
-        {
-            VP_RENDER_CHK_STATUS_RETURN(MOS_STATUS_UNIMPLEMENTED);
-        }
-        else if (IS_COLOR_SPACE_BT2020(src->surf->ColorSpace) &&
-                 !IS_COLOR_SPACE_BT2020(compParams->target[0].surf->ColorSpace)) //BT2020->BT601/BT709
+        if (IS_COLOR_SPACE_BT2020(src->surf->ColorSpace) &&
+            !IS_COLOR_SPACE_BT2020(compParams->target[0].surf->ColorSpace)) //BT2020->BT601/BT709
         {
             VP_RENDER_CHK_STATUS_RETURN(MOS_STATUS_UNIMPLEMENTED);
         }
         else if (!IS_COLOR_SPACE_BT2020(src->surf->ColorSpace) &&
-                 IS_COLOR_SPACE_BT2020(compParams->target[0].surf->ColorSpace))  //BT601/BT709 -> BT2020
+            IS_COLOR_SPACE_BT2020(compParams->target[0].surf->ColorSpace))  //BT601/BT709 -> BT2020
         {
             VP_RENDER_CHK_STATUS_RETURN(MOS_STATUS_UNIMPLEMENTED);
         }
@@ -823,17 +868,25 @@ MOS_STATUS VpRenderFcKernel::BuildFilter(
         // Y_Uoffset(Height*2 + Height/2) of RENDERHAL_PLANES_YV12 define Bitfield_Range(0, 13) on gen9+.
         // The max value is 16383. So use PL3 kernel to avoid out of range when Y_Uoffset is larger than 16383.
         // Use PL3 plane to avoid YV12 blending issue with DI enabled and U channel shift issue with not 4-aligned height
-        if ((pFilter->format   == Format_YV12)           &&
-            (src->scalingMode != VPHAL_SCALING_AVS)     &&
-            (src->iefEnabled != true)                  &&
-            (src->surf->SurfType != SURF_OUT_RENDERTARGET) &&
-            m_renderHal->bEnableYV12SinglePass          &&
-            !src->diParams                    &&
-            !src->iscalingEnabled                    &&
-            MOS_IS_ALIGNED(src->surf->osSurface->dwHeight, 4)            &&
-            ((src->surf->osSurface->dwHeight * 2 + src->surf->osSurface->dwHeight / 2) < RENDERHAL_MAX_YV12_PLANE_Y_U_OFFSET_G9))
+        if (pFilter->format == Format_YV12)
         {
-            pFilter->format = Format_YV12_Planar;
+            if (m_renderHal->pOsInterface != nullptr &&
+                m_renderHal->pOsInterface->trinityPath == TRINITY9_ENABLED)
+            {
+                pFilter->format = Format_PL3;
+            }
+            else if (
+                (src->scalingMode != VPHAL_SCALING_AVS) &&
+                (src->iefEnabled != true) &&
+                (src->surf->SurfType != SURF_OUT_RENDERTARGET) &&
+                m_renderHal->bEnableYV12SinglePass &&
+                !src->diParams &&
+                !src->iscalingEnabled &&
+                MOS_IS_ALIGNED(src->surf->osSurface->dwHeight, 4) &&
+                ((src->surf->osSurface->dwHeight * 2 + src->surf->osSurface->dwHeight / 2) < RENDERHAL_MAX_YV12_PLANE_Y_U_OFFSET_G9))
+            {
+                pFilter->format = Format_YV12_Planar;
+            }
         }
 
         if (pFilter->format == Format_A8R8G8B8 ||
@@ -1057,7 +1110,15 @@ MOS_STATUS VpRenderFcKernel::BuildFilter(
         {
             //set first layer's scalingRatio
             CalculateScale(scaleX, scaleY, src->surf->rcSrc, src->surf->rcDst, src->rotation);
-            pFilter->ScalingRatio = m_hwInterface->m_vpPlatformInterface->GetKernelConfig().GetFilterScalingRatio(scaleX, scaleY);
+            VpKernelConfig *vpKernelConfig = m_hwInterface->m_vpPlatformInterface->GetKernelConfig();
+            if (vpKernelConfig == nullptr)
+            {
+                VP_RENDER_ASSERTMESSAGE("vpKernelConfig is nullptr");
+            }
+            else
+            {
+                pFilter->ScalingRatio = vpKernelConfig->GetFilterScalingRatio(scaleX, scaleY);
+            }
         }
 
         // Update filter
@@ -1087,7 +1148,15 @@ MOS_STATUS VpRenderFcKernel::BuildFilter(
 
     //set rendertarget's scalingRatio
     CalculateScale(scaleX, scaleY, target.surf->rcSrc, target.surf->rcDst, target.rotation);
-    pFilter->ScalingRatio = m_hwInterface->m_vpPlatformInterface->GetKernelConfig().GetFilterScalingRatio(scaleX, scaleY);
+    VpKernelConfig *vpKernelConfig = m_hwInterface->m_vpPlatformInterface->GetKernelConfig();
+    if (vpKernelConfig == nullptr)
+    {
+        VP_RENDER_ASSERTMESSAGE("vpKernelConfig is nullptr");
+    }
+    else
+    {
+        pFilter->ScalingRatio = vpKernelConfig->GetFilterScalingRatio(scaleX, scaleY);
+    }
 
     if (compParams->sourceCount > 0                                     &&
        compParams->source[0].surf->osSurface->Format == Format_R5G6B5   &&
@@ -1223,15 +1292,17 @@ MOS_STATUS VpRenderFcKernel::GetKernelEntry(Kdll_CacheEntry &entry)
 
     if (kernelEntry)
     {
+        // Update ColorFill color space.
+        kernelDllState->colorfill_cspace = kernelEntry->colorfill_cspace;
+
+        // Check whether kenrel entry update needed by procamp version.
         auto pCscParams = kernelEntry->pCscParams;
         // CoeffID_0 may not be used if no csc needed for both main video and RT.
         auto matrixId = (uint8_t)DL_CSC_DISABLED == pCscParams->MatrixID[CoeffID_0] ?
             pCscParams->MatrixID[CoeffID_1] : pCscParams->MatrixID[CoeffID_0];
-
-        if ((uint8_t)DL_CSC_DISABLED != matrixId && matrixId >= 0 && matrixId < DL_CSC_MAX)
+        if ((uint8_t)DL_CSC_DISABLED != matrixId && matrixId < DL_CSC_MAX)
         {
             auto pMatrix    = &pCscParams->Matrix[matrixId];
-            kernelDllState->colorfill_cspace = kernelEntry->colorfill_cspace;
 
             if ((pMatrix->iProcampID != DL_PROCAMP_DISABLED) &&
                 (pMatrix->iProcampID < VP_MAX_PROCAMP))
@@ -1604,7 +1675,7 @@ MOS_STATUS VpRenderFcKernel::InitLayerInCurbeData(VP_FC_LAYER *layer)
             m_curbeData.DW11.ChromasitingUOffset, m_curbeData.DW12.ChromasitingVOffset);
 
         // Set output depth.
-        bitDepth                        = VpUtils::GetSurfaceBitDepth(layer->surf->osSurface->Format);
+        bitDepth                        = VpHalDDIUtils::GetSurfaceBitDepth(layer->surf->osSurface->Format);
         m_curbeData.DW07.OutputDepth    = VP_COMP_P010_DEPTH;
         if (bitDepth && !(layer->surf->osSurface->Format == Format_P010 || layer->surf->osSurface->Format == Format_Y210))
         {
@@ -1828,6 +1899,14 @@ MOS_STATUS VpRenderFcKernel::InitFcCurbeData()
                 (uint16_t)compParams.target[0].surf->rcDst.top;
     }
 
+    if (!MOS_IS_ALIGNED(m_curbeData.DW69.DestHorizontalBlockOrigin, 4) || !MOS_IS_ALIGNED(m_curbeData.DW69.DestVerticalBlockOrigin, 4))
+    {
+        VP_RENDER_NORMALMESSAGE("Block_start_x or Block_start_y is not DW align, Block_start_x = %d, Block_start_y = %d",
+            m_curbeData.DW69.DestHorizontalBlockOrigin,
+            m_curbeData.DW69.DestVerticalBlockOrigin);
+    }
+
+
     PrintCurbeData(m_curbeData);
     return MOS_STATUS_SUCCESS;
 }
@@ -1860,7 +1939,7 @@ MOS_STATUS VpRenderFcKernel::InitColorFillInCurbeData()
             }
             dstCspace = filter[filterSize - 1].cspace;
 
-            if (dstCspace == CSpace_None) // if color space is invlaid return false
+            if (dstCspace == CSpace_None) // if color space is invalid return false
             {
                 VP_RENDER_ASSERTMESSAGE("Failed to assign dst color spcae for iScale case.");
                 return MOS_STATUS_INVALID_PARAMETER;
@@ -2201,7 +2280,10 @@ MOS_STATUS VpRenderFcKernel::GetCurbeState(void*& curbe, uint32_t& curbeLength)
     VP_FUNC_CALL();
     MT_LOG1(MT_VP_HAL_FC_GET_CURBE_STATE, MT_NORMAL, MT_FUNC_START, 1);
 
-    if (m_hwInterface->m_vpPlatformInterface->GetKernelConfig().IsDpFcKernelEnabled())
+    VpKernelConfig *vpKernelConfig = m_hwInterface->m_vpPlatformInterface->GetKernelConfig();
+    VP_RENDER_CHK_NULL_RETURN(vpKernelConfig);
+
+    if (vpKernelConfig->IsDpFcKernelEnabled())
     {
         VP_RENDER_CHK_STATUS_RETURN(InitFcDpBasedCurbeData());
         // DataPort used FC kernel case
@@ -2299,15 +2381,17 @@ bool VpRenderFcKernel::IsEufusionBypassed()
         VP_FC_LAYER &layer = compParams.source[0];
         bool bColorFill = false;
         bool bRotation  = false;
+        bool bLumakey   = false;
         if (compParams.pColorFillParams != nullptr)
         {
             // To avoid colorfill + rotation output cropution when Eu fusion is on.
             bColorFill =  (!RECT1_CONTAINS_RECT2(layer.surf->rcDst, compParams.target->surf->rcDst)) ? true : false;
             bRotation = (layer.rotation != VPHAL_ROTATION_IDENTITY) ? true : false;
+            bLumakey   = layer.lumaKeyParams ? true : false;
 
-            if (bColorFill && bRotation)
+            if ((bColorFill && bRotation) || bLumakey)
             {
-                VP_RENDER_NORMALMESSAGE("EufusionBypass is needed for colorfill + rotation case.");
+                VP_RENDER_NORMALMESSAGE("EufusionBypass is needed for colorfill + rotation case or lumakey case.");
                 return true;
             }
             else

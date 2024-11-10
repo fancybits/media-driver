@@ -32,13 +32,30 @@
 #include "encode_hevc_vdenc_scc.h"
 #include "encode_vdenc_lpla_analysis.h"
 #include "encode_hevc_vdenc_lpla_enc.h"
+#include "encode_hevc_header_packer.h"
 
 namespace encode
 {
     MOS_STATUS HucBrcUpdatePkt::Init()
     {
         ENCODE_FUNC_CALL();
-        HUC_CHK_STATUS_RETURN(EncodeHucBasic::Init());
+        m_hwInterface->m_vdencBatchBuffer1stGroupSize = MOS_ALIGN_CEIL(m_hwInterface->m_vdencBatchBuffer1stGroupSize, CODECHAL_CACHELINE_SIZE);
+        m_hwInterface->m_vdencBatchBuffer2ndGroupSize = MOS_ALIGN_CEIL(m_hwInterface->m_vdencBatchBuffer2ndGroupSize, CODECHAL_CACHELINE_SIZE);
+        m_hwInterface->m_vdencReadBatchBufferSize =
+        m_hwInterface->m_vdenc2ndLevelBatchBufferSize = m_hwInterface->m_vdencBatchBuffer1stGroupSize
+                                         + m_hwInterface->m_vdencBatchBuffer2ndGroupSize
+                                         + ENCODE_HEVC_VDENC_NUM_MAX_SLICES * MOS_ALIGN_CEIL((2 * m_hcpItf->MHW_GETSIZE_F(HCP_WEIGHTOFFSET_STATE)()
+                                         + m_hcpItf->MHW_GETSIZE_F(HCP_SLICE_STATE)()
+                                         + 2 * m_hcpItf->MHW_GETSIZE_F(HCP_PAK_INSERT_OBJECT)()
+                                         + sizeof (HevcSlice)
+                                         + m_vdencItf->MHW_GETSIZE_F(VDENC_WEIGHTSOFFSETS_STATE)()
+                                         + 2 * m_miItf->MHW_GETSIZE_F(MI_BATCH_BUFFER_END)()), CODECHAL_CACHELINE_SIZE);
+        m_hwInterface->m_vdencBatchBufferPerSliceConstSize = m_hcpItf->MHW_GETSIZE_F(HCP_SLICE_STATE)()
+        + m_vdencItf->MHW_GETSIZE_F(VDENC_WEIGHTSOFFSETS_STATE)()
+        + m_hcpItf->MHW_GETSIZE_F(HCP_PAK_INSERT_OBJECT)()
+        + m_miItf->MHW_GETSIZE_F(MI_BATCH_BUFFER_END)() * 2;
+
+        HUC_CHK_STATUS_RETURN(EncodeHucPkt::Init());
 
         ENCODE_CHK_NULL_RETURN(m_pipeline);
         m_allocator = m_pipeline->GetEncodeAllocator();
@@ -62,15 +79,12 @@ namespace encode
         uint32_t hucPatchListSize = 0;
         MHW_VDBOX_STATE_CMDSIZE_PARAMS stateCmdSizeParams;
 
-        if (m_hwInterface->m_hwInterfaceNext)
-        {
-            stateCmdSizeParams.uNumStoreDataImm = 2;
-            stateCmdSizeParams.uNumStoreReg     = 4;
-            stateCmdSizeParams.uNumMfxWait      = 3;
-            stateCmdSizeParams.uNumAddConBBEnd  = 1;
-            ENCODE_CHK_STATUS_RETURN(m_hwInterface->m_hwInterfaceNext->GetHucStateCommandSize(
-                m_basicFeature->m_mode, (uint32_t*)&hucCommandsSize, (uint32_t*)&hucPatchListSize, &stateCmdSizeParams));
-        }
+        stateCmdSizeParams.uNumStoreDataImm = 2;
+        stateCmdSizeParams.uNumStoreReg     = 4;
+        stateCmdSizeParams.uNumMfxWait      = 3;
+        stateCmdSizeParams.uNumAddConBBEnd  = 1;
+        ENCODE_CHK_STATUS_RETURN(m_hwInterface->GetHucStateCommandSize(
+            m_basicFeature->m_mode, (uint32_t*)&hucCommandsSize, (uint32_t*)&hucPatchListSize, &stateCmdSizeParams));
 
         commandBufferSize = hucCommandsSize;
         requestedPatchListSize = osInterface->bUsesPatchList ? hucPatchListSize : 0;
@@ -99,7 +113,7 @@ namespace encode
     MOS_STATUS HucBrcUpdatePkt::AllocateResources()
     {
         ENCODE_FUNC_CALL();
-        ENCODE_CHK_STATUS_RETURN(EncodeHucBasic::AllocateResources());
+        ENCODE_CHK_STATUS_RETURN(EncodeHucPkt::AllocateResources());
 
         MOS_ALLOC_GFXRES_PARAMS allocParamsForBufferLinear;
         MOS_ZeroMemory(&allocParamsForBufferLinear, sizeof(MOS_ALLOC_GFXRES_PARAMS));
@@ -114,6 +128,7 @@ namespace encode
         // Data (1024 bytes) for ref2
         allocParamsForBufferLinear.dwBytes = CODECHAL_PAGE_SIZE * 4;
         allocParamsForBufferLinear.pBufName = "Data from Pictures Buffer for Weighted Prediction";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
         MOS_RESOURCE *allocatedbuffer       = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
         ENCODE_CHK_NULL_RETURN(allocatedbuffer);
         m_dataFromPicsBuffer = *allocatedbuffer;
@@ -123,6 +138,7 @@ namespace encode
             // Const Data buffer
             allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_vdencBrcConstDataBufferSize, CODECHAL_PAGE_SIZE);
             allocParamsForBufferLinear.pBufName = "VDENC BRC Const Data Buffer";
+            allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_WRITE;
             allocatedbuffer       = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
             ENCODE_CHK_NULL_RETURN(allocatedbuffer);
             m_vdencBrcConstDataBuffer[k] = *allocatedbuffer;
@@ -131,14 +147,24 @@ namespace encode
             {
                 // VDEnc read batch buffer (input for HuC FW)
                 allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_hwInterface->m_vdencReadBatchBufferSize, CODECHAL_PAGE_SIZE);
-                allocParamsForBufferLinear.pBufName = "VDENC Read Batch Buffer";
+                allocParamsForBufferLinear.pBufName = "VDENC Read Batch Buffer Origin";
+                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
                 allocatedbuffer                     = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
                 ENCODE_CHK_NULL_RETURN(allocatedbuffer);
-                m_vdencReadBatchBuffer[k][i] = *allocatedbuffer;
+                m_vdencReadBatchBufferOrigin[k][i] = *allocatedbuffer;
+
+                // VDEnc read batch buffer (input for HuC FW)
+                allocParamsForBufferLinear.dwBytes      = MOS_ALIGN_CEIL(m_hwInterface->m_vdencReadBatchBufferSize, CODECHAL_PAGE_SIZE);
+                allocParamsForBufferLinear.pBufName     = "VDENC Read Batch Buffer TU7";
+                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
+                allocatedbuffer                         = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
+                ENCODE_CHK_NULL_RETURN(allocatedbuffer);
+                m_vdencReadBatchBufferTU7[k][i] = *allocatedbuffer;
 
                 // BRC update DMEM
                 allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_vdencBrcUpdateDmemBufferSize, CODECHAL_CACHELINE_SIZE);
                 allocParamsForBufferLinear.pBufName = "VDENC BrcUpdate DmemBuffer";
+                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
                 allocatedbuffer                     = m_allocator->AllocateResource(allocParamsForBufferLinear, true, MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ);
                 ENCODE_CHK_NULL_RETURN(allocatedbuffer);
                 m_vdencBrcUpdateDmemBuffer[k][i] = *allocatedbuffer;
@@ -201,7 +227,7 @@ namespace encode
             SetCurrRecycledBufIdx, m_pipeline->m_currRecycledBufIdx);
 
         params.regionParams[2].presRegion = m_basicFeature->m_recycleBuf->GetBuffer(FrameStatStreamOutBuffer, 0);      // Region 2  PAK Statistics Buffer (Input) - MFX_PAK_FRAME_STATISTICS
-        params.regionParams[3].presRegion = const_cast<PMOS_RESOURCE>(&m_vdencReadBatchBuffer[m_pipeline->m_currRecycledBufIdx][currentPass]);    // Region 3 - Input SLB Buffer (Input)
+        params.regionParams[3].presRegion = const_cast<PMOS_RESOURCE>(&m_vdencReadBatchBufferOrigin[m_pipeline->m_currRecycledBufIdx][currentPass]);    // Region 3 - Input SLB Buffer (Input Origin)
         params.regionParams[4].presRegion = const_cast<PMOS_RESOURCE>(&m_vdencBrcConstDataBuffer[m_pipeline->m_currRecycledBufIdx]);              // Region 4 - Constant Data (Input)
         params.regionParams[6].presRegion = const_cast<PMOS_RESOURCE>(&m_dataFromPicsBuffer);                   // Region 6 - Data Buffer of Current and Reference Pictures for Weighted Prediction (Input/Output)
         params.regionParams[6].isWritable = true;
@@ -238,6 +264,11 @@ namespace encode
         else
         {
             params.regionParams[1].presRegion = m_basicFeature->m_recycleBuf->GetBuffer(VdencStatsBuffer, 0);  // Region 1  VDEnc Statistics Buffer (Input) - VDENC_HEVC_VP9_FRAME_BASED_STATISTICS_STREAMOUT
+        }
+
+        if (m_basicFeature->m_hevcPicParams->AdaptiveTUEnabled != 0)
+        {
+            params.regionParams[12].presRegion = const_cast<PMOS_RESOURCE>(&m_vdencReadBatchBufferTU7[m_pipeline->m_currRecycledBufIdx][currentPass]);  // Region 12 - Input SLB Buffer (Input TU7)
         }
 
         return MOS_STATUS_SUCCESS;
@@ -288,7 +319,7 @@ namespace encode
 
             if (selectedSlot == -1)
             {
-                CODECHAL_ENCODE_ASSERTMESSAGE("No valid ref slot index");
+                ENCODE_ASSERTMESSAGE("No valid ref slot index");
                 return MOS_STATUS_INVALID_PARAMETER;
             }
 
@@ -370,7 +401,7 @@ namespace encode
                 if ((hucVdencBrcUpdateDmem->CurrentFrameType_U8 == HEVC_BRC_FRAME_TYPE_INVALID) ||
                     (m_basicFeature->m_hevcSeqParams->LowDelayMode && hucVdencBrcUpdateDmem->CurrentFrameType_U8 == HEVC_BRC_FRAME_TYPE_B2))
                 {
-                    CODECHAL_ENCODE_ASSERTMESSAGE("HEVC_BRC_FRAME_TYPE_INVALID or LBD picture doesn't support Level 4\n");
+                    ENCODE_ASSERTMESSAGE("HEVC_BRC_FRAME_TYPE_INVALID or LBD picture doesn't support Level 4\n");
                     return MOS_STATUS_INVALID_PARAMETER;
                 }
             }
@@ -387,7 +418,7 @@ namespace encode
                 //Invalid CodingType.
                 if (hucVdencBrcUpdateDmem->CurrentFrameType_U8 == HEVC_BRC_FRAME_TYPE_INVALID)
                 {
-                    CODECHAL_ENCODE_ASSERTMESSAGE("Invalid CodingType\n");
+                    ENCODE_ASSERTMESSAGE("Invalid CodingType\n");
                     return MOS_STATUS_INVALID_PARAMETER;
                 }
             }
@@ -583,8 +614,10 @@ namespace encode
             currentLocation += m_hcpSliceStateCmdSize;
 
             // VDENC_WEIGHT_OFFSETS_STATE cmd
-            hucConstData->Slice[slcCount].VdencWeightOffset_StartInBytes                      // VdencWeightOffset cmd is the last one expect BatchBufferEnd cmd
-                = (uint16_t)(baseLocation + hucConstData->Slice[slcCount].SizeOfCMDs - m_vdencWeightOffsetStateCmdSize - m_miBatchBufferEndCmdSize - ENCODE_VDENC_HEVC_PADDING_DW_SIZE * 4);
+            hucConstData->Slice[slcCount].VdencWeightOffset_StartInBytes                      // VdencWeightOffset cmd is the last one expect BatchBufferEnd cmd when adaptive tu disabled
+                = (uint16_t)(baseLocation + hucConstData->Slice[slcCount].SizeOfCMDs - m_vdencWeightOffsetStateCmdSize - m_miBatchBufferEndCmdSize - m_alignSize[slcCount]);
+
+            currentLocation += m_miBatchBufferEndCmdSize;
 
             // logic from PakInsertObject cmd
             uint32_t bitSize         = (m_basicFeature->m_hevcSeqParams->SliceSizeControl) ? (hevcSlcParams->BitLengthSliceHeaderStartingPortion) : slcData[slcCount].BitSize;  // 40 for HEVC VDEnc Dynamic Slice
@@ -633,9 +666,26 @@ namespace encode
 
         ENCODE_CHK_NULL_RETURN(m_basicFeature);
         ENCODE_CHK_NULL_RETURN(m_basicFeature->m_recycleBuf);
+        ENCODE_CHK_NULL_RETURN(m_basicFeature->m_hevcPicParams);
+        ENCODE_CHK_NULL_RETURN(m_basicFeature->m_hevcSeqParams);
 
         ENCODE_CHK_STATUS_RETURN(SetTcbrcMode());
-        ENCODE_CHK_STATUS_RETURN(ConstructBatchBufferHuCBRC(&m_vdencReadBatchBuffer[m_pipeline->m_currRecycledBufIdx][m_pipeline->GetCurrentPass()]));
+
+        if (m_basicFeature->m_hevcPicParams->AdaptiveTUEnabled != 0 && m_bufConstSizeFlagForAdaptiveTU == false)
+        {
+            m_bufConstSizeFlagForAdaptiveTU = true;
+            m_hwInterface->m_vdencBatchBufferPerSliceConstSize += m_vdencItf->MHW_GETSIZE_F(VDENC_HEVC_VP9_TILE_SLICE_STATE)();
+        }
+
+        ENCODE_CHK_STATUS_RETURN(ConstructBatchBufferHuCBRC(&m_vdencReadBatchBufferOrigin[m_pipeline->m_currRecycledBufIdx][m_pipeline->GetCurrentPass()]));
+
+        if (m_basicFeature->m_hevcPicParams->AdaptiveTUEnabled != 0)
+        {
+            auto original_TU = m_basicFeature->m_targetUsage;
+            m_basicFeature->m_targetUsage = m_basicFeature->m_hevcSeqParams->TargetUsage = 7;
+            ENCODE_CHK_STATUS_RETURN(ConstructBatchBufferHuCBRC(&m_vdencReadBatchBufferTU7[m_pipeline->m_currRecycledBufIdx][m_pipeline->GetCurrentPass()]));
+            m_basicFeature->m_targetUsage = m_basicFeature->m_hevcSeqParams->TargetUsage = original_TU;
+        }
 
         bool firstTaskInPhase = packetPhase & firstPacket;
         bool requestProlog = false;
@@ -644,7 +694,12 @@ namespace encode
         ENCODE_CHK_NULL_RETURN(brcFeature);
 
         uint16_t perfTag = m_pipeline->IsFirstPass() ? CODECHAL_ENCODE_PERFTAG_CALL_BRC_UPDATE : CODECHAL_ENCODE_PERFTAG_CALL_BRC_UPDATE_SECOND_PASS;
-        SetPerfTag(perfTag, (uint16_t)m_basicFeature->m_mode, m_basicFeature->m_pictureCodingType);
+        uint16_t pictureType = m_basicFeature->m_pictureCodingType;
+        if (m_basicFeature->m_pictureCodingType == B_TYPE && m_basicFeature->m_ref.IsLowDelay())
+        {
+            pictureType = 0;
+        }
+        SetPerfTag(perfTag, (uint16_t)m_basicFeature->m_mode, pictureType);
 
         if (!m_pipeline->IsSingleTaskPhaseSupported() || firstTaskInPhase)
         {
@@ -743,6 +798,15 @@ namespace encode
         constructedCmdBuf.iRemaining   = TempBatchBuffer.iRemaining;
 
         m_miBatchBufferEndCmdSize = constructedCmdBuf.iOffset - cmdBufOffset;
+
+        uint32_t alignSize = m_hwInterface->m_vdencBatchBuffer1stGroupSize - constructedCmdBuf.iOffset;
+        if (alignSize)
+        {
+            for (uint32_t i = 0; i < (alignSize / 4); i++)
+            {
+                ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_NOOP)(&constructedCmdBuf));
+            }
+        }
         ENCODE_CHK_COND_RETURN(
             (m_hwInterface->m_vdencBatchBuffer1stGroupSize != constructedCmdBuf.iOffset), 
             "ERROR - constructed cmd size is mismatch with calculated");
@@ -791,6 +855,14 @@ namespace encode
         constructedCmdBuf.iOffset      = TempBatchBuffer.iCurrent;
         constructedCmdBuf.iRemaining   = TempBatchBuffer.iRemaining;
 
+        uint32_t alignSize = m_hwInterface->m_vdencBatchBuffer2ndGroupSize + m_hwInterface->m_vdencBatchBuffer1stGroupSize - constructedCmdBuf.iOffset;
+        if (alignSize)
+        {
+            for (uint32_t i = 0; i < (alignSize / 4); i++)
+            {
+                ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_NOOP)(&constructedCmdBuf));
+            }
+        }
         ENCODE_CHK_COND_RETURN(
             (m_hwInterface->m_vdencBatchBuffer2ndGroupSize + m_hwInterface->m_vdencBatchBuffer1stGroupSize != constructedCmdBuf.iOffset), 
             "ERROR - constructed cmd size is mismatch with calculated");
@@ -829,6 +901,7 @@ namespace encode
             RUN_FEATURE_INTERFACE_RETURN(HevcEncodeTile, HevcFeatureIDs::encodeTile, SetCurrentTileFromSliceIndex, slcCount, m_pipeline);
 
             m_basicFeature->m_vdencBatchBufferPerSliceVarSize[slcCount] = 0;
+            m_basicFeature->m_vdencBatchBufferPerSlicePart2Size[slcCount] = 0;
 
             // set HCP_WEIGHTOFFSET_STATE command
             // This slice level command is issued, if the weighted_pred_flag or weighted_bipred_flag equals one.
@@ -840,14 +913,32 @@ namespace encode
             SETPAR_AND_ADDCMD(HCP_SLICE_STATE, m_hcpItf, &constructedCmdBuf);
             m_hcpSliceStateCmdSize = constructedCmdBuf.iOffset - cmdBufOffset;
 
-            AddAllCmds_HCP_PAK_INSERT_OBJECT(&constructedCmdBuf);
+            // set MI_BATCH_BUFFER_END command
+            MHW_BATCH_BUFFER TempBatchBuffer = {};
+            TempBatchBuffer.iSize            = MOS_ALIGN_CEIL(m_hwInterface->m_vdencReadBatchBufferSize, CODECHAL_PAGE_SIZE);
+            TempBatchBuffer.pData            = m_batchbufferAddr;
+
+            TempBatchBuffer.iCurrent   = constructedCmdBuf.iOffset;
+            TempBatchBuffer.iRemaining = constructedCmdBuf.iRemaining;
+            ENCODE_CHK_STATUS_RETURN(m_miItf->AddMiBatchBufferEnd(nullptr, &TempBatchBuffer));
+            constructedCmdBuf.pCmdPtr += (TempBatchBuffer.iCurrent - constructedCmdBuf.iOffset) / 4;
+            constructedCmdBuf.iOffset    = TempBatchBuffer.iCurrent;
+            constructedCmdBuf.iRemaining = TempBatchBuffer.iRemaining;
+
+            m_basicFeature->m_vdencBatchBufferPerSlicePart2Start[slcCount] = constructedCmdBuf.iOffset;
+
+            AddAllCmds_HCP_PAK_INSERT_OBJECT_SLICE(&constructedCmdBuf);
 
             cmdBufOffset = constructedCmdBuf.iOffset;
             SETPAR_AND_ADDCMD(VDENC_WEIGHTSOFFSETS_STATE, m_vdencItf, &constructedCmdBuf);
+            if (m_basicFeature->m_hevcPicParams->AdaptiveTUEnabled != 0)
+            {
+                SETPAR_AND_ADDCMD(VDENC_HEVC_VP9_TILE_SLICE_STATE, m_vdencItf, &constructedCmdBuf);
+            }
             m_vdencWeightOffsetStateCmdSize = constructedCmdBuf.iOffset - cmdBufOffset;
 
             // set MI_BATCH_BUFFER_END command
-            MHW_BATCH_BUFFER TempBatchBuffer = {};
+            TempBatchBuffer = {};
             TempBatchBuffer.iSize       = MOS_ALIGN_CEIL(m_hwInterface->m_vdencReadBatchBufferSize, CODECHAL_PAGE_SIZE);
             TempBatchBuffer.pData       = m_batchbufferAddr;
 
@@ -858,11 +949,16 @@ namespace encode
             constructedCmdBuf.iOffset      = TempBatchBuffer.iCurrent;
             constructedCmdBuf.iRemaining   = TempBatchBuffer.iRemaining;
 
-            m_basicFeature->m_vdencBatchBufferPerSliceVarSize[slcCount] += ENCODE_VDENC_HEVC_PADDING_DW_SIZE * 4;
-            for (auto i = 0; i < ENCODE_VDENC_HEVC_PADDING_DW_SIZE ; i++)
+            m_alignSize[slcCount] = MOS_ALIGN_CEIL(constructedCmdBuf.iOffset, 64) - constructedCmdBuf.iOffset;
+            if (m_alignSize[slcCount] > 0)
             {
-                ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_NOOP)(&constructedCmdBuf));
+                for (uint32_t i = 0; i < (m_alignSize[slcCount] / 4); i++)
+                {
+                    ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_NOOP)(&constructedCmdBuf));
+                }
             }
+            m_basicFeature->m_vdencBatchBufferPerSliceVarSize[slcCount] += m_alignSize[slcCount];
+            m_basicFeature->m_vdencBatchBufferPerSlicePart2Size[slcCount] = constructedCmdBuf.iOffset - m_basicFeature->m_vdencBatchBufferPerSlicePart2Start[slcCount];
             startLCU += m_basicFeature->m_hevcSliceParams[slcCount].NumLCUsInSlice;
         }
 
@@ -920,7 +1016,9 @@ namespace encode
         CodechalDebugInterface *debugInterface = m_pipeline->GetDebugInterface();
         ENCODE_CHK_NULL_RETURN(debugInterface);
 
+        auto virtualAddrParams = m_hucItf->MHW_GETPAR_F(HUC_VIRTUAL_ADDR_STATE)();
         int32_t currentPass = m_pipeline->GetCurrentPass();
+
         if (isInput)
         {
             //Dump HucBrcUpdate input buffers
@@ -931,198 +1029,72 @@ namespace encode
                 hucRegionDumpUpdate));
 
             // Region 1 - VDENC Statistics Buffer dump
-            auto vdencStatusBuffer = m_virtualAddrParams.regionParams[1].presRegion;
             HevcBasicFeature *hevcBasicFeature  = dynamic_cast<HevcBasicFeature *>(m_basicFeature);
             ENCODE_CHK_NULL_RETURN(hevcBasicFeature);
             uint32_t vdencBRCStatsBufferSize = 1216;
             uint32_t size = MOS_ALIGN_CEIL(vdencBRCStatsBufferSize * hevcBasicFeature->m_maxTileNumber, CODECHAL_PAGE_SIZE);
-            if (vdencStatusBuffer)
-            {
-                ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                    vdencStatusBuffer,
-                    0,
-                    size,
-                    1,
-                    "_VdencStats",
-                    true,
-                    currentPass,
-                    hucRegionDumpUpdate));
-            }
+            ENCODE_CHK_STATUS_RETURN(DumpRegion(1, "_VdencStats", true, hucRegionDumpUpdate, size));
 
             // Region 2 - PAK Statistics Buffer dump
-            auto frameStatStreamOutBuffer = m_virtualAddrParams.regionParams[2].presRegion;
             size = MOS_ALIGN_CEIL(HevcBasicFeature::m_sizeOfHcpPakFrameStats * hevcBasicFeature->m_maxTileNumber, CODECHAL_PAGE_SIZE);
-            if (frameStatStreamOutBuffer)
-            {
-                ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                    frameStatStreamOutBuffer,
-                    0,
-                    size,
-                    2,
-                    "_PakStats",
-                    true,
-                    currentPass,
-                    hucRegionDumpUpdate));
-            }
+            ENCODE_CHK_STATUS_RETURN(DumpRegion(2, "_PakStats", true, hucRegionDumpUpdate, size));
 
-            // Region 3 - Input SLB Buffer
-            auto vdencReadBatchBuffer = m_virtualAddrParams.regionParams[3].presRegion;
-            ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                vdencReadBatchBuffer,
-                0,
-                m_hwInterface->m_vdencReadBatchBufferSize,
-                3,
-                "_Slb",
-                true,
-                currentPass,
-                hucRegionDumpUpdate));
+            // Region 3 - Input Origin SLB Buffer
+            ENCODE_CHK_STATUS_RETURN(DumpRegion(3, "_Slb_Origin", true, hucRegionDumpUpdate, m_hwInterface->m_vdencReadBatchBufferSize));
 
             // Region 4 - Constant Data Buffer dump
-            auto vdencBrcConstDataBuffer = m_virtualAddrParams.regionParams[4].presRegion;
-            ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                vdencBrcConstDataBuffer,
-                0,
-                m_vdencBrcConstDataBufferSize,
-                4,
-                "_ConstData",
-                true,
-                currentPass,
-                hucRegionDumpUpdate));
+            ENCODE_CHK_STATUS_RETURN(DumpRegion(4, "_ConstData", true, hucRegionDumpUpdate, m_vdencBrcConstDataBufferSize));
 
             // Region 7 - Slice Stat Streamout (Input)
-            auto lucBasedAddressBuffer = m_virtualAddrParams.regionParams[7].presRegion;
-            if (lucBasedAddressBuffer)
-            {
-                ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                    lucBasedAddressBuffer,
-                    0,
-                    CODECHAL_HEVC_MAX_NUM_SLICES_LVL_6 * CODECHAL_CACHELINE_SIZE,
-                    7,
-                    "_SliceStat",
-                    true,
-                    currentPass,
-                    hucRegionDumpUpdate));
-            }
+            ENCODE_CHK_STATUS_RETURN(DumpRegion(7, "_SliceStat", true, hucRegionDumpUpdate, CODECHAL_HEVC_MAX_NUM_SLICES_LVL_6 * CODECHAL_CACHELINE_SIZE));
 
             // Region 8 - PAK MMIO Buffer dump
-            auto pakInfoBufffer = m_virtualAddrParams.regionParams[8].presRegion;  
-            if (pakInfoBufffer)
-            {
-                ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                    pakInfoBufffer,
-                    0,
-                    sizeof(CodechalVdencHevcPakInfo),
-                    8,
-                    "_PakMmio",
-                    true,
-                    currentPass,
-                    hucRegionDumpUpdate));
-            }
+            ENCODE_CHK_STATUS_RETURN(DumpRegion(8, "_PakMmio", true, hucRegionDumpUpdate, sizeof(CodechalVdencHevcPakInfo)));
 
             // Region 9 - Streamin Buffer for ROI (Input)
             auto streamInBufferSize = (MOS_ALIGN_CEIL(m_basicFeature->m_frameWidth, 64) / 32) * (MOS_ALIGN_CEIL(m_basicFeature->m_frameHeight, 64) / 32) * CODECHAL_CACHELINE_SIZE;
-            auto stramInBuffer = m_virtualAddrParams.regionParams[9].presRegion;
-            if (stramInBuffer)
-            {
-                ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                    stramInBuffer,
-                    0,
-                    streamInBufferSize,
-                    9,
-                    "_RoiStreamin",
-                    true,
-                    currentPass,
-                    hucRegionDumpUpdate));
-            }
+            ENCODE_CHK_STATUS_RETURN(DumpRegion(9, "_RoiStreamin", true, hucRegionDumpUpdate, streamInBufferSize));
 
             // Region 10 - Delta QP for ROI Buffer
-            auto vdencDeltaQpBuffer = m_virtualAddrParams.regionParams[10].presRegion;
+            auto vdencDeltaQpBuffer = virtualAddrParams.regionParams[10].presRegion;
             if (vdencDeltaQpBuffer)
             {
-                ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                    vdencDeltaQpBuffer,
-                    0,
-                    vdencDeltaQpBuffer->iSize,
-                    10,
-                    "_DeltaQp",
-                    true,
-                    currentPass,
-                    hucRegionDumpUpdate));
+                ENCODE_CHK_STATUS_RETURN(DumpRegion(10, "_DeltaQp", true, hucRegionDumpUpdate, vdencDeltaQpBuffer->iSize));
+            }
+
+            // Region 12 - Input TU7 SLB Buffer
+            if (m_basicFeature->m_hevcPicParams->AdaptiveTUEnabled != 0)
+            {      
+                ENCODE_CHK_STATUS_RETURN(DumpRegion(12, "_Slb_TU7", true, hucRegionDumpUpdate, m_hwInterface->m_vdencReadBatchBufferSize));
             }
         }
         else
         {
             // Region 5 - Output SLB Buffer
-            auto vdenc2ndLevelBatchBuffer = m_virtualAddrParams.regionParams[5].presRegion;
-            if (vdenc2ndLevelBatchBuffer)
-            {
-                ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                    vdenc2ndLevelBatchBuffer,
-                    0,
-                    m_hwInterface->m_vdenc2ndLevelBatchBufferSize,
-                    5,
-                    "_Slb",
-                    false,
-                    currentPass,
-                    hucRegionDumpUpdate));
-            }
+            ENCODE_CHK_STATUS_RETURN(DumpRegion(5, "_Slb", false, hucRegionDumpUpdate, m_hwInterface->m_vdenc2ndLevelBatchBufferSize));
 
             // Region 11 - Output ROI Streamin Buffer
-            auto vdencOutputROIStreaminBuffer = m_virtualAddrParams.regionParams[11].presRegion;
+            auto vdencOutputROIStreaminBuffer = virtualAddrParams.regionParams[11].presRegion;
             if (vdencOutputROIStreaminBuffer)
             {
-                ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                    vdencOutputROIStreaminBuffer,
-                    0,
-                    vdencOutputROIStreaminBuffer->iSize,
-                    11,
-                    "_RoiStreamin",
-                    false,
-                    currentPass,
-                    hucRegionDumpUpdate));
+                ENCODE_CHK_STATUS_RETURN(DumpRegion(11, "_RoiStreamin", false, hucRegionDumpUpdate, vdencOutputROIStreaminBuffer->iSize));
             }
         }
 
         // Region 0 - History Buffer dump (Input/Output)
-            auto vdencBrcHistoryBuffer = m_virtualAddrParams.regionParams[0].presRegion;
-        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-            vdencBrcHistoryBuffer,
-            0,
-            CODECHAL_VDENC_HEVC_BRC_HISTORY_BUF_SIZE,
-            0,
-            "_History",
-            isInput,
-            currentPass,
-            hucRegionDumpUpdate));
+        ENCODE_CHK_STATUS_RETURN(DumpRegion(0, "_History", isInput, hucRegionDumpUpdate));
 
         // Region 6 - Data from Pictures for Weighted Prediction (Input/Output)
-        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-            &m_dataFromPicsBuffer,
-            0,
-            CODECHAL_PAGE_SIZE * 4,
-            6,
-            "_PicsData",
-            isInput,
-            currentPass,
-            hucRegionDumpUpdate));
+        ENCODE_CHK_STATUS_RETURN(DumpRegion(6, "_PicsData", isInput, hucRegionDumpUpdate, CODECHAL_PAGE_SIZE * 4));
 
         // Region 15 - Debug Output
-        auto debugBuffer = m_virtualAddrParams.regionParams[15].presRegion;
+        auto debugBuffer = virtualAddrParams.regionParams[15].presRegion;
         if (debugBuffer)
         {
-            ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                debugBuffer,
-                0,
-                debugBuffer->iSize,
-                15,
-                "_Debug",
-                isInput,
-                currentPass,
-                hucRegionDumpUpdate));
+            ENCODE_CHK_STATUS_RETURN(DumpRegion(15, "_Debug", isInput, hucRegionDumpUpdate, debugBuffer->iSize));
         }
-
+        
         return MOS_STATUS_SUCCESS;
-
     }
 
     MOS_STATUS HucBrcUpdatePkt::DumpInput()
@@ -1159,7 +1131,7 @@ namespace encode
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS HucBrcUpdatePkt::AddAllCmds_HCP_PAK_INSERT_OBJECT(PMOS_COMMAND_BUFFER cmdBuffer) const
+    MOS_STATUS HucBrcUpdatePkt::AddAllCmds_HCP_PAK_INSERT_OBJECT_SLICE(PMOS_COMMAND_BUFFER cmdBuffer) const
     {
         ENCODE_FUNC_CALL();
 
@@ -1172,60 +1144,6 @@ namespace encode
         uint32_t                   offSet          = 0;
         PCODECHAL_NAL_UNIT_PARAMS *ppNalUnitParams = (CODECHAL_NAL_UNIT_PARAMS **)m_basicFeature->m_nalUnitParams;
         PBSBuffer                  pBsBuffer       = &(m_basicFeature->m_bsBuffer);
-
-        if (m_basicFeature->m_curNumSlices == 0)
-        {
-            uint32_t maxBytesInPakInsertObjCmd = ((2 << 11) - 1) * 4;  // 12 bits for DwordLength field in PAK_INSERT_OBJ cmd
-            m_1stPakInsertObjectCmdSize        = 0;
-
-            for (auto i = 0; i < HEVC_MAX_NAL_UNIT_TYPE; i++)
-            {
-                uint32_t nalUnitPosiSize   = ppNalUnitParams[i]->uiSize;
-                uint32_t nalUnitPosiOffset = ppNalUnitParams[i]->uiOffset;
-
-                while (nalUnitPosiSize > 0)
-                {
-                    bitSize = MOS_MIN(maxBytesInPakInsertObjCmd * 8, nalUnitPosiSize * 8);
-                    offSet  = nalUnitPosiOffset;
-
-                    params = {};
-
-                    params.dwPadding                 = (MOS_ALIGN_CEIL((bitSize + 7) >> 3, sizeof(uint32_t))) / sizeof(uint32_t);
-                    params.bEmulationByteBitsInsert  = ppNalUnitParams[i]->bInsertEmulationBytes;
-                    params.uiSkipEmulationCheckCount = ppNalUnitParams[i]->uiSkipEmulationCheckCount;
-                    params.dataBitsInLastDw          = bitSize % 32;
-                    if (params.dataBitsInLastDw == 0)
-                    {
-                        params.dataBitsInLastDw = 32;
-                    }
-
-                    if (nalUnitPosiSize > maxBytesInPakInsertObjCmd)
-                    {
-                        nalUnitPosiSize -= maxBytesInPakInsertObjCmd;
-                        nalUnitPosiOffset += maxBytesInPakInsertObjCmd;
-                    }
-                    else
-                    {
-                        nalUnitPosiSize = 0;
-                    }
-
-                    cmdBufOffset = cmdBuffer->iOffset;
-                    m_hcpItf->MHW_ADDCMD_F(HCP_PAK_INSERT_OBJECT)(cmdBuffer);
-
-                    uint32_t byteSize = (bitSize + 7) >> 3;
-                    if (byteSize)
-                    {
-                        MHW_MI_CHK_NULL(pBsBuffer);
-                        MHW_MI_CHK_NULL(pBsBuffer->pBase);
-                        uint8_t *data = (uint8_t *)(pBsBuffer->pBase + offSet);
-                        MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, nullptr, data, byteSize));
-                    }
-                    m_1stPakInsertObjectCmdSize += (cmdBuffer->iOffset - cmdBufOffset);
-                }
-            }
-            // 1st PakInsertObject cmd is not always inserted for each slice
-            m_basicFeature->m_vdencBatchBufferPerSliceVarSize[m_basicFeature->m_curNumSlices] += m_1stPakInsertObjectCmdSize;
-        }
 
         params = {};
         // Insert slice header
@@ -1261,7 +1179,7 @@ namespace encode
                 MHW_MI_CHK_NULL(pBsBuffer);
                 MHW_MI_CHK_NULL(pBsBuffer->pBase);
                 uint8_t *data = (uint8_t *)(pBsBuffer->pBase + offSet);
-                MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, nullptr, data, byteSize));
+                MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(m_osInterface, cmdBuffer, nullptr, data, byteSize));
             }
 
             // Send HCP_PAK_INSERT_OBJ command. For dynamic slice, we are skipping the beginning part of slice header.
@@ -1283,7 +1201,7 @@ namespace encode
                 MHW_MI_CHK_NULL(pBsBuffer);
                 MHW_MI_CHK_NULL(pBsBuffer->pBase);
                 uint8_t *data = (uint8_t *)(pBsBuffer->pBase + offSet);
-                MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, nullptr, data, byteSize));
+                MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(m_osInterface, cmdBuffer, nullptr, data, byteSize));
             }
             m_basicFeature->m_vdencBatchBufferPerSliceVarSize[m_basicFeature->m_curNumSlices] += (cmdBuffer->iOffset - cmdBufOffset);
         }
@@ -1303,7 +1221,7 @@ namespace encode
                 MHW_MI_CHK_NULL(pBsBuffer);
                 MHW_MI_CHK_NULL(pBsBuffer->pBase);
                 uint8_t *data = (uint8_t *)(pBsBuffer->pBase + offSet);
-                MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, nullptr, data, byteSize));
+                MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(m_osInterface, cmdBuffer, nullptr, data, byteSize));
             }
         }
 
@@ -1375,18 +1293,16 @@ namespace encode
                 tcbrcQualityBoostFromScenario = 0;
             }
 
+#if (_DEBUG || _RELEASE_INTERNAL)
             //tcbrc mode override by reg key
             uint8_t tcbrcQualityBoostFromRegkey = 3;
-            auto osInterface = m_hwInterface->GetOsInterface();
-            ENCODE_CHK_NULL_RETURN(osInterface);
-#if (_DEBUG || _RELEASE_INTERNAL)
+
             MediaUserSetting::Value outValue;
             ReadUserSetting(m_userSettingPtr,
                 outValue,
                 "TCBRC Quality Boost Mode",
                 MediaUserSetting::Group::Sequence);
             tcbrcQualityBoostFromRegkey = static_cast<uint8_t>(outValue.Get<int32_t>());
-#endif
             //if FrameSizeBoostForSceneChange is set by regkey, then override it
             if (tcbrcQualityBoostFromRegkey == 0 || tcbrcQualityBoostFromRegkey == 1 || tcbrcQualityBoostFromRegkey == 2)
             {
@@ -1394,6 +1310,7 @@ namespace encode
                 ENCODE_VERBOSEMESSAGE("TCBRC FrameSizeBoostForSceneChange is override by regkey!");
             }
             else
+#endif
             {
                 m_tcbrcQualityBoost = tcbrcQualityBoostFromScenario;
             }

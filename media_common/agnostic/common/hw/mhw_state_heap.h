@@ -56,6 +56,8 @@ typedef struct MHW_BLOCK_MANAGER *PMHW_BLOCK_MANAGER;
 #define MHW_SAMPLER_STATE_AVS_ALIGN_MEDIA  1024 // per old HWCMD files AVS samplers were aligned to 256. Not sure if this is needed
 #define MHW_SURFACE_STATE_ALIGN 64 // (1 << MHW_BINDING_TABLE_OFFSET_SHIFT)
 
+#define MHW_MEDIA_OBJECT_BYTE_SIZE 24
+
 // Each increment in sampler index represents this increment in offset
 #define MHW_SAMPLER_STATE_VA_INC            32
 #define MHW_SAMPLER_STATE_CONV_1D_INC       128
@@ -63,6 +65,9 @@ typedef struct MHW_BLOCK_MANAGER *PMHW_BLOCK_MANAGER;
 #define MHW_SAMPLER_STATE_AVS_INC_LEGACY    512
 #define MHW_AVS_SAMPLER_HEIGHT_ALIGN_UNIT   2
 #define MHW_SAMPLER_STATE_CONV_INC_LEGACY   512
+
+#define MHW_SAMPLER_WIDTH_ALIGN_UNIT        2
+#define MHW_SAMPLER_HEIGHT_ALIGN_UNIT       4
 
 #define MHW_INVALID_BINDING_TABLE_IDX 0xFFFFFFFF
 
@@ -446,6 +451,7 @@ typedef struct _MHW_ID_ENTRY_PARAMS
     int32_t             iCrsThdConDataRdLn;             //!
     PMHW_STATE_HEAP     pGeneralStateHeap;              //! General state heap in use
     MemoryBlock         *memoryBlock;                   //! Memory block associated with the state heap
+    uint32_t            preferredSlmAllocationSize;     //! SLM Allocation Size for per SubSlice
 } MHW_ID_ENTRY_PARAMS, *PMHW_ID_ENTRY_PARAMS;
 
 typedef struct _MHW_PLANE_SETTING
@@ -693,6 +699,14 @@ typedef enum _MHW_CHROMAKEY_MODE
     MHW_CHROMAKEY_MODE_REPLACE_BLACK = 1
 } MHW_CHROMAKEY_MODE;
 
+typedef struct _MHW_INLINE_DATA_PARAMS
+{
+    uint32_t          dwOffset;
+    uint32_t          dwSize;
+    PMOS_RESOURCE     resource;
+    bool              isPtrType;
+} MHW_INLINE_DATA_PARAMS, *PMHW_INLINE_DATA_PARAMS;
+
 typedef struct _MHW_SAMPLER_STATE_UNORM_PARAM
 {
     MHW_SAMPLER_FILTER_MODE      SamplerFilterMode;
@@ -839,6 +853,7 @@ struct MHW_STATE_HEAP_SETTINGS
     HeapManager::Behavior m_dshBehavior = HeapManager::Behavior::wait;    //!< DSH behavior
 
     uint32_t        dwNumSyncTags = 0; //!< to be removed with old interfaces
+    MOS_HW_RESOURCE_DEF m_heapUsageType = MOS_CODEC_RESOURCE_USAGE_BEGIN_CODEC;
 };
 
 typedef struct _MHW_STATE_HEAP_DYNAMIC_ALLOC_PARAMS
@@ -925,9 +940,9 @@ public:
 
     virtual ~XMHW_STATE_HEAP_INTERFACE();
 
-    PMHW_STATE_HEAP GetDSHPointer(){ return   m_pDynamicStateHeaps; };
+    virtual PMHW_STATE_HEAP GetDSHPointer(){ return   m_pDynamicStateHeaps; };
 
-    PMHW_STATE_HEAP GetISHPointer(){ return   m_pInstructionStateHeaps;};
+    virtual PMHW_STATE_HEAP GetISHPointer() { return m_pInstructionStateHeaps; };
 
     uint32_t GetNumDsh(){return m_dwNumDsh;};
 
@@ -956,6 +971,8 @@ public:
     PMHW_RENDER_STATE_SIZES GetHwSizesPointer() { return & m_HwSizes;};
 
     uint32_t GetSizeofSamplerStateAvs() { return m_HwSizes.dwSizeSamplerStateAvs;};
+
+    int8_t GetDynamicMode() { return m_bDynamicMode; }
 
     //!
     //! \brief    Initializes the MI StateHeap interface

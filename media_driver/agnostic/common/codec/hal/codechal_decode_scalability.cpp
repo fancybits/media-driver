@@ -1901,6 +1901,7 @@ MOS_STATUS CodecHalDecodeScalability_ReadCSEngineIDReg(
         pDecodeStatusBuf->m_csEngineIdOffset + sizeof(uint32_t)* ucPhaseIndex +
         sizeof(uint32_t)* 2;
 
+    MOS_ZeroMemory(&StoreRegParams, sizeof(StoreRegParams));
     StoreRegParams.presStoreBuffer  = &pDecodeStatusBuf->m_statusBuffer;
     StoreRegParams.dwOffset         = dwOffset;
     StoreRegParams.dwRegister       = pMmioRegisters->csEngineIdOffset;
@@ -2033,6 +2034,7 @@ MOS_STATUS CodecHalDecodeScalability_InitializeState (
         GpuContext = MOS_VE_MULTINODESCALING_SUPPORTED(osInterface) ? MOS_GPU_CONTEXT_VIDEO4 : GpuContext;
 
         MHW_VDBOX_GPUNODE_LIMIT gpuNodeLimit;
+        MOS_ZeroMemory(&gpuNodeLimit, sizeof(MHW_VDBOX_GPUNODE_LIMIT));
         CODECHAL_DECODE_CHK_STATUS_RETURN(vdboxMfxInterface->FindGpuNodeToUse(
             &gpuNodeLimit));
         MOS_GPU_NODE videoGpuNode = (MOS_GPU_NODE)(gpuNodeLimit.dwGpuNodeToUse);
@@ -2059,7 +2061,7 @@ MOS_STATUS CodecHalDecodeScalability_InitializeState (
     VEInitParms.ucMaxNumPipesInUse        = (vdboxNum == 2) ? 2 : 3;
     VEInitParms.ucNumOfSdryCmdBufSets     = CODECHAL_SCALABILITY_DECODE_SECONDARY_CMDBUFSET_NUM;
     VEInitParms.ucMaxNumOfSdryCmdBufInOneFrame = (pScalabilityState->bFESeparateSubmission) ? VEInitParms.ucMaxNumPipesInUse : (VEInitParms.ucMaxNumPipesInUse + 1);
-    CODECHAL_DECODE_CHK_STATUS_RETURN(Mos_VirtualEngineInterface_Initialize(osInterface, &VEInitParms));
+    CODECHAL_DECODE_CHK_STATUS_RETURN(osInterface->pfnVirtualEngineInterfaceInitialize(osInterface, &VEInitParms));
     pScalabilityState->pVEInterface = pVEInterface = osInterface->pVEInterf;
 
     if (pVEInterface->pfnVEGetHintParams)

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020, Intel Corporation
+* Copyright (c) 2020-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -31,9 +31,6 @@
 #include "codec_def_cenc_decode.h"
 #include "decode_avc_reference_frames.h"
 #include "decode_avc_mv_buffers.h"
-#include "mhw_vdbox_g12_X.h"
-#include "mhw_vdbox_mfx_interface.h"
-#include "codechal_hw_g12_X.h"
 
 namespace decode {
 
@@ -49,12 +46,12 @@ public:
     //!
     //! \brief  AvcBasicFeature constructor
     //!
-    AvcBasicFeature(DecodeAllocator *allocator, CodechalHwInterface *hwInterface) :
-                        DecodeBasicFeature(allocator, hwInterface)
+    AvcBasicFeature(DecodeAllocator *allocator, void *hwInterface, PMOS_INTERFACE osInterface) :
+        DecodeBasicFeature(allocator, hwInterface, osInterface)
     {
-        if (hwInterface != nullptr)
+        if (osInterface != nullptr)
         {
-            m_osInterface  = hwInterface->GetOsInterface();
+            m_osInterface = osInterface;
         }
     };
 
@@ -175,6 +172,7 @@ protected:
     virtual MOS_STATUS SetRequiredBitstreamSize(uint32_t requiredSize) override;
     MOS_STATUS SetPictureStructs();
     MOS_STATUS SetSliceStructs();
+    virtual MOS_STATUS CheckBitDepthAndChromaSampling();
 
     PMOS_INTERFACE        m_osInterface  = nullptr;
 

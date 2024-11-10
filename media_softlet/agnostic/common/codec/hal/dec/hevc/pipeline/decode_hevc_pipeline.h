@@ -52,7 +52,7 @@ public:
     //! \param  [in] debugInterface
     //!         Pointer to CodechalDebugInterface
     //!
-    HevcPipeline(CodechalHwInterface *hwInterface, CodechalDebugInterface *debugInterface);
+    HevcPipeline(CodechalHwInterfaceNext *hwInterface, CodechalDebugInterface *debugInterface);
 
     virtual ~HevcPipeline() {}
 
@@ -151,7 +151,7 @@ protected:
     //! \return MOS_STATUS
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS InitContexOption(HevcScalabilityPars& scalPars);
+    virtual MOS_STATUS InitContexOption(HevcScalabilityPars& scalPars);
 
     //!
     //! \brief  Initialize Hevc decode mode
@@ -283,7 +283,7 @@ protected:
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS DumpSecondLevelBatchBuffer();
+    virtual MOS_STATUS DumpSecondLevelBatchBuffer();
 #endif
 
 protected:
@@ -297,6 +297,8 @@ protected:
     DecodeHevcScalabilityOption m_scalabOption; //!< Hevc decode scalability option
 
     std::vector<DecodePhase *>  m_phaseList;    //!< Phase list
+
+    bool m_allowVirtualNodeReassign = false;    //!< Whether allow virtual node reassign
 
 #if (_DEBUG || _RELEASE_INTERNAL)
     uint32_t m_rtFrameCount = 0; //!< frame count for real tile decoding

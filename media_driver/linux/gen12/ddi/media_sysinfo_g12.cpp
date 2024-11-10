@@ -31,7 +31,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 #include "linux_skuwa_debug.h"
 #include "linux_media_skuwa.h"
 #include "linux_shadow_skuwa.h"
-#include "mos_utilities.h"
+#include "media_user_setting_specific.h"
 
 //extern template class DeviceInfoFactory<GfxDeviceInfo>;
 typedef DeviceInfoFactory<GfxDeviceInfo> base_fact;
@@ -256,6 +256,9 @@ static bool dg1Gt2Device4907 = DeviceInfoFactory<GfxDeviceInfo>::
 
 static bool dg1Gt2Device4908 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x4908, &dg1Gt2Info);
+
+static bool dg1Gt2Device4909 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x4909, &dg1Gt2Info);
 #endif
 
 #ifdef IGFX_GEN12_RKL_SUPPORTED
@@ -377,6 +380,15 @@ static bool adlsGt1Device4682 = DeviceInfoFactory<GfxDeviceInfo>::
 static bool adlsGt1Device4683 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x4683, &adlsGt1fInfo);
 
+static bool adlsGt1Device4688 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x4688, &adlsGt1Info);
+
+static bool adlsGt1Device468A = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x468A, &adlsGt1Info);
+
+static bool adlsGt1Device468B = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x468B, &adlsGt1Info);
+
 static bool adlsGt1Device4690 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x4690, &adlsGt1Info);
 
@@ -444,6 +456,9 @@ static bool adlpGt2Device46A0 = DeviceInfoFactory<GfxDeviceInfo>::
 static bool adlpGt2Device46A1 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x46A1, &adlpGt2Info);
 
+static bool adlpGt2Device46A2 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x46A2, &adlpGt2Info);
+
 static bool adlpGt2Device46A3 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x46A3, &adlpGt2Info);
 
@@ -459,6 +474,9 @@ static bool adlpGt2Device46B0 = DeviceInfoFactory<GfxDeviceInfo>::
 static bool adlpGt2Device46B1 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x46B1, &adlpGt2Info);
 
+static bool adlpGt2Device46B2 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x46B2, &adlpGt2Info);
+
 static bool adlpGt2Device46B3 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x46B3, &adlpGt2Info);
 
@@ -467,6 +485,24 @@ static bool adlpGt2Device46A8 = DeviceInfoFactory<GfxDeviceInfo>::
 
 static bool adlpGt2Device4628 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x4628, &adlpGt2Info);
+
+static bool adlpGt2Device46C0 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x46C0, &adlpGt2Info);
+
+static bool adlpGt2Device46C1 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x46C1, &adlpGt2Info);
+
+static bool adlpGt2Device46C2 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x46C2, &adlpGt2Info);
+
+static bool adlpGt2Device46C3 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x46C3, &adlpGt2Info);
+
+static bool adlpGt2Device46AA = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x46AA, &adlpGt2Info);
+
+static bool adlpGt2Device462A = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x462A, &adlpGt2Info);
 
 static bool rplpGt2DeviceA7A0 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0xA7A0, &adlpGt2Info);
@@ -485,6 +521,19 @@ static bool rplpGt2DeviceA721 = DeviceInfoFactory<GfxDeviceInfo>::
 
 static bool rplpGt2DeviceA7A9 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0xA7A9, &adlpGt2Info);
+
+static bool rplGt2DeviceA7AA = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xA7AA, &adlpGt2Info);
+
+static bool rplGt2DeviceA7AB = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xA7AB, &adlpGt2Info);
+
+static bool rplGt2DeviceA7AC = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xA7AC, &adlpGt2Info);
+
+static bool rplGt2DeviceA7AD = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xA7AD, &adlpGt2Info);
+
 #endif
 
 #ifdef IGFX_GEN12_ADLN_SUPPORTED
@@ -517,6 +566,12 @@ static bool adlnGt1Device46D1 = DeviceInfoFactory<GfxDeviceInfo>::
 
 static bool adlnGt1Device46D2 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0x46D2, &adlnGt1Info);
+
+static bool twlGt1Device46D3 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x46D3, &adlnGt1Info);
+
+static bool twlGt1Device46D4 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0x46D4, &adlnGt1Info);
 #endif 
 
 

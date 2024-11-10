@@ -36,6 +36,7 @@
 #include "mhw_vebox.h"
 #include "mhw_sfc.h"
 #include "mhw_cp_interface.h"
+#include "media_copy.h"
 #include "media_blt_copy.h"
 
 #include "mhw_vdbox_mfx_interface.h"
@@ -50,9 +51,7 @@
 
 #include "gfxmacro.h"
 
-#ifdef IGFX_MHW_INTERFACES_NEXT_SUPPORT
 #include "codec_hw_next.h"
-#endif
 
 //------------------------------------------------------------------------------
 // Macros specific to MOS_CODEC_SUBCOMP_HW sub-comp
@@ -92,8 +91,6 @@
 
 #define CODECHAL_HW_CHK_COND_RETURN(_expr, _message, ...)                           \
     MOS_CHK_COND_RETURN(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_HW,_expr,_message, ##__VA_ARGS__)
-
-#define CODECHAL_PAK_OBJ_EACH_CU                66
 
 #define CODECHAL_SURFACE_PITCH_ALIGNMENT        128
 
@@ -256,6 +253,7 @@ protected:
     std::shared_ptr<mhw::vdbox::hcp::Itf>   m_hcpItf   = nullptr;
     std::shared_ptr<mhw::vdbox::vdenc::Itf> m_vdencItf = nullptr;
     std::shared_ptr<MediaSfcInterface> m_mediaSfcItf = nullptr;
+    std::shared_ptr<mhw::render::Itf>       m_renderItf             = nullptr;
 
     CODECHAL_SSEU_SETTING const         *m_ssEuTable = nullptr;       //!< Pointer to the default SSEU settings table
     uint16_t                            m_numMediaStates = CODECHAL_NUM_MEDIA_STATES;  //!< number of media states
@@ -334,12 +332,11 @@ public:
         MhwInterfaces     *mhwInterfaces,
         bool              disableScalability = false);
 
-#ifdef IGFX_MHW_INTERFACES_NEXT_SUPPORT
-    CodechalHwInterface(
+    static CodechalHwInterface *Create(
         PMOS_INTERFACE    osInterface,
         CODECHAL_FUNCTION codecFunction,
-        MhwInterfacesNext *mhwInterfacesNext,
-        bool              disableScalability = false);
+        MhwInterfaces     *mhwInterfaces,
+        bool              disableScalability);
 
     //!
     //! \brief    Get avp interface
@@ -447,8 +444,23 @@ public:
             return nullptr;
         }
     }
-#endif
-
+    //!
+    //! \brief    Get render interface
+    //! \details  Get render interface in codechal hw interface next
+    //!
+    //! \return    pointer to new HCP interface
+    //!
+    inline std::shared_ptr<mhw::render::Itf> GetRenderInterfaceNext()
+    {
+        if (m_hwInterfaceNext)
+        {
+            return m_hwInterfaceNext->GetRenderInterfaceNext();
+        }
+        else
+        {
+            return nullptr;
+        }
+    }
     //!
     //! \brief    Copy constructor
     //!
@@ -466,7 +478,7 @@ public:
     {
         CODECHAL_HW_FUNCTION_ENTER;
 
-        if (MEDIA_IS_WA(m_waTable, WaHucStreamoutEnable))
+        if (MEDIA_IS_WA(m_waTable, WaHucStreamoutEnable) && m_osInterface)
         {
             m_osInterface->pfnFreeResource(
                 m_osInterface,
@@ -479,10 +491,13 @@ public:
                 &m_dummyStreamOut);
         }
 
-        m_osInterface->pfnFreeResource(m_osInterface, &m_conditionalBbEndDummy);
+        if (m_osInterface)
+        {
+            m_osInterface->pfnFreeResource(m_osInterface, &m_conditionalBbEndDummy);
 
-        Delete_MhwCpInterface(m_cpInterface); 
-        m_cpInterface = nullptr;
+            m_osInterface->pfnDeleteMhwCpInterface(m_cpInterface);
+            m_cpInterface = nullptr;
+        }
 
         if (m_miInterface)
         {
@@ -529,13 +544,12 @@ public:
             MOS_Delete(m_sfcInterface);
             m_sfcInterface = nullptr;
         }
-#ifdef IGFX_MHW_INTERFACES_NEXT_SUPPORT
+
         if (m_hwInterfaceNext)
         {
             MOS_Delete(m_hwInterfaceNext);
             m_hwInterfaceNext = nullptr;
         }
-#endif
 
     #if MHW_HWCMDPARSER_ENABLED
         mhw::HwcmdParser::DestroyInstance();
@@ -749,6 +763,18 @@ public:
     inline MHW_MEMORY_OBJECT_CONTROL_PARAMS *GetCacheabilitySettings()
     {
         return m_cacheabilitySettings;
+    }
+
+    //! \brief    Create media copy
+    //! \details  Create media copy instance.
+    //! \param    osInterface
+    //!           [in] Pointer to MOS_INTERFACE.
+    //! \return   MediaCopyBaseState*
+    //!           Pointer to MediaCopyBaseState
+    //!
+    virtual MediaCopyBaseState* CreateMediaCopy(PMOS_INTERFACE mosInterface)
+    {
+        return nullptr;
     }
 
     //! \brief    Get blt state
@@ -1046,6 +1072,17 @@ public:
         uint32_t                       *patchListSize);
 
     //!
+    //! \brief    Get max vdbox index
+    //!
+    //! \return   MHW_VDBOX_NODE_IND
+    //!           max vdbox index got
+    //!
+    inline MHW_VDBOX_NODE_IND GetMaxVdboxIndex()
+    {
+        return MEDIA_IS_SKU(m_skuTable, FtrVcs2) ? MHW_VDBOX_NODE_2 : MHW_VDBOX_NODE_1;
+    }
+
+    //!
     //! \brief    Initialize the codechal hw interface
     //! \details  Initialize the interface before using
     //! 
@@ -1208,7 +1245,7 @@ public:
     //! \return   MOS_STATUS
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS AddHucDummyStreamOut(
+    virtual MOS_STATUS AddHucDummyStreamOut(
         PMOS_COMMAND_BUFFER cmdBuffer);
 
     //!
@@ -1674,7 +1711,6 @@ public:
     //! \brief    default disable the get vdbox node by UMD, decided by MHW and MOS
     bool m_getVdboxNodeByUMD = false;
 
-#ifdef IGFX_MHW_INTERFACES_NEXT_SUPPORT
     operator CodechalHwInterfaceNext &()
     {
         if (m_hwInterfaceNext == nullptr)
@@ -1690,7 +1726,7 @@ public:
     }
 
     CodechalHwInterfaceNext *m_hwInterfaceNext = nullptr;
-#endif
+
 };
 
 extern const MOS_SYNC_PARAMS                        g_cInitSyncParams;

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021-2022, Intel Corporation
+* Copyright (c) 2021-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -32,7 +32,7 @@
 #include "mhw_mi_impl.h"
 
 #ifdef IGFX_MFX_INTERFACE_EXT_SUPPORT
-#include "mhw_vdbox_mfx_impl_ext.h"
+#include "mhw_vdbox_mfx_hwcmd_ext.h"
 #endif
 
 #define AVC_MPR_ROWSTORE_BASEADDRESS          256
@@ -49,28 +49,11 @@ namespace vdbox
 {
 namespace mfx
 {
-//VDBOX MFX register offsets
-static constexpr uint32_t MFC_IMAGE_STATUS_MASK_REG_OFFSET_NODE_1_INIT           = 0x1C08B4;
-static constexpr uint32_t MFC_IMAGE_STATUS_CTRL_REG_OFFSET_NODE_1_INIT           = 0x1C08B8;
-static constexpr uint32_t MFC_AVC_NUM_SLICES_REG_OFFSET_NODE_1_INIT              = 0x1C0954;
-static constexpr uint32_t MFC_QP_STATUS_COUNT_OFFSET_NODE_1_INIT                 = 0x1C08BC;
-static constexpr uint32_t MFX_ERROR_FLAG_REG_OFFSET_NODE_1_INIT                  = 0x1C0800;
-static constexpr uint32_t MFX_FRAME_CRC_REG_OFFSET_NODE_1_INIT                   = 0x1C0850;
-static constexpr uint32_t MFX_MB_COUNT_REG_OFFSET_NODE_1_INIT                    = 0x1C0868;
-static constexpr uint32_t MFC_BITSTREAM_BYTECOUNT_FRAME_REG_OFFSET_NODE_1_INIT   = 0x1C08A0;
-static constexpr uint32_t MFC_BITSTREAM_SE_BITCOUNT_FRAME_REG_OFFSET_NODE_1_INIT = 0x1C08A4;
-static constexpr uint32_t MFC_BITSTREAM_BYTECOUNT_SLICE_REG_OFFSET_NODE_1_INIT   = 0x1C08D0;
-
-//VDBOX MFX register initial value
-static constexpr uint32_t MFX_LRA0_REG_OFFSET_NODE_1_INIT                             = 0;
-static constexpr uint32_t MFX_LRA1_REG_OFFSET_NODE_1_INIT                             = 0;
-static constexpr uint32_t MFX_LRA2_REG_OFFSET_NODE_1_INIT                             = 0;
 
 template<typename cmd_t>
 class Impl : public Itf, public mhw::Impl
 {
     _MFX_CMD_DEF(_MHW_CMD_ALL_DEF_FOR_IMPL);
-    MmioRegistersMfx m_mmioRegisters[MHW_VDBOX_NODE_MAX] = {};  //!< Mfx mmio registers
 
 public:
     MOS_STATUS SetCacheabilitySettings(MHW_MEMORY_OBJECT_CONTROL_PARAMS settings[MOS_CODEC_RESOURCE_USAGE_END_CODEC]) override
@@ -84,7 +67,7 @@ public:
         return MOS_SecureMemcpy(m_cacheabilitySettings, size, settings, size);
     }
 
-    MOS_STATUS GetRowstoreCachingAddrs(PMHW_VDBOX_ROWSTORE_PARAMS rowstoreParams)
+    MOS_STATUS GetRowstoreCachingAddrs(PMHW_VDBOX_ROWSTORE_PARAMS rowstoreParams) override
     {
         MHW_FUNCTION_ENTER;
 
@@ -152,6 +135,14 @@ public:
                                            m_osItf->pfnCachePolicyGetMemoryObject(
                                                       MOS_CODEC_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC,
                                                       m_osItf->pfnGetGmmClientContext(m_osItf)).DwordValue;
+        m_referncePictureMemoryObjectControlStateCtrlDecode.Value =
+                                           m_osItf->pfnCachePolicyGetMemoryObject(
+                                                      MOS_HW_RESOURCE_USAGE_DECODE_INPUT_REFERENCE,
+                                                      m_osItf->pfnGetGmmClientContext(m_osItf)).DwordValue;
+        m_referncePictureMemoryObjectControlStateCtrlEncode.Value =
+                                           m_osItf->pfnCachePolicyGetMemoryObject(
+                                                      MOS_HW_RESOURCE_USAGE_ENCODE_INPUT_RECON,
+                                                      m_osItf->pfnGetGmmClientContext(m_osItf)).DwordValue;
         m_macroblockIldbStreamoutBufferCtrl.Value = 
                                            m_osItf->pfnCachePolicyGetMemoryObject(
                                                       MOS_CODEC_RESOURCE_USAGE_MACROBLOCK_ILDB_STREAM_OUT_BUFFER_CODEC,
@@ -200,12 +191,12 @@ public:
 
     }
 
-    bool IsRowStoreCachingSupported()
+    bool IsRowStoreCachingSupported() override
     {
         return m_rowstoreCachingSupported;
     }
 
-    bool IsMprRowstoreCacheEnabled()
+    bool IsMprRowstoreCacheEnabled() override
     {
         return m_mprRowstoreCache.enabled;
     }
@@ -242,24 +233,24 @@ public:
         return viewOrder;
     }
 
-    bool IsDeblockingFilterRowstoreCacheEnabled()
+    bool IsDeblockingFilterRowstoreCacheEnabled() override
     {
         return m_deblockingFilterRowstoreCache.enabled;
     }
 
-    bool IsIntraRowstoreCacheEnabled()
+    bool IsIntraRowstoreCacheEnabled() override
     {
         return m_intraRowstoreCache.enabled;
     }
 
-    bool IsBsdMpcRowstoreCacheEnabled()
+    bool IsBsdMpcRowstoreCacheEnabled() override
     {
         return m_bsdMpcRowstoreCache.enabled;
     }
 
-    MHW_VDBOX_NODE_IND GetMaxVdboxIndex()
+    MHW_VDBOX_NODE_IND GetMaxVdboxIndex() override
     {
-        return m_maxVdboxIndex;
+        return MEDIA_IS_SKU(m_osItf->pfnGetSkuTable(m_osItf), FtrVcs2) ? MHW_VDBOX_NODE_2 : MHW_VDBOX_NODE_1;
     }
 
     //!
@@ -268,8 +259,13 @@ public:
     //! \return   bool
     //!           vdbox num got
     //!
-    uint8_t GetNumVdbox()
+    uint8_t GetNumVdbox() override
     {
+        MEDIA_ENGINE_INFO mediaEngineInfo = {};
+        m_osItf->pfnGetMediaEngineInfo(m_osItf, mediaEngineInfo);
+
+        m_numVdbox = (uint8_t)(mediaEngineInfo.VDBoxInfo.NumberOfVDBoxEnabled);
+
         return m_numVdbox;
     }
 
@@ -341,7 +337,7 @@ public:
     }
 #endif
 
-    MOS_STATUS FindGpuNodeToUse(PMHW_VDBOX_GPUNODE_LIMIT gpuNodeLimit)
+    MOS_STATUS FindGpuNodeToUse(PMHW_VDBOX_GPUNODE_LIMIT gpuNodeLimit) override
     {
         bool       setVideoNode = false;
         MOS_STATUS eStatus      = MOS_STATUS_SUCCESS;
@@ -383,19 +379,6 @@ public:
         return eStatus;
     }
 
-    MmioRegistersMfx *GetMmioRegisters(MHW_VDBOX_NODE_IND index) override
-    {
-        if (index < MHW_VDBOX_NODE_MAX)
-        {
-            return &m_mmioRegisters[index];
-        }
-        else
-        {
-            MHW_ASSERT("index is out of range!");
-            return &m_mmioRegisters[MHW_VDBOX_NODE_1];
-        }
-    }
-
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_preDeblockingMemoryCtrl;
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_postDeblockingMemoryCtrl;
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_OriginalUncompressedPictureSourceMemoryCtrl;
@@ -403,6 +386,8 @@ public:
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_intraRowStoreScratchBufferMemoryCtrl;
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_deblockingFilterRowStoreScratchMemoryCtrl;
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_referncePictureMemoryObjectControlStateCtrl;
+    MHW_MEMORY_OBJECT_CONTROL_PARAMS m_referncePictureMemoryObjectControlStateCtrlDecode;
+    MHW_MEMORY_OBJECT_CONTROL_PARAMS m_referncePictureMemoryObjectControlStateCtrlEncode;
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_macroblockIldbStreamoutBufferCtrl;
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_secondMacroblockIldbStreamoutBufferCtrl;
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_slicesizeStreamoutDataDestinationCtrl;
@@ -415,36 +400,6 @@ public:
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_bitplaneReadBufferIndexToMemoryCtrl;
     MHW_MEMORY_OBJECT_CONTROL_PARAMS m_directMvBufferForWriteCtrl;
 
-private:
-    void InitMmioRegisters()
-    {
-        MmioRegistersMfx *mmioRegisters = &m_mmioRegisters[MHW_VDBOX_NODE_1];
-
-        mmioRegisters->generalPurposeRegister0LoOffset           = mhw::mi::GENERAL_PURPOSE_REGISTER0_LO_OFFSET_NODE_1_INIT;
-        mmioRegisters->generalPurposeRegister0HiOffset           = mhw::mi::GENERAL_PURPOSE_REGISTER0_HI_OFFSET_NODE_1_INIT;
-        mmioRegisters->generalPurposeRegister4LoOffset           = mhw::mi::GENERAL_PURPOSE_REGISTER4_LO_OFFSET_NODE_1_INIT;
-        mmioRegisters->generalPurposeRegister4HiOffset           = mhw::mi::GENERAL_PURPOSE_REGISTER4_HI_OFFSET_NODE_1_INIT;
-        mmioRegisters->generalPurposeRegister11LoOffset          = mhw::mi::GENERAL_PURPOSE_REGISTER11_LO_OFFSET_NODE_1_INIT;
-        mmioRegisters->generalPurposeRegister11HiOffset          = mhw::mi::GENERAL_PURPOSE_REGISTER11_HI_OFFSET_NODE_1_INIT;
-        mmioRegisters->generalPurposeRegister12LoOffset          = mhw::mi::GENERAL_PURPOSE_REGISTER12_LO_OFFSET_NODE_1_INIT;
-        mmioRegisters->generalPurposeRegister12HiOffset          = mhw::mi::GENERAL_PURPOSE_REGISTER12_HI_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfcImageStatusMaskRegOffset               = MFC_IMAGE_STATUS_MASK_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfcImageStatusCtrlRegOffset               = MFC_IMAGE_STATUS_CTRL_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfcAvcNumSlicesRegOffset                  = MFC_AVC_NUM_SLICES_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfcQPStatusCountOffset                    = MFC_QP_STATUS_COUNT_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfxErrorFlagsRegOffset                    = MFX_ERROR_FLAG_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfxFrameCrcRegOffset                      = MFX_FRAME_CRC_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfxMBCountRegOffset                       = MFX_MB_COUNT_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfcBitstreamBytecountFrameRegOffset       = MFC_BITSTREAM_BYTECOUNT_FRAME_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfcBitstreamSeBitcountFrameRegOffset      = MFC_BITSTREAM_SE_BITCOUNT_FRAME_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfcBitstreamBytecountSliceRegOffset       = MFC_BITSTREAM_BYTECOUNT_SLICE_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfxLra0RegOffset                          = MFX_LRA0_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfxLra1RegOffset                          = MFX_LRA1_REG_OFFSET_NODE_1_INIT;
-        mmioRegisters->mfxLra2RegOffset                          = MFX_LRA2_REG_OFFSET_NODE_1_INIT;
-
-        m_mmioRegisters[MHW_VDBOX_NODE_2] = m_mmioRegisters[MHW_VDBOX_NODE_1];
-    }
-
 protected:
     using base_t = Itf;
     MhwCpInterface *m_cpItf = nullptr;
@@ -455,79 +410,109 @@ protected:
         MHW_FUNCTION_ENTER;
         m_cpItf = cpItf;
 
-        InitMmioRegisters();
         InitRowstoreUserFeatureSettings();
         SetCacheabilitySettings();
+    }
+
+    virtual ~Impl()
+    {
+        MHW_FUNCTION_ENTER;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+        if (m_intraRowstoreCache.enabled ||
+            m_deblockingFilterRowstoreCache.enabled ||
+            m_bsdMpcRowstoreCache.enabled ||
+            m_mprRowstoreCache.enabled)
+        {
+            // Report rowstore cache usage status to regkey
+            ReportUserSettingForDebug(
+                m_userSettingPtr,
+                __MEDIA_USER_FEATURE_VALUE_IS_CODEC_ROW_STORE_CACHE_ENABLED,
+                1,
+                MediaUserSetting::Group::Device);
+        }
+#endif
+
     }
 
     MOS_STATUS InitRowstoreUserFeatureSettings()
     {
         MHW_FUNCTION_ENTER;
 
-        MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-
-        memset(&userFeatureData, 0, sizeof(userFeatureData));
-
+        bool rowstoreCachingDisableDefaultValue = false;
         if (m_osItf->bSimIsActive)
         {
-            userFeatureData.u32Data = 1;
+            // Disable RowStore Cache on simulation by default
+            rowstoreCachingDisableDefaultValue = true;
         }
         else
         {
-            userFeatureData.u32Data = 0;
+            rowstoreCachingDisableDefaultValue = false;
         }
-
-        userFeatureData.i32DataFlag = MOS_USER_FEATURE_VALUE_DATA_FLAG_CUSTOM_DEFAULT_VALUE_TYPE;
+        m_rowstoreCachingSupported = !rowstoreCachingDisableDefaultValue;
 #if (_DEBUG || _RELEASE_INTERNAL)
-        MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            __MEDIA_USER_FEATURE_VALUE_ROWSTORE_CACHE_DISABLE_ID,
-            &userFeatureData,
-            m_osItf->pOsContext);
-#endif // _DEBUG || _RELEASE_INTERNAL
-        this->m_rowstoreCachingSupported = userFeatureData.i32Data ? false : true;
+        auto userSettingPtr = m_osItf->pfnGetUserSettingInstance(m_osItf);
+        {
+            MediaUserSetting::Value outValue;
+            ReadUserSettingForDebug(userSettingPtr,
+                outValue,
+                "Disable RowStore Cache",
+                MediaUserSetting::Group::Device,
+                rowstoreCachingDisableDefaultValue,
+                true);
+            m_rowstoreCachingSupported = !(outValue.Get<bool>());
+        }
+#endif  // _DEBUG || _RELEASE_INTERNAL
 
         if (m_rowstoreCachingSupported)
         {
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_intraRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_INTRAROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableIntraRowStoreCache",
+                    MediaUserSetting::Group::Device);
+                m_intraRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_intraRowstoreCache.supported = userFeatureData.i32Data ? false : true;
 
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_deblockingFilterRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_DEBLOCKINGFILTERROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableDeblockingFilterRowStoreCache",
+                    MediaUserSetting::Group::Device);
+                m_deblockingFilterRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_deblockingFilterRowstoreCache.supported = userFeatureData.i32Data ? false : true;
 
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_bsdMpcRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_BSDMPCROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableBsdMpcRowStoreCache",
+                    MediaUserSetting::Group::Device);
+                m_bsdMpcRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_bsdMpcRowstoreCache.supported = userFeatureData.i32Data ? false : true;
 
-            MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+            m_mprRowstoreCache.supported = true;
 #if (_DEBUG || _RELEASE_INTERNAL)
-            MOS_UserFeature_ReadValue_ID(
-                nullptr,
-                __MEDIA_USER_FEATURE_VALUE_MPRROWSTORECACHE_DISABLE_ID,
-                &userFeatureData,
-                m_osItf->pOsContext);
+            {
+                MediaUserSetting::Value outValue;
+                ReadUserSettingForDebug(userSettingPtr,
+                    outValue,
+                    "DisableMprRowStoreCache",
+                    MediaUserSetting::Group::Device);
+                m_mprRowstoreCache.supported = !(outValue.Get<bool>());
+            }
 #endif // _DEBUG || _RELEASE_INTERNAL
-            this->m_mprRowstoreCache.supported = userFeatureData.i32Data ? false : true;
         }
 
         return MOS_STATUS_SUCCESS;
@@ -619,7 +604,6 @@ protected:
             MHW_MI_CHK_NULL(params.presDataBuffer);
 
             InitMocsParams(resourceParams, &cmd.MfxIndirectBitstreamObjectAttributes.DW0.Value, 1, 6);
-            cmd.MfxIndirectBitstreamObjectAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = m_mfxIndirectBitstreamCtrl.Gen12_7.Index;
 
             resourceParams.presResource                      = params.presDataBuffer;
             resourceParams.dwOffset                          = params.dwDataOffset;
@@ -640,7 +624,6 @@ protected:
         {
             MHW_MI_CHK_NULL(params.presDataBuffer);
             InitMocsParams(resourceParams, &cmd.MfdIndirectItCoeffObjectAttributes.DW0.Value, 1, 6);
-            cmd.MfdIndirectItCoeffObjectAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables = m_mfdIndirectItCoeffCtrl.Gen12_7.Index;
 
             resourceParams.presResource                      = params.presDataBuffer;
             resourceParams.dwOffset                          = params.dwDataOffset;
@@ -743,7 +726,6 @@ protected:
         else if (params.presMprRowStoreScratchBuffer)
         {
             InitMocsParams(resourceParams, &cmd.DW6.Value, 1, 6);
-            cmd.DW6.MprRowStoreScratchBufferIndexToMemoryObjectControlStateMocsTables = m_mprRowStoreScratchBufferCtrl.Gen12_7.Index;
             cmd.DW4.MprRowStoreScratchBufferBaseAddressReadWriteDecoderOnly = 0;
 
             resourceParams.presResource    = params.presMprRowStoreScratchBuffer;
@@ -751,23 +733,6 @@ protected:
             resourceParams.pdwCmd          = &(cmd.DW4.Value);
             resourceParams.dwLocationInCmd = 4;
             resourceParams.bIsWritable     = true;
-
-            MHW_MI_CHK_STATUS(AddResourceToCmd(
-                this->m_osItf,
-                this->m_currentCmdBuf,
-                &resourceParams));
-        }
-
-        if (params.presBitplaneBuffer)
-        {
-            InitMocsParams(resourceParams, &cmd.DW9.Value, 1, 6);
-            cmd.DW9.BitplaneReadBufferIndexToMemoryObjectControlStateMocsTables = m_bitplaneReadBufferIndexToMemoryCtrl.Gen12_7.Index;
-
-            resourceParams.presResource    = params.presBitplaneBuffer;
-            resourceParams.dwOffset        = 0;
-            resourceParams.pdwCmd          = &(cmd.DW7.Value);
-            resourceParams.dwLocationInCmd = 7;
-            resourceParams.bIsWritable     = false;
 
             MHW_MI_CHK_STATUS(AddResourceToCmd(
                 this->m_osItf,
@@ -968,8 +933,6 @@ protected:
         {
             MHW_MI_CHK_NULL(params.presAvcDmvBuffers);
             InitMocsParams(resourceParams, &cmd.DirectMvBufferForWriteAttributes.DW0.Value, 1, 6);
-            cmd.DirectMvBufferForWriteAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-                m_directMvBufferForWriteCtrl.Gen12_7.Index;
 
             // current picture
             resourceParams.presResource    = &params.presAvcDmvBuffers[params.ucAvcDmvIdx];
@@ -1005,9 +968,6 @@ protected:
         if (!params.bDisableDmvBuffers)
         {
             InitMocsParams(resourceParams, &cmd.DirectMvBufferAttributes.DW0.Value, 1, 6);
-            // there is only one control for all references
-            cmd.DirectMvBufferAttributes.DW0.BaseAddressIndexToMemoryObjectControlStateMocsTables =
-                m_directMvBufferForWriteCtrl.Gen12_7.Index;
         }
 
         bool dmvPresent[CODEC_MAX_NUM_REF_FRAME] = { false };
@@ -1299,14 +1259,10 @@ protected:
         }
         else
         {
-            for (auto i = 0, j = 0; i < (CODEC_MAX_NUM_REF_FRAME / 2); i++, j++)
-            {
-                cmd.Viewidlist1616Bits[i] = 0;
-            }
-        }
-        for (auto i = 0, j = 0; i < (CODEC_MAX_NUM_REF_FRAME / 4); i++, j++)
-        {
-            cmd.Vieworderlistl1168Bits[i] = 0;  //FirstEntry
+            // non-MVC usage
+            MOS_ZeroMemory(cmd.Viewidlist1616Bits, sizeof(cmd.Viewidlist1616Bits));
+            MOS_FillMemory(cmd.Vieworderlistl0168Bits, sizeof(cmd.Vieworderlistl0168Bits), 0xF);
+            MOS_FillMemory(cmd.Vieworderlistl1168Bits, sizeof(cmd.Vieworderlistl1168Bits), 0xF);
         }
 
         #define DO_FIELDS()                                                               \
@@ -1346,7 +1302,7 @@ protected:
             DO_FIELD(DW4, Roundinterdc, 1);                                                                                                                           \
             DO_FIELD(DW4, Roundintraac, 5);                                                                                                                           \
             DO_FIELD(DW4, Roundinterac, 1);                                                                                                                           \
-            __MHW_VDBOX_MFX_WRAPPER_EXT(MFX_MPEG2_PIC_STATE_IMPL_EXT)
+            DO_FIELD(DW3, MFX_MPEG2_PIC_STATE_CMD_DW3_BIT24_28, params.mfxMpeg2PicStatePar0);                                                                         \
 
 #include "mhw_hwcmd_process_cmdfields.h"
     }
@@ -1400,13 +1356,12 @@ protected:
 
         auto MBType = params.pMBParams->MBType;
         
-        #define DO_FIELDS()                                              \
-            DO_FIELD(DW0, MacroblockIntraType, 1);                       \
-            DO_FIELD(DW0, DctType, MBType.m_fieldResidual);              \
-            DO_FIELD(DW0, CodedBlockPattern, params.CodedBlockPattern);  \
-            DO_FIELD(DW1, Horzorigin, params.Horzorigin);                \
-            DO_FIELD(DW1, Vertorigin, params.Vertorigin);                \
-            DO_FIELD(DW0, Lastmbinrow, params.Lastmbinrow);
+        cmd.DW0.MacroblockIntraType = 1;
+        cmd.DW0.DctType             = MBType.m_fieldResidual;
+        cmd.DW0.CodedBlockPattern   = params.CodedBlockPattern;
+        cmd.DW0.Lastmbinrow         = params.Lastmbinrow;
+        cmd.DW1.Horzorigin          = params.Horzorigin;
+        cmd.DW1.Vertorigin          = params.Vertorigin;
 
         if (params.CodingType != I_TYPE)
         {
@@ -1420,18 +1375,12 @@ protected:
             if (MBType.m_intraMb == 0)
             {
                 uint32_t *point = (uint32_t *)(params.sPackedMVs0);
-
-                cmd.DW2.MotionVectorsField0ForwardHorizontalComponent  = *point++;
-                cmd.DW2.MotionVectorsField0ForwardVerticalComponent    = *point++;
-                cmd.DW3.MotionVectorsField0BackwardHorizontalComponent = *point++;
-                cmd.DW3.MotionVectorsField0BackwardVerticalComponent   = *point++;
+                cmd.DW2.Value   = *point++;
+                cmd.DW3.Value   = *point++;
 
                 point = (uint32_t *)(params.sPackedMVs1);
-
-                cmd.DW4.MotionVectorsField1ForwardHorizontalComponent  = *point++;
-                cmd.DW4.MotionVectorsField1ForwardVerticalComponent    = *point++;
-                cmd.DW5.MotionVectorsField1BackwardHorizontalComponent = *point++;
-                cmd.DW5.MotionVectorsField1BackwardVerticalComponent   = *point++;
+                cmd.DW4.Value = *point++;
+                cmd.DW5.Value = *point++;
             }
         }
 

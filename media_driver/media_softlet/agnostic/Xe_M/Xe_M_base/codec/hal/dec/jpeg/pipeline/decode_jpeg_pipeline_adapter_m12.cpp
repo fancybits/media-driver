@@ -30,11 +30,12 @@
 DecodeJpegPipelineAdapterM12::DecodeJpegPipelineAdapterM12(
     CodechalHwInterface *   hwInterface,
     CodechalDebugInterface *debugInterface)
-    : DecodePipelineAdapter(hwInterface, debugInterface)
+    : DecodePipelineAdapter(*hwInterface, debugInterface)
 {
-    DECODE_ASSERT(m_osInterface != nullptr);
-    Mos_CheckVirtualEngineSupported(m_osInterface, true, true);
+    DECODE_CHK_NULL_NO_STATUS_RETURN(m_osInterface);
+    m_osInterface->pfnVirtualEngineSupported(m_osInterface, true, true);
     Mos_SetVirtualEngineSupported(m_osInterface, true);
+    m_hwInterface = hwInterface;
 }
 
 MOS_STATUS DecodeJpegPipelineAdapterM12::BeginFrame()
@@ -114,6 +115,13 @@ MOS_GPU_CONTEXT DecodeJpegPipelineAdapterM12::GetDecodeContext()
     DECODE_FUNC_CALL();
 
     return m_decoder->GetDecodeContext();
+}
+
+GPU_CONTEXT_HANDLE DecodeJpegPipelineAdapterM12::GetDecodeContextHandle()
+{
+    DECODE_FUNC_CALL();
+
+    return m_decoder->GetDecodeContextHandle();
 }
 
 MOS_SURFACE* DecodeJpegPipelineAdapterM12::GetDummyReference()

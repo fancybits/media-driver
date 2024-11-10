@@ -62,7 +62,6 @@ public:
     virtual MOS_STATUS VeboxQueryStatLayout(
         VEBOX_STAT_QUERY_TYPE queryType,
         uint32_t* pQuery);
-    virtual VpKernelConfig &GetKernelConfig();
 
     virtual uint32_t VeboxQueryStaticSurfaceSize()
     {
@@ -79,6 +78,16 @@ public:
         return false;
     }
 
+    virtual bool IsAdvanceNativeKernelSupported()
+    {
+        return false;
+    }
+
+    virtual bool IsLegacyEuCountInUse()
+    {
+        return true;
+    }
+
     virtual MOS_STATUS GetInputFrameWidthHeightAlignUnit(
         PVP_MHWINTERFACE          pvpMhwInterface,
         uint32_t                 &widthAlignUnit,
@@ -91,7 +100,7 @@ public:
         PVP_MHWINTERFACE          pvpMhwInterface,
         const MHW_VEBOX_HEAP    **ppVeboxHeap);
 
-    virtual bool VeboxScalabilitywith4K(
+    virtual bool IsVeboxScalabilityWith4KNotSupported(
         VP_MHWINTERFACE           vpMhwInterface);
 
     virtual MOS_STATUS ConfigureVpScalability(VP_MHWINTERFACE &vpMhwInterface);

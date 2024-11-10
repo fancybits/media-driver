@@ -36,6 +36,8 @@
     DEF(XY_FAST_COPY_BLT); \
     DEF(XY_BLOCK_COPY_BLT)
 
+#define MAX_BLT_BLOCK_COPY_WIDTH 0x4000u
+
 namespace mhw
 {
 namespace blt
@@ -58,12 +60,6 @@ public:
     virtual MOS_STATUS AddBlockCopyBlt(
             PMOS_COMMAND_BUFFER      pCmdBuffer,
             PMHW_FAST_COPY_BLT_PARAM pBlockCopyBltParam, 
-            uint32_t                 srcOffset,
-            uint32_t                 dstOffset) = 0;
-    
-    virtual MOS_STATUS AddFastCopyBlt(
-            PMOS_COMMAND_BUFFER      pCmdBuffer,
-            PMHW_FAST_COPY_BLT_PARAM pFastCopyBltParam,
             uint32_t                 srcOffset,
             uint32_t                 dstOffset) = 0;
     

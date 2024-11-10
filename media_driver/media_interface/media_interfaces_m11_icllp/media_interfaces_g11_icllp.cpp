@@ -32,7 +32,6 @@
 
 extern template class MediaFactory<uint32_t, MhwInterfaces>;
 extern template class MediaFactory<uint32_t, MmdDevice>;
-extern template class MediaFactory<uint32_t, MosUtilDevice>;
 extern template class MediaFactory<uint32_t, CodechalDevice>;
 
 extern template class MediaFactory<uint32_t, CMHalDevice>;
@@ -48,14 +47,13 @@ Register<VphalInterfacesG11Icllp>((uint32_t)IGFX_ICELAKE_LP);
 
 MOS_STATUS VphalInterfacesG11Icllp::Initialize(
     PMOS_INTERFACE  osInterface,
-    PMOS_CONTEXT    osDriverContext,
     bool            bInitVphalState,
-    MOS_STATUS      *eStatus)
+    MOS_STATUS      *eStatus,
+    bool            clearViewMode)
 {
     m_vpBase = MOS_New(
         VphalState,
         osInterface,
-        osDriverContext,
         eStatus);
 
     return *eStatus;
@@ -93,7 +91,7 @@ MOS_STATUS MhwInterfacesG11Icllp::Initialize(
 
     // MHW_CP and MHW_MI must always be created
     MOS_STATUS status = MOS_STATUS_SUCCESS;
-    m_cpInterface = Create_MhwCpInterface(osInterface);
+    m_cpInterface = osInterface->pfnCreateMhwCpInterface(osInterface);
     if(m_cpInterface == nullptr)
     {
         MOS_OS_ASSERTMESSAGE("new osInterface failed");
@@ -605,40 +603,6 @@ MOS_STATUS CMHalInterfacesG11Icllp::Initialize(CM_HAL_STATE *pCmState)
     return MOS_STATUS_SUCCESS;
 }
 #endif
-
-static bool icllpRegisteredMosUtil =
-    MediaFactory<uint32_t, MosUtilDevice>::
-    Register<MosUtilDeviceG11Icllp>((uint32_t)IGFX_ICELAKE_LP);
-
-MOS_STATUS MosUtilDeviceG11Icllp::Initialize()
-{
-#define MOSUTIL_FAILURE()                                       \
-{                                                           \
-    if (device != nullptr)                                  \
-    {                                                       \
-        delete device;                                      \
-    }                                                       \
-    return MOS_STATUS_NO_SPACE;                             \
-}
-
-    MosUtil *device = nullptr;
-
-    device = MOS_New(MosUtil);
-
-    if (device == nullptr)
-    {
-        MOSUTIL_FAILURE();
-    }
-
-    if (device->Initialize() != MOS_STATUS_SUCCESS)
-    {
-        MOSUTIL_FAILURE();
-    }
-
-    m_mosUtilDevice = device;
-
-    return MOS_STATUS_SUCCESS;
-}
 
 static bool icllpRegisteredRenderHal =
     MediaFactory<uint32_t, RenderHalDevice>::

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2021, Intel Corporation
+* Copyright (c) 2020-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -296,15 +296,15 @@ MOS_STATUS SwFilterScalingHandler::UpdateParamsForProcessing(VP_PIPELINE_PARAMS&
 {
     VP_FUNC_CALL();
 
-    if (index >= GetPipeCountForProcessing(params))
-    {
-        return MOS_STATUS_INVALID_PARAMETER;
-    }
-
     // For second submission of field-to-interleaved mode, we will take second field as input surface,
     // second field is stored in pBwdRef.
     if (params.pSrc[0] && params.pSrc[0]->InterlacedScalingType == ISCALING_FIELD_TO_INTERLEAVED && index == 1)
     {
+        if (index >= GetPipeCountForProcessing(params))
+        {
+            VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+        }
+
         if (params.pSrc[0] && params.pSrc[0]->pBwdRef)
         {
             params.pSrc[0]->pBwdRef->ScalingMode = params.pSrc[0]->ScalingMode;
@@ -359,7 +359,8 @@ bool SwFilterDnHandler::IsFeatureEnabled(VP_PIPELINE_PARAMS& params, bool isInpu
     PVP_MHWINTERFACE hwInterface = m_vpInterface.GetHwInterface();
     // secure mode
     if (hwInterface->m_osInterface->osCpInterface &&
-        hwInterface->m_osInterface->osCpInterface->IsHMEnabled())
+        (hwInterface->m_osInterface->osCpInterface->IsHMEnabled() 
+            || hwInterface->m_osInterface->osCpInterface->IsIDMEnabled()))
     {
         VP_PUBLIC_NORMALMESSAGE("Dn is disabled in secure mode.");
         return false;
@@ -392,6 +393,15 @@ bool SwFilterDnHandler::IsFeatureEnabled(VP_PIPELINE_PARAMS& params, bool isInpu
         inputSurface->Format == Format_A16R16G16B16))
     {
         VP_PUBLIC_NORMALMESSAGE("Unsupported Format '0x%08x' which DN will not supported", inputSurface->Format);
+        return false;
+    }
+
+    // Disable VP features DN for resolution > 4K
+    if (inputSurface &&
+        (inputSurface->rcSrc.bottom > inputSurface->rcSrc.top + VPHAL_RNDR_4K_MAX_HEIGHT ||
+         inputSurface->rcSrc.right > inputSurface->rcSrc.left + VPHAL_RNDR_4K_MAX_WIDTH))
+    {
+        VP_PUBLIC_NORMALMESSAGE("DN is disabled for 4K+ res");
         return false;
     }
 
@@ -513,7 +523,8 @@ bool SwFilterSteHandler::IsFeatureEnabled(VP_PIPELINE_PARAMS& params, bool isInp
 
     PVPHAL_SURFACE vphalSurf = isInputSurf ? params.pSrc[surfIndex] : params.pTarget[surfIndex];
     if (vphalSurf && vphalSurf->pColorPipeParams &&
-        vphalSurf->pColorPipeParams->bEnableSTE)
+            (vphalSurf->pColorPipeParams->bEnableSTE ||
+        vphalSurf->pColorPipeParams->bEnableSTD))
     {
         return true;
     }
@@ -673,13 +684,14 @@ bool SwFilterHdrHandler::IsFeatureEnabled(VP_PIPELINE_PARAMS &params, bool isInp
     VP_FUNC_CALL();
 
     // Avoid recheck when it is output or surfIndex > 0
-    if (!isInputSurf || surfIndex > 0)
+    if (!isInputSurf)
     {
         return false;
     }
     // if  target surf is invalid, return false;
     PVPHAL_SURFACE pSrc            = params.pSrc[0];
     PVPHAL_SURFACE pRenderTarget   = params.pTarget[0];
+    auto           userFeatureControl = m_vpInterface.GetHwInterface()->m_userFeatureControl;
     if (!pSrc || !pRenderTarget)
     {
         return false;
@@ -688,7 +700,14 @@ bool SwFilterHdrHandler::IsFeatureEnabled(VP_PIPELINE_PARAMS &params, bool isInp
     bool bBt2020Output       = false;
     bool bToneMapping        = false;
     bool bMultiLayerBt2020   = false;
-    bool bFP16               = false;
+    bool bFP16Format         = false;
+    // Not all FP16 input / output need HDR processing, e.g, FP16 by pass, FP16 csc etc.
+    bool bFP16HdrProcessing  = false;
+    bool isExternal3DLutEnabled     = false;
+    if (pSrc->p3DLutParams && userFeatureControl->IsExternal3DLutSupport())
+    {
+        isExternal3DLutEnabled = true;
+    }
     // Need to use HDR to process BT601/BT709->BT2020
     if (IS_COLOR_SPACE_BT2020(pRenderTarget->ColorSpace) &&
         !IS_COLOR_SPACE_BT2020(pSrc->ColorSpace))
@@ -704,14 +723,37 @@ bool SwFilterHdrHandler::IsFeatureEnabled(VP_PIPELINE_PARAMS &params, bool isInp
 
     if ((pSrc->Format == Format_A16B16G16R16F) || (pSrc->Format == Format_A16R16G16B16F))
     {
-        bFP16 = true;
+        bFP16Format = true;
     }
 
-    bFP16 = bFP16 || (pRenderTarget->Format == Format_A16B16G16R16F) || (pRenderTarget->Format == Format_A16R16G16B16F);
+    bFP16Format = bFP16Format || (pRenderTarget->Format == Format_A16B16G16R16F) || (pRenderTarget->Format == Format_A16R16G16B16F);
+
+    if (bFP16Format && !pSrc->p3DLutParams)
+    {
+        // Check if input/output gamma is same(TBD)
+        // Check if input/output color space is same
+        bool bColorSpaceConversion = true;
+        if (IS_COLOR_SPACE_BT2020(pRenderTarget->ColorSpace) &&
+            IS_COLOR_SPACE_BT2020(pSrc->ColorSpace))
+        {
+            bColorSpaceConversion = false;
+        }
+        if ((pRenderTarget->ColorSpace == CSpace_sRGB || pRenderTarget->ColorSpace == CSpace_stRGB) &&
+            (pSrc->ColorSpace == CSpace_BT709 || pSrc->ColorSpace == CSpace_BT709_FullRange))
+        {
+            bColorSpaceConversion = false;
+        }
+        if ((pRenderTarget->ColorSpace == CSpace_sRGB || pRenderTarget->ColorSpace == CSpace_stRGB) &&
+            (pSrc->ColorSpace == CSpace_BT601 || pSrc->ColorSpace == CSpace_BT601_FullRange))
+        {
+            bColorSpaceConversion = false;
+        }
+        bFP16HdrProcessing = bColorSpaceConversion;
+    }
 
     // Temorary solution for menu/FBI not show up : route all S2S uage to HDR kernel path, need to consider RenderBlockedFromCp
 
-    return (bBt2020Output || bToneMapping || bMultiLayerBt2020);
+    return (bBt2020Output || bToneMapping || bMultiLayerBt2020 || bFP16HdrProcessing || isExternal3DLutEnabled);
 }
 
 SwFilter *SwFilterHdrHandler::CreateSwFilter()
@@ -816,6 +858,11 @@ bool SwFilterBlendingHandler::IsFeatureEnabled(VP_PIPELINE_PARAMS& params, bool 
     PVPHAL_SURFACE surf = isInputSurf ? params.pSrc[surfIndex] : params.pTarget[surfIndex];
     if (surf && surf->pBlendingParams)
     {
+        if (!isInputSurf)
+        {
+            VP_PUBLIC_NORMALMESSAGE("Skip blending parameters on target.");
+            return false;
+        }
         return true;
     }
 
@@ -950,6 +997,84 @@ void SwFilterAlphaHandler::Destory(SwFilter*& swFilter)
 
     SwFilterAlpha* filter = nullptr;
     filter = dynamic_cast<SwFilterAlpha*>(swFilter);
+    m_swFilterFactory.Destory(filter);
+    return;
+}
+
+/****************************************************************************************************/
+/*                                      SwFilterCgcHandler                                          */
+/****************************************************************************************************/
+
+SwFilterCgcHandler::SwFilterCgcHandler(VpInterface& vpInterface) :
+    SwFilterFeatureHandler(vpInterface, FeatureTypeCgc),
+    m_swFilterFactory(vpInterface)
+{}
+SwFilterCgcHandler::~SwFilterCgcHandler()
+{}
+
+bool SwFilterCgcHandler::IsFeatureEnabled(VP_PIPELINE_PARAMS& params, bool isInputSurf, int surfIndex, SwFilterPipeType pipeType)
+{
+    VP_FUNC_CALL();
+
+    if (!SwFilterFeatureHandler::IsFeatureEnabled(params, isInputSurf, surfIndex, pipeType))
+    {
+        return false;
+    }
+
+    // BT2020YUV->BT601/709YUV enable GC in Vebox for BT2020 to RGB process
+    // SFC for other format conversion. For such case, add Cgc only to input
+    // pipe for 1 to 1 or N to 1 case.
+    if (isInputSurf && (SwFilterPipeType1ToN == pipeType) ||
+        !isInputSurf && (SwFilterPipeType1To1 == pipeType || SwFilterPipeTypeNTo1 == pipeType))
+    {
+        return false;
+    }
+
+    PVPHAL_SURFACE inputSurf  = static_cast<PVPHAL_SURFACE>(isInputSurf ? params.pSrc[surfIndex] : params.pSrc[0]);
+    PVPHAL_SURFACE outputSurf = static_cast<PVPHAL_SURFACE>(isInputSurf ? params.pTarget[0] : params.pTarget[surfIndex]);
+
+    if (inputSurf && outputSurf &&
+        IS_COLOR_SPACE_BT2020_YUV(inputSurf->ColorSpace) &&
+      (!(inputSurf->pHDRParams && 
+        (inputSurf->pHDRParams->EOTF != VPHAL_HDR_EOTF_TRADITIONAL_GAMMA_SDR) &&
+       !(outputSurf->pHDRParams && 
+        (outputSurf->pHDRParams->EOTF != VPHAL_HDR_EOTF_TRADITIONAL_GAMMA_SDR))))) // When HDR Enabled, GC should always be turn off, not to create the sw filter
+    {
+        if ((outputSurf->ColorSpace == CSpace_BT601) ||
+            (outputSurf->ColorSpace == CSpace_BT709) ||
+            (outputSurf->ColorSpace == CSpace_BT601_FullRange) ||
+            (outputSurf->ColorSpace == CSpace_BT709_FullRange) ||
+            (outputSurf->ColorSpace == CSpace_stRGB) ||
+            (outputSurf->ColorSpace == CSpace_sRGB))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+SwFilter* SwFilterCgcHandler::CreateSwFilter()
+{
+    VP_FUNC_CALL();
+
+    SwFilter* swFilter = nullptr;
+    swFilter = m_swFilterFactory.Create();
+
+    if (swFilter)
+    {
+        swFilter->SetFeatureType(FeatureTypeCgc);
+    }
+
+    return swFilter;
+}
+
+void SwFilterCgcHandler::Destory(SwFilter*& swFilter)
+{
+    VP_FUNC_CALL();
+
+    SwFilterCgc* filter = nullptr;
+    filter = dynamic_cast<SwFilterCgc*>(swFilter);
     m_swFilterFactory.Destory(filter);
     return;
 }

@@ -27,7 +27,7 @@
 //!           this file is for the base interface which is shared by all components.
 //!
 
-#include "codechal_hw.h"
+#include "codec_hw_next.h"
 #include "decode_scalability_defs.h"
 #include "decode_scalability_singlepipe_next.h"
 
@@ -40,13 +40,13 @@ namespace decode
 {
 
 DecodeScalabilitySinglePipeNext::DecodeScalabilitySinglePipeNext(void *hwInterface, MediaContext *mediaContext, uint8_t componentType) :
-    MediaScalabilitySinglePipe(hwInterface, mediaContext, componentType)
+    MediaScalabilitySinglePipeNext(hwInterface, mediaContext, componentType)
 {
     if (hwInterface == nullptr)
     {
         return;
     }
-    m_hwInterface = (CodechalHwInterface *)hwInterface;
+    m_hwInterface = (CodechalHwInterfaceNext *)hwInterface;
     m_osInterface = m_hwInterface->GetOsInterface();
 }
 
@@ -62,7 +62,7 @@ MOS_STATUS DecodeScalabilitySinglePipeNext::Initialize(const MediaScalabilityOpt
 
     // !Don't check the return status here, because this function will return fail if there's no regist key in register.
     // But it's normal that regist key not in register.
-    Mos_CheckVirtualEngineSupported(m_osInterface, false, true);
+    m_osInterface->pfnVirtualEngineSupported(m_osInterface, false, true);
     m_miItf = m_hwInterface->GetMiInterfaceNext();
     SCALABILITY_CHK_NULL_RETURN(m_miItf);
 
@@ -163,7 +163,7 @@ MOS_STATUS DecodeScalabilitySinglePipeNext::SendAttrWithFrameTracking(
 
     // initialize command buffer attributes
     cmdBuffer.Attributes.bTurboMode               = m_hwInterface->m_turboMode;
-    cmdBuffer.Attributes.bMediaPreemptionEnabled  = renderEngineUsed ? m_hwInterface->GetRenderInterface()->IsPreemptionEnabled() : 0;
+    cmdBuffer.Attributes.bMediaPreemptionEnabled  = renderEngineUsed ? m_hwInterface->GetRenderInterfaceNext()->IsPreemptionEnabled() : 0;
 
     if (frameTrackingRequested && m_frameTrackingEnabled)
     {
@@ -178,6 +178,21 @@ MOS_STATUS DecodeScalabilitySinglePipeNext::SendAttrWithFrameTracking(
         cmdBuffer.Attributes.dwMediaFrameTrackingAddrOffset = offset;
     }
 
+    return eStatus;
+}
+
+MOS_STATUS DecodeScalabilitySinglePipeNext::CreateDecodeSinglePipe(void *hwInterface, MediaContext *mediaContext, uint8_t componentType)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    SCALABILITY_FUNCTION_ENTER;
+
+    SCALABILITY_CHK_NULL_RETURN(hwInterface);
+    SCALABILITY_CHK_NULL_RETURN(mediaContext);
+
+    ((CodechalHwInterfaceNext *)hwInterface)->m_singlePipeScalability = MOS_New(DecodeScalabilitySinglePipeNext, hwInterface, mediaContext, scalabilityDecoder);
+    SCALABILITY_CHK_NULL_RETURN(((CodechalHwInterfaceNext *)hwInterface)->m_singlePipeScalability);
+    
     return eStatus;
 }
 

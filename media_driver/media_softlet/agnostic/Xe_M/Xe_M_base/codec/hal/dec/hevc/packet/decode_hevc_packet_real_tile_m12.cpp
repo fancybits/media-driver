@@ -85,6 +85,13 @@ MOS_STATUS HevcDecodeRealTilePktM12::Submit(
     {
         DECODE_CHK_STATUS(m_miInterface->AddWatchdogTimerStopCmd(cmdBuffer));
         DECODE_CHK_STATUS(scalability->SyncPipe(syncAllPipes, 0, cmdBuffer));
+
+        if (m_osInterface->trinityPath == TRINITY11_ENABLED)
+        {
+            MHW_MI_FLUSH_DW_PARAMS flushDwParams;
+            MOS_ZeroMemory(&flushDwParams, sizeof(flushDwParams));
+            DECODE_CHK_STATUS(m_miInterface->AddMiFlushDwCmd(cmdBuffer, &flushDwParams));
+        }
     }
 
     if (m_hevcPipeline->IsShortFormat())
@@ -115,7 +122,7 @@ MOS_STATUS HevcDecodeRealTilePktM12::Submit(
         DECODE_CHK_STATUS(PackSliceLevelCmds(*cmdBuffer));
     }
 
-    HalOcaInterface::DumpCodechalParam(*cmdBuffer, *m_osInterface->pOsContext, m_hevcPipeline->GetCodechalOcaDumper(), CODECHAL_HEVC);
+    HalOcaInterface::DumpCodechalParam(*cmdBuffer, (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext, m_hevcPipeline->GetCodechalOcaDumper(), CODECHAL_HEVC);
     HalOcaInterface::On1stLevelBBEnd(*cmdBuffer, *m_osInterface);
 
     DECODE_CHK_STATUS(m_allocator->SyncOnResource(&m_hevcBasicFeature->m_resDataBuffer, false));
@@ -211,7 +218,7 @@ MOS_STATUS HevcDecodeRealTilePktM12::PackPictureLevelCmds(MOS_COMMAND_BUFFER &cm
     }
     else
     {
-        DECODE_CHK_STATUS(NullHW::StopPredicate(m_miInterface, &cmdBuffer));
+        DECODE_CHK_STATUS(NullHW::StopPredicate(m_osInterface, m_miInterface, &cmdBuffer));
     }
 
     return MOS_STATUS_SUCCESS;

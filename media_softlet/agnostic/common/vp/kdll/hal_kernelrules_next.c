@@ -1744,7 +1744,7 @@ extern const Kdll_RuleEntry g_KdllRuleTable_Next[] =
     // Please not change the order of these two rules
     { RID_Op_NewEntry      , RULE_NO_OVERRIDE                   , Kdll_None },
     { RID_IsParserState    , Parser_ExecuteCSC0Done             , Kdll_None },
-    { RID_IsSrc0Sampling   , Sample_iScaling                    , Kdll_None },
+    { RID_IsSrc0Sampling   , Sample_iScaling_034x               , Kdll_None },
     { RID_SetSrc0Coeff     , CoeffID_None                       , Kdll_None },
     { RID_SetNextLayer     , -2                                 , Kdll_None }, // jump back to main layer
     { RID_SetParserState   , Parser_SampleLayer0Mix             , Kdll_None },
@@ -2185,7 +2185,8 @@ extern const Kdll_RuleEntry g_KdllRuleTable_Next[] =
     { RID_Op_NewEntry      , RULE_DEFAULT                       , Kdll_None },
     { RID_IsParserState    , Parser_WriteOutput                 , Kdll_None },
     { RID_IsLayerID        , Layer_RenderTarget                 , Kdll_None },
-    { RID_IsLayerFormat    , Format_RGBP                        , Kdll_None },
+    { RID_IsLayerFormat    , Format_RGBP                        , Kdll_Or   },
+    { RID_IsLayerFormat    , Format_BGRP                        , Kdll_None },
     { RID_IsLayerNumber    , 0                                  , Kdll_None },
     { RID_IsSrc0ColorFill  , ColorFill_True                     , Kdll_None },
     { RID_SetKernel        , IDR_VP_Set_Scale_Buf_0123_Colorfill, Kdll_None },
@@ -2376,7 +2377,8 @@ extern const Kdll_RuleEntry g_KdllRuleTable_Next[] =
     { RID_Op_NewEntry      , RULE_DEFAULT                       , Kdll_None },
     { RID_IsParserState    , Parser_WriteOutput                 , Kdll_None },
     { RID_IsLayerID        , Layer_RenderTarget                 , Kdll_None },
-    { RID_IsLayerFormat    , Format_RGBP                        , Kdll_None },
+    { RID_IsLayerFormat    , Format_RGBP                        , Kdll_Or   },
+    { RID_IsLayerFormat    , Format_BGRP                        , Kdll_None },
     { RID_SetKernel        , IDR_VP_Save_444Scale16_RGBP        , Kdll_None },
     { RID_SetKernel        , IDR_VP_EOT                         , Kdll_None },
     { RID_SetParserState   , Parser_End                         , Kdll_None },

@@ -30,8 +30,8 @@
 #include "decode_basic_feature.h"
 #include "decode_vp9_pipeline.h"
 #include "decode_resource_auto_lock.h"
-#include "decode_huc_packet_creator_base.h" 
-
+#include "decode_huc_packet_creator_base.h"
+#include "mos_os_cp_interface_specific.h"
 
 namespace decode
 {
@@ -42,14 +42,17 @@ DecodeVp9BufferUpdate::DecodeVp9BufferUpdate(Vp9Pipeline *pipeline, MediaTask *t
 
 DecodeVp9BufferUpdate::~DecodeVp9BufferUpdate()
 {
-    m_allocator->Destroy(m_segmentInitBuffer);
+    if (m_allocator != nullptr)
+    {
+        m_allocator->Destroy(m_segmentInitBuffer);
+    }
 }
 
 MOS_STATUS DecodeVp9BufferUpdate::Init(CodechalSetting &settings)
 {
     DECODE_CHK_NULL(m_pipeline);
 
-    CodechalHwInterface *hwInterface = m_pipeline->GetHwInterface();
+    CodechalHwInterfaceNext *hwInterface = m_pipeline->GetHwInterface();
     DECODE_CHK_NULL(hwInterface);
     PMOS_INTERFACE osInterface = hwInterface->GetOsInterface();
     DECODE_CHK_NULL(osInterface);

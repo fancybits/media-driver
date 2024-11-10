@@ -63,6 +63,16 @@ public:
         return MOS_STATUS_UNIMPLEMENTED;
     }
 
+    virtual void UnlockPendingOcaBuffers(PMOS_CONTEXT mosCtx, struct MOS_OCA_EXEC_LIST_INFO *info, int count)
+    {
+        MOS_OS_ASSERTMESSAGE("MosOcaInterface::UnlockPendingOcaBuffers should not be called!");
+    }
+
+    virtual MOS_STATUS UnlockOcaBufferWithDelay(MOS_OCA_BUFFER_HANDLE ocaBufHandle)
+    {
+        return MOS_STATUS_UNIMPLEMENTED;
+    }
+
     //!
     //! \brief  Oca operation which should be called at the beginning of 1st level batch buffer start.
     //! \param  [out] gpuVaOcaBuffer
@@ -238,6 +248,58 @@ public:
     {
         return nullptr;
     }
+
+    //!
+    //! \brief  Insert OCA buffer handle into m_hOcaMap
+    //! \param  [in] key
+    //!         The key of m_hOcaMap.
+    //! \param  [in] handle
+    //!         Oca buffer handle.
+    //! \return MOS_STATUS
+    //!         Return MOS_STATUS_SUCCESS if insert successfully, otherwise insert failed.
+    //!
+    virtual MOS_STATUS InsertOcaBufHandleMap(uint32_t *key, MOS_OCA_BUFFER_HANDLE handle) = 0;
+
+    //!
+    //! \brief  Remove OCA buffer handle from m_hOcaMap
+    //! \param  [in] key
+    //!         The key of m_hOcaMap.
+    //! \return MOS_STATUS
+    //!         Return MOS_STATUS_SUCCESS if erase successfully, otherwise erase failed.
+    //!
+    virtual MOS_STATUS RemoveOcaBufHandleFromMap(uint32_t *key) = 0;
+
+    //!
+    //! \brief  Get OCA buffer handle from m_hOcaMap
+    //! \param  [in] key
+    //!         The key of m_hOcaMap.
+    //! \return MOS_OCA_BUFFER_HANDLE
+    //!         Return oca buffer handle.
+    //!
+    virtual MOS_OCA_BUFFER_HANDLE GetOcaBufHandleFromMap(uint32_t *key) = 0;
+
+    //!
+    //! \brief  Get OCA status.
+    //! \return MOS_STATUS
+    //!         Return oca status
+    //!
+    virtual MOS_STATUS GetOCAStatus() = 0;
+
+    //!
+    //! \brief  Set OCA status
+    //! \param  [in] status
+    //!         oca status.
+    //! \return void
+    //!
+    virtual void SetOCAStatus(MOS_STATUS status) = 0;
+
+    //!
+    //! \brief  Set OCA error line number
+    //! \param  [in] num
+    //!         line number
+    //! \return void
+    //!
+    virtual void SetOCAErrorLineNumber(uint32_t num) = 0;
 };
 
 #endif // #ifndef __MOS_OCA_INTERFACE_H__

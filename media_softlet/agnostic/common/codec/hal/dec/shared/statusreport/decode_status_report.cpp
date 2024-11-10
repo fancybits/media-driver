@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2021, Intel Corporation
+* Copyright (c) 2019-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -31,9 +31,10 @@
 namespace decode {
 
     DecodeStatusReport::DecodeStatusReport(
-        DecodeAllocator* allocator, bool enableRcs):
+        DecodeAllocator* allocator, bool enableRcs, PMOS_INTERFACE osInterface):
         m_enableRcs(enableRcs),
-        m_allocator(allocator)
+        m_allocator(allocator),
+        m_osInterface(osInterface)
     {
         m_sizeOfReport = sizeof(DecodeStatusReportData);
     }
@@ -47,6 +48,7 @@ namespace decode {
     {
         DECODE_FUNC_CALL();
 
+        SetSizeForStatusBuf();
         // Allocate status buffer which includes decode status and completed count
         uint32_t bufferSize = m_statusBufSizeMfx * m_statusNum + m_completedCountSize;
         m_statusBufMfx = m_allocator->AllocateBuffer(
@@ -107,15 +109,35 @@ namespace decode {
 
         if (inputParameters)
         {
-            m_statusReportData[submitIndex].codecStatus = CODECHAL_STATUS_UNAVAILABLE;
+            m_statusReportData[submitIndex].codecStatus        = CODECHAL_STATUS_UNAVAILABLE;
             m_statusReportData[submitIndex].statusReportNumber = inputParameters->statusReportFeedbackNumber;
-            m_statusReportData[submitIndex].currDecodedPic = inputParameters->currOriginalPic;
-            m_statusReportData[submitIndex].currDecodedPicRes = inputParameters->currDecodedPicRes;
+            m_statusReportData[submitIndex].currDecodedPic     = inputParameters->currOriginalPic;
+            m_statusReportData[submitIndex].currDecodedPicRes  = inputParameters->currDecodedPicRes;     
 #if (_DEBUG || _RELEASE_INTERNAL)
-            m_statusReportData[submitIndex].currSfcOutputPicRes = inputParameters->sfcOutputPicRes;
-            m_statusReportData[submitIndex].currHistogramOutBuf = inputParameters->histogramOutputBuf;
-            m_statusReportData[submitIndex].frameType = inputParameters->pictureCodingType;
-            m_statusReportData[submitIndex].currFgOutputPicRes = inputParameters->fgOutputPicRes;
+            m_statusReportData[submitIndex].currSfcOutputSurface = inputParameters->sfcOutputSurface;
+            m_statusReportData[submitIndex].currHistogramOutBuf  = inputParameters->histogramOutputBuf;
+            m_statusReportData[submitIndex].frameType            = inputParameters->pictureCodingType;
+            m_statusReportData[submitIndex].secondField          = inputParameters->isSecondField;
+            m_statusReportData[submitIndex].currFgOutputPicRes   = inputParameters->fgOutputPicRes;
+            m_statusReportData[submitIndex].streamSize           = inputParameters->streamSize;
+
+            if (inputParameters->streamOutBufRes != nullptr)  
+            {  
+                m_statusReportData[submitIndex].streamOutBufRes = *(inputParameters->streamOutBufRes);  
+            }  
+            else
+            {
+                m_statusReportData[submitIndex].streamOutBufRes = {0};
+            }
+
+            if (inputParameters->streamInBufRes != nullptr)  
+            {  
+                m_statusReportData[submitIndex].streamInBufRes = *(inputParameters->streamInBufRes);
+            }  
+            else
+            {
+                m_statusReportData[submitIndex].streamInBufRes = {0};
+            }
 #endif
         }
 
@@ -201,6 +223,12 @@ namespace decode {
         return MOS_STATUS_SUCCESS;
     }
 
+    void DecodeStatusReport::SetSizeForStatusBuf()
+    {
+        m_statusBufSizeMfx = MOS_ALIGN_CEIL(sizeof(DecodeStatusMfx), sizeof(uint64_t));
+        m_statusBufSizeRcs = MOS_ALIGN_CEIL(sizeof(DecodeStatusRcs), sizeof(uint64_t));
+    }
+
     void DecodeStatusReport::SetOffsetsForStatusBuf()
     {
         const uint32_t mfxStatusOffset = 0;
@@ -233,9 +261,14 @@ namespace decode {
         DECODE_CHK_NULL(statusReportData);
         DECODE_CHK_NULL(decodeStatus);
 
-        if (!completed)
+        if(m_osInterface != nullptr && m_osInterface->pfnIsGPUHung(m_osInterface))
         {
-            statusReportData->codecStatus = CODECHAL_STATUS_ERROR;
+            statusReportData->codecStatus = CODECHAL_STATUS_INCOMPLETE;
+            DECODE_ASSERTMESSAGE("Gpu hang may have occured.");
+        }
+        else if (!completed)
+        {
+            statusReportData->codecStatus = CODECHAL_STATUS_RESET;
             DECODE_ASSERTMESSAGE("Media reset may have occured.");
         }
         else
@@ -263,7 +296,7 @@ namespace decode {
     {
         DECODE_FUNC_CALL();
 
-        if (m_statusBufMfx != nullptr)
+        if (m_allocator != nullptr && m_statusBufMfx != nullptr)
         {
             m_allocator->UnLock(m_statusBufMfx);
             m_allocator->Destroy(m_statusBufMfx);
@@ -271,7 +304,7 @@ namespace decode {
             m_completedCountBuf = nullptr;
         }
 
-        if (m_statusBufRcs != nullptr)
+        if (m_allocator != nullptr && m_statusBufRcs != nullptr)
         {
             m_allocator->UnLock(m_statusBufRcs);
             m_allocator->Destroy(m_statusBufRcs);

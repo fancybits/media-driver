@@ -30,8 +30,7 @@
 #include "mhw_mi.h"
 #include "mos_os_hw.h"
 #include "mhw_mi_itf.h"
-#include "mhw_mi_cmdpar.h"
-
+#include "media_defs.h"
 /****************************************************************************************************/
 /*                                      HalOcaInterface                                             */
 /****************************************************************************************************/
@@ -60,7 +59,7 @@ public:
     //! \return void
     //!         No return value. Handle all exception inside the function.
     //!
-    static void On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext,
+    static void On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext,
         uint32_t gpuContextHandle, std::shared_ptr<mhw::mi::Itf> miItf, MHW_MI_MMIOREGISTERS &mmioRegisters,
         uint32_t offsetOf1stLevelBB = 0, bool bUseSizeOfCmdBuf = true, uint32_t sizeOf1stLevelBB = 0);
 
@@ -85,7 +84,7 @@ public:
     //! \return void
     //!         No return value. Handle all exception inside the function.
     //!
-    static void On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext,
+    static void On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext,
         uint32_t gpuContextHandle, std::shared_ptr<mhw::mi::Itf> miItf, MmioRegistersMfx &mmioRegisters,
         uint32_t offsetOf1stLevelBB = 0, bool bUseSizeOfCmdBuf = true, uint32_t sizeOf1stLevelBB = 0);
 
@@ -118,7 +117,7 @@ public:
     //! \return void
     //!         No return value. Handle all exception inside the function.
     //!
-    static void OnSubLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, void *pMosResource, uint32_t offsetOfSubLevelBB, bool bUseSizeOfResource, uint32_t sizeOfSubLevelBB);
+    static void OnSubLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, void *pMosResource, uint32_t offsetOfSubLevelBB, bool bUseSizeOfResource, uint32_t sizeOfSubLevelBB);
 
     //!
     //! \brief  Oca operation which should be called when indirect states being added.
@@ -137,7 +136,7 @@ public:
     //! \return void
     //!         No return value. Handle all exception inside the function.
     //!
-    static void OnIndirectState(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, void *pMosResource, uint32_t offsetOfIndirectState, bool bUseSizeOfResource, uint32_t sizeOfIndirectState);
+    static void OnIndirectState(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, void *pMosResource, uint32_t offsetOfIndirectState, bool bUseSizeOfResource, uint32_t sizeOfIndirectState);
 
     //!
     //! \brief  Oca operation which should be called before adding dispatch states,
@@ -153,7 +152,7 @@ public:
     //! \return void
     //!         No return value. Handle all exception inside the function.
     //!
-    static void OnDispatch(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, std::shared_ptr<mhw::mi::Itf> miItf, MHW_MI_MMIOREGISTERS &mmioRegisters);
+    static void OnDispatch(MOS_COMMAND_BUFFER &cmdBuffer, MOS_INTERFACE &osInterface, std::shared_ptr<mhw::mi::Itf> miItf, MHW_MI_MMIOREGISTERS &mmioRegisters);
 
     //!
     //! \brief  Add string to oca log section
@@ -168,7 +167,7 @@ public:
     //! \return void
     //!         No return value. Handle all exception inside the function.
     //!
-    static void TraceMessage(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, const char *str, uint32_t maxCount);
+    static void TraceMessage(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, const char *str, uint32_t maxCount);
 
     //!
     //! \brief  Add vp kernel info to oca log section.
@@ -215,7 +214,20 @@ public:
     //! \return void
     //!         No return value. Handle all exception inside the function.
     //!
-    static void DumpVpKernelInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, int vpKernelID, int fcKernelCount, int *fcKernelList);
+    static void DumpVpKernelInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, int vpKernelID, int fcKernelCount, int *fcKernelList);
+
+    //!
+    //! \brief  Add vp kernel info to oca log section.
+    //! \param  [in] cmdBuffer
+    //!         Command buffer for current BB.
+    //! \param  [in] mosContext
+    //!         Reference to MOS_CONTEXT.
+    //! \param  [in] pControlValues
+    //!         Value of user features.
+    //! \return void
+    //!         No return value. Handle all exception inside the function.
+    //!
+    static void DumpVpUserFeautreControlInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, PMOS_OCA_LOG_USER_FEATURE_CONTROL_INFO pControlValues);
 
     //!
     //! \brief  Add vphal parameters to oca log section.
@@ -228,7 +240,7 @@ public:
     //! \return void
     //!         No return value. Handle all exception inside the function.
     //!
-    static void DumpVphalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, void *pVphalDumper);
+    static void DumpVphalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, void *pVphalDumper);
 
     //!
     //! \brief  Add codechal parameters to oca log section.
@@ -241,7 +253,7 @@ public:
     //! \return void
     //!         No return value. Handle all exception inside the function.
     //!
-    static void DumpCodechalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, void *pCodechalDumper, CODECHAL_STANDARD codec);
+    static void DumpCodechalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, void *pCodechalDumper, CODECHAL_STANDARD codec);
 
     //!
     //! \brief  Get large resource dump support state
@@ -249,6 +261,24 @@ public:
     //!         Return true when support large reource dump
     //!
     static bool IsLargeResouceDumpSupported();
+
+    //!
+    //! \brief  Add cp IO Message to oca log section.
+    //! \param  [in] ocaInterface
+    //!         Reference to MosOcaInterface.
+    //! \param  [in] hOcaBuf
+    //!         Reference to MOS_OCA_BUFFER_HANDLE.
+    //! \param  [in] mosCtx
+    //!         DDI device context.
+    //! \param  [in] pCpDumper
+    //!         Pointer to cp dumper object.
+    //! \param  [in] type
+    //!         Cp message type.
+    //! \return void
+    //!         No return value. Handle all exception inside the function.
+    //!
+    static void DumpCpIoMsg(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, void *pCpDumper, int type);
+
 protected:
     static MOS_STATUS MhwMiLoadRegisterImmCmd(
         std::shared_ptr<mhw::mi::Itf>    miItf,
@@ -268,7 +298,7 @@ protected:
     //! \return void
     //!         No return value. Handle all exception inside the function.
     //!
-    static void OnOcaError(PMOS_CONTEXT mosContext, MOS_STATUS status, const char *functionName, uint32_t lineNumber);
+    static void OnOcaError(MOS_CONTEXT_HANDLE mosContext, MOS_STATUS status, const char *functionName, uint32_t lineNumber);
     //!
     //! \brief  Get OCA buffer handle from pool.
     //! \param  [in] cmdBuffer
@@ -278,7 +308,7 @@ protected:
     //! \return MOS_OCA_BUFFER_HANDLE
     //!         MOS_OCA_BUFFER_HANDLE.
     //!
-    static MOS_OCA_BUFFER_HANDLE GetOcaBufferHandle(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext);
+    static MOS_OCA_BUFFER_HANDLE GetOcaBufferHandle(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext);
 
     //!
     //! \brief  Remove OCA buffer handle from pool.
@@ -306,13 +336,27 @@ protected:
     //!
     static void DumpCpParam(MosOcaInterface &ocaInterface, MOS_OCA_BUFFER_HANDLE &hOcaBuf, PMOS_CONTEXT mosCtx, void *pCpDumper);
 
+    //!
+    //! \brief  Oca operation which should be called at the beginning of 1st level batch buffer start.
+    //! \param  [in/out] cmdBuffer
+    //!         Command buffer for current BB. ocaBufHandle in cmdBuffer will be updated.
+    //! \param  [in] mosContext
+    //!         Reference to MOS_CONTEXT.
+    //! \param  [in] gpuContextHandle
+    //!         Gpu context handle 
+    //! \return void
+    //!         No return value. Handle all exception inside the function.
+    //!
+    static void On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, uint32_t gpuContextHandle);
+
+    static void AddRTLogReource(MOS_COMMAND_BUFFER &cmdBuffer,
+                               MOS_CONTEXT_HANDLE  mosContext,
+                               MOS_INTERFACE &osInterface);
+
     // Private functions to ensure class singleton.
     HalOcaInterfaceNext();
     HalOcaInterfaceNext(HalOcaInterfaceNext &);
     HalOcaInterfaceNext& operator= (HalOcaInterfaceNext &);
-
-protected:
-    static std::map<uint32_t*, MOS_OCA_BUFFER_HANDLE> s_hOcaMap;        //!< Oca buffer handle map to current command
 
 MEDIA_CLASS_DEFINE_END(HalOcaInterfaceNext)
 };

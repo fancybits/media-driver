@@ -45,17 +45,14 @@ public:
     //!           - Caller must call Allocate to allocate all VPHAL states and objects.
     //! \param    [in] pOsInterface
     //!           OS interface, if provided externally - may be NULL
-    //! \param    [in] pOsDriverContext
-    //!           OS driver context (UMD context, pShared, ...)
     //! \param    [in,out] pStatus
     //!           Pointer to the MOS_STATUS flag.
     //!           Will assign this flag to MOS_STATUS_SUCCESS if successful, otherwise failed
     //!
     VphalStateXe_Xpm_Plus(
         PMOS_INTERFACE          pOsInterface,
-        PMOS_CONTEXT            pOsDriverContext,
         MOS_STATUS              *peStatus) :
-        VphalState(pOsInterface, pOsDriverContext, peStatus)
+        VphalState(pOsInterface, peStatus)
     {
         // check the peStatus returned from VphalState
         MOS_STATUS eStatus = peStatus ? (*peStatus) : MOS_STATUS_SUCCESS;
@@ -87,7 +84,7 @@ public:
         }
 #endif
 
-        if (!MEDIA_IS_SKU(m_skuTable, FtrCCSNode))
+        if (m_skuTable && !MEDIA_IS_SKU(m_skuTable, FtrCCSNode))
         {
             bComputeContextEnabled = false;
         }
@@ -119,16 +116,22 @@ public:
     //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
     //!
     virtual MOS_STATUS Allocate(
-        const VphalSettings     *pVpHalSettings);
+        const VphalSettings     *pVpHalSettings) override;
 
 protected:
+
+    virtual bool IsRenderContextBasedSchedulingNeeded() override
+    {
+        return true;
+    }
+
     //!
     //! \brief    Create instance of VphalRenderer
     //! \details  Create instance of VphalRenderer
     //! \return   MOS_STATUS
     //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
     //!
-    MOS_STATUS CreateRenderer();
+    MOS_STATUS CreateRenderer() override;
 };
 
 #endif  // __VPHAL_XE_XPM_PLUS_H__

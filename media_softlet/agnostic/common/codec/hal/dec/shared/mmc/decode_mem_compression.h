@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020, Intel Corporation
+* Copyright (c) 2020-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -30,7 +30,7 @@
 #define __MEDIA_DECODE_MEM_COMPRESSION_H__
 
 #include "media_mem_compression.h"
-#include "codechal_utilities.h"
+#include "codec_hw_next.h"
 
 class MhwMiInterface;
 class DecodeMemComp : public MediaMemComp
@@ -39,7 +39,7 @@ public:
     //!
     //! \brief    Construct
     //!
-    DecodeMemComp(CodechalHwInterface *hwInterface);
+    DecodeMemComp(CodechalHwInterfaceNext *hwInterface, PMOS_INTERFACE osInterface = nullptr);
 
     //!
     //! \brief    Copy constructor
@@ -62,7 +62,9 @@ public:
     virtual ~DecodeMemComp() {};
 
 #if (_DEBUG || _RELEASE_INTERNAL)
-    MOS_STATUS UpdateUserFeatureKey(PMOS_SURFACE surface);
+    virtual MOS_STATUS UpdateUserFeatureKey(PMOS_SURFACE surface);
+
+    MOS_STATUS ReportSurfaceMmcMode(PMOS_SURFACE surface);
 #endif
 
 protected:
@@ -73,11 +75,10 @@ protected:
     uint32_t                m_compressModeId  = 0;
 #endif
 
-    void InitDecodeMmc(CodechalHwInterface *hwInterface);
+    void InitDecodeMmc(CodechalHwInterfaceNext *hwInterface);
 
     bool m_mmcEnabledForDecode = false;  //!< Indicate if mmc is enabled for decode
-
-    MhwMiInterface *m_mhwMiInterface = nullptr;  //!< Point to MI interface
+    std::shared_ptr<mhw::mi::Itf> m_miItf; //!< Point to MI interface
 
 MEDIA_CLASS_DEFINE_END(DecodeMemComp)
 };

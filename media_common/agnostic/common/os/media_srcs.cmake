@@ -18,6 +18,8 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 
+media_include_subdirectory(user_setting)
+
 set(TMP_HEADERS_
     ${CMAKE_CURRENT_LIST_DIR}/media_fourcc.h
     ${CMAKE_CURRENT_LIST_DIR}/mos_defs.h
@@ -26,7 +28,7 @@ set(TMP_HEADERS_
     ${CMAKE_CURRENT_LIST_DIR}/mos_os.h
     ${CMAKE_CURRENT_LIST_DIR}/mos_os_hw.h
     ${CMAKE_CURRENT_LIST_DIR}/mos_oca_interface.h
-    ${CMAKE_CURRENT_LIST_DIR}/mos_util_user_interface.h
+    ${CMAKE_CURRENT_LIST_DIR}/mos_oca_rtlog_mgr_defs.h
 )
 
 set(SOFTLET_MOS_COMMON_HEADERS_

@@ -1,4 +1,4 @@
-# Copyright (c) 2017, Intel Corporation
+# Copyright (c) 2017-2024, Intel Corporation
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -17,17 +17,6 @@
 # OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
-
-# TODO: Remove this option when all Gen options can successfully disable
-#       driver code.
-# Status:
-#   GEN8:  Done
-#   GEN9:  TODO
-#   GEN10: TODO (Remove)
-#   GEN11: TODO
-#   GEN12: TODO
-option(ENABLE_REQUIRED_GEN_CODE "Make per-Gen options disable only media-kernels (not driver code) if driver code is known to be required for a successful build"
-    ON)
 
 option(GEN8 "Enable Gen8 support" ON)
 cmake_dependent_option(GEN8_BDW
@@ -56,11 +45,6 @@ cmake_dependent_option(GEN9_CML
 cmake_dependent_option(GEN9_CMPV
     "Enabled CMPV support (Gen9)" ON
     "GEN9" OFF)
-
-option(GEN10 "Enable Gen10 support" OFF)
-cmake_dependent_option(GEN10_CNL
-    "Enabled CNL support (Gen10)" ON
-    "GEN10" OFF)
 
 option(GEN11 "Enable Gen11 support" ON)
 cmake_dependent_option(GEN11_ICLLP
@@ -96,7 +80,9 @@ cmake_dependent_option(GEN12_ADLN
     "Enabled ADLN support (Gen12)" ON
     "GEN12_TGLLP" OFF)
 
-option(Xe_M "Enabled support for Xehp_sdv+ platforms" ON)
+cmake_dependent_option(Xe_M
+    "Enabled support for Xehp_sdv+ platforms" ON
+    "GEN12" OFF)
 
 cmake_dependent_option(DG2
     "Enabled DG2 support" ON
@@ -114,6 +100,39 @@ cmake_dependent_option(XEHP_SDV
 cmake_dependent_option(PVC
     "Enabled PVC support" ON
     "Xe_M;ENABLE_PRODUCTION_KMD" OFF)
+
+option(MTL "Enable MTL support" ON)
+
+option(ARL "Enable ARL support" ON)
+
+if(MTL OR ARL)
+    option(XE_LPM_PLUS_SUPPORT "Enable XE_LPM_PLUS support" ON)
+    option(XE_LPG "Enable XE_LPG support" ON)
+endif()
+
+option(BMG "Enable BMG support" ON)
+
+if(MTL OR BMG)
+    option(Xe_M_plus "Enable Xe_M_plus support" ON)
+endif()
+
+option(LNL "Enable LNL support" ON)
+
+if(LNL)
+    option(XE2_LPM_SUPPORT "Enable XE2_LPM support" ON)
+endif()
+
+if(LNL OR BMG)
+    option(XE2_HPG "Enable XE2_HPG support" ON)
+endif()
+
+if(LNL)
+    option(Xe2_M_plus "Enable Xe2_M_plus support" ON)
+endif()
+
+if(BMG)
+    option(XE2_HPM_SUPPORT "Enable XE2_HPM support" ON)
+endif()
 
 if(GEN8)
     add_definitions(-DIGFX_GEN8_SUPPORTED)
@@ -153,14 +172,6 @@ endif()
 
 if(GEN9_CMPV)
     add_definitions(-DIGFX_GEN9_CMPV_SUPPORTED)
-endif()
-
-if(GEN10)
-    add_definitions(-DIGFX_GEN10_SUPPORTED)
-endif()
-
-if(GEN10_CNL)
-    add_definitions(-DIGFX_GEN10_CNL_SUPPORTED)
 endif()
 
 if(GEN11)
@@ -223,6 +234,23 @@ endif()
 if(XE_HPG)
     add_definitions(-DIGFX_XE_HPG_SUPPORTED)
     add_definitions(-DIGFX_XE_HPG_CMFCPATCH_SUPPORTED)
+endif()
+
+if(MTL)
+    add_definitions(-DIGFX_MTL_SUPPORTED)
+endif()
+
+if(ARL)
+    add_definitions(-DIGFX_ARL_SUPPORTED)
+endif()
+
+if(XE2_HPG)
+    add_definitions(-DIGFX_XE2_HPG_SUPPORTED)
+    add_definitions(-DIGFX_XE2_HPG_CMFCPATCH_SUPPORTED)
+endif()
+
+if(LNL)
+    add_definitions(-DIGFX_LNL_SUPPORTED)
 endif()
 
 include(${MEDIA_EXT_CMAKE}/ext/linux/media_gen_flags_linux_ext.cmake OPTIONAL)

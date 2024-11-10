@@ -27,7 +27,7 @@
 #include "encode_av1_vdenc_pipeline_adapter_xe_hpm.h"
 
 EncodeAv1VdencPipelineAdapterXe_Hpm::EncodeAv1VdencPipelineAdapterXe_Hpm(
-    CodechalHwInterface     *hwInterface,
+    CodechalHwInterfaceNext     *hwInterface,
     CodechalDebugInterface  *debugInterface)
     : EncodeAv1VdencPipelineAdapterXe_M_Base(hwInterface, debugInterface)
 {
@@ -41,4 +41,8 @@ MOS_STATUS EncodeAv1VdencPipelineAdapterXe_Hpm::Allocate(CodechalSetting *codecH
     ENCODE_CHK_NULL_RETURN(m_encoder);
 
     return m_encoder->Init(codecHalSettings);
+}
+MOS_STATUS EncodeAv1VdencPipelineAdapterXe_Hpm::ResolveMetaData(PMOS_RESOURCE pInput, PMOS_RESOURCE pOutput)
+{
+    return m_encoder->ExecuteResolveMetaData(pInput, pOutput);
 }

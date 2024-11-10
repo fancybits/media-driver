@@ -31,6 +31,7 @@
 #include "decode_mpeg2_pipeline.h"
 #include "decode_utils.h"
 #include "decode_mpeg2_basic_feature.h"
+#include "codechal_hw_g12_X.h"
 
 namespace decode
 {
@@ -39,10 +40,13 @@ namespace decode
     {
     public:
         Mpeg2DecodeMbPktXe_M_Base(Mpeg2Pipeline* pipeline, CodechalHwInterface* hwInterface)
-            : DecodeSubPacket(pipeline, hwInterface), m_mpeg2Pipeline(pipeline)
+            : DecodeSubPacket(pipeline, *hwInterface), m_mpeg2Pipeline(pipeline)
         {
+            m_hwInterface = hwInterface;
             if (m_hwInterface != nullptr)
             {
+                m_miInterface  = m_hwInterface->GetMiInterface();
+                m_osInterface  = hwInterface->GetOsInterface();
                 m_mfxInterface = static_cast<CodechalHwInterfaceG12*>(hwInterface)->GetMfxInterface();
             }
         }
@@ -106,6 +110,9 @@ namespace decode
         MhwVdboxMfxInterface* m_mfxInterface = nullptr;
         Mpeg2BasicFeature* m_mpeg2BasicFeature = nullptr;
         DecodeAllocator* m_allocator = nullptr;
+
+        CodechalHwInterface *m_hwInterface = nullptr;
+        MhwMiInterface      *m_miInterface = nullptr;
 
         // Parameters passed from application
         CodecDecodeMpeg2PicParams* m_mpeg2PicParams = nullptr;      //!< Pointer to MPEG2 picture parameter

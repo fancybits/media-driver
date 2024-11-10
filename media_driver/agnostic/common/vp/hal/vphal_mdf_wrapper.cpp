@@ -98,18 +98,19 @@ CmEvent* EventManager::GetLastEvent() const
     return mLastEvent;
 }
 
-CmContext::CmContext(PMOS_CONTEXT OsContext) :
+CmContext::CmContext(PMOS_INTERFACE osInterface) :
     mRefCount(0),
     mCmDevice(nullptr),
     mCmQueue(nullptr),
     mCmVebox(nullptr),
+    m_osInterface(osInterface),
     mBatchTask(nullptr),
     mHasBatchedTask(false),
     mConditionalBatchBuffer(nullptr),
     mCondParam({ 0 }),
     mEventListener(nullptr)
 {
-    VPHAL_RENDER_ASSERT(OsContext);
+    VPHAL_RENDER_CHK_NULL_NO_STATUS_RETURN(osInterface);
 
     const unsigned int MDF_DEVICE_CREATE_OPTION =
         ((CM_DEVICE_CREATE_OPTION_SCRATCH_SPACE_DISABLE)                                |
@@ -120,7 +121,7 @@ CmContext::CmContext(PMOS_CONTEXT OsContext) :
          (CM_DEVICE_CONFIG_GPUCONTEXT_ENABLE)                                           |
          (32 << CM_DEVICE_CONFIG_KERNELBINARYGSH_OFFSET));
 
-    int result = CreateCmDevice(OsContext, mCmDevice, MDF_DEVICE_CREATE_OPTION);
+    int result = osInterface->pfnCreateCmDevice(osInterface->pOsContext, mCmDevice, MDF_DEVICE_CREATE_OPTION, CM_DEVICE_CREATE_PRIORITY_DEFAULT);
     if (result != CM_SUCCESS)
     {
         VPHAL_RENDER_ASSERTMESSAGE("CmDevice creation error %d\n", result);
@@ -239,6 +240,8 @@ void CmContext::BatchKernel(CmKernel *kernel, CmThreadSpace *threadSpace, bool b
 
 void CmContext::FlushBatchTask(bool waitForFinish)
 {
+    int result = CM_SUCCESS;
+
     if (mAddedKernels.empty())
     {
         return;
@@ -248,18 +251,30 @@ void CmContext::FlushBatchTask(bool waitForFinish)
 
     for(auto it : mThreadSpacesToPurge)
     {
-        mCmDevice->DestroyThreadSpace(it);
+        result = mCmDevice->DestroyThreadSpace(it);
+        if (result != CM_SUCCESS)
+        {
+            VPHAL_RENDER_ASSERTMESSAGE("CM DestroyThreadSpace Fail %d", result);
+        }
     }
 
     for(auto it : mKernelsToPurge)
     {
-        mCmDevice->DestroyKernel(it);
+        result = mCmDevice->DestroyKernel(it);
+        if (result != CM_SUCCESS)
+        {
+            VPHAL_RENDER_ASSERTMESSAGE("CM DestroyKernel Fail %d", result);
+        }
     }
 
     mThreadSpacesToPurge.clear();
     mKernelsToPurge.clear();
     mAddedKernels.clear();
-    mBatchTask->Reset();
+    result = mBatchTask->Reset();
+    if (result != CM_SUCCESS)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("CM Batch Task Reset Fail %d", result);
+    }
 }
 
 void CmContext::RunSingleKernel(
@@ -312,7 +327,11 @@ void CmContext::EnqueueTask(CmTask *task, CmThreadSpace *threadSpace, const std:
 
     if (waitForFinish)
     {
-        event->WaitForTaskFinished(-1);
+        result = event->WaitForTaskFinished(-1);
+        if (result != CM_SUCCESS)
+        {
+            VPHAL_RENDER_ASSERTMESSAGE("WaitForTaskFinished Failed %d", result);
+        }
 
 #if (_DEBUG || _RELEASE_INTERNAL)
         result = mCmDevice->FlushPrintBuffer();
@@ -328,25 +347,45 @@ void CmContext::EnqueueTask(CmTask *task, CmThreadSpace *threadSpace, const std:
     {
         mEventListener->OnEventAvailable(event, name);
     }
+    else
+    {
+        if (event != nullptr)
+        {
+            result = mCmQueue->DestroyEvent(event);
+            if (result != CM_SUCCESS)
+            {
+                VPHAL_RENDER_ASSERTMESSAGE("DestroyEvent Failed %d", result);
+            }
+        }
+    }
 }
 
 void CmContext::Destroy()
 {
+    int result = CM_SUCCESS;
     FlushBatchTask(false);
 
     if (mBatchTask)
     {
-        mCmDevice->DestroyTask(mBatchTask);
+        result = mCmDevice->DestroyTask(mBatchTask);
+        if (result != CM_SUCCESS)
+        {
+            VPHAL_RENDER_ASSERTMESSAGE("CM DestroyTask Fail %d", result);
+        }
     }
 
     if (mCmVebox)
     {
-        mCmDevice->DestroyVebox(mCmVebox);
+        result = mCmDevice->DestroyVebox(mCmVebox);
+        if (result != CM_SUCCESS)
+        {
+            VPHAL_RENDER_ASSERTMESSAGE("CM DestroyVebox Fail %d", result);
+        }
     }
 
-    if (mCmDevice)
+    if (mCmDevice && m_osInterface)
     {
-        DestroyCmDevice(mCmDevice);
+        m_osInterface->pfnDestroyCmDevice(mCmDevice);
     }
 
     mBatchTask = nullptr;
@@ -481,7 +520,11 @@ void VPCmRenderer::Render(void *payload)
         kernel = m_cmContext->CloneKernel(kernel);
     }
 
-    kernel->SetThreadCount(tsWidth * tsHeight * tsColor);
+    result = kernel->SetThreadCount(tsWidth * tsHeight * tsColor);
+    if (result != CM_SUCCESS)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("[%s]: CM Set ThreadCount error: %d\n", mName.c_str(), result);
+    }
    
     if (!CannotAssociateThreadSpace())
     {

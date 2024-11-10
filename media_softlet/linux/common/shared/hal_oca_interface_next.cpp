@@ -41,12 +41,12 @@
 #include "mhw_mmio.h"
 #include "mos_interface.h"
 #include "mos_oca_interface_specific.h"
-#include "vphal.h"
-#include "vphal_debug.h"
+#include "mos_oca_rtlog_mgr.h"
+#include "vp_debug.h"
 #include "codechal_oca_debug.h"
-namespace mhw { namespace mi { class Itf; } }
+#include "mhw_utilities_next.h"
 
-std::map<uint32_t*, MOS_OCA_BUFFER_HANDLE> HalOcaInterfaceNext::s_hOcaMap;
+namespace mhw { namespace mi { class Itf; } }
 
 /****************************************************************************************************/
 /*                                      HalOcaInterfaceNextNext                                             */
@@ -56,7 +56,6 @@ MOS_STATUS HalOcaInterfaceNext::MhwMiLoadRegisterImmCmd(
     PMOS_COMMAND_BUFFER              pCmdBuffer,
     MHW_MI_LOAD_REGISTER_IMM_PARAMS *params)
 {
-
     return MOS_STATUS_SUCCESS;
 }
 
@@ -81,10 +80,11 @@ MOS_STATUS HalOcaInterfaceNext::MhwMiLoadRegisterImmCmd(
 //! \return void
 //!         No return value. Handle all exception inside the function.
 //!
-void HalOcaInterfaceNext::On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext,
+void HalOcaInterfaceNext::On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext,
         uint32_t gpuContextHandle, std::shared_ptr<mhw::mi::Itf> miItf, MHW_MI_MMIOREGISTERS &mmioRegisters,
         uint32_t offsetOf1stLevelBB, bool bUseSizeOfCmdBuf, uint32_t sizeOf1stLevelBB)
 {
+    HalOcaInterfaceNext::On1stLevelBBStart(cmdBuffer, *(PMOS_CONTEXT)mosContext, gpuContextHandle);
 }
 
 //!
@@ -108,10 +108,11 @@ void HalOcaInterfaceNext::On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_C
 //! \return void
 //!         No return value. Handle all exception inside the function.
 //!
-void HalOcaInterfaceNext::On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext,
+void HalOcaInterfaceNext::On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext,
         uint32_t gpuContextHandle, std::shared_ptr<mhw::mi::Itf> miItf, MmioRegistersMfx &mmioRegisters,
         uint32_t offsetOf1stLevelBB, bool bUseSizeOfCmdBuf, uint32_t sizeOf1stLevelBB)
 {
+    HalOcaInterfaceNext::On1stLevelBBStart(cmdBuffer, *(PMOS_CONTEXT)mosContext, gpuContextHandle);
 }
 
 //!
@@ -141,7 +142,7 @@ void HalOcaInterfaceNext::On1stLevelBBEnd(MOS_COMMAND_BUFFER &cmdBuffer, MOS_INT
         // Will come here for UMD_OCA not being enabled case.
         return;
     }
-    if ((ocaBufHandle = GetOcaBufferHandle(cmdBuffer, mosContext)) == MOS_OCA_INVALID_BUFFER_HANDLE)
+    if ((ocaBufHandle = GetOcaBufferHandle(cmdBuffer, (MOS_CONTEXT_HANDLE)&mosContext)) == MOS_OCA_INVALID_BUFFER_HANDLE)
     {
         // May come here for workloads not enabling UMD_OCA.
         return;
@@ -154,7 +155,7 @@ void HalOcaInterfaceNext::On1stLevelBBEnd(MOS_COMMAND_BUFFER &cmdBuffer, MOS_INT
         // for failure case to avoid oca buffer leak.
         OnOcaError(osInterface.pOsContext, status, __FUNCTION__, __LINE__);
     }
-    status = pOcaInterface->UnlockOcaBuf(ocaBufHandle);
+    status = pOcaInterface->UnlockOcaBufferWithDelay(ocaBufHandle);
     if (MOS_FAILED(status))
     {
         OnOcaError(osInterface.pOsContext, status, __FUNCTION__, __LINE__);
@@ -181,7 +182,7 @@ void HalOcaInterfaceNext::On1stLevelBBEnd(MOS_COMMAND_BUFFER &cmdBuffer, MOS_INT
 //! \return void
 //!         No return value. Handle all exception inside the function.
 //!
-void HalOcaInterfaceNext::OnSubLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, void *pMosResource, uint32_t offsetOfSubLevelBB, bool bUseSizeOfResource, uint32_t sizeOfSubLevelBB)
+void HalOcaInterfaceNext::OnSubLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, void *pMosResource, uint32_t offsetOfSubLevelBB, bool bUseSizeOfResource, uint32_t sizeOfSubLevelBB)
 {
     MosInterface::SetObjectCapture((PMOS_RESOURCE)pMosResource);
 }
@@ -203,7 +204,7 @@ void HalOcaInterfaceNext::OnSubLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_C
 //! \return void
 //!         No return value. Handle all exception inside the function.
 //!
-void HalOcaInterfaceNext::OnIndirectState(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, void *pMosResource, uint32_t offsetOfIndirectState, bool bUseSizeOfResource, uint32_t sizeOfIndirectState)
+void HalOcaInterfaceNext::OnIndirectState(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, void *pMosResource, uint32_t offsetOfIndirectState, bool bUseSizeOfResource, uint32_t sizeOfIndirectState)
 {
     MosInterface::SetObjectCapture((PMOS_RESOURCE)pMosResource);
 }
@@ -222,8 +223,10 @@ void HalOcaInterfaceNext::OnIndirectState(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CON
 //! \return void
 //!         No return value. Handle all exception inside the function.
 //!
-void HalOcaInterfaceNext::OnDispatch(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, std::shared_ptr<mhw::mi::Itf> miItf, MHW_MI_MMIOREGISTERS &mmioRegisters)
+void HalOcaInterfaceNext::OnDispatch(MOS_COMMAND_BUFFER &cmdBuffer, MOS_INTERFACE &osInterface, std::shared_ptr<mhw::mi::Itf> miItf, MHW_MI_MMIOREGISTERS &mmioRegisters)
 {
+    MOS_CONTEXT &mosContext = *osInterface.pOsContext;
+    AddRTLogReource(cmdBuffer, (MOS_CONTEXT_HANDLE)&mosContext, osInterface);
 }
 
 //!
@@ -239,7 +242,7 @@ void HalOcaInterfaceNext::OnDispatch(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT 
 //! \return void
 //!         No return value. Handle all exception inside the function.
 //!
-void HalOcaInterfaceNext::TraceMessage(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, const char *str, uint32_t maxCount)
+void HalOcaInterfaceNext::TraceMessage(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, const char *str, uint32_t maxCount)
 {
     MosOcaInterface *pOcaInterface          = &MosOcaInterfaceSpecific::GetInstance();
     MOS_OCA_BUFFER_HANDLE   ocaBufHandle    = 0;
@@ -255,10 +258,10 @@ void HalOcaInterfaceNext::TraceMessage(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEX
         return;
     }
 
-    status = pOcaInterface->TraceMessage(ocaBufHandle, &mosContext, str, maxCount);
+    status = pOcaInterface->TraceMessage(ocaBufHandle, (PMOS_CONTEXT)mosContext, str, maxCount);
     if (MOS_FAILED(status))
     {
-        OnOcaError(&mosContext, status, __FUNCTION__, __LINE__);
+        OnOcaError(mosContext, status, __FUNCTION__, __LINE__);
     }
 }
 
@@ -297,7 +300,7 @@ void HalOcaInterfaceNext::DumpResourceInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_IN
         return;
     }
 
-    if ((ocaBufHandle = GetOcaBufferHandle(cmdBuffer, mosContext)) == MOS_OCA_INVALID_BUFFER_HANDLE)
+    if ((ocaBufHandle = GetOcaBufferHandle(cmdBuffer, (MOS_CONTEXT_HANDLE)&mosContext)) == MOS_OCA_INVALID_BUFFER_HANDLE)
     {
         // May come here for workloads not enabling UMD_OCA.
         return;
@@ -344,7 +347,7 @@ void HalOcaInterfaceNext::TraceOcaSkuValue(MOS_COMMAND_BUFFER &cmdBuffer, MOS_IN
 //! \return void
 //!         No return value. Handle all exception inside the function.
 //!
-void HalOcaInterfaceNext::DumpVpKernelInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, int vpKernelID, int fcKernelCount, int *fcKernelList)
+void HalOcaInterfaceNext::DumpVpKernelInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, int vpKernelID, int fcKernelCount, int *fcKernelList)
 {
     MosOcaInterface *pOcaInterface          = &MosOcaInterfaceSpecific::GetInstance();
     MOS_STATUS              status          = MOS_STATUS_SUCCESS;
@@ -364,7 +367,7 @@ void HalOcaInterfaceNext::DumpVpKernelInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CO
 
     if (kernelCombinedFc == vpKernelID && (fcKernelCount <= 0 || nullptr == fcKernelList))
     {
-        OnOcaError(&mosContext, MOS_STATUS_INVALID_PARAMETER, __FUNCTION__, __LINE__);
+        OnOcaError(mosContext, MOS_STATUS_INVALID_PARAMETER, __FUNCTION__, __LINE__);
         return;
     }
 
@@ -380,10 +383,45 @@ void HalOcaInterfaceNext::DumpVpKernelInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CO
     header.header.dataSize                  = fcKernelCount * sizeof(int);
     header.vpKernelID                       = vpKernelID;
     header.fcKernelCount                    = fcKernelCount;
-    status = pOcaInterface->DumpDataBlock(ocaBufHandle, &mosContext, (PMOS_OCA_LOG_HEADER)&header, fcKernelList);
+    status = pOcaInterface->DumpDataBlock(ocaBufHandle, (PMOS_CONTEXT)mosContext, (PMOS_OCA_LOG_HEADER)&header, fcKernelList);
     if (MOS_FAILED(status))
     {
-        OnOcaError(&mosContext, status, __FUNCTION__, __LINE__);
+        OnOcaError(mosContext, status, __FUNCTION__, __LINE__);
+    }
+}
+
+//!
+//! \brief  Add vp kernel info to oca log section.
+//! \param  [in] cmdBuffer
+//!         Command buffer for current BB.
+//! \param  [in] mosContext
+//!         Reference to MOS_CONTEXT.
+//! \param  [in] pControlValues
+//!         Value of user features.
+//! \return void
+//!         No return value. Handle all exception inside the function.
+//!
+void HalOcaInterfaceNext::DumpVpUserFeautreControlInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, PMOS_OCA_LOG_USER_FEATURE_CONTROL_INFO pControlValues)
+{
+    MosOcaInterface      *pOcaInterface = &MosOcaInterfaceSpecific::GetInstance();
+    MOS_STATUS            status        = MOS_STATUS_SUCCESS;
+    MOS_OCA_BUFFER_HANDLE hOcaBuf       = 0;
+
+    if (nullptr == pOcaInterface || (hOcaBuf = GetOcaBufferHandle(cmdBuffer, mosContext)) == MOS_OCA_INVALID_BUFFER_HANDLE)
+    {
+        // Will come here for UMD_OCA not being enabled case.
+        return;
+    }
+
+    MOS_OCA_LOG_HEADER header                           = {};
+    header.type                                         = MOS_OCA_LOG_TYPE_VP_USER_FEATURE_CONTROL_INFO;
+    header.headerSize                                   = sizeof(MOS_OCA_LOG_HEADER);
+    header.dataSize                                     = sizeof(MOS_OCA_LOG_USER_FEATURE_CONTROL_INFO);
+
+    status = pOcaInterface->DumpDataBlock(hOcaBuf, (PMOS_CONTEXT)mosContext, (PMOS_OCA_LOG_HEADER)&header, pControlValues);
+    if (MOS_FAILED(status))
+    {
+        OnOcaError(mosContext, status, __FUNCTION__, __LINE__);
     }
 }
 
@@ -396,7 +434,7 @@ void HalOcaInterfaceNext::DumpVpKernelInfo(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CO
 //! \return void
 //!         No return value. Handle all exception inside the function.
 //!
-void HalOcaInterfaceNext::DumpVphalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, void *pVphalDumper)
+void HalOcaInterfaceNext::DumpVphalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, void *pVphalDumper)
 {
     MosOcaInterface *pOcaInterface       = &MosOcaInterfaceSpecific::GetInstance();
     MOS_STATUS status                    = MOS_STATUS_SUCCESS;
@@ -425,10 +463,10 @@ void HalOcaInterfaceNext::DumpVphalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONT
     header.header.type                = MOS_OCA_LOG_TYPE_VPHAL_PARAM;  // 00000003
     header.header.headerSize          = sizeof(MOS_OCA_LOG_HEADER_VPHAL_PARAM);
     header.header.dataSize            = pVphalParam->Header.size;
-    status = pOcaInterface->DumpDataBlock(ocaBufHandle, &mosContext, (PMOS_OCA_LOG_HEADER)&header, pVphalParam);
+    status = pOcaInterface->DumpDataBlock(ocaBufHandle, (PMOS_CONTEXT)mosContext, (PMOS_OCA_LOG_HEADER)&header, pVphalParam);
     if (MOS_FAILED(status))
     {
-        OnOcaError(&mosContext, status, __FUNCTION__, __LINE__);
+        OnOcaError(mosContext, status, __FUNCTION__, __LINE__);
     }
 }
 
@@ -443,7 +481,7 @@ void HalOcaInterfaceNext::DumpVphalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONT
 //! \return void
 //!         No return value. Handle all exception inside the function.
 //!
-void HalOcaInterfaceNext::DumpCodechalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext, void *pCodechalDumper, CODECHAL_STANDARD codec)
+void HalOcaInterfaceNext::DumpCodechalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, void *pCodechalDumper, CODECHAL_STANDARD codec)
 {
     MosOcaInterface *pOcaInterface       = &MosOcaInterfaceSpecific::GetInstance();
     MOS_STATUS status                    = MOS_STATUS_SUCCESS;
@@ -473,11 +511,11 @@ void HalOcaInterfaceNext::DumpCodechalParam(MOS_COMMAND_BUFFER &cmdBuffer, MOS_C
     header.header.headerSize                 = sizeof(MOS_OCA_LOG_HEADER_CODECHAL_PARAM);
     header.header.dataSize                   = pCodechalParam->Header.size;
     header.codec                             = (uint32_t)codec;
-    status = pOcaInterface->DumpDataBlock(ocaBufHandle, &mosContext, (PMOS_OCA_LOG_HEADER)&header, pCodechalParam);
+    status = pOcaInterface->DumpDataBlock(ocaBufHandle, (PMOS_CONTEXT)mosContext, (PMOS_OCA_LOG_HEADER)&header, pCodechalParam);
 
     if (MOS_FAILED(status))
     {
-        OnOcaError(&mosContext, status, __FUNCTION__, __LINE__);
+        OnOcaError(mosContext, status, __FUNCTION__, __LINE__);
     }
 }
 
@@ -486,41 +524,89 @@ bool HalOcaInterfaceNext::IsLargeResouceDumpSupported()
     return true;
 }
 
+void HalOcaInterfaceNext::AddRTLogReource(MOS_COMMAND_BUFFER &cmdBuffer,
+                               MOS_CONTEXT_HANDLE mosContext,
+                               MOS_INTERFACE &osInterface)
+{
+    if (!MosOcaRTLogMgr::IsOcaRTLogEnabled())
+    {
+        return;
+    }
+    MOS_STATUS status = MOS_STATUS_SUCCESS;
+    PMOS_RESOURCE osResource = nullptr;
+    uint32_t size = 0;
+    if (!osInterface.osStreamState)
+    {
+        return;
+    }
+    osInterface.pfnGetRtLogResourceInfo(&osInterface, osResource, size);
+    if(osResource == nullptr || size == 0)
+    {
+        return;
+    }
+
+    MOS_LINUX_BO *bo = cmdBuffer.OsResource.bo;
+    if (bo == nullptr ||
+        bo->virt == nullptr ||
+        bo->size <= OCA_LOG_SECTION_SIZE_MAX)
+    {
+        return;
+    }
+    OCA_LOG_SECTION_HEADER *header = (OCA_LOG_SECTION_HEADER *)((uint64_t)bo->virt + bo->size - OCA_LOG_SECTION_SIZE_MAX);
+    if (header->magicNum != OCA_LOG_SECTION_MAGIC_NUMBER)
+    {
+        return;
+    }
+    MHW_RESOURCE_PARAMS ResourceParams = {};
+
+    ResourceParams.dwOffset = 0;
+    uint32_t cmd = 0;
+    ResourceParams.presResource = osResource;
+    ResourceParams.pdwCmd = &cmd;
+    // Align logic in Mhw_AddResourceToCmd
+    ResourceParams.dwLocationInCmd = ((int32_t)((uint8_t*)&header->rtlogPatchAddr - (uint8_t*)cmdBuffer.pCmdBase) - cmdBuffer.iOffset) / sizeof(uint32_t);
+    ResourceParams.HwCommandType = MOS_OCA_RESERVED;
+    ResourceParams.dwSharedMocsOffset = 1 - ResourceParams.dwLocationInCmd;
+
+    if (osInterface.bUsesGfxAddress)
+    {
+        status = Mhw_AddResourceToCmd_GfxAddress(&osInterface, &cmdBuffer, &ResourceParams);
+    }
+    else
+    {
+        status = Mhw_AddResourceToCmd_PatchList(&osInterface, &cmdBuffer, &ResourceParams);
+    }
+
+    if (MOS_FAILED(status))
+    {
+        OnOcaError(mosContext, status, __FUNCTION__, __LINE__);
+    }
+    HalOcaInterfaceNext::OnIndirectState(cmdBuffer, mosContext, osResource, 0, false, size);
+}
+
 void HalOcaInterfaceNext::DumpCpParam(MosOcaInterface &ocaInterface, MOS_OCA_BUFFER_HANDLE &ocaBufHandle, PMOS_CONTEXT mosCtx, void *pCpDumper)
 {
 }
 
-void HalOcaInterfaceNext::OnOcaError(PMOS_CONTEXT mosCtx, MOS_STATUS status, const char *functionName, uint32_t lineNumber)
+void HalOcaInterfaceNext::DumpCpIoMsg(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext, void *pCpDumper, int type)
 {
-    MosOcaInterfaceSpecific::OnOcaError(mosCtx, status, functionName, lineNumber);
 }
 
-MOS_OCA_BUFFER_HANDLE HalOcaInterfaceNext::GetOcaBufferHandle(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext)
+void HalOcaInterfaceNext::OnOcaError(MOS_CONTEXT_HANDLE mosCtx, MOS_STATUS status, const char *functionName, uint32_t lineNumber)
+{
+    MosOcaInterfaceSpecific::OnOcaError((PMOS_CONTEXT)mosCtx, status, functionName, lineNumber);
+}
+
+MOS_OCA_BUFFER_HANDLE HalOcaInterfaceNext::GetOcaBufferHandle(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT_HANDLE mosContext)
 {
     MosOcaInterface *pOcaInterface = &MosOcaInterfaceSpecific::GetInstance();
     if(pOcaInterface == nullptr)
     {
-        OnOcaError(&mosContext, MOS_STATUS_NULL_POINTER, __FUNCTION__, __LINE__);
+        OnOcaError(mosContext, MOS_STATUS_NULL_POINTER, __FUNCTION__, __LINE__);
         return MOS_OCA_INVALID_BUFFER_HANDLE;
     }
-    PMOS_MUTEX mutex = pOcaInterface->GetMutex();
-    if (mutex == nullptr)
-    {
-        return MOS_OCA_INVALID_BUFFER_HANDLE;
-    }
-    MosOcaAutoLock autoLock(mutex);
-    std::map<uint32_t*, MOS_OCA_BUFFER_HANDLE>::iterator it = s_hOcaMap.find(cmdBuffer.pCmdBase);
-    if (it == s_hOcaMap.end())
-    {
-        // May come here for workloads not enabling UMD_OCA.
-        return MOS_OCA_INVALID_BUFFER_HANDLE;
-    }
-    if (it->second >= MAX_NUM_OF_OCA_BUF_CONTEXT || it->second < 0)
-    {
-        OnOcaError(&mosContext, MOS_STATUS_NULL_POINTER, __FUNCTION__, __LINE__);
-        return MOS_OCA_INVALID_BUFFER_HANDLE;
-    }
-    return it->second;
+
+    return pOcaInterface->GetOcaBufHandleFromMap(cmdBuffer.pCmdBase);
 }
 
 void HalOcaInterfaceNext::RemoveOcaBufferHandle(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext)
@@ -531,19 +617,63 @@ void HalOcaInterfaceNext::RemoveOcaBufferHandle(MOS_COMMAND_BUFFER &cmdBuffer, M
         OnOcaError(&mosContext, MOS_STATUS_NULL_POINTER, __FUNCTION__, __LINE__);
         return;
     }
-    PMOS_MUTEX      mutex = pOcaInterface->GetMutex();
-    if (mutex == nullptr)
+    pOcaInterface->RemoveOcaBufHandleFromMap(cmdBuffer.pCmdBase);
+}
+
+//!
+//! \brief  Oca operation which should be called at the beginning of 1st level batch buffer start.
+//! \param  [in/out] cmdBuffer
+//!         Command buffer for current BB. ocaBufHandle in cmdBuffer will be updated.
+//! \param  [in] mosContext
+//!         Reference to MOS_CONTEXT.
+//! \param  [in] gpuContextHandle
+//!         Gpu context handle 
+//! \return void
+//!         No return value. Handle all exception inside the function.
+//!
+void HalOcaInterfaceNext::On1stLevelBBStart(MOS_COMMAND_BUFFER &cmdBuffer, MOS_CONTEXT &mosContext,
+        uint32_t gpuContextHandle)
+{
+    MosInterface::SetObjectCapture(&cmdBuffer.OsResource);
+    MOS_STATUS status                   = MOS_STATUS_SUCCESS;
+    MosOcaInterface *pOcaInterface      = &MosOcaInterfaceSpecific::GetInstance();
+    MOS_OCA_BUFFER_HANDLE ocaBufHandle  = 0;
+    uint64_t  ocaBase                   = 0;
+
+    if (nullptr == pOcaInterface || !((MosOcaInterfaceSpecific*)pOcaInterface)->IsOcaEnabled())
     {
+        return;
+    }
+
+    ocaBufHandle = GetOcaBufferHandle(cmdBuffer, (MOS_CONTEXT_HANDLE)&mosContext);
+    if (ocaBufHandle != MOS_OCA_INVALID_BUFFER_HANDLE)
+    {
+        // will come here when On1stLevelBBStart being called twice without On1stLevelBBEnd being called.
         OnOcaError(&mosContext, MOS_STATUS_INVALID_PARAMETER, __FUNCTION__, __LINE__);
         return;
     }
-    MosOcaAutoLock autoLock(mutex);
-    std::map<uint32_t*, MOS_OCA_BUFFER_HANDLE>::iterator it = s_hOcaMap.find(cmdBuffer.pCmdBase);
-    if (it == s_hOcaMap.end())
+    else
     {
-        return;
+        ocaBufHandle = pOcaInterface->LockOcaBufAvailable(&mosContext, gpuContextHandle);
+
+        if (MOS_OCA_INVALID_BUFFER_HANDLE == ocaBufHandle)
+        {
+            OnOcaError(&mosContext, MOS_STATUS_INVALID_HANDLE, __FUNCTION__, __LINE__);
+            return;
+        }
+        if (MOS_FAILED(pOcaInterface->InsertOcaBufHandleMap(cmdBuffer.pCmdBase, ocaBufHandle)))
+        {
+            OnOcaError(&mosContext, MOS_STATUS_INVALID_HANDLE, __FUNCTION__, __LINE__);
+            return;
+        }
     }
-    s_hOcaMap.erase(it);
+    
+    status = pOcaInterface->On1stLevelBBStart(ocaBase, ocaBufHandle, &mosContext, &cmdBuffer.OsResource, 0, true, 0);
+    if (MOS_FAILED(status))
+    {
+        RemoveOcaBufferHandle(cmdBuffer, mosContext);
+        OnOcaError(&mosContext, status, __FUNCTION__, __LINE__);
+    }
 }
 
 /****************************************************************************************************/

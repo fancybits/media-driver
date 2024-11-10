@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2022, Intel Corporation
+* Copyright (c) 2018-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -31,7 +31,7 @@
 #include "linux_media_skuwa.h"
 #include "mos_utilities.h"
 #include "mos_os_specific.h"
-#include "media_user_setting.h"
+#include "media_user_setting_specific.h"
 
 static constexpr uint32_t singleVeboxSubSliceNumMax = 24;
 
@@ -65,7 +65,8 @@ static struct LinuxCodecInfo tglCodecInfo =
 
 static bool InitTglMediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
     if ((devInfo == nullptr) || (skuTable == nullptr) || (drvInfo == nullptr))
     {
@@ -280,15 +281,17 @@ static bool InitTglMediaSku(struct GfxDeviceInfo *devInfo,
 
     bool compressibleSurfaceEnable = false;
 
-    ReadUserSetting(nullptr,
+    ReadUserSetting(userSettingPtr,
         compressibleSurfaceEnable,
         "Enable Compressible Surface Creation",
         MediaUserSetting::Group::Device);
-
+        
+#ifdef _MMC_SUPPORTED
     if (compressibleSurfaceEnable)
     {
         MEDIA_WR_SKU(skuTable, FtrCompressibleSurfaceDefault, 1);
     }
+#endif
 
     MEDIA_WR_SKU(skuTable, FtrHDR, 1);
 
@@ -361,16 +364,20 @@ static bool InitTglMediaWa(struct GfxDeviceInfo *devInfo,
     /*software wa to use huc copy for init aux table for MFX*/
     MEDIA_WR_WA(waTable, Wa_22010493002, 1);
 
+    MEDIA_WR_WA(waTable, Wa_Vp9UnalignedHeight, 1);
+    MEDIA_WR_WA(waTable, Wa_AvcUnalignedHeight, 1);
+    MEDIA_WR_WA(waTable, WaDisableSetObjectCapture, 0);
     return true;
 }
 
 
 #ifdef IGFX_GEN12_DG1_SUPPORTED
 static bool InitDG1MediaSku(struct GfxDeviceInfo *devInfo,
-                              MediaFeatureTable *skuTable,
-                           struct LinuxDriverInfo *drvInfo)
+                            MediaFeatureTable *skuTable,
+                            struct LinuxDriverInfo *drvInfo,
+                            MediaUserSettingSharedPtr userSettingPtr)
 {
-    if (!InitTglMediaSku(devInfo, skuTable, drvInfo))
+    if (!InitTglMediaSku(devInfo, skuTable, drvInfo, userSettingPtr))
     {
         return false;
     }
@@ -453,9 +460,10 @@ static bool dg1DeviceRegister = DeviceInfoFactory<LinuxDeviceInit>::
 #ifdef IGFX_GEN12_RKL_SUPPORTED
 static bool InitRKLMediaSku(struct GfxDeviceInfo *devInfo,
     MediaFeatureTable *                           skuTable,
-    struct LinuxDriverInfo *                      drvInfo)
+    struct LinuxDriverInfo                       *drvInfo,
+    MediaUserSettingSharedPtr                     userSettingPtr)
 {
-    if (!InitTglMediaSku(devInfo, skuTable, drvInfo))
+    if (!InitTglMediaSku(devInfo, skuTable, drvInfo, userSettingPtr))
     {
         return false;
     }
@@ -500,9 +508,10 @@ static bool rklDeviceRegister = DeviceInfoFactory<LinuxDeviceInit>::
 #ifdef IGFX_GEN12_ADLS_SUPPORTED
 static bool InitAdlsMediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
-    if (!InitTglMediaSku(devInfo, skuTable, drvInfo))
+    if (!InitTglMediaSku(devInfo, skuTable, drvInfo, userSettingPtr))
     {
         return false;
     }
@@ -514,12 +523,29 @@ static bool InitAdlsMediaSku(struct GfxDeviceInfo *devInfo,
 
     MEDIA_WR_SKU(skuTable, FtrAV1VLDLSTDecoding, 1);
 
+    MEDIA_WR_SKU(skuTable, FtrHeight8AlignVE3DLUTDualPipe, 1);
+
     //Disable VP8 for ADLS
     MEDIA_WR_SKU(skuTable, FtrIntelVP8VLDDecoding, 0);
 
     // Disable HEVC 422 Virtual Tile Scalability
     MEDIA_WR_SKU(skuTable, FtrDecodeHEVC422VTScalaDisable, 1);
+
+    MEDIA_WR_SKU(skuTable, FtrVirtualTileScalabilityDisable, 1);
     MEDIA_WR_SKU(skuTable, FtrE2ECompression, 1);
+
+    //RPL-S
+    if (drvInfo->devId == 0xA780 || 
+        drvInfo->devId == 0xA781 || 
+        drvInfo->devId == 0xA782 || 
+        drvInfo->devId == 0xA783 || 
+        drvInfo->devId == 0xA788 || 
+        drvInfo->devId == 0xA789 || 
+        drvInfo->devId == 0xA78A || 
+        drvInfo->devId == 0xA78B)
+    {
+        MEDIA_WR_SKU(skuTable, FtrGucSubmission, 1);
+    }
 
     return true;
 }
@@ -539,6 +565,7 @@ static bool InitAdlsMediaWa(struct GfxDeviceInfo* devInfo,
     //ADL-S need enable MMC for all stepping
     MEDIA_WR_WA(waTable, WaDisableCodecMmc, 0);
     MEDIA_WR_WA(waTable, WaDisableVPMmc, 0);
+    MEDIA_WR_WA(waTable, WaDisableClearCCS, 1);
 
     return true;
 }
@@ -558,9 +585,10 @@ static bool adlsDeviceRegister = DeviceInfoFactory<LinuxDeviceInit>::
 #ifdef IGFX_GEN12_ADLP_SUPPORTED
 static bool InitAdlpMediaSku(struct GfxDeviceInfo *devInfo,
     MediaFeatureTable *                            skuTable,
-    struct LinuxDriverInfo *                       drvInfo)
+    struct LinuxDriverInfo                        *drvInfo,
+    MediaUserSettingSharedPtr                      userSettingPtr)
 {
-    if (!InitTglMediaSku(devInfo, skuTable, drvInfo))
+    if (!InitTglMediaSku(devInfo, skuTable, drvInfo, userSettingPtr))
     {
         return false;
     }
@@ -573,6 +601,7 @@ static bool InitAdlpMediaSku(struct GfxDeviceInfo *devInfo,
     MEDIA_WR_SKU(skuTable, FtrAV1VLDLSTDecoding, 1);
     MEDIA_WR_SKU(skuTable, FtrGucSubmission, 1);
     MEDIA_WR_SKU(skuTable, FtrDecodeHEVC422VTScalaDisable, 1);
+    MEDIA_WR_SKU(skuTable, FtrVirtualTileScalabilityDisable, 1);
 
     return true;
 }
@@ -588,6 +617,8 @@ static bool InitAdlpMediaWa(struct GfxDeviceInfo *devInfo,
 
     //ADL-P not need this
     MEDIA_WR_WA(waTable, Wa_1409820462, 0);
+    MEDIA_WR_WA(waTable, WaDisableClearCCS, 1);
+
     return true;
 }
 
@@ -606,9 +637,10 @@ static bool adlpDeviceRegister = DeviceInfoFactory<LinuxDeviceInit>::
 #ifdef IGFX_GEN12_ADLN_SUPPORTED
 static bool InitAdlnMediaSku(struct GfxDeviceInfo *devInfo,
     MediaFeatureTable *                            skuTable,
-    struct LinuxDriverInfo *                       drvInfo)
+    struct LinuxDriverInfo                        *drvInfo,
+    MediaUserSettingSharedPtr                      userSettingPtr)
 {
-    if (!InitTglMediaSku(devInfo, skuTable, drvInfo))
+    if (!InitTglMediaSku(devInfo, skuTable, drvInfo, userSettingPtr))
     {
         return false;
     }
@@ -617,7 +649,8 @@ static bool InitAdlnMediaSku(struct GfxDeviceInfo *devInfo,
     {
         MEDIA_WR_SKU(skuTable, FtrGT0_5, 1);
     }
-
+    
+    MEDIA_WR_SKU(skuTable, FtrHeight8AlignVE3DLUTDualPipe, 1);
     MEDIA_WR_SKU(skuTable, FtrAV1VLDLSTDecoding, 1);
     MEDIA_WR_SKU(skuTable, FtrGucSubmission, 1);
     MEDIA_WR_SKU(skuTable, FtrDecodeHEVC422VTScalaDisable, 1);
@@ -641,6 +674,7 @@ static bool InitAdlnMediaWa(struct GfxDeviceInfo *devInfo,
     //ADL-N need enable MMC for all stepping
     MEDIA_WR_WA(waTable, WaDisableCodecMmc, 0);
     MEDIA_WR_WA(waTable, WaDisableVPMmc, 0);
+    MEDIA_WR_WA(waTable, WaDisableClearCCS, 1);
 
     return true;
 }

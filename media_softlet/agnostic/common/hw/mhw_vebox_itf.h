@@ -70,6 +70,8 @@ public:
 
     virtual MOS_STATUS GetVeboxHeapInfo(const MHW_VEBOX_HEAP** ppVeboxHeap) = 0;
 
+    virtual MOS_STATUS SetVeboxHeapStateIndex(uint32_t index) = 0;
+
     virtual MOS_STATUS AddVeboxSurfaces(PMOS_COMMAND_BUFFER pCmdBufferInUse, PMHW_VEBOX_SURFACE_STATE_CMD_PARAMS pVeboxSurfaceStateCmdParams) = 0;
 
     virtual MOS_STATUS SetVeboxDndiState(PMHW_VEBOX_DNDI_PARAMS pVeboxDndiParams) = 0;
@@ -77,6 +79,8 @@ public:
     virtual MOS_STATUS SetVeboxIecpState(PMHW_VEBOX_IECP_PARAMS pVeboxIecpParams) = 0;
 
     virtual MOS_STATUS SetDisableHistogram(PMHW_VEBOX_IECP_PARAMS pVeboxIecpParams) = 0;
+
+    virtual MOS_STATUS SetAlphaFromStateSelect(PMHW_VEBOX_IECP_PARAMS pVeboxIecpParams) = 0;
 
     virtual MOS_STATUS SetVeboxLaceColorParams(MHW_LACE_COLOR_CORRECTION *pLaceColorParams)  = 0;
 
@@ -108,6 +112,12 @@ public:
 
     virtual MOS_STATUS Add1DLutState(void *&surface, PMHW_1DLUT_PARAMS p1DLutParams) = 0;
 
+    virtual MOS_STATUS AddFP16State(PMHW_FP16_PARAMS pFP16Params) = 0;
+#if (_DEBUG || _RELEASE_INTERNAL)
+    virtual bool IsVeboxIdReportEnabled() = 0;
+
+    virtual MOS_STATUS ReportVeboxId() = 0;
+#endif
     _VEBOX_CMD_DEF(_MHW_CMD_ALL_DEF_FOR_ITF);
 
 MEDIA_CLASS_DEFINE_END(mhw__vebox__Itf)

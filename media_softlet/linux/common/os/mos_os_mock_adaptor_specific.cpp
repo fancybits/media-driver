@@ -25,7 +25,7 @@
 //!
 #include "mos_os.h"
 #include "mos_os_specific.h"
-#include "media_skuwa_specific.h"
+#include "mos_interface.h"
 #include "skuwa_factory.h"
 #include "hwinfo_linux.h"
 #include "mos_os_mock_adaptor_specific.h"
@@ -61,9 +61,10 @@ MOS_STATUS MosMockAdaptorSpecific::InitializeSkuWaTable(PMOS_CONTEXT context)
 {
     MOS_OS_CHK_NULL_RETURN(context);
     MOS_OS_CHK_NULL_RETURN(m_pPlatform);
+    auto            userSettingPtr = MosInterface::MosGetUserSettingInstance(context);
 
     LinuxDriverInfo drvInfo = {18, 3, 0, 23172, 3, 1, 0, 1, 0, 0, 1, 0};
-    if (HWInfoGetLinuxDrvInfo(context->fd, &drvInfo) != MOS_STATUS_SUCCESS)
+    if (mos_get_driver_info(context->bufmgr, &drvInfo))
     {
         return MOS_STATUS_INVALID_HANDLE;
     }
@@ -93,58 +94,10 @@ MOS_STATUS MosMockAdaptorSpecific::InitializeSkuWaTable(PMOS_CONTEXT context)
         return MOS_STATUS_PLATFORM_NOT_SUPPORTED;
     }
 
-    unsigned int maxNengine = 0;
-    if((m_pGtSystemInfo->VDBoxInfo.NumberOfVDBoxEnabled == 0)
-        || (m_pGtSystemInfo->VEBoxInfo.NumberOfVEBoxEnabled == 0))
+    if (mos_query_sys_engines(context->bufmgr, m_pGtSystemInfo))
     {
-        if (mos_query_engines_count(context->bufmgr, &maxNengine) || (maxNengine == 0))
-        {
-            MOS_OS_ASSERTMESSAGE("Failed to query engines count.\n");
-            return MOS_STATUS_PLATFORM_NOT_SUPPORTED;
-        }
-    }
-
-    if (m_pGtSystemInfo->VDBoxInfo.NumberOfVDBoxEnabled == 0)
-    {
-        unsigned int nengine = maxNengine;
-        struct i915_engine_class_instance *uengines = nullptr;
-        uengines = (struct i915_engine_class_instance *)MOS_AllocAndZeroMemory(nengine * sizeof(struct i915_engine_class_instance));
-        MOS_OS_CHK_NULL_RETURN(uengines);
-        if (mos_query_engines(context->bufmgr, I915_ENGINE_CLASS_VIDEO, 0, &nengine,uengines) == 0)
-        {
-            m_pGtSystemInfo->VDBoxInfo.NumberOfVDBoxEnabled = nengine;
-        }
-        else
-        {
-            MOS_OS_ASSERTMESSAGE("Failed to query vdbox engine\n");
-            MOS_SafeFreeMemory(uengines);
-            return MOS_STATUS_PLATFORM_NOT_SUPPORTED;
-        }
-        for (int i=0; i<nengine; i++)
-        {
-            m_pGtSystemInfo->VDBoxInfo.Instances.VDBoxEnableMask |= 1 << uengines[i].engine_instance;
-        }
-        MOS_SafeFreeMemory(uengines);
-    }
-
-    if (m_pGtSystemInfo->VEBoxInfo.NumberOfVEBoxEnabled == 0)
-    {
-        unsigned int nengine = maxNengine;
-        struct i915_engine_class_instance *uengines = nullptr;
-        uengines = (struct i915_engine_class_instance *)MOS_AllocAndZeroMemory(nengine * sizeof(struct i915_engine_class_instance));
-        MOS_OS_CHK_NULL_RETURN(uengines);
-        if (mos_query_engines(context->bufmgr,I915_ENGINE_CLASS_VIDEO_ENHANCE,0,&nengine,uengines) == 0)
-        {
-            MOS_OS_ASSERT(nengine <= maxNengine);
-            m_pGtSystemInfo->VEBoxInfo.NumberOfVEBoxEnabled = nengine;
-        }
-        else
-        {
-            MOS_OS_ASSERTMESSAGE("Failed to query vebox engine\n");
-            MOS_SafeFreeMemory(uengines);
-            return MOS_STATUS_PLATFORM_NOT_SUPPORTED;
-        }
-        MOS_SafeFreeMemory(uengines);
+        MOS_OS_ASSERTMESSAGE("Failed to Init Gt System Info\n");
+        return MOS_STATUS_PLATFORM_NOT_SUPPORTED;
     }
 
     uint32_t platformKey = devInfo->productFamily;
@@ -152,7 +105,7 @@ MOS_STATUS MosMockAdaptorSpecific::InitializeSkuWaTable(PMOS_CONTEXT context)
 
     if (devInit && devInit->InitMediaFeature &&
         devInit->InitMediaWa &&
-        devInit->InitMediaFeature(devInfo, m_pSkuTable, &drvInfo) &&
+        devInit->InitMediaFeature(devInfo, m_pSkuTable, &drvInfo, userSettingPtr) &&
         devInit->InitMediaWa(devInfo, m_pWaTable, &drvInfo))
     {
         MOS_OS_NORMALMESSAGE("Init Media SKU/WA info successfully\n");
@@ -169,7 +122,7 @@ MOS_STATUS MosMockAdaptorSpecific::InitializeSkuWaTable(PMOS_CONTEXT context)
     /* The initializationof Ext SKU/WA is optional. So skip the check of return value */
     if (devExtInit && devExtInit->InitMediaFeature &&
         devExtInit->InitMediaWa &&
-        devExtInit->InitMediaFeature(devInfo, m_pSkuTable, &drvInfo) &&
+        devExtInit->InitMediaFeature(devInfo, m_pSkuTable, &drvInfo, userSettingPtr) &&
         devExtInit->InitMediaWa(devInfo, m_pWaTable, &drvInfo))
     {
         MOS_OS_NORMALMESSAGE("Init Media SystemInfo successfully\n");
@@ -191,7 +144,7 @@ MOS_STATUS MosMockAdaptorSpecific::UpdateUserFeatureKey(PMOS_CONTEXT osContext)
 {
     MOS_OS_CHK_NULL_RETURN(osContext);
     MediaUserSettingSharedPtr   userSettingPtr  = MosInterface::MosGetUserSettingInstance(osContext);
-    PLATFORM                    platForm        = osContext->platform;
+    PLATFORM                    platForm        = osContext->m_platform;
     int32_t                     iDeviceId       = osContext->iDeviceId;
     int32_t                     eProductFaimily = (int32_t)platForm.eProductFamily;
 

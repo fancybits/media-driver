@@ -54,9 +54,6 @@ namespace decode{
             {
                 m_allocator->Destroy(m_resMprRowStoreScratchBuffer);
             }
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-            m_allocator->Destroy(m_tempRefSurf);
-#endif
         }
 
         return MOS_STATUS_SUCCESS;
@@ -277,18 +274,22 @@ namespace decode{
             uint8_t frameIdx = activeRefList[i];
             uint8_t frameId = (m_avcBasicFeature->m_picIdRemappingInUse) ? i : refFrames.m_refList[frameIdx]->ucFrameId;
             pipeBufAddrParams.presReferences[frameId] = refFrames.GetReferenceByFrameIndex(frameIdx);
+
+            // Return error if reference surface's width or height is less than dest surface.
+            if (pipeBufAddrParams.presReferences[frameId] != nullptr)
+            {
+                MOS_SURFACE refSurface;
+                refSurface.OsResource = *(pipeBufAddrParams.presReferences[frameId]);
+                DECODE_CHK_STATUS(m_allocator->GetSurfaceInfo(&refSurface));
+                DECODE_CHK_COND(((refSurface.dwWidth < m_avcBasicFeature->m_destSurface.dwWidth)
+                    || (refSurface.dwHeight < m_avcBasicFeature->m_destSurface.dwHeight)),
+                    "Reference surface's width or height is less than Dest surface.");
+            }
         }
 
         DECODE_CHK_STATUS(FixMfxPipeBufAddrParams(pipeBufAddrParams));
 
-        CODECHAL_DEBUG_TOOL(DumpResources(pipeBufAddrParams));
-
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-        if (MOS_TraceKeyEnabled(TR_KEY_DECODE_REFYUV))
-        {
-            TraceDataDumpReferences(pipeBufAddrParams);
-        }
-#endif
+        CODECHAL_DEBUG_TOOL(DECODE_CHK_STATUS(DumpResources(pipeBufAddrParams)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -433,6 +434,8 @@ namespace decode{
         avcDirectmodeParams.avcRefList              = (void**)refFrames.m_refList;
         avcDirectmodeParams.bPicIdRemappingInUse    = m_avcBasicFeature->m_picIdRemappingInUse;
 
+        CODECHAL_DEBUG_TOOL(DECODE_CHK_STATUS(DumpResources(avcDirectmodeParams, curMvBuffer->size)));
+
         return MOS_STATUS_SUCCESS;
     }
 
@@ -554,21 +557,21 @@ namespace decode{
         {
             if (m_avcBasicFeature->m_refFrames.m_avcPicIdx[n].bValid)
             {
-                MOS_SURFACE destSurface;
-                MOS_ZeroMemory(&destSurface, sizeof(MOS_SURFACE));
-                destSurface.OsResource = *(pipeBufAddrParams.presReferences[n]);
-                DECODE_CHK_STATUS(m_allocator->GetSurfaceInfo(&destSurface));
+                MOS_SURFACE refSurface;
+                MOS_ZeroMemory(&refSurface, sizeof(MOS_SURFACE));
+                refSurface.OsResource = *(pipeBufAddrParams.presReferences[n]);
+                DECODE_CHK_STATUS(m_allocator->GetSurfaceInfo(&refSurface));
                 std::string refSurfName = "RefSurf[" + std::to_string(static_cast<uint32_t>(n)) + "]";
                 DECODE_CHK_STATUS(debugInterface->DumpYUVSurface(
-                    &destSurface,
-                    CodechalDbgAttr::attrReferenceSurfaces,
+                    &refSurface,
+                    CodechalDbgAttr::attrDecodeReferenceSurfaces,
                     refSurfName.c_str()));
             }
         }
 
         DECODE_CHK_STATUS(debugInterface->DumpBuffer(
             &m_avcBasicFeature->m_resDataBuffer.OsResource,
-            CodechalDbgAttr::attrBitstream,
+            CodechalDbgAttr::attrDecodeBitstream,
             "DEC",
             m_avcBasicFeature->m_dataSize,
             m_avcBasicFeature->m_dataOffset,
@@ -577,102 +580,32 @@ namespace decode{
         return MOS_STATUS_SUCCESS;
     }
 
-#endif
-
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-    MOS_STATUS AvcDecodePicPktXe_M_Base::TraceDataDumpReferences(MHW_VDBOX_PIPE_BUF_ADDR_PARAMS &pipeBufAddrParams)
+    MOS_STATUS AvcDecodePicPktXe_M_Base::DumpResources(MHW_VDBOX_AVC_DIRECTMODE_PARAMS &avcDirectmodeParams, uint32_t mvBufferSize)
     {
-        bool bReport = false;
+        DECODE_FUNC_CALL();
 
+        CodechalDebugInterface *debugInterface = m_avcPipeline->GetDebugInterface();
         for (auto n = 0; n < CODEC_AVC_MAX_NUM_REF_FRAME; n++)
         {
             if (m_avcBasicFeature->m_refFrames.m_avcPicIdx[n].bValid)
             {
-                bool        bAllocate = false;
-                MOS_SURFACE dstSurface;
-                MOS_ZeroMemory(&dstSurface, sizeof(MOS_SURFACE));
-                dstSurface.OsResource = *(pipeBufAddrParams.presReferences[n]);
-                DECODE_CHK_STATUS(m_allocator->GetSurfaceInfo(&dstSurface));
-
-                if (!m_allocator->ResourceIsNull(&dstSurface.OsResource))
-                {
-                    if (m_tempRefSurf == nullptr || m_allocator->ResourceIsNull(&m_tempRefSurf->OsResource))
-                    {
-                        bAllocate = true;
-                    }
-                    else if (m_tempRefSurf->dwWidth < dstSurface.dwWidth ||
-                             m_tempRefSurf->dwHeight < dstSurface.dwHeight)
-                    {
-                        bAllocate = true;
-                    }
-                    else
-                    {
-                        bAllocate = false;
-                    }
-
-                    if (bAllocate)
-                    {
-                        if (!m_allocator->ResourceIsNull(&m_tempRefSurf->OsResource))
-                        {
-                            m_allocator->Destroy(m_tempRefSurf);
-                        }
-
-                        m_tempRefSurf = m_allocator->AllocateLinearSurface(
-                            dstSurface.dwWidth,
-                            dstSurface.dwHeight,
-                            "Decode Ref Surf",
-                            dstSurface.Format,
-                            dstSurface.bIsCompressed,
-                            resourceInputReference,
-                            lockableSystemMem,
-                            MOS_TILE_LINEAR_GMM);
-                    }
-
-                    DECODE_CHK_STATUS(m_osInterface->pfnDoubleBufferCopyResource(
-                        m_osInterface,
-                        &dstSurface.OsResource,
-                        &m_tempRefSurf->OsResource,
-                        false));
-
-                    if (!bReport)
-                    {
-                        DECODE_EVENTDATA_YUV_SURFACE_INFO eventData =
-                        {
-                                PICTURE_FRAME,
-                                0,
-                                m_tempRefSurf->dwOffset,
-                                m_tempRefSurf->YPlaneOffset.iYOffset,
-                                m_tempRefSurf->dwPitch,
-                                m_tempRefSurf->dwWidth,
-                                m_tempRefSurf->dwHeight,
-                                (uint32_t)m_tempRefSurf->Format,
-                                m_tempRefSurf->UPlaneOffset.iLockSurfaceOffset,
-                                m_tempRefSurf->VPlaneOffset.iLockSurfaceOffset,
-                                m_tempRefSurf->UPlaneOffset.iSurfaceOffset,
-                                m_tempRefSurf->VPlaneOffset.iSurfaceOffset,
-                        };
-                        MOS_TraceEvent(EVENT_DECODE_DUMPINFO_REF, EVENT_TYPE_INFO, &eventData, sizeof(eventData), NULL, 0);
-
-                        bReport = true;
-                    }
-
-                    ResourceAutoLock resLock(m_allocator, &m_tempRefSurf->OsResource);
-                    auto             pData = (uint8_t *)resLock.LockResourceForRead();
-                    DECODE_CHK_NULL(pData);
-                    
-                    MOS_TraceDataDump(
-                        "Decode_AVCRefSurf",
-                        n,
-                        pData,
-                        (uint32_t)m_tempRefSurf->OsResource.pGmmResInfo->GetSizeMainSurface());
-                    
-                    m_allocator->UnLock(&m_tempRefSurf->OsResource);
-                }
+                std::string mvBufDumpName = "_DEC_Ref_MV_" + std::to_string(n);
+                DECODE_CHK_STATUS(debugInterface->DumpBuffer(
+                    &avcDirectmodeParams.presAvcDmvBuffers[n+1],
+                    CodechalDbgAttr::attrMvData,
+                    mvBufDumpName.c_str(),
+                    mvBufferSize));
             }
         }
 
+        DECODE_CHK_STATUS(debugInterface->DumpBuffer(
+            &avcDirectmodeParams.presAvcDmvBuffers[0],
+            CodechalDbgAttr::attrMvData,
+            "DEC_Cur_MV_",
+            mvBufferSize));
         return MOS_STATUS_SUCCESS;
     }
+
 #endif
 
 }

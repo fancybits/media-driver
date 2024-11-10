@@ -25,7 +25,6 @@
 //!
 #include "encode_hevc_vdenc_pipeline_xe_xpm_base.h"
 #include "encode_utils.h"
-#include "media_user_settings_mgr_g12.h"
 #include "encode_status_report_defs.h"
 #include "encode_scalability_defs.h"
 #include "encode_mem_compression_g12.h"
@@ -34,7 +33,7 @@
 namespace encode {
 
 HevcVdencPipelineXe_Xpm_Base::HevcVdencPipelineXe_Xpm_Base(
-    CodechalHwInterface     *hwInterface,
+    CodechalHwInterfaceNext     *hwInterface,
     CodechalDebugInterface  *debugInterface)
     : HevcVdencPipeline(hwInterface, debugInterface)
 {
@@ -186,7 +185,7 @@ MOS_STATUS HevcVdencPipelineXe_Xpm_Base::Initialize(void *settings)
     ENCODE_FUNC_CALL();
     ENCODE_CHK_STATUS_RETURN(InitMmcState());
     CodechalSetting* codecSettings = (CodechalSetting*)settings;
-    codecSettings ->isMmcEnabled = m_mmcState->IsMmcEnabled();
+    codecSettings ->isMmcEnabled = m_mmcState ? m_mmcState->IsMmcEnabled() : false;
     ENCODE_CHK_STATUS_RETURN(HevcVdencPipeline::Initialize(settings));
 
     CODECHAL_DEBUG_TOOL(
@@ -195,8 +194,9 @@ MOS_STATUS HevcVdencPipelineXe_Xpm_Base::Initialize(void *settings)
         }
         m_debugInterface = MOS_New(CodechalDebugInterface);
         ENCODE_CHK_NULL_RETURN(m_debugInterface);
+        ENCODE_CHK_NULL_RETURN(m_mediaCopyWrapper);
         ENCODE_CHK_STATUS_RETURN(
-            m_debugInterface->Initialize(m_hwInterface, m_codecFunction));
+            m_debugInterface->Initialize(m_hwInterface, m_codecFunction, m_mediaCopyWrapper));
 
         if (m_statusReportDebugInterface != nullptr) {
             MOS_Delete(m_statusReportDebugInterface);
@@ -204,7 +204,7 @@ MOS_STATUS HevcVdencPipelineXe_Xpm_Base::Initialize(void *settings)
         m_statusReportDebugInterface = MOS_New(CodechalDebugInterface);
         ENCODE_CHK_NULL_RETURN(m_statusReportDebugInterface);
         ENCODE_CHK_STATUS_RETURN(
-            m_statusReportDebugInterface->Initialize(m_hwInterface, m_codecFunction)););
+            m_statusReportDebugInterface->Initialize(m_hwInterface, m_codecFunction, m_mediaCopyWrapper)););
     ENCODE_CHK_STATUS_RETURN(GetSystemVdboxNumber());
 
     return MOS_STATUS_SUCCESS;
@@ -276,7 +276,7 @@ MOS_STATUS HevcVdencPipelineXe_Xpm_Base::InitMmcState()
 #ifdef _MMC_SUPPORTED
     ENCODE_CHK_NULL_RETURN(m_hwInterface);
     m_mmcState = MOS_New(EncodeMemCompG12, m_hwInterface);
-    CODECHAL_ENCODE_CHK_NULL_RETURN(m_mmcState);
+    ENCODE_CHK_NULL_RETURN(m_mmcState);
 #endif
     return MOS_STATUS_SUCCESS;
 }
@@ -286,6 +286,18 @@ MOS_STATUS HevcVdencPipelineXe_Xpm_Base::CreateFeatureManager()
     ENCODE_FUNC_CALL();
     m_featureManager = MOS_New(EncodeHevcVdencFeatureManagerXe_Xpm_Base, m_allocator, m_hwInterface, m_trackedBuf, m_recycleBuf);
     ENCODE_CHK_NULL_RETURN(m_featureManager);
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS HevcVdencPipelineXe_Xpm_Base::Reformat()
+{
+    ENCODE_FUNC_CALL();
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS HevcVdencPipelineXe_Xpm_Base::PrepareReformat()
+{
+    ENCODE_FUNC_CALL();
     return MOS_STATUS_SUCCESS;
 }
 

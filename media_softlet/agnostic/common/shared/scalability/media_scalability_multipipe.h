@@ -50,7 +50,7 @@ public:
     //! \return MOS_STATUS
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    virtual MOS_STATUS UpdateState();
+    virtual MOS_STATUS UpdateState(void *statePars);
 
 protected:
     inline bool IsFirstPipe() { return (m_currentPipe == 0) ? true : false; }
@@ -58,8 +58,6 @@ protected:
     inline bool IsLastPipe() { return (m_currentPipe == (m_pipeNum - 1)) ? true : false; }
 
     inline bool IsPipeReadyToSubmit() { return (m_currentPipe == (m_pipeIndexForSubmit - 1)) ? true : false; }
-
-    MhwMiInterface *         m_miInterface          = nullptr;  //!< Mi interface used to add BB end
 
 MEDIA_CLASS_DEFINE_END(MediaScalabilityMultiPipe)
 };

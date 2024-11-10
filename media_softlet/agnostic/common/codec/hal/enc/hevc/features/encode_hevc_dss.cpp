@@ -34,7 +34,7 @@ namespace encode
     HevcEncodeDss::HevcEncodeDss(
         MediaFeatureManager *featureManager,
         EncodeAllocator *allocator,
-        CodechalHwInterface *hwInterface,
+        CodechalHwInterfaceNext *hwInterface,
         void *constSettings) :
         MediaFeature(constSettings),
         m_allocator(allocator),
@@ -93,11 +93,13 @@ namespace encode
         // Slice Count buffer 1 DW = 4 Bytes
         allocParamsForBufferLinear.dwBytes    = MOS_ALIGN_CEIL(4, CODECHAL_CACHELINE_SIZE);
         allocParamsForBufferLinear.pBufName   = "Slice Count Buffer";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
         m_resSliceCountBuffer = m_allocator->AllocateResource(allocParamsForBufferLinear, false);
 
         // VDEncMode Timer buffer 1 DW = 4 Bytes
         allocParamsForBufferLinear.dwBytes        = MOS_ALIGN_CEIL(4, CODECHAL_CACHELINE_SIZE);
         allocParamsForBufferLinear.pBufName       = "VDEncMode Timer Buffer";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
         m_resVDEncModeTimerBuffer = m_allocator->AllocateResource(allocParamsForBufferLinear, false);
 
         return eStatus;
@@ -116,7 +118,7 @@ namespace encode
         if (m_hevcSeqParams->SliceSizeControl && frameWidth * frameHeight < ENCODE_HEVC_MIN_DSS_PIC_WIDTH * ENCODE_HEVC_MIN_DSS_PIC_HEIGHT)
         {
             MOS_STATUS eStatus = MOS_STATUS_INVALID_PARAMETER;
-            CODECHAL_ENCODE_CHK_STATUS_MESSAGE_RETURN(eStatus, "DSS is not supported when frame resolution less than 320p");
+            ENCODE_CHK_STATUS_MESSAGE_RETURN(eStatus, "DSS is not supported when frame resolution less than 320p");
         }
 
         return MOS_STATUS_SUCCESS;
@@ -161,7 +163,7 @@ namespace encode
         
         uint32_t sizeOfSliceSizesBuffer = MOS_ALIGN_CEIL(CODECHAL_HEVC_MAX_NUM_SLICES_LVL_6 * CODECHAL_CACHELINE_SIZE, CODECHAL_PAGE_SIZE);
 
-        uint32_t currIndex = statusReport->GetSubmittedCount();
+        uint32_t currIndex = statusReport->GetIndex(statusReport->GetSubmittedCount());
 
         if (pipeline->IsFirstPass())
         {
@@ -175,6 +177,7 @@ namespace encode
                 allocParamsForBufferLinear.Format   = Format_Buffer;
                 allocParamsForBufferLinear.dwBytes  = sizeOfSliceSizesBuffer;
                 allocParamsForBufferLinear.pBufName = "SliceReport";
+                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
                 MOS_RESOURCE *allocatedresource     = m_allocator->AllocateResource(allocParamsForBufferLinear, false);
                 ENCODE_CHK_NULL_RETURN(allocatedresource);
                 m_resSliceReport[currIndex] = *allocatedresource;
@@ -240,7 +243,7 @@ namespace encode
 
         uint32_t sizeOfSliceSizesBuffer = MOS_ALIGN_CEIL(CODECHAL_HEVC_MAX_NUM_SLICES_LVL_6 * CODECHAL_CACHELINE_SIZE, CODECHAL_PAGE_SIZE);
 
-        uint32_t currIndex = statusReport->GetSubmittedCount();
+        uint32_t currIndex = statusReport->GetIndex(statusReport->GetSubmittedCount());
 
         if (pipeline->IsFirstPipe())
         {
@@ -256,6 +259,7 @@ namespace encode
                     allocParamsForBufferLinear.Format   = Format_Buffer;
                     allocParamsForBufferLinear.dwBytes  = sizeOfSliceSizesBuffer;
                     allocParamsForBufferLinear.pBufName = "SliceReport";
+                    allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
                     MOS_RESOURCE *allocatedresource     = m_allocator->AllocateResource(allocParamsForBufferLinear, false);
                     ENCODE_CHK_NULL_RETURN(allocatedresource);
                     m_resSliceReport[currIndex] = *allocatedresource;
@@ -342,7 +346,7 @@ namespace encode
         hucStreamOutParams.inputRelativeOffset  = sourceOffset - hucStreamOutParams.dataOffset;
         hucStreamOutParams.outputRelativeOffset = destOffset - hucStreamOutParams.streamOutObjectOffset;
 
-        ENCODE_CHK_STATUS_RETURN(m_hwInterface->m_hwInterfaceNext->PerformHucStreamOut(
+        ENCODE_CHK_STATUS_RETURN(m_hwInterface->PerformHucStreamOut(
             &hucStreamOutParams,
             &cmdBuffer));
 

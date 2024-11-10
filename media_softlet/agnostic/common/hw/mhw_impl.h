@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021, Intel Corporation
+* Copyright (c) 2021-2022, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -111,6 +111,41 @@ namespace mhw
 class Impl
 {
 protected:
+#if !_MEDIA_RESERVED
+    template <typename T, typename = void>
+    struct HasExtSettings : std::false_type
+    {
+    };
+
+    template <typename T>
+    struct HasExtSettings<
+        T,
+        decltype(static_cast<T *>(nullptr)->extSettings, void())>
+        : std::true_type
+    {
+    };
+
+    template <
+        typename P,
+        typename std::enable_if<HasExtSettings<P>::value, bool>::type = true>
+    MOS_STATUS ApplyExtSettings(const P &params, uint32_t *cmd)
+    {
+        for (const auto &func : params.extSettings)
+        {
+            MHW_CHK_STATUS_RETURN(func(cmd));
+        }
+        return MOS_STATUS_SUCCESS;
+    }
+
+    template <
+        typename P,
+        typename std::enable_if<!HasExtSettings<P>::value, bool>::type = true>
+    MOS_STATUS ApplyExtSettings(const P &, uint32_t *)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+#endif  // !_MEDIA_RESERVED
+
     static int32_t Clip3(int32_t x, int32_t y, int32_t z)
     {
         int32_t ret = 0;
@@ -169,13 +204,48 @@ protected:
         return tileMode;
     }
 
+    static uint16_t Fp32_to_Fp16(float value)
+    {
+        //FP32 sign 1 bit, exponent 8 bits, fraction 23 bits
+        //FP16 sign 1 bit, exponent 5 bits, fraction 10 bits
+        uint32_t bits     = *((uint32_t *)&value);
+        uint16_t sign     = (bits >> 31) & 0x1;
+        uint16_t exponent = (bits >> 23) & 0xFF;
+        uint32_t fraction = bits & 0x7FFFFF;
+        int16_t  exp_fp16;
+        if (exponent == 0xFF)
+        {
+            exp_fp16 = 0x1F;
+        }
+        else if (exponent == 0)
+        {
+            exp_fp16 = 0;
+        }
+        else
+        {
+            exp_fp16 = exponent - 127 + 15;
+        }
+        uint16_t fraction_fp16 = (fraction + 0x1000) >> 13;
+        uint16_t result        = (sign << 15) | (exp_fp16 << 10) | fraction_fp16;
+        if (0 == sign)
+        {
+            result = MOS_MIN(result, 0x7bff);  //Infinity:0x7c00
+        }
+        else
+        {
+            result = MOS_MIN(result, 0xfbff);  //-Infinity:0xfc00
+        }
+        return result;
+    }
+
     Impl(PMOS_INTERFACE osItf)
     {
         MHW_FUNCTION_ENTER;
 
         MHW_CHK_NULL_NO_STATUS_RETURN(osItf);
 
-        m_osItf = osItf;
+        m_osItf          = osItf;
+        m_userSettingPtr = osItf->pfnGetUserSettingInstance(osItf);
         if (m_osItf->bUsesGfxAddress)
         {
             AddResourceToCmd = Mhw_AddResourceToCmd_GfxAddress;
@@ -216,16 +286,17 @@ protected:
     #endif
 
         // add cmd to cmd buffer
-        return Mhw_AddCommandCmdOrBB(cmdBuf, batchBuf, &cmd, sizeof(cmd));
+        return Mhw_AddCommandCmdOrBB(m_osItf, cmdBuf, batchBuf, &cmd, sizeof(cmd));
     }
 
 protected:
     MOS_STATUS(*AddResourceToCmd)
     (PMOS_INTERFACE osItf, PMOS_COMMAND_BUFFER cmdBuf, PMHW_RESOURCE_PARAMS params) = nullptr;
 
-    PMOS_INTERFACE      m_osItf           = nullptr;
-    PMOS_COMMAND_BUFFER m_currentCmdBuf   = nullptr;
-    PMHW_BATCH_BUFFER   m_currentBatchBuf = nullptr;
+    PMOS_INTERFACE              m_osItf           = nullptr;
+    MediaUserSettingSharedPtr   m_userSettingPtr  = nullptr;
+    PMOS_COMMAND_BUFFER         m_currentCmdBuf   = nullptr;
+    PMHW_BATCH_BUFFER           m_currentBatchBuf = nullptr;
 
 #if MHW_HWCMDPARSER_ENABLED
     std::string m_currentCmdName;

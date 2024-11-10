@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2021, Intel Corporation
+* Copyright (c) 2018-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -31,6 +31,28 @@
 #include "codec_def_common.h"
 
 #define CODECHAL_VDENC_BRC_NUM_OF_PASSES        2
+#define CODECHAL_PAK_OBJ_EACH_CU                66
+#define CODECHAL_LPLA_NUM_OF_PASSES             2
+#define CODECHAL_ENCODE_BRC_KBPS                1000  // 1000bps for disk storage, aligned with industry usage
+
+//!
+//! \struct AtomicScratchBuffer
+//! \brief  The sturct of Atomic Scratch Buffer
+//!
+struct AtomicScratchBuffer
+{
+    MOS_RESOURCE                            resAtomicScratchBuffer;     //!> Handle of eStatus buffer
+    uint32_t                                *pData;                     //!> Pointer of the buffer of actual data
+    uint16_t                                wEncodeUpdateIndex;         //!> used for VDBOX update encode status
+    uint16_t                                wTearDownIndex;             //!> Reserved for future extension
+    uint32_t                                dwZeroValueOffset;          //!> Store the result of the ATOMIC_CMP
+    uint32_t                                dwOperand1Offset;           //!> Operand 1 of the ATOMIC_CMP
+    uint32_t                                dwOperand2Offset;           //!> Operand 2 of the ATOMIC_CMP
+    uint32_t                                dwOperand3Offset;           //!> Copy of the operand 1
+
+    uint32_t                                dwSize;                     //!> Size of the buffer
+    uint32_t                                dwOperandSetSize;           //!> Size of Operand set
+};
 
 //!
 //! \struct CodechalEncodeSeiData
@@ -77,6 +99,9 @@ struct MetaDataOffset
 
     uint32_t dwMetaDataSize             = 0;
     uint32_t dwMetaDataSubRegionSize    = 0;
+
+    uint32_t dwTilePartitionSize = 0;
+    uint32_t dwPostFeatueSize    = 0;
 };
 
 //!
@@ -254,30 +279,87 @@ struct VdencBrcPakMmio
 //!
 struct EncodeStatusReadParams
 {
-    bool          vdencBrcEnabled;
-    bool          waReadVDEncOverflowStatus;
-    uint32_t      mode ;
+    bool          vdencBrcEnabled                          = false;
+    bool          waReadVDEncOverflowStatus                = false;
+    uint32_t      mode                                     = 0;
 
-    uint32_t      vdencBrcNumOfSliceOffset;
-    PMOS_RESOURCE *resVdencBrcUpdateDmemBufferPtr;
+    uint32_t      vdencBrcNumOfSliceOffset                 = 0;
+    PMOS_RESOURCE *resVdencBrcUpdateDmemBufferPtr          = nullptr;
 
-    PMOS_RESOURCE resBitstreamByteCountPerFrame;
-    uint32_t      bitstreamByteCountPerFrameOffset;
+    PMOS_RESOURCE resBitstreamByteCountPerFrame            = nullptr;
+    uint32_t      bitstreamByteCountPerFrameOffset         = 0;
 
-    PMOS_RESOURCE resBitstreamSyntaxElementOnlyBitCount;
-    uint32_t      bitstreamSyntaxElementOnlyBitCountOffset;
+    PMOS_RESOURCE resBitstreamSyntaxElementOnlyBitCount    = nullptr;
+    uint32_t      bitstreamSyntaxElementOnlyBitCountOffset = 0;
 
-    PMOS_RESOURCE resQpStatusCount;
-    uint32_t      qpStatusCountOffset;
+    PMOS_RESOURCE resQpStatusCount                         = nullptr;
+    uint32_t      qpStatusCountOffset                      = 0;
 
-    PMOS_RESOURCE resNumSlices;
-    uint32_t      numSlicesOffset;
+    PMOS_RESOURCE resNumSlices                             = nullptr;
+    uint32_t      numSlicesOffset                          = 0;
 
-    PMOS_RESOURCE resImageStatusMask;
-    uint32_t      imageStatusMaskOffset;
+    PMOS_RESOURCE resImageStatusMask                       = nullptr;
+    uint32_t      imageStatusMaskOffset                    = 0;
 
-    PMOS_RESOURCE resImageStatusCtrl;
-    uint32_t      imageStatusCtrlOffset;
+    PMOS_RESOURCE resImageStatusCtrl                       = nullptr;
+    uint32_t      imageStatusCtrlOffset                    = 0;
+};
+
+//!
+//! \struct    FeiPreEncParams
+//! \brief     Fei pre-encode parameters
+//!
+struct FeiPreEncParams
+{
+    MOS_RESOURCE                    resMvPredBuffer;
+    MOS_RESOURCE                    resMbQpBuffer;
+    MOS_RESOURCE                    resMvBuffer;
+    MOS_RESOURCE                    resStatsBuffer;
+    MOS_RESOURCE                    resStatsBotFieldBuffer;
+
+    PMOS_SURFACE                    psCurrOriginalSurface;
+
+    bool                            bInterlaced;
+    uint32_t                        dwNumPastReferences;
+    uint32_t                        dwNumFutureReferences;
+
+    bool                            bCurPicUpdated;
+    CODEC_PICTURE                   CurrOriginalPicture;
+
+    CODEC_PICTURE                   PastRefPicture;
+    bool                            bPastRefUpdated;
+    MOS_SURFACE                     sPastRefSurface;
+    bool                            bPastRefStatsNeeded;
+    MOS_RESOURCE                    sPastRefStatsBuffer;
+    MOS_RESOURCE                    sPastRefStatsBotFieldBuffer;
+
+    CODEC_PICTURE                   FutureRefPicture;
+    bool                            bFutureRefUpdated;
+    MOS_SURFACE                     sFutureRefSurface;
+    bool                            bFutureRefStatsNeeded;
+    MOS_RESOURCE                    sFutureRefStatsBuffer;
+    MOS_RESOURCE                    sFutureRefStatsBotFieldBuffer;
+
+    uint32_t                        dwFrameQp;
+    uint32_t                        dwLenSP;
+    uint32_t                        dwSearchPath;
+    uint32_t                        dwSubMBPartMask;
+    uint32_t                        dwIntraPartMask;
+    uint32_t                        dwSubPelMode;
+    uint32_t                        dwInterSAD;
+    uint32_t                        dwIntraSAD;
+    bool                            bAdaptiveSearch;
+
+    uint32_t                        dwMVPredictorCtrl;
+    bool                            bMBQp;
+    bool                            bFTEnable;
+    uint32_t                        dwRefWidth;
+    uint32_t                        dwRefHeight;
+    uint32_t                        dwSearchWindow;
+    bool                            bDisableMVOutput;
+    bool                            bDisableStatisticsOutput;
+    bool                            bEnable8x8Statistics;
+    bool                            bInputUpdated;
 };
 
 #endif // !__CODEC_DEF_ENCODE_H__

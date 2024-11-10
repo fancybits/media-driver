@@ -27,6 +27,7 @@
 //!
 
 #include "codechal_decode_hevc_long_g12.h"
+#include "mos_os_cp_interface_specific.h"
 
 // HEVC Long format 
 HevcDecodeSliceLongG12::HevcDecodeSliceLongG12(
@@ -38,7 +39,7 @@ HevcDecodeSliceLongG12::HevcDecodeSliceLongG12(
     m_hcpInterface = static_cast<MhwVdboxHcpInterfaceG12*>(hcpInterface);
     m_miInterface = miInterface;
     m_osInterface  = m_decoder->GetOsInterface();
-    m_hwInterface    = m_decoder->GetHwInterface();
+    m_hwInterface    = decoder->GetHwInterface();
     m_vdencInterface = m_hwInterface->GetVdencInterface();
 
     //copy other params from decoder
@@ -80,6 +81,7 @@ MOS_STATUS HevcDecodeSliceLongG12::ProcessSliceLong(uint8_t *cmdResBase, uint32_
     auto slc = m_hevcSliceParams;
     auto slcBase = slc;
     auto slcExt = m_hevcExtSliceParams;
+    auto pic = m_hevcPicParams;
 
     PMOS_COMMAND_BUFFER cmdBufArray, cmdBuf;
 
@@ -150,6 +152,12 @@ MOS_STATUS HevcDecodeSliceLongG12::ProcessSliceLong(uint8_t *cmdResBase, uint32_
                     break;
                 }
             }
+        }
+
+        if (m_hevcRefList[pic->CurrPic.FrameIdx]->bIsIntra &&
+            !m_hcpInterface->IsHevcISlice(slc->LongSliceFlags.fields.slice_type))
+        {
+            slc->LongSliceFlags.fields.slice_temporal_mvp_enabled_flag = 0;
         }
 
         if (m_isSeparateTileDecoding || m_isRealTile)
@@ -356,9 +364,15 @@ MOS_STATUS HevcDecodeSliceLongG12::ProcessSliceLong(uint8_t *cmdResBase, uint32_
 
     for (int i = 0; i < cmdBufArraySize; i++)
     {
-        CODECHAL_DECODE_CHK_STATUS_RETURN(m_miInterface->AddMiBatchBufferEnd(
+        eStatus = (MOS_STATUS)m_miInterface->AddMiBatchBufferEnd(
             &cmdBufArray[i],
-            nullptr));
+            nullptr);
+
+        if (eStatus != MOS_STATUS_SUCCESS)
+        {
+            MOS_SafeFreeMemory(cmdBufArray);
+            CODECHAL_DECODE_CHK_STATUS_RETURN(eStatus);
+        }
     }
 
     if (cmdBufArray)

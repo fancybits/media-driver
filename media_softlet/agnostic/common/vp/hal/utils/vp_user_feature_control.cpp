@@ -43,7 +43,7 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
         m_ctrlValDefault.disableVeboxOutput = true;
         m_ctrlValDefault.disableSfc         = true;
 
-        VP_PUBLIC_NORMALMESSAGE("No VeRing, disableVeboxOutput %d, disableSfc %d", (m_ctrlValDefault.disableVeboxOutput, m_ctrlValDefault.disableSfc));
+        VP_PUBLIC_NORMALMESSAGE("No VeRing, disableVeboxOutput %d, disableSfc %d", m_ctrlValDefault.disableVeboxOutput, m_ctrlValDefault.disableSfc);
     }
     else
     {
@@ -89,8 +89,8 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
         }
         else
         {
-            VP_PUBLIC_NORMALMESSAGE("No FtrSFCPipe, disableSfc %d", m_ctrlValDefault.disableSfc);
             m_ctrlValDefault.disableSfc = true;
+            VP_PUBLIC_NORMALMESSAGE("No FtrSFCPipe, disableSfc %d", m_ctrlValDefault.disableSfc);
         }
         VP_PUBLIC_NORMALMESSAGE("disableSfc %d", m_ctrlValDefault.disableSfc);
     }
@@ -112,6 +112,24 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
         m_ctrlValDefault.disableDn = false;
     }
     VP_PUBLIC_NORMALMESSAGE("disableDn %d", m_ctrlValDefault.disableDn);
+
+   // Force enable vebox ouptut surface.
+    bool forceEnableVeboxOutputSurf = false;
+    status = ReadUserSetting(
+        m_userSettingPtr,
+        forceEnableVeboxOutputSurf,
+        __MEDIA_USER_FEATURE_VALUE_FORCE_ENABLE_VEBOX_OUTPUT_SURF,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(status))
+    {
+        m_ctrlValDefault.ForceEnableVeboxOutputSurf = forceEnableVeboxOutputSurf;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.ForceEnableVeboxOutputSurf = false;
+    }
+    VP_PUBLIC_NORMALMESSAGE("ForceEnableVeboxOutputSurf %d", m_ctrlValDefault.ForceEnableVeboxOutputSurf);
 
     // __MEDIA_USER_FEATURE_VALUE_CSC_COEFF_PATCH_MODE_DISABLE
     bool cscCoeffPatchModeDisabled = false;
@@ -147,6 +165,23 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
         m_ctrlValDefault.disablePacketReuse = false;
     }
     VP_PUBLIC_NORMALMESSAGE("disablePacketReuse %d", m_ctrlValDefault.disablePacketReuse);
+
+    bool enablePacketReuseTeamsAlways = false;
+    status = ReadUserSetting(
+        m_userSettingPtr,
+        enablePacketReuseTeamsAlways,
+        __MEDIA_USER_FEATURE_VALUE_ENABLE_PACKET_REUSE_TEAMS_ALWAYS,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(status))
+    {
+        m_ctrlValDefault.enablePacketReuseTeamsAlways = enablePacketReuseTeamsAlways;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.enablePacketReuseTeamsAlways = false;
+    }
+    VP_PUBLIC_NORMALMESSAGE("enablePacketReuseTeamsAlways %d", m_ctrlValDefault.enablePacketReuseTeamsAlways);
 
     // bComputeContextEnabled is true only if Gen12+. 
     // Gen12+, compute context(MOS_GPU_NODE_COMPUTE, MOS_GPU_CONTEXT_COMPUTE) can be used for render engine.
@@ -184,6 +219,7 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
     if (m_vpPlatformInterface)
     {
         m_ctrlValDefault.eufusionBypassWaEnabled = m_vpPlatformInterface->IsEufusionBypassWaEnabled();
+        m_ctrlValDefault.decompForInterlacedSurfWaEnabled = m_vpPlatformInterface->IsDecompForInterlacedSurfWaEnabled();
     }
     else
     {
@@ -191,15 +227,81 @@ VpUserFeatureControl::VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatfor
         VP_PUBLIC_ASSERTMESSAGE("m_vpPlatformInterface == nullptr");
     }
     VP_PUBLIC_NORMALMESSAGE("eufusionBypassWaEnabled %d", m_ctrlValDefault.eufusionBypassWaEnabled);
+    VP_PUBLIC_NORMALMESSAGE("decompForInterlacedSurfWaEnabled %d", m_ctrlValDefault.decompForInterlacedSurfWaEnabled);
 
     MT_LOG3(MT_VP_USERFEATURE_CTRL, MT_NORMAL, MT_VP_UF_CTRL_DISABLE_VEOUT, m_ctrlValDefault.disableVeboxOutput,
         MT_VP_UF_CTRL_DISABLE_SFC, m_ctrlValDefault.disableSfc, MT_VP_UF_CTRL_CCS, m_ctrlValDefault.computeContextEnabled);
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    uint32_t globalLutMode = VPHAL_HDR_LUT_MODE_NONE;
+    status                 = ReadUserSetting(
+        m_userSettingPtr,
+        globalLutMode,
+        __VPHAL_HDR_LUT_MODE,
+        MediaUserSetting::Group::Sequence,
+        VPHAL_HDR_LUT_MODE_NONE,
+        true);
+    if (MOS_SUCCEEDED(status))
+    {
+        m_ctrlValDefault.globalLutMode = (VPHAL_HDR_LUT_MODE)globalLutMode;
+    }
+
+    bool gpuGenerate3DLUT = false;
+    status                = ReadUserSetting(
+        m_userSettingPtr,
+        gpuGenerate3DLUT,
+        __VPHAL_HDR_GPU_GENERTATE_3DLUT,
+        MediaUserSetting::Group::Sequence,
+        false,
+        true);
+    if (MOS_SUCCEEDED(status))
+    {
+        m_ctrlValDefault.gpuGenerate3DLUT = gpuGenerate3DLUT;
+    }
+
+    bool disableAutoMode = false;
+    status               = ReadUserSetting(
+        m_userSettingPtr,
+        disableAutoMode,
+        __VPHAL_HDR_DISABLE_AUTO_MODE,
+        MediaUserSetting::Group::Sequence,
+        false,
+        true);
+    if (MOS_SUCCEEDED(status))
+    {
+        m_ctrlValDefault.disableAutoMode = disableAutoMode;
+    }
+#endif
+
+    uint32_t splitFramePortions = 1;
+    status                      = ReadUserSetting(
+        m_userSettingPtr,
+        splitFramePortions,
+        __VPHAL_HDR_SPLIT_FRAME_PORTIONS,
+        MediaUserSetting::Group::Sequence,
+        splitFramePortions,
+        true);
+    if (MOS_SUCCEEDED(status))
+    {
+        m_ctrlValDefault.splitFramePortions = splitFramePortions;
+    }
+
+    //check vebox type 
+    if (skuTable && (MEDIA_IS_SKU(skuTable, FtrVeboxTypeH)))
+    {
+        m_ctrlValDefault.veboxTypeH = true;
+    }
+    VP_PUBLIC_NORMALMESSAGE("veboxTypeH %d", m_ctrlValDefault.veboxTypeH);
 
     m_ctrlVal = m_ctrlValDefault;
 }
 
 VpUserFeatureControl::~VpUserFeatureControl()
 {
+    if (m_pOcaFeatureControlInfo)
+    {
+        MOS_FreeMemAndSetNull(m_pOcaFeatureControlInfo);
+    }
 }
 
 MOS_STATUS VpUserFeatureControl::CreateUserSettingForDebug()
@@ -224,6 +326,38 @@ MOS_STATUS VpUserFeatureControl::CreateUserSettingForDebug()
 #endif
 
 #if (_DEBUG || _RELEASE_INTERNAL)
+    uint32_t   force3DLutInterpolation = 0;
+    eRegKeyReadStatus                  = ReadUserSettingForDebug(
+        m_userSettingPtr,
+        force3DLutInterpolation,
+        __VPHAL_FORCE_3DLUT_INTERPOLATION,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(eRegKeyReadStatus))
+    {
+        m_ctrlValDefault.force3DLutInterpolation = force3DLutInterpolation;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.force3DLutInterpolation = 0;
+    }
+
+    uint32_t is3DLutKernelOnly = 0;
+    eRegKeyReadStatus                = ReadUserSettingForDebug(
+        m_userSettingPtr,
+        is3DLutKernelOnly,
+        __VPHAL_FORCE_VP_3DLUT_KERNEL_ONLY,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(eRegKeyReadStatus))
+    {
+        m_ctrlValDefault.is3DLutKernelOnly = is3DLutKernelOnly;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.is3DLutKernelOnly = 0;
+    }
+
     //SFC NV12/P010 Linear Output.
     uint32_t enabledSFCNv12P010LinearOutput = 0;
     eRegKeyReadStatus = ReadUserSettingForDebug(
@@ -257,7 +391,93 @@ MOS_STATUS VpUserFeatureControl::CreateUserSettingForDebug()
         // Default value
         m_ctrlValDefault.enabledSFCRGBPRGB24Output = 0;
     }
+
+    //Enable IFNCC report
+    bool enableIFNCC  = false;
+    eRegKeyReadStatus = ReadUserSettingForDebug(
+        m_userSettingPtr,
+        enableIFNCC,
+        __MEDIA_USER_FEATURE_VALUE_ENABLE_IFNCC,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(eRegKeyReadStatus))
+    {
+        m_ctrlValDefault.enableIFNCC = enableIFNCC;
+        VP_PUBLIC_NORMALMESSAGE("Report IFNCC Reg Key Enabled. Will Report IFNCC Reg key at the end of VP pipeline.");
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.enableIFNCC = false;
+    }
+
+    bool bEnableL03DLut = false;
+    eRegKeyReadStatus   = ReadUserSettingForDebug(
+        m_userSettingPtr,
+        bEnableL03DLut,
+        __MEDIA_USER_FEATURE_VALUE_ENABLE_VP_L0_3DLUT,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(eRegKeyReadStatus))
+    {
+        m_ctrlValDefault.bEnableL03DLut = bEnableL03DLut;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.bEnableL03DLut = false;
+    }
+
+    bool bForceOclFC   = false;
+    eRegKeyReadStatus = ReadUserSettingForDebug(
+        m_userSettingPtr,
+        bForceOclFC,
+        __MEDIA_USER_FEATURE_VALUE_ENABLE_VP_OCL_FC,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(eRegKeyReadStatus))
+    {
+        m_ctrlValDefault.bForceOclFC = bForceOclFC;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.bForceOclFC = false;
+    }
+
+    bool bDisableOclFcFp = false;
+    eRegKeyReadStatus   = ReadUserSettingForDebug(
+        m_userSettingPtr,
+        bDisableOclFcFp,
+        __MEDIA_USER_FEATURE_VALUE_DISABLE_VP_OCL_FC_FP,
+        MediaUserSetting::Group::Sequence);
+    if (MOS_SUCCEEDED(eRegKeyReadStatus))
+    {
+        m_ctrlValDefault.bDisableOclFcFp = bDisableOclFcFp;
+    }
+    else
+    {
+        // Default value
+        m_ctrlValDefault.bDisableOclFcFp = false;
+    }
 #endif
+#if (_DEBUG || _RELEASE_INTERNAL)
+    bool enableSFCLinearOutputByTileConvert = 0;
+    eRegKeyReadStatus   = ReadUserSettingForDebug(
+        m_userSettingPtr,
+        enableSFCLinearOutputByTileConvert,
+        __MEDIA_USER_FEATURE_VALUE_ENABLE_VESFC_LINEAR_OUTPUT_BY_TILECONVERT,
+        MediaUserSetting::Group::Device);
+    if (MOS_SUCCEEDED(eRegKeyReadStatus))
+    {
+        m_ctrlValDefault.enableSFCLinearOutputByTileConvert = enableSFCLinearOutputByTileConvert;
+    }
+    else
+#endif
+    {
+        auto *waTable = m_osInterface->pfnGetWaTable(m_osInterface);
+        // Default value
+        m_ctrlValDefault.enableSFCLinearOutputByTileConvert = MEDIA_IS_WA(waTable, Wa_15016458807);
+    }
+    VP_PUBLIC_NORMALMESSAGE("enableSFCLinearOutputByTileConvert value is set as %d.", m_ctrlValDefault.enableSFCLinearOutputByTileConvert);
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -267,5 +487,31 @@ MOS_STATUS VpUserFeatureControl::Update(PVP_PIPELINE_PARAMS params)
 
     m_ctrlVal = m_ctrlValDefault;
 
+    if (params->bForceToRender)
+    {
+        m_ctrlVal.disableSfc         = true;
+        m_ctrlVal.disableVeboxOutput = true;
+        VP_PUBLIC_NORMALMESSAGE("Disable SFC and vebox output as task is forced to render.");
+    }
+
     return MOS_STATUS_SUCCESS;
+}
+
+PMOS_OCA_LOG_USER_FEATURE_CONTROL_INFO VpUserFeatureControl::GetOcaFeautreControlInfo()
+{
+    if (nullptr == m_pOcaFeatureControlInfo)
+    {
+        m_pOcaFeatureControlInfo = (PMOS_OCA_LOG_USER_FEATURE_CONTROL_INFO)MOS_AllocAndZeroMemory(sizeof(MOS_OCA_LOG_USER_FEATURE_CONTROL_INFO));
+    }
+    return m_pOcaFeatureControlInfo;
+}
+
+
+bool VpUserFeatureControl::EnableOclFC()
+{
+    bool bEnableOclFC = (m_vpPlatformInterface && m_vpPlatformInterface->SupportOclFC());
+#if (_DEBUG || _RELEASE_INTERNAL)
+    bEnableOclFC |= m_ctrlVal.bForceOclFC;
+#endif
+    return bEnableOclFC;
 }

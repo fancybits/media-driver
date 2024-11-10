@@ -36,6 +36,7 @@ namespace vp
 
 class VpUserFeatureControl
 {
+
 public:
     VpUserFeatureControl(MOS_INTERFACE &osInterface, VpPlatformInterface *vpPlatformInterface, void *owner = nullptr);
     virtual ~VpUserFeatureControl();
@@ -49,19 +50,47 @@ public:
         bool eufusionBypassWaEnabled        = false;
         bool disableDn                      = false;
         bool cscCosffPatchModeDisabled      = false;
+        bool ForceEnableVeboxOutputSurf     = false;
+        bool veboxTypeH                     = false;
+        bool is3DLutKernelOnly              = false;
 
 #if (_DEBUG || _RELEASE_INTERNAL)
         bool forceDecompressedOutput        = false;
+        uint32_t force3DLutInterpolation    = 0;
         uint32_t enabledSFCNv12P010LinearOutput = 0;
         uint32_t enabledSFCRGBPRGB24Output  = 0;
+        bool     enableIFNCC                    = false;
+        bool     bEnableL03DLut                 = false;
+        bool     bForceOclFC                    = false;
+        bool     bDisableOclFcFp                = false;
 #endif
         bool disablePacketReuse             = false;
+        bool enablePacketReuseTeamsAlways   = false;
+
+        VPHAL_HDR_LUT_MODE globalLutMode      = VPHAL_HDR_LUT_MODE_NONE;  //!< Global LUT mode control for debugging purpose
+        bool               gpuGenerate3DLUT   = false;                        //!< Flag for per frame GPU generation of 3DLUT
+        bool               isExternal3DLutSupport  = true;
+        bool               disableAutoMode    = false;
+        bool               clearVideoViewMode = false;
+        uint32_t           splitFramePortions = 1;
+        bool               decompForInterlacedSurfWaEnabled = false;
+        bool               enableSFCLinearOutputByTileConvert = false;
     };
+
+    uint32_t Is3DLutKernelOnly()
+    {
+        return m_ctrlVal.is3DLutKernelOnly;
+    }
 
 #if (_DEBUG || _RELEASE_INTERNAL)
     bool IsForceDecompressedOutput()
     {
         return m_ctrlVal.forceDecompressedOutput;
+    }
+
+    uint32_t Force3DLutInterpolation()
+    {
+        return m_ctrlVal.force3DLutInterpolation;
     }
 
     uint32_t EnabledSFCNv12P010LinearOutput()
@@ -73,11 +102,38 @@ public:
     {
         return m_ctrlVal.enabledSFCRGBPRGB24Output;
     }
+
+    bool EnableIFNCC() 
+    {
+        return m_ctrlVal.enableIFNCC;
+    }
+
+    bool EnableL03DLut()
+    {
+        return m_ctrlVal.bEnableL03DLut;
+    }
+
+    bool DisableOclFcFp()
+    {
+        return m_ctrlVal.bDisableOclFcFp;
+    }
 #endif
+
+    bool IsSFCLinearOutputByTileConvertEnabled()
+    {
+        return m_ctrlVal.enableSFCLinearOutputByTileConvert;
+    }
 
     virtual MOS_STATUS CreateUserSettingForDebug();
 
     virtual MOS_STATUS Update(PVP_PIPELINE_PARAMS params);
+
+    bool EnableOclFC();
+
+    bool IsVeboxOutputSurfEnabled()
+    {
+        return m_ctrlVal.ForceEnableVeboxOutputSurf;
+    }
 
     bool IsVeboxOutputDisabled()
     {
@@ -114,6 +170,69 @@ public:
         return m_ctrlVal.disablePacketReuse;
     }
 
+    bool IsPacketReuseEnabledTeamsAlways()
+    {
+        return m_ctrlVal.enablePacketReuseTeamsAlways;
+    }
+
+    uint32_t GetGlobalLutMode()
+    {
+        return m_ctrlVal.globalLutMode;
+    }
+
+    bool IsGpuGenerate3DLUT()
+    {
+        return m_ctrlVal.gpuGenerate3DLUT;
+    }
+
+    bool IsExternal3DLutSupport()
+    {
+        return m_ctrlVal.isExternal3DLutSupport;
+    }
+
+    bool IsDisableAutoMode()
+    {
+        return m_ctrlVal.disableAutoMode;
+    }
+
+    bool IsClearVideoViewMode()
+    {
+        return m_ctrlVal.clearVideoViewMode;
+    }
+
+    bool IsDecompForInterlacedSurfWaEnabled()
+    {
+        return m_ctrlVal.decompForInterlacedSurfWaEnabled;
+    }
+
+    bool IsVeboxTypeHMode()
+    {
+        return m_ctrlVal.veboxTypeH;
+    }
+
+    MOS_STATUS SetClearVideoViewMode(bool mode)
+    {
+        m_ctrlVal.clearVideoViewMode = mode;
+        return MOS_STATUS_SUCCESS;
+    }
+
+    uint32_t GetSplitFramePortions()
+    {
+        return m_ctrlVal.splitFramePortions;
+    }
+
+    MOS_STATUS ForceRenderPath(bool status)
+    {
+        m_ctrlVal.disableSfc                = status;
+        m_ctrlVal.disableVeboxOutput        = status;
+        m_ctrlValDefault.disableSfc         = status;
+        m_ctrlValDefault.disableVeboxOutput = status;
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+    virtual PMOS_OCA_LOG_USER_FEATURE_CONTROL_INFO GetOcaFeautreControlInfo();
+
     const void *m_owner = nullptr; // The object who create current instance.
 
 protected:
@@ -123,6 +242,7 @@ protected:
     CONTROL_VALUES m_ctrlValDefault = {};
     CONTROL_VALUES m_ctrlVal        = {};
     MediaUserSettingSharedPtr m_userSettingPtr = nullptr;  //!< usersettingInstance
+    PMOS_OCA_LOG_USER_FEATURE_CONTROL_INFO m_pOcaFeatureControlInfo = nullptr;
 
     MEDIA_CLASS_DEFINE_END(vp__VpUserFeatureControl)
 };

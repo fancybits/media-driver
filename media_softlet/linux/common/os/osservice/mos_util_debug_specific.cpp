@@ -26,6 +26,9 @@
 
 #include "mos_util_debug.h"
 #include "mos_util_debug_specific.h"
+#include "mos_oca_rtlog_mgr_defs.h"
+#include "mos_interface.h"
+#include <stdlib.h>
 
 #if MOS_MESSAGES_ENABLED
 
@@ -130,7 +133,7 @@ MOS_STATUS MosUtilDebug::MosLogFileNamePrefix(char *fileNamePrefix, MediaUserSet
     MOS_STATUS                          eStatus = MOS_STATUS_UNKNOWN;
     MediaUserSetting::Value             outValue;
 
-    if (MosUtilities::m_mosUltFlag)
+    if (MosUtilities::m_mosUltFlag && (*MosUtilities::m_mosUltFlag))
     {
         iRet =  MosUtilities::MosSecureStringPrint(
                      fileNamePrefix,
@@ -199,6 +202,10 @@ void MosUtilDebug::MosMessageInternal(
     if (MosShouldPrintMessage(level, compID, subCompID, message) == false)
     {
         return;
+    }
+    if (level == MOS_MESSAGE_LVL_CRITICAL)
+    {
+        OcaOnMosCriticalMessage(functionName, lineNum);
     }
 
     MosUtilities::MosLockMutex(&mosMsgMutex);

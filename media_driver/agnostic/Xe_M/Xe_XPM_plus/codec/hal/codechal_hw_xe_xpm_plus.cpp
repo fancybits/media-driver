@@ -33,7 +33,6 @@
 #include "codechal_hw_g12_X.h"
 #include "mhw_render_g12_X.h"
 #include "mhw_vdbox_hcp_hwcmd_g12_X.h"  // temporary include for calculating size of various hardware commands
-#include "mhw_vdbox_mfx_hwcmd_g11_X.h"
 #include "mhw_vdbox_vdenc_g12_X.h"
 #include "mhw_vdbox_hcp_g12_X.h"
 
@@ -140,18 +139,6 @@ CodechalHwInterfaceXe_Xpm_Plus::CodechalHwInterfaceXe_Xpm_Plus(
     PrepareCmdSize(codecFunction);
 }
 
-CodechalHwInterfaceXe_Xpm_Plus::CodechalHwInterfaceXe_Xpm_Plus(
-    PMOS_INTERFACE    osInterface,
-    CODECHAL_FUNCTION codecFunction,
-    MhwInterfacesNext *mhwInterfacesNext,
-    bool              disableScalability)
-    : CodechalHwInterfaceG12(osInterface, codecFunction, mhwInterfacesNext, disableScalability)
-{
-    CODECHAL_HW_FUNCTION_ENTER;
-    m_hwInterfaceNext = MOS_New(CodechalHwInterfaceNext, osInterface, codecFunction, mhwInterfacesNext);
-    PrepareCmdSize(codecFunction);
-}
-
 MOS_STATUS CodechalHwInterfaceXe_Xpm_Plus::GetVdencPictureSecondLevelCommandsSize(
     uint32_t  mode,
     uint32_t *commandsSize)
@@ -234,4 +221,20 @@ MOS_STATUS CodechalHwInterfaceXe_Xpm_Plus::SetCacheabilitySettings(
     }
 
     return eStatus;
+}
+
+MediaCopyBaseState* CodechalHwInterfaceXe_Xpm_Plus::CreateMediaCopy(PMOS_INTERFACE mosInterface)
+{
+    VP_FUNC_CALL();
+
+    MediaCopyBaseState* mediaCopy = nullptr;
+    PMOS_CONTEXT       mos_context = nullptr;
+
+    if (mosInterface && mosInterface->pfnGetMosContext)
+    {
+        mosInterface->pfnGetMosContext(mosInterface, &mos_context);
+    }
+    mediaCopy = static_cast<MediaCopyBaseState*>(McpyDevice::CreateFactory(mos_context));
+
+    return mediaCopy;
 }

@@ -335,6 +335,7 @@ protected:
     {
         MHW_FUNCTION_ENTER;
 
+        MHW_MI_CHK_NULL(this->m_osInterface);
         MHW_MI_CHK_NULL(cmdBuffer);
         MHW_MI_CHK_NULL(params);
 
@@ -355,7 +356,7 @@ protected:
         cmd.DW1.AvpPipelineDone            = paramsG12->Flags.bWaitDoneAV1;
         cmd.DW1.AvpPipelineCommandFlush    = paramsG12->Flags.bFlushAV1;
 
-        MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(this->m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -656,6 +657,7 @@ public:
     {
         MHW_FUNCTION_ENTER;
 
+        MHW_MI_CHK_NULL(this->m_osInterface);
         MHW_MI_CHK_NULL(cmdBuffer);
         MHW_MI_CHK_NULL(params);
         auto paramsG12 = dynamic_cast<PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS_G12>(params);
@@ -728,7 +730,7 @@ public:
             cmd.DW5.TailPointerReadFrequency           = 0x50;
         }
 
-        MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(this->m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -742,6 +744,7 @@ public:
 
         MHW_FUNCTION_ENTER;
 
+        MHW_MI_CHK_NULL(this->m_osInterface);
         MHW_MI_CHK_NULL(cmdBuffer);
         MHW_MI_CHK_NULL(params);
 
@@ -901,8 +904,24 @@ public:
                     break;
                 }
 
-                mmcMode = (params->PostDeblockSurfMmcState != MOS_MEMCOMP_DISABLED) ?
-                    params->PostDeblockSurfMmcState : params->PreDeblockSurfMmcState;
+                if (params->Mode == CODECHAL_ENCODE_MODE_HEVC)
+                {
+                    if (params->bMmcEnabled)
+                    {
+                        MHW_MI_CHK_STATUS(this->m_osInterface->pfnGetMemoryCompressionMode(
+                        this->m_osInterface, params->presVdencReferences[refIdx], &mmcMode));
+                    }
+                    else
+                    {
+                        mmcMode = MOS_MEMCOMP_DISABLED;
+                    }
+                }
+                else
+                {
+                    mmcMode = (params->PostDeblockSurfMmcState != MOS_MEMCOMP_DISABLED) ?
+                        params->PostDeblockSurfMmcState : params->PreDeblockSurfMmcState;                    
+                } 
+
                 switch (refIdx)
                 {
                 case 0:
@@ -1114,8 +1133,23 @@ public:
                 resourceParams.bIsWritable = false;
                 resourceParams.pdwCmd = (uint32_t*)&(cmd.BwdRef0.LowerAddress);
 
-                mmcMode = (params->PostDeblockSurfMmcState != MOS_MEMCOMP_DISABLED) ?
-                    params->PostDeblockSurfMmcState : params->PreDeblockSurfMmcState;
+                if (params->Mode == CODECHAL_ENCODE_MODE_HEVC)
+                {
+                    if (params->bMmcEnabled)
+                    {
+                        MHW_MI_CHK_STATUS(this->m_osInterface->pfnGetMemoryCompressionMode(
+                        this->m_osInterface, params->presVdencReferences[refIdx], &mmcMode));
+                    }
+                    else
+                    {
+                        mmcMode = MOS_MEMCOMP_DISABLED;
+                    }
+                }
+                else
+                {
+                    mmcMode = (params->PostDeblockSurfMmcState != MOS_MEMCOMP_DISABLED) ?
+                        params->PostDeblockSurfMmcState : params->PreDeblockSurfMmcState;                    
+                } 
 
                 cmd.BwdRef0.PictureFields.DW0.MemoryCompressionEnable = MmcEnable(mmcMode) ? 1 : 0;
                 cmd.BwdRef0.PictureFields.DW0.CompressionType         = MmcIsRc(mmcMode) ? 1 : 0;
@@ -1348,7 +1382,7 @@ public:
                 &resourceParams));
         }
 
-        MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(this->m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -1386,6 +1420,7 @@ public:
     {
         MHW_FUNCTION_ENTER;
 
+        MHW_MI_CHK_NULL(this->m_osInterface);
         MHW_MI_CHK_NULL(cmdBuffer);
         MHW_MI_CHK_NULL(params);
         MHW_MI_CHK_NULL(params->psSurface);
@@ -1409,7 +1444,7 @@ public:
             MOS_ALIGN_CEIL((params->psSurface->UPlaneOffset.iSurfaceOffset - params->psSurface->dwOffset)/params->psSurface->dwPitch + params->psSurface->RenderOffset.YUV.U.YOffset, MHW_VDBOX_MFX_RAW_UV_PLANE_ALIGNMENT_GEN9);
         cmd.Dwords25.DW1.ChromaDownsampleFilterControl = 7;
 
-        MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(this->m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -1420,6 +1455,7 @@ public:
     {
         MHW_FUNCTION_ENTER;
 
+        MHW_MI_CHK_NULL(this->m_osInterface);
         MHW_MI_CHK_NULL(cmdBuffer);
         MHW_MI_CHK_NULL(params);
         MHW_MI_CHK_NULL(params->psSurface);
@@ -1489,7 +1525,7 @@ public:
             cmd.Dwords25.DW2.YOffsetForUCb = cmd.Dwords25.DW3.YOffsetForVCr = params->dwReconSurfHeight;
         }
 
-        MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(this->m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -1502,6 +1538,7 @@ public:
         uint32_t tilemode = 0;
         MHW_FUNCTION_ENTER;
 
+        MHW_MI_CHK_NULL(this->m_osInterface);
         MHW_MI_CHK_NULL(cmdBuffer);
         MHW_MI_CHK_NULL(params);
         MHW_MI_CHK_NULL(params->psSurface);
@@ -1558,7 +1595,7 @@ public:
                 (params->psSurface->UPlaneOffset.iSurfaceOffset - params->psSurface->dwOffset)/params->psSurface->dwPitch + params->psSurface->RenderOffset.YUV.U.YOffset;
         }
 
-        MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(this->m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -1759,7 +1796,7 @@ public:
         }
 
         // VDEnc CQP case ROI settings, BRC ROI will be handled in HuC FW
-        if (!params->bVdencBRCEnabled && avcPicParams->NumROI)
+        if (!params->bVdencBRCEnabled && avcPicParams->NumROI && avcPicParams->bNativeROI)
         {
             MHW_ASSERT(avcPicParams->NumROI < 4);
 
@@ -1820,7 +1857,7 @@ public:
             return MOS_STATUS_NULL_POINTER;
         }
 
-        MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(this->m_osInterface, cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -1831,6 +1868,7 @@ public:
     {
         MHW_FUNCTION_ENTER;
 
+        MHW_MI_CHK_NULL(this->m_osInterface);
         MHW_MI_CHK_NULL(cmdBuffer);
         MHW_MI_CHK_NULL(params);
 
@@ -2072,7 +2110,7 @@ public:
             }
         }
 
-        MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(this->m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -2083,6 +2121,7 @@ public:
     {
         MHW_FUNCTION_ENTER;
 
+        MHW_MI_CHK_NULL(this->m_osInterface);
         MHW_MI_CHK_NULL(cmdBuffer);
         MHW_MI_CHK_NULL(params);
         MHW_MI_CHK_NULL(params->pAvcPicParams);
@@ -2111,7 +2150,7 @@ public:
             cmd.DW2.OffsetForwardReference2  = 0;
         }
 
-        MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(this->m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -2172,7 +2211,7 @@ public:
             return MOS_STATUS_NULL_POINTER;
         }
 
-        MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(this->m_osInterface, cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -2209,6 +2248,7 @@ public:
     {
         MHW_FUNCTION_ENTER;
 
+        MHW_MI_CHK_NULL(this->m_osInterface);
         MHW_MI_CHK_NULL(cmdBuffer);
         MHW_MI_CHK_NULL(params);
 
@@ -2225,7 +2265,7 @@ public:
             return MOS_STATUS_INVALID_PARAMETER;
         }
 
-        MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(this->m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -2425,7 +2465,7 @@ public:
             return MOS_STATUS_NULL_POINTER;
         }
 
-        MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(this->m_osInterface, cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -2513,6 +2553,10 @@ public:
                 refFrameId = hevcSlcParams->RefPicList[1][0].FrameIdx;
                 diffPoc                          = ((refFrameId >= CODEC_MAX_NUM_REF_FRAME_HEVC) ? 0x0 : hevcPicParams->RefFramePOCList[refFrameId]) - hevcPicParams->CurrPicOrderCnt;
                 cmd.DW3.PocNumberForRefid0InL1   = CodecHal_Clip3(-16, 16, -diffPoc);
+                if (refFrameId >= CODEC_MAX_NUM_REF_FRAME_HEVC)
+                {
+                    return MOS_STATUS_INVALID_PARAMETER;
+                }
                 cmd.DW2.LongTermReferenceFlagsL1 = CodecHal_PictureIsLongTermRef(hevcPicParams->RefFrameList[refFrameId]);
 
                 cmd.DW3.PocNumberForRefid1InL1 = cmd.DW3.PocNumberForRefid1InL0;
@@ -2912,7 +2956,7 @@ public:
             return MOS_STATUS_NULL_POINTER;
         }
 
-        MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
+        MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(this->m_osInterface, cmdBuffer, batchBuffer, &cmd, sizeof(cmd)));
 
         return MOS_STATUS_SUCCESS;
     }

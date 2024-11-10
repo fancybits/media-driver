@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2021, Intel Corporation
+* Copyright (c) 2020-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -34,7 +34,7 @@ namespace encode
     Av1Brc::Av1Brc(
         MediaFeatureManager *featureManager,
         EncodeAllocator *allocator,
-        CodechalHwInterface *hwInterface,
+        CodechalHwInterfaceNext *hwInterface,
         void *constSettings) :
         MediaFeature(constSettings, hwInterface ? hwInterface->GetOsInterface() : nullptr),
         m_hwInterface(hwInterface),
@@ -70,7 +70,12 @@ namespace encode
 
         EncoderParams *encodeParams = (EncoderParams *)params;
 
-        ENCODE_CHK_STATUS_RETURN(SetSequenceStructs());
+        // If new seq, need to set sequence structs
+        // If RATECONTROL_CQL, need to update quality and bitrate .etc
+        if (encodeParams->bNewSeq || m_basicFeature->m_av1SeqParams->RateControlMethod == RATECONTROL_CQL)
+        {
+            ENCODE_CHK_STATUS_RETURN(SetSequenceStructs());
+        }
 
         const auto& seqParams = *m_basicFeature->m_av1SeqParams;
 
@@ -80,6 +85,15 @@ namespace encode
             "Encode RateControl Method",
             m_rcMode,
             MediaUserSetting::Group::Sequence);
+        
+        ENCODE_CHK_NULL_RETURN(m_basicFeature->m_av1PicParams);
+        MediaUserSetting::Value outValue;
+        ReadUserSetting(
+            m_userSettingPtr,
+            outValue,
+            "Adaptive TU Enable",
+            MediaUserSetting::Group::Sequence);
+        m_basicFeature->m_av1PicParams->AdaptiveTUEnabled |= outValue.Get<uint8_t>(); 
 #endif
         return MOS_STATUS_SUCCESS;
     }
@@ -101,17 +115,19 @@ namespace encode
         // BRC history buffer
         allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_brcHistoryBufSize, CODECHAL_PAGE_SIZE);
         allocParamsForBufferLinear.pBufName = "VDENC BRC History Buffer";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
         m_basicFeature->m_recycleBuf->RegisterResource(VdencBRCHistoryBuffer, allocParamsForBufferLinear, 1);
 
         // VDENC BRC PAK MMIO buffer
         allocParamsForBufferLinear.dwBytes = sizeof(Av1BrcPakMmio);
         allocParamsForBufferLinear.pBufName = "VDENC BRC PAK MMIO Buffer";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
         m_basicFeature->m_recycleBuf->RegisterResource(VdencBrcPakMmioBuffer, allocParamsForBufferLinear, 1);
 
         // BRC HuC Data Buffer
         allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(BRC_DATA_SIZE, CODECHAL_PAGE_SIZE);
         allocParamsForBufferLinear.pBufName = "BRC HuC Data Buffer";
-
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ;
         MOS_RESOURCE* brcDataBuffer = m_allocator->AllocateResource(
             allocParamsForBufferLinear,
             true);
@@ -203,9 +219,12 @@ namespace encode
         dmem->UPD_CurWidth  = (uint16_t)m_basicFeature->m_oriFrameWidth;
         dmem->UPD_CurHeight = (uint16_t)m_basicFeature->m_oriFrameHeight;
         dmem->UPD_Asyn = 0;
-        dmem->UPD_EnableAdaptiveRounding = m_basicFeature->m_adaptiveRounding;
+        dmem->UPD_EnableAdaptiveRounding = (m_basicFeature->m_roundingMethod == RoundingMethod::adaptiveRounding);
+        dmem->UPD_AdaptiveTUEnabled = picParams->AdaptiveTUEnabled;
 
-        if (seqParams->GopRefDist == 8)
+        if (seqParams->GopRefDist == 16 && m_rcMode == RATECONTROL_CQL)
+            dmem->UPD_MaxBRCLevel = 4;
+        else if (seqParams->GopRefDist == 8)
             dmem->UPD_MaxBRCLevel = 3;
         else if (seqParams->GopRefDist == 4)
             dmem->UPD_MaxBRCLevel = 2;
@@ -228,14 +247,15 @@ namespace encode
                     {1, AV1_BRC_FRAME_TYPE_P_OR_LB},
                     {2, AV1_BRC_FRAME_TYPE_B},
                     {3, AV1_BRC_FRAME_TYPE_B1},
-                    {4, AV1_BRC_FRAME_TYPE_B2}};
+                    {4, AV1_BRC_FRAME_TYPE_B2},
+                    {5, AV1_BRC_FRAME_TYPE_B3}};
                 dmem->UPD_CurrFrameType = hierchLevelPlus1_to_brclevel.count(picParams->HierarchLevelPlus1) ? hierchLevelPlus1_to_brclevel[picParams->HierarchLevelPlus1] : AV1_BRC_FRAME_TYPE_INVALID;
                 //Invalid HierarchLevelPlus1 or LBD frames at level 3 eror check.
                 if ((dmem->UPD_CurrFrameType == AV1_BRC_FRAME_TYPE_INVALID) ||
                     (m_basicFeature->m_ref.IsLowDelay() && dmem->UPD_CurrFrameType == AV1_BRC_FRAME_TYPE_B2))
                 {
-                    CODECHAL_ENCODE_ASSERTMESSAGE("AV1_BRC_FRAME_TYPE_INVALID or LBD picture doesn't support Level 4\n");
-                    return MOS_STATUS_INVALID_PARAMETER;
+                    ENCODE_VERBOSEMESSAGE("AV1_BRC_FRAME_TYPE_INVALID or LBD picture doesn't support Level 4\n");
+                    dmem->UPD_CurrFrameType = AV1_BRC_FRAME_TYPE_B2;
                 }
             }
             else
@@ -287,6 +307,8 @@ namespace encode
         dmem->UPD_VDEncCmd1Offset = m_slbData.vdencCmd1Offset;
         dmem->UPD_VDEncCmd2Offset = m_slbData.vdencCmd2Offset;
         dmem->UPD_AVPPicStateOffset = m_slbData.avpPicStateOffset;
+        dmem->UPD_VDEncTileSliceStateOffset = m_slbData.vdencTileSliceStateOffset;
+        dmem->UPD_TileNum = m_slbData.tileNum;
 
         // BA start
         dmem->UPD_LoopFilterParamsBitOffset      = (uint16_t)m_basicFeature->m_av1PicParams->LoopFilterParamsBitOffset;
@@ -296,10 +318,10 @@ namespace encode
         dmem->UPD_FrameHdrOBUSizeInBytes         = (uint16_t)((m_basicFeature->m_av1PicParams->FrameHdrOBUSizeInBits + 7) >> 3);
         dmem->UPD_FrameHdrOBUSizeByteOffset      = (uint16_t)(m_basicFeature->m_av1PicParams->FrameHdrOBUSizeByteOffset - m_basicFeature->GetAppHdrSizeInBytes(true));
         dmem->UPD_FrameType                      = 0;
-        dmem->UPD_ErrorResilientMode             = 0;
+        dmem->UPD_ErrorResilientMode             = m_basicFeature->m_av1PicParams->PicFlags.fields.error_resilient_mode;
         dmem->UPD_IntraOnly                      = 0;
         dmem->UPD_PrimaryRefFrame                = 0;
-        dmem->UPD_SegOn                          = 0;
+        dmem->UPD_SegOn                          = m_basicFeature->m_av1PicParams->stAV1Segments.SegmentFlags.fields.segmentation_enabled;
         dmem->UPD_SegMapUpdate                   = 0;
         dmem->UPD_SegTemporalUpdate              = 0;
         dmem->UPD_SegUpdateData                  = 0;
@@ -311,9 +333,16 @@ namespace encode
         dmem->UPD_DisableCdfUpdate               = (m_basicFeature->m_av1PicParams->primary_ref_frame != av1PrimaryRefNone);
         dmem->UPD_EnableDMAForCdf                = 1;
         dmem->UPD_AdditionalHrdSizeByteCount     = 0 - m_basicFeature->m_av1PicParams->FrameSizeReducedInBytes;
+        dmem->UPD_PaletteOn                      = m_basicFeature->m_av1PicParams->PicFlags.fields.PaletteModeEnable;
 
         if (dmem->UPD_PAKPassNum == 1)
             m_curTargetFullness += m_inputbitsperframe;
+
+        if (picParams->PicFlags.fields.allow_intrabc && AV1_KEY_OR_INRA_FRAME(picParams->PicFlags.fields.frame_type))
+        {
+            dmem->UPD_EnableCDEFUpdate = 0;
+            dmem->UPD_EnableLFUpdate   = 0;
+        }
 
         return MOS_STATUS_SUCCESS;
     }
@@ -493,6 +522,11 @@ namespace encode
                 dmem->INIT_GopB  = intraPeriod / BGOPSize;
                 dmem->INIT_GopB1 = (dmem->INIT_GopP + dmem->INIT_GopB == intraPeriod)? 0 : dmem->INIT_GopP * 2;
                 dmem->INIT_GopB2 = intraPeriod - dmem->INIT_GopP - dmem->INIT_GopB - dmem->INIT_GopB1;
+                if (m_rcMode == RATECONTROL_CQL && seqParams->GopRefDist == 16)
+                {
+                    dmem->INIT_GopB2 = (dmem->INIT_GopP + dmem->INIT_GopB + dmem->INIT_GopB1 == intraPeriod) ? 0 : dmem->INIT_GopB1 * 2;
+                    dmem->INIT_GopB3 = intraPeriod - dmem->INIT_GopP - dmem->INIT_GopB - dmem->INIT_GopB1 - dmem->INIT_GopB2;
+                }
             }
             else
             {
@@ -520,6 +554,10 @@ namespace encode
         MEMCPY_CONST(INIT_InstRateThreshP0, instRateThresholdP);
 #undef MEMCPY_CONST
 
+        if (dmem->INIT_FrameRateM == 0)
+        {
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
         double inputBitsPerFrame = ((double)dmem->INIT_MaxRate * (double)dmem->INIT_FrameRateD) / (double)dmem->INIT_FrameRateM;
         double bpsRatio = inputBitsPerFrame / ((double)dmem->INIT_BufSize / brcSettings.devStdFPS);
         bpsRatio = MOS_CLAMP_MIN_MAX(bpsRatio, brcSettings.bpsRatioLow, brcSettings.bpsRatioHigh);
@@ -559,7 +597,10 @@ namespace encode
 
         dmem->INIT_SLIDINGWINDOW_ENABLE = seqParams->SlidingWindowSize != 0;
         dmem->INIT_SLIDINGWINDOW_SIZE = (uint8_t)seqParams->SlidingWindowSize;
-
+        if (dmem->INIT_SLIDINGWINDOW_ENABLE && seqParams->TargetBitRate[0] > 0)
+        {
+            dmem->INIT_OvershootCBR_pct = (uint16_t)(seqParams->MaxBitRatePerSlidingWindow * 100 / seqParams->TargetBitRate[0]);
+        }
         return MOS_STATUS_SUCCESS;
     }
 
@@ -568,7 +609,25 @@ namespace encode
         MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
         ENCODE_FUNC_CALL();
-
+        
+        if (m_basicFeature->m_av1SeqParams->RateControlMethod == RATECONTROL_CQL)
+        {
+            const uint8_t ICQFactorLookup[52] = { 
+                0,  1,  1,  1,  1,  2,  3,  4,  6,  7,  9,  11, 13, 16, 18, 23,
+                26, 30, 34, 39, 46, 52, 59, 68, 77, 87, 98, 104,112,120,127,134,
+                142,149,157,164,171,178,186,193,200,207,213,219,225,230,235,240,
+                245,249,252,255 
+            };
+            
+            uint32_t TargetBitRate                                     = m_basicFeature->m_frameWidth * m_basicFeature->m_frameHeight * 8 / 1000;
+            m_basicFeature->m_av1SeqParams->ICQQualityFactor           = ICQFactorLookup[m_basicFeature->m_av1SeqParams->ICQQualityFactor];
+            m_basicFeature->m_av1SeqParams->TargetBitRate[0]           = TargetBitRate;
+            m_basicFeature->m_av1SeqParams->MaxBitRate                 = (TargetBitRate << 4) / 10;
+            m_basicFeature->m_av1SeqParams->MinBitRate                 = 0;
+            m_basicFeature->m_av1SeqParams->InitVBVBufferFullnessInBit = 8000 * (TargetBitRate << 3) / 10;
+            m_basicFeature->m_av1SeqParams->VBVBufferSizeInBit         = 8000 * (TargetBitRate << 1);
+        }
+        
         m_brcEnabled = IsRateControlBrc(m_basicFeature->m_av1SeqParams->RateControlMethod);
 
         m_brcInit = m_brcEnabled && m_basicFeature->m_resolutionChanged;
@@ -577,8 +636,7 @@ namespace encode
 
         if (m_rcMode == RATECONTROL_CQL || m_rcMode == RATECONTROL_QVBR)
         {
-            if (m_basicFeature->m_av1SeqParams->ICQQualityFactor < ENCODE_AV1_MIN_ICQ_QUALITYFACTOR ||
-                m_basicFeature->m_av1SeqParams->ICQQualityFactor > ENCODE_AV1_MAX_ICQ_QUALITYFACTOR)
+            if (m_basicFeature->m_av1SeqParams->ICQQualityFactor > ENCODE_AV1_MAX_ICQ_QUALITYFACTOR)
             {
                 ENCODE_ASSERTMESSAGE("Invalid ICQ Quality Factor input (%d)\n", m_basicFeature->m_av1SeqParams->ICQQualityFactor);
                 eStatus = MOS_STATUS_INVALID_PARAMETER;
@@ -687,8 +745,12 @@ namespace encode
 
             break;
         }
+        case PAK_INTEGRATE: {
+            // nothing need to be done within brc feature for pak int
+            break;
+        }
         default:
-            ENCODE_ASSERTMESSAGE("AV1 BRC feature supports only BRC_INIT and BRC_UPDATE HUC functions");
+            ENCODE_ASSERTMESSAGE("AV1 BRC feature supports only PAK_INTEGRATE, BRC_INIT and BRC_UPDATE HUC functions");
             return MOS_STATUS_INVALID_PARAMETER;
         }
 

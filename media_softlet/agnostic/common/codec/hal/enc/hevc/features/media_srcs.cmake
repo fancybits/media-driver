@@ -21,7 +21,6 @@
 if("${HEVC_Encode_VDEnc_Supported}" STREQUAL "yes")
 media_include_subdirectory(roi)
 set(TMP_SOURCES_
-    ${TMP_SOURCES_}
     ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_header_packer.cpp
     ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_vdenc_feature_manager.cpp
     ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_cqp.cpp
@@ -34,10 +33,14 @@ set(TMP_SOURCES_
     ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_vdenc_scc.cpp
     ${CMAKE_CURRENT_LIST_DIR}/encode_vdenc_lpla_analysis.cpp
     ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_vdenc_lpla_enc.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_basic_feature_422.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_vdenc_fullenc.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_vdenc_preenc.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_aqm.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/encode_vdenc_hevc_fastpass.cpp
 )
 
 set(TMP_HEADERS_
-    ${TMP_HEADERS_}
     ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_header_packer.h
     ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_vdenc_feature_manager.h
     ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_cqp.h
@@ -50,7 +53,31 @@ set(TMP_HEADERS_
     ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_vdenc_scc.h
     ${CMAKE_CURRENT_LIST_DIR}/encode_vdenc_lpla_analysis.h
     ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_vdenc_lpla_enc.h
+    ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_basic_feature_422.h
+    ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_vdenc_fullenc.h
+    ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_vdenc_preenc.h
+    ${CMAKE_CURRENT_LIST_DIR}/encode_hevc_aqm.h
+    ${CMAKE_CURRENT_LIST_DIR}/encode_vdenc_hevc_fastpass.h
 )
+
+set(SOFTLET_ENCODE_HEVC_HEADERS_
+    ${SOFTLET_ENCODE_HEVC_HEADERS_}
+    ${TMP_HEADERS_}
+)
+
+set(SOFTLET_ENCODE_HEVC_SOURCES_
+    ${SOFTLET_ENCODE_HEVC_SOURCES_}
+    ${TMP_SOURCES_}
+)
+
+source_group( CodecHalNext\\Shared\\Encode FILES ${TMP_SOURCES_} ${TMP_HEADERS_} )
+
+set(TMP_SOURCES_ "")
+set(TMP_HEADERS_ "")
+
 endif()
 
-media_add_curr_to_include_path()
+set(SOFTLET_ENCODE_HEVC_PRIVATE_INCLUDE_DIRS_
+    ${SOFTLET_ENCODE_HEVC_PRIVATE_INCLUDE_DIRS_}
+    ${CMAKE_CURRENT_LIST_DIR}
+)

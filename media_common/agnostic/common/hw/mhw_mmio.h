@@ -99,6 +99,7 @@ struct MmioRegistersHuc
     uint32_t                    hucStatusRegOffset = 0;
     uint32_t                    hucUKernelHdrInfoRegOffset = 0;
     uint32_t                    hucStatus2RegOffset = 0;
+    uint32_t                    hucLoadInfoOffset = 0;
 };
 
 //!
@@ -139,6 +140,8 @@ struct MmioRegistersMfx
     uint32_t            mfxLra1RegOffset = 0;
     uint32_t            mfxLra2RegOffset = 0;
 };
+
+typedef MmioRegistersMfx MmioRegistersVdbox;
 
 //!
 //! \brief  MHW VEBOX MMIO Structure

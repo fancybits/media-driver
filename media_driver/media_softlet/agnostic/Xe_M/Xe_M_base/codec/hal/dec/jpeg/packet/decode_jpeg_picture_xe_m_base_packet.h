@@ -32,6 +32,8 @@
 #include "decode_utils.h"
 #include "decode_jpeg_basic_feature.h"
 #include "decode_downsampling_packet.h"
+#include "mhw_vdbox_g12_X.h"
+#include "codechal_hw_g12_X.h"
 
 namespace decode{
 class JpegDecodePicPktXe_M_Base : public DecodeSubPacket
@@ -41,10 +43,13 @@ public:
     //! \brief  JpegDecodePicPkt constructor
     //!
     JpegDecodePicPktXe_M_Base(JpegPipeline *pipeline, CodechalHwInterface *hwInterface)
-        : DecodeSubPacket(pipeline, hwInterface), m_jpegPipeline(pipeline)
+        : DecodeSubPacket(pipeline, *hwInterface), m_jpegPipeline(pipeline)
     {
+        m_hwInterface = hwInterface;
         if (m_hwInterface != nullptr)
         {
+            m_miInterface  = m_hwInterface->GetMiInterface();
+            m_osInterface  = m_hwInterface->GetOsInterface();
             m_mfxInterface  =  static_cast<CodechalHwInterfaceG12*>(hwInterface)->GetMfxInterface();
         }
     }
@@ -137,7 +142,9 @@ protected:
 
     uint32_t m_pictureStatesSize           = 0;    //!< Picture states size
     uint32_t m_picturePatchListSize        = 0;    //!< Picture patch list size
-MEDIA_CLASS_DEFINE_END(decode__JpegDecodePicPktXe_M_Base)
+    CodechalHwInterface *m_hwInterface                 = nullptr;
+    MhwMiInterface      *m_miInterface                 = nullptr;
+    MEDIA_CLASS_DEFINE_END(decode__JpegDecodePicPktXe_M_Base)
 };
 
 }  // namespace decode

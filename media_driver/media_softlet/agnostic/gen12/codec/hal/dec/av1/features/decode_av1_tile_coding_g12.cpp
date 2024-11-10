@@ -134,6 +134,7 @@ namespace decode
             if (m_lastTileId != m_totalTileNum - 1)
             {
                 m_lastTileId = m_totalTileNum - 1;
+                m_newFrameStart = true;
             }
         }
 
@@ -350,6 +351,13 @@ namespace decode
             passNum   = m_lastTileId - startTile + 1;
             m_curTile = startTile;
         }
+
+        // Check invalid tile num
+        if (passNum < 1)
+        {
+            DECODE_ASSERTMESSAGE("valid tile doesn't exist in bitstream\n");
+            return MOS_STATUS_MORE_DATA;
+        }        
 
         m_decPassNum = passNum;
         return MOS_STATUS_SUCCESS;

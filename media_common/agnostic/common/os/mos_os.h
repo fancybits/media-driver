@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2022, Intel Corporation
+* Copyright (c) 2009-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -32,119 +32,15 @@
 #include "media_skuwa_specific.h"
 #include "mos_util_debug.h"
 #include "mos_os_hw.h"         //!< HW specific details that flow through OS pathes
-#ifndef MEDIA_SOFTLET
-#include "mos_os_cp_interface_specific.h"         //!< CP specific OS functionality
-#else
-class MosCpInterface;
-#endif
 #if (_RELEASE_INTERNAL || _DEBUG)
 #if defined(CM_DIRECT_GUC_SUPPORT)
 #include "work_queue_mngr.h"
-#include "KmGucClientInterface.h"
+#include <FirmwareManager/GpuFW/GucModule/commoninc/KmGucClientInterface.h>
 #endif
 #endif
 
-#include "media_user_setting.h"
+#include "media_user_setting_specific.h"
 #include "null_hardware.h"
-extern PerfUtility *g_perfutility;
-
-#define PERF_DECODE "DECODE"
-#define PERF_ENCODE "ENCODE"
-#define PERF_VP "VP"
-#define PERF_CP "CP"
-#define PERF_MOS "MOS"
-
-#define PERF_LEVEL_DDI "DDI"
-#define PERF_LEVEL_HAL "HAL"
-
-#define DECODE_DDI (1)
-#define DECODE_HAL (1 << 1)
-#define ENCODE_DDI (1 << 4)
-#define ENCODE_HAL (1 << 5)
-#define VP_DDI     (1 << 8)
-#define VP_HAL     (1 << 9)
-#define CP_DDI     (1 << 12)
-#define CP_HAL     (1 << 13)
-#define MOS_DDI    (1 << 16)
-#define MOS_HAL    (1 << 17)
-
-#define PERFUTILITY_IS_ENABLED(sCOMP,sLEVEL)                                                              \
-    (((sCOMP == "DECODE" && sLEVEL == "DDI") && (g_perfutility->dwPerfUtilityIsEnabled & DECODE_DDI)) ||  \
-     ((sCOMP == "DECODE" && sLEVEL == "HAL") && (g_perfutility->dwPerfUtilityIsEnabled & DECODE_HAL)) ||  \
-     ((sCOMP == "ENCODE" && sLEVEL == "DDI") && (g_perfutility->dwPerfUtilityIsEnabled & ENCODE_DDI)) ||  \
-     ((sCOMP == "ENCODE" && sLEVEL == "HAL") && (g_perfutility->dwPerfUtilityIsEnabled & ENCODE_HAL)) ||  \
-     ((sCOMP == "VP" && sLEVEL == "DDI") && (g_perfutility->dwPerfUtilityIsEnabled & VP_DDI)) ||          \
-     ((sCOMP == "VP" && sLEVEL == "HAL") && (g_perfutility->dwPerfUtilityIsEnabled & VP_HAL)) ||          \
-     ((sCOMP == "CP" && sLEVEL == "DDI") && (g_perfutility->dwPerfUtilityIsEnabled & CP_DDI)) ||          \
-     ((sCOMP == "CP" && sLEVEL == "HAL") && (g_perfutility->dwPerfUtilityIsEnabled & CP_HAL)) ||          \
-     ((sCOMP == "MOS" && sLEVEL == "DDI") && (g_perfutility->dwPerfUtilityIsEnabled & MOS_DDI)) ||        \
-     ((sCOMP == "MOS" && sLEVEL == "HAL") && (g_perfutility->dwPerfUtilityIsEnabled & MOS_HAL)))
-
-#define PERF_UTILITY_START(TAG,COMP,LEVEL)                                 \
-    do                                                                     \
-    {                                                                      \
-        if (PERFUTILITY_IS_ENABLED((std::string)COMP,(std::string)LEVEL))  \
-        {                                                                  \
-            g_perfutility->startTick(TAG);                                 \
-        }                                                                  \
-    } while(0)
-
-#define PERF_UTILITY_STOP(TAG, COMP, LEVEL)                                \
-    do                                                                     \
-    {                                                                      \
-        if (PERFUTILITY_IS_ENABLED((std::string)COMP,(std::string)LEVEL))  \
-        {                                                                  \
-            g_perfutility->stopTick(TAG);                                  \
-        }                                                                  \
-    } while (0)
-
-static int perf_count_start = 0;
-static int perf_count_stop = 0;
-
-#define PERF_UTILITY_START_ONCE(TAG, COMP,LEVEL)                           \
-    do                                                                     \
-    {                                                                      \
-        if (perf_count_start == 0                                          \
-            && PERFUTILITY_IS_ENABLED((std::string)COMP,(std::string)LEVEL))  \
-        {                                                                  \
-                g_perfutility->startTick(TAG);                             \
-        }                                                                  \
-        perf_count_start++;                                                \
-    } while(0)
-
-#define PERF_UTILITY_STOP_ONCE(TAG, COMP, LEVEL)                           \
-    do                                                                     \
-    {                                                                      \
-        if (perf_count_stop == 0                                           \
-            && PERFUTILITY_IS_ENABLED((std::string)COMP,(std::string)LEVEL))  \
-        {                                                                  \
-            g_perfutility->stopTick(TAG);                                  \
-        }                                                                  \
-        perf_count_stop++;                                                 \
-    } while (0)
-
-#define PERF_UTILITY_AUTO(TAG,COMP,LEVEL) AutoPerfUtility apu(TAG,COMP,LEVEL)
-
-#define PERF_UTILITY_PRINT                         \
-    do                                             \
-    {                                              \
-        if (g_perfutility->dwPerfUtilityIsEnabled && MosUtilities::MosIsProfilerDumpEnabled()) \
-        {                                          \
-            g_perfutility->savePerfData();         \
-        }                                          \
-    } while(0)
-
-class AutoPerfUtility
-{
-public:
-    AutoPerfUtility(std::string tag, std::string comp, std::string level);
-    ~AutoPerfUtility();
-
-private:
-    bool bEnable = false;
-    std::string autotag ="intialized";
-};
-
 //!
 //! \brief OS specific includes and definitions
 //!
@@ -152,6 +48,7 @@ private:
 #include "mos_os_virtualengine_specific.h"
 
 #include "mos_oca_interface.h"
+#include "mos_cache_manager.h"
 
 #define MOS_NAL_UNIT_LENGTH                 4
 #define MOS_NAL_UNIT_STARTCODE_LENGTH       3
@@ -201,7 +98,7 @@ private:
     ((GpuContext) == MOS_GPU_CONTEXT_VEBOX))
 #endif
 
-#define MOS_GCS_ENGINE_USED(GpuContext) (             \
+#define MOS_TEECS_ENGINE_USED(GpuContext) (             \
     ((GpuContext) == MOS_GPU_CONTEXT_TEE))
 
 #if MOS_COMMAND_BUFFER_DUMP_SUPPORTED
@@ -221,25 +118,6 @@ private:
 #ifndef E_UNEXPECTED
 #define E_UNEXPECTED    0x8000FFFFL
 #endif // E_UNEXPECTED
-
-//!
-//! \brief Enum for OS component
-//!
-enum MOS_COMPONENT
-{
-    COMPONENT_UNKNOWN = 0,
-    COMPONENT_LibVA,
-    COMPONENT_EMULATION,
-    COMPONENT_CM,
-    COMPONENT_Encode,
-    COMPONENT_Decode,
-    COMPONENT_VPCommon,
-    COMPONENT_VPreP,
-    COMPONENT_CP,
-    COMPONENT_MEMDECOMP,
-    COMPONENT_MCPY,
-};
-C_ASSERT(COMPONENT_MCPY == 10); // When adding, update assert
 
 //!
 //! \brief Structure to OS sync parameters
@@ -264,6 +142,13 @@ typedef enum _MOS_SCALABILITY_ENABLE_MODE
     MOS_SCALABILITY_ENABLE_MODE_DEFAULT    = 0x0001,
     MOS_SCALABILITY_ENABLE_MODE_USER_FORCE = 0x0010
 } MOS_SCALABILITY_ENABLE_MODE;
+
+typedef enum _TRINITY_PATH
+{
+    TRINITY_DISABLED  = 0,
+    TRINITY9_ENABLED  = 1,
+    TRINITY11_ENABLED = 2,
+} TRINITY_PATH;
 
 #if (_DEBUG || _RELEASE_INTERNAL)
 //!
@@ -305,6 +190,7 @@ typedef enum _MOS_FORCE_VEBOX
 #define MOS_FORCEENGINE_MASK                         0xf
 #define MOS_FORCEENGINE_ENGINEID_BITSNUM             4 //each VDBOX ID occupies 4 bits see defintion MOS_FORCE_VDBOX
 #define MOS_INVALID_FORCEENGINE_VALUE                0xffffffff
+#define MOS_INVALID_ENGINE_INSTANCE                  0xff // this invalid engine instance value aligns with KMD
 #endif
 
 typedef struct _MOS_VIRTUALENGINE_INTERFACE *PMOS_VIRTUALENGINE_INTERFACE;
@@ -366,6 +252,7 @@ typedef enum _MOS_VEBOX_NODE_IND
 typedef int32_t MOS_SUBMISSION_TYPE;
 
 #define EXTRA_PADDING_NEEDED                            4096
+#define MEDIA_CMF_UNCOMPRESSED_WRITE                    0xC
 
 //!
 //! \brief Structure to command buffer
@@ -536,6 +423,13 @@ struct _MOS_GPUCTX_CREATOPTIONS
         SSEUValue(0),
         isRealTimePriority(0){}
 
+    _MOS_GPUCTX_CREATOPTIONS(_MOS_GPUCTX_CREATOPTIONS* createOption) : CmdBufferNumScale(createOption->CmdBufferNumScale),
+                                 RAMode(createOption->RAMode),
+                                 ProtectMode(createOption->ProtectMode),
+                                 gpuNode(createOption->gpuNode),
+                                 SSEUValue(createOption->SSEUValue),
+                                 isRealTimePriority(createOption->isRealTimePriority) {}
+
     virtual ~_MOS_GPUCTX_CREATOPTIONS(){}
 };
 
@@ -588,76 +482,97 @@ struct _MOS_INTERFACE;
 class MosVeInterface;
 class CommandList;
 class CmdBufMgrNext;
+class MosCpInterface;
+class MosDecompression;
+
+//!
+//! \brief Structure to Unified  InDirectState Dump Info
+//!
+struct INDIRECT_STATE_INFO
+{
+    uint32_t        stateSize              = 0;        //size of indirectstate
+    uint32_t        *indirectState         = nullptr;  //indirectstate address
+    uint32_t        *gfxAddressBottom      = nullptr;  //indirect gfx address bottom
+    uint32_t        *gfxAddressTop         = nullptr;  //indirect gfx address top
+    const char      *stateName             = "";
+};
 
 struct MosStreamState
 {
-    OsDeviceContext   *osDeviceContext = nullptr;
-    GPU_CONTEXT_HANDLE currentGpuContextHandle = MOS_GPU_CONTEXT_INVALID_HANDLE;
-    MOS_COMPONENT      component;
+    OsDeviceContext     *osDeviceContext        = nullptr;
+    GPU_CONTEXT_HANDLE  currentGpuContextHandle = MOS_GPU_CONTEXT_INVALID_HANDLE;
+    MOS_COMPONENT       component               = COMPONENT_UNKNOWN;
 
-    CommandList        *currentCmdList      = nullptr;  //<! Command list used in async mode
-    CmdBufMgrNext      *currentCmdBufMgr    = nullptr;  //<! Cmd buffer manager used in async mode
-    bool                postponedExecution  = false;    //!< Indicate if the stream is work in postponed execution mode. This flag is only used in aync mode.
+    CommandList        *currentCmdList          = nullptr;  //<! Command list used in async mode
+    CmdBufMgrNext      *currentCmdBufMgr        = nullptr;  //<! Cmd buffer manager used in async mode
+    MosDecompression   *mosDecompression        = nullptr;  //<! Decompression State used for decompress
+    bool                enableDecomp            = false;    //<! Set true in StreamState init. If false then not inited
+    bool                postponedExecution      = false;    //!< Indicate if the stream is work in postponed execution mode. This flag is only used in aync mode.
 
-    bool supportVirtualEngine = false; //!< Flag to indicate using virtual engine interface
-    MosVeInterface *virtualEngineInterface = nullptr; //!< Interface to virtual engine state
-    bool useHwSemaForResSyncInVe = false; //!< Flag to indicate if UMD need to send HW sema cmd under this OS when there is a resource sync need with Virtual Engine interface
-    bool veEnable = false;                //!< Flag to indicate virtual engine enabled (Can enable VE without using virtual engine interface)
-    bool phasedSubmission = false;        //!< Flag to indicate if secondary command buffers are submitted together or separately due to different OS
-    bool frameSplit = true;               //!< Flag to indicate if frame split is enabled (only active when phasedSubmission is true)
-    int32_t hcpDecScalabilityMode = 0;   //!< Hcp scalability mode
-    int32_t veboxScalabilityMode  = 0;    //!< Vebox scalability mode
+    bool supportVirtualEngine                   = false;    //!< Flag to indicate using virtual engine interface
+    MosVeInterface *virtualEngineInterface      = nullptr;  //!< Interface to virtual engine state
+    bool useHwSemaForResSyncInVe                = false;    //!< Flag to indicate if UMD need to send HW sema cmd under this OS when there is a resource sync need with Virtual Engine interface
+    bool veEnable                               = false;    //!< Flag to indicate virtual engine enabled (Can enable VE without using virtual engine interface)
+    bool phasedSubmission                       = false;    //!< Flag to indicate if secondary command buffers are submitted together or separately due to different OS
+    bool frameSplit                             = true;     //!< Flag to indicate if frame split is enabled (only active when phasedSubmission is true)
+    int32_t hcpDecScalabilityMode               = 0;        //!< Hcp scalability mode
+    int32_t veboxScalabilityMode                = 0;        //!< Vebox scalability mode
 
-    bool ctxBasedScheduling = false;  //!< Indicate if context based scheduling is enabled in this stream
-    bool multiNodeScaling = false;    //!< Flag to indicate if multi-node scaling is enabled for virtual engine (only active when ctxBasedScheduling is true)
+    bool ctxBasedScheduling                     = false;    //!< Indicate if context based scheduling is enabled in this stream
+    bool multiNodeScaling                       = false;    //!< Flag to indicate if multi-node scaling is enabled for virtual engine (only active when ctxBasedScheduling is true)
 
-    int32_t ctxPriority = 0;
-    bool softReset = false;  //!< trigger soft reset
+    int32_t ctxPriority                         = 0;
+    bool softReset                              = false;    //!< trigger soft reset
 
-    MosCpInterface *osCpInterface = nullptr; //!< CP interface
+    MosCpInterface *osCpInterface               = nullptr;  //!< CP interface
 
-    bool mediaReset    = false;  //!< Flag to indicate media reset is enabled
+    bool mediaReset                             = false;    //!< Flag to indicate media reset is enabled
 
-    bool simIsActive = false;  //!< Flag to indicate if Simulation is enabled
-    MOS_NULL_RENDERING_FLAGS nullHwAccelerationEnable = {};     //!< To indicate which components to enable Null HW support
+    bool forceMediaCompressedWrite              = false;    //!< Flag to force media compressed write
 
-    bool usesPatchList = false;               //!< Uses patch list instead of graphic address directly
-    bool usesGfxAddress = false;              //!< Uses graphic address directly instead of patch list
-    bool enableKmdMediaFrameTracking = false; //!< Enable KMD Media frame tracking
-    bool usesCmdBufHeaderInResize = false;    //!< Use cmd buffer header in resize
-    bool usesCmdBufHeader = false;            //!< Use cmd buffer header
+    bool enableDecodeLowLatency                 = false;    //!< Flag to enable decode low latency by frequency boost
+
+    bool simIsActive                            = false;    //!< Flag to indicate if Simulation is enabled
+    MOS_NULL_RENDERING_FLAGS nullHwAccelerationEnable = {}; //!< To indicate which components to enable Null HW support
+
+    bool usesPatchList                          = false;    //!< Uses patch list instead of graphic address directly
+    bool usesGfxAddress                         = false;    //!< Uses graphic address directly instead of patch list
+    bool enableKmdMediaFrameTracking            = false;    //!< Enable KMD Media frame tracking
+    bool usesCmdBufHeaderInResize               = false;    //!< Use cmd buffer header in resize
+    bool usesCmdBufHeader                       = false;    //!< Use cmd buffer header
 
     // GPU Reset Statistics
-    uint32_t gpuResetCount      = 0;
-    uint32_t gpuActiveBatch     = 0;
-    uint32_t gpuPendingBatch    = 0;
+    uint32_t gpuResetCount                      = 0;
+    uint32_t gpuActiveBatch                     = 0;
+    uint32_t gpuPendingBatch                    = 0;
 
 #if MOS_COMMAND_BUFFER_DUMP_SUPPORTED
     // Command buffer dump
-    bool  dumpCommandBuffer = false;                      //!< Flag to indicate if Dump command buffer is enabled
-    bool  dumpCommandBufferToFile = false;                //!< Indicates that the command buffer should be dumped to a file
-    bool  dumpCommandBufferAsMessages = false;            //!< Indicates that the command buffer should be dumped via MOS normal messages
-    char  sDirName[MOS_MAX_HLT_FILENAME_LEN] = {0};       //!< Dump Directory name - maximum 260 bytes length
+    bool  dumpCommandBuffer                     = false;    //!< Flag to indicate if Dump command buffer is enabled
+    bool  dumpCommandBufferToFile               = false;    //!< Indicates that the command buffer should be dumped to a file
+    bool  dumpCommandBufferAsMessages           = false;    //!< Indicates that the command buffer should be dumped via MOS normal messages
+    char  sDirName[MOS_MAX_HLT_FILENAME_LEN]    = {0};      //!< Dump Directory name - maximum 260 bytes length
+    std::vector<INDIRECT_STATE_INFO> indirectStateInfo                     = {};
 #endif // MOS_COMMAND_BUFFER_DUMP_SUPPORTED
 
 #if _DEBUG || _RELEASE_INTERNAL
-    bool  enableDbgOvrdInVirtualEngine = false; //!< enable debug override in virtual engine
+    bool  enableDbgOvrdInVirtualEngine          = false;    //!< enable debug override in virtual engine
 
-    int32_t eForceVdbox = 0;  //!< Force select Vdbox
-    int32_t eForceVebox = 0;  //!< Force select Vebox
+    int32_t eForceVdbox                         = 0;        //!< Force select Vdbox
+    int32_t eForceVebox                         = 0;        //!< Force select Vebox
 #endif // _DEBUG || _RELEASE_INTERNAL
 
-    bool  bGucSubmission     = false;  //!< Flag to indicate if guc submission is enabled
+    bool  bParallelSubmission                        = false;    //!< Flag to indicate if parallel submission is enabled
     OS_PER_STREAM_PARAMETERS  perStreamParameters = nullptr; //!< Parameters of OS specific per stream
 
-    static void *pvSoloContext;  //!< pointer to MediaSolo context
+    static void *pvSoloContext;                             //!< pointer to MediaSolo context
 
 #if MOS_MEDIASOLO_SUPPORTED
 
-    int32_t  bSupportMediaSoloVirtualEngine = 0;  //!< Flag to indicate if MediaSolo uses VE solution in cmdbuffer submission.
-    uint32_t dwEnableMediaSoloFrameNum = 0;       //!< The frame number at which MediaSolo will be enabled, 0 is not valid.
-    int32_t  bSoloInUse = 0;                      //!< Flag to indicate if MediaSolo is enabled
-#endif                                       // MOS_MEDIASOLO_SUPPORTED
+    int32_t  bSupportMediaSoloVirtualEngine     = 0;        //!< Flag to indicate if MediaSolo uses VE solution in cmdbuffer submission.
+    uint32_t dwEnableMediaSoloFrameNum          = 0;        //!< The frame number at which MediaSolo will be enabled, 0 is not valid.
+    int32_t  bSoloInUse                         = 0;        //!< Flag to indicate if MediaSolo is enabled
+#endif  // MOS_MEDIASOLO_SUPPORTED
 
 };
 
@@ -677,6 +592,41 @@ typedef void *              DDI_DEVICE_CONTEXT;  //!< stand for different os spe
 typedef void *              MOS_INTERFACE_HANDLE;
 
 class GpuContextMgr;
+
+namespace CMRT_UMD
+{
+    class CmDevice;
+};
+struct _CM_HAL_STATE;
+typedef struct _CM_HAL_STATE *PCM_HAL_STATE;
+class MhwCpInterface;
+class CodechalSecureDecodeInterface;
+class CodechalSetting;
+class CodechalHwInterface;
+class CodechalHwInterfaceNext;
+
+struct MOS_SURF_DUMP_SURFACE_DEF
+{
+    uint32_t offset;  //!< Offset from start of the plane
+    uint32_t height;  //!< Height in rows
+    uint32_t width;   //!< Width in bytes
+    uint32_t pitch;   //!< Pitch in bytes
+};
+
+struct ResourceDumpAttri
+{
+    MOS_RESOURCE            res           = {};
+    MOS_LOCK_PARAMS         lockFlags     = {};
+    std::string             fullFileName  = {};
+    uint32_t                width         = 0;
+    uint32_t                height        = 0;
+    uint32_t                pitch         = 0;
+    MOS_GFXRES_FREE_FLAGS   resFreeFlags  = {};
+    MOS_PLANE_OFFSET        yPlaneOffset  = {};  // Y surface plane offset
+    MOS_PLANE_OFFSET        uPlaneOffset  = {};  // U surface plane offset
+    MOS_PLANE_OFFSET        vPlaneOffset  = {};  // V surface plane offset
+};
+
 //!
 //! \brief Structure to Unified HAL OS resources
 //!
@@ -694,7 +644,7 @@ typedef struct _MOS_INTERFACE
     //!< into the kernel subsystem
     HANDLE                          CurrentGpuContextRuntimeHandle;
 
-    //!< Only used in async mode for backward compatiable
+    //!< Only used in async and softlet mos mode for backward compatiable
     GPU_CONTEXT_HANDLE              m_GpuContextHandleMap[MOS_GPU_CONTEXT_MAX] = {0};
     GPU_CONTEXT_HANDLE              m_encContext;
     GPU_CONTEXT_HANDLE              m_pakContext;
@@ -749,8 +699,11 @@ typedef struct _MOS_INTERFACE
     // used for media reset enabling/disabling in UMD
     // pls remove it after hw scheduling
     int32_t                         bMediaReset;
+    TRINITY_PATH                    trinityPath;
 
     bool                            umdMediaResetEnable;
+
+    bool                            forceMediaCompressedWrite;
 
 #if MOS_MEDIASOLO_SUPPORTED
     // MediaSolo related
@@ -777,7 +730,6 @@ typedef struct _MOS_INTERFACE
 #endif
 
     bool                            bEnableVdboxBalancing;                            //!< Enable per BB VDBox balancing
-
 #if (_DEBUG || _RELEASE_INTERNAL)
     int                             eForceVdbox;                                  //!< Force select Vdbox
     uint32_t                        dwForceTileYfYs;                              // force to allocate Yf (=1) or Ys (=2), remove after full validation
@@ -786,6 +738,8 @@ typedef struct _MOS_INTERFACE
 #endif // (_DEBUG || _RELEASE_INTERNAL)
 
     bool                            apoMosEnabled;                                //!< apo mos or not
+    bool                            apoMosForLegacyRuntime = false;
+    std::vector<ResourceDumpAttri>  resourceDumpAttriArray;
 
     MEMORY_OBJECT_CONTROL_STATE (* pfnCachePolicyGetMemoryObject) (
         MOS_HW_RESOURCE_DEF         Usage,
@@ -830,9 +784,6 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE     pOsInterface,
         GPU_CONTEXT_HANDLE gpuContextHandle,
         MOS_GPU_CONTEXT    GpuContext);
-
-    GpuContextMgr* (*pfnGetGpuContextMgr) (
-        PMOS_INTERFACE     pOsInterface);
 
 #if (_RELEASE_INTERNAL || _DEBUG)
 #if defined(CM_DIRECT_GUC_SUPPORT)
@@ -999,6 +950,14 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE              pOsInterface,
         PMOS_COMMAND_BUFFER         pCmdBuffer);
 
+    void (* pfnAddIndirectState) (
+        PMOS_INTERFACE      pOsInterface,
+        uint32_t            indirectStateSize,
+        uint32_t            *pIndirectState,
+        uint32_t            *gfxAddressBottom,
+        uint32_t            *gfxAddressTop,
+        const char          *stateName);
+
     #define pfnFreeResource(pOsInterface, pResource) \
        pfnFreeResource(pOsInterface, __FUNCTION__, __FILE__, __LINE__, pResource)
 
@@ -1075,12 +1034,24 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE        pOsInterface,
         PMOS_RESOURCE         pInputOsResource,
         PMOS_RESOURCE         pOutputOsResource,
-        uint32_t              copyWidth,
+        uint32_t              copyPitch,
         uint32_t              copyHeight,
-        uint32_t              copyInputOffset,
-        uint32_t              copyOutputOffset,
         uint32_t              bpp,
         bool                  bOutputCompressed);
+
+    MOS_STATUS (*pfnMonoSurfaceCopy) (
+        PMOS_INTERFACE pOsInterface,
+        PMOS_RESOURCE  pInputOsResource,
+        PMOS_RESOURCE  pOutputOsResource,
+        uint32_t       copyPitch,
+        uint32_t       copyHeight,
+        uint32_t       copyInputOffset,
+        uint32_t       copyOutputOffset,
+        bool           bOutputCompressed);
+
+    MOS_STATUS (*pfnVerifyMosSurface) (
+        PMOS_SURFACE mosSurface,
+        bool        &bIsValid);
 
     MOS_STATUS(*pfnGetMosContext) (
         PMOS_INTERFACE        pOsInterface,
@@ -1113,6 +1084,10 @@ typedef struct _MOS_INTERFACE
     uint64_t (* pfnGetResourceGfxAddress) (
         PMOS_INTERFACE              pOsInterface,
         PMOS_RESOURCE               pResource);
+
+    uint64_t (*pfnGetResourceClearAddress)(
+        PMOS_INTERFACE pOsInterface,
+        PMOS_RESOURCE  pResource);
 
     MOS_STATUS (* pfnSetPatchEntry) (
         PMOS_INTERFACE              pOsInterface,
@@ -1305,6 +1280,37 @@ typedef struct _MOS_INTERFACE
     bool (*pfnIsMultipleCodecDevicesInUse)(
         PMOS_INTERFACE              pOsInterface);
 
+    MOS_STATUS (*pfnSetMultiEngineEnabled)(
+        PMOS_INTERFACE pOsInterface,
+        MOS_COMPONENT  component,
+        bool           enabled);
+
+    MOS_STATUS (*pfnGetMultiEngineStatus)(
+        PMOS_INTERFACE pOsInterface,
+        PLATFORM      *platform,
+        MOS_COMPONENT  component,
+        bool          &isMultiDevices,
+        bool          &isMultiEngine);
+
+    MOS_GPU_NODE(*pfnGetLatestVirtualNode)(
+        PMOS_INTERFACE              pOsInterface,
+        MOS_COMPONENT               component);
+
+    void (*pfnSetLatestVirtualNode)(
+        PMOS_INTERFACE              pOsInterface,
+        MOS_GPU_NODE                node);
+
+    MOS_GPU_NODE (*pfnGetDecoderVirtualNodePerStream)(
+        PMOS_INTERFACE pOsInterface);
+
+    void (*pfnSetDecoderVirtualNodePerStream)(
+        PMOS_INTERFACE pOsInterface,
+        MOS_GPU_NODE   node);
+
+    HANDLE (*pfnGetUmdDmaCompleteEventHandle)(
+        PMOS_INTERFACE  osInterface,
+        MOS_GPU_CONTEXT gpuContext);
+
     //!
     //! \brief    Get Aux Table base address
     //!
@@ -1381,6 +1387,403 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE              pOsInterface);
 
     //!
+    //! \brief    Is Device Async or not
+    //! \details  Is Device Async or not.
+    //! \param    [in] streamState
+    //!           Handle of Os Stream State.
+    //! \return   bool
+    //!           Return true if is async, otherwise false
+    //!
+    bool (*pfnIsAsyncDevice)(
+        MOS_STREAM_HANDLE           streamState);
+
+    //!
+    //! \brief    Mos format to os format
+    //! \details  Mos format to os format
+    //! \param    [in] format
+    //!           Mos format.
+    //! \return   uint32_t
+    //!           Return OS FORMAT
+    //!
+    uint32_t (*pfnMosFmtToOsFmt)(
+        MOS_FORMAT                  format);
+
+    //!
+    //! \brief    Os format to Mos format
+    //! \details  Os format to Mos format
+    //! \param    [in] format
+    //!           Os format.
+    //! \return   MOS_FORMAT
+    //!           Return MOS FORMAT
+    //!
+    MOS_FORMAT (*pfnOsFmtToMosFmt)(
+        uint32_t                    format);
+
+    //!
+    //! \brief    Mos format to GMM format
+    //! \details  Mos format to GMM format
+    //! \param    [in] format
+    //!           Mos format.
+    //! \return   GMM_RESOURCE_FORMAT
+    //!           Return GMM FORMAT
+    //!
+    GMM_RESOURCE_FORMAT (*pfnMosFmtToGmmFmt)(
+        MOS_FORMAT                  format);
+
+    //!
+    //! \brief    GMM format to mos format
+    //! \details  GMM format to mos format
+    //! \param    [in] format
+    //!           GMM_RESOURCE_FORMAT.
+    //! \return   MOS_FORMAT
+    //!           Return MOS FORMAT
+    //!
+    MOS_FORMAT (*pfnGmmFmtToMosFmt)(
+        GMM_RESOURCE_FORMAT         format);
+
+    //!
+    //! \brief    Wait For cmd Completion
+    //! \details  [GPU Context Interface] Waiting for the completion of cmd in provided GPU context
+    //! \details  Caller: HAL only
+    //! \param    [in] streamState
+    //!           Handle of Os Stream State
+    //! \param    [in] gpuCtx
+    //!           GpuContext handle of the gpu context to wait cmd completion
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnWaitForCmdCompletion)(
+        MOS_STREAM_HANDLE           streamState,
+        GPU_CONTEXT_HANDLE          gpuCtx);
+
+    //!
+    //! \brief    Get Resource array index
+    //! \details  Returns the array index
+    //! \param    PMOS_RESOURCE
+    //!           [in] Pointer to  MOS_RESOURCE
+    //! \return   uint32_t - array index
+    //!
+    uint32_t (*pfnGetResourceArrayIndex)(
+        PMOS_RESOURCE               resource);
+
+    //!
+    //! \brief    Setup VE Attribute Buffer
+    //! \details  [Cmd Buffer Interface] Setup VE Attribute Buffer into cmd buffer.
+    //! \details  Caller: MHW only
+    //! \details  This interface is called to setup into cmd buffer.
+    //! \param    [in] streamState
+    //!           Handle of Os Stream State
+    //! \param    [out] cmdBuffer
+    //!           Cmd buffer to setup VE attribute.
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnSetupAttributeVeBuffer)(
+        MOS_STREAM_HANDLE           streamState,
+        COMMAND_BUFFER_HANDLE       cmdBuffer);
+
+    //!
+    //! \brief    Get VE Attribute Buffer
+    //! \details  [Cmd Buffer Interface] Get VE Attribute Buffer from cmd buffer.
+    //! \details  Caller: HAL only
+    //! \details  This interface is called to get VE attribute buffer from cmd buffer if it contains one.
+    //!           If there is no VE attribute buffer returned, it means the cmd buffer has no such buffer
+    //!           in current MOS module. It is not error state if it is nullptr.
+    //! \param    [out] cmdBuffer
+    //!           Cmd buffer to setup VE attribute.
+    //! \return   MOS_CMD_BUF_ATTRI_VE*
+    //!           Return pointer of VE attribute buffer, nullptr if current cmdBuffer didn't contain attribute.
+    //!
+    MOS_CMD_BUF_ATTRI_VE* (*pfnGetAttributeVeBuffer)(
+        COMMAND_BUFFER_HANDLE       cmdBuffer);
+
+    //!
+    //! \brief    Setup commandlist and command pool from os interface
+    //! \details  Set the commandlist and commandPool used in this stream from os interface.
+    //! \param    [in] osInterface
+    //!           pointer to the mos interface
+    //! \param    [out] streamState
+    //!           Handle of Os Stream State.
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnSetupCurrentCmdListAndPool)(
+        PMOS_INTERFACE              osInterface,
+        MOS_STREAM_HANDLE           streamState);
+
+    //!
+    //! \brief    Get MOS_HW_RESOURCE_DEF
+    //! \details  [Resource Interface] Get Mos HW Resource DEF
+    //!           Caller: HAL & MHW
+    //! \param    [in] gmmResUsage
+    //!           Gmm Resource usage as index
+    //! \return   MOS_HW_RESOURCE_DEF
+    //!           Mos HW resource definition
+    //!
+    MOS_HW_RESOURCE_DEF (*pfnGmmToMosResourceUsageType)(
+        GMM_RESOURCE_USAGE_TYPE     gmmResUsage);
+
+    //!
+    //! \brief    Get Adapter Info
+    //! \details  [System info Interface] Get Adapter Info
+    //! \details  Caller: DDI & HAL
+    //! \details  This func is called to differentiate the behavior according to Adapter Info.
+    //! \param    [in] streamState
+    //!           Handle of Os Stream State
+    //! \return   ADAPTER_INFO*
+    //!           Read-only Adapter Info got, nullptr if failed to get
+    //!
+    ADAPTER_INFO* (*pfnGetAdapterInfo)(
+        MOS_STREAM_HANDLE           streamState);
+
+    //!
+    //! \brief    Surface compression is supported
+    //! \details  Surface compression is supported
+    //! \param    [in] skuTable
+    //!           Pointer to MEDIA_FEATURE_TABLE
+    //! \return   bool
+    //!           If true, compression is enabled
+    //!
+    bool (*pfnIsCompressibelSurfaceSupported)(
+        MEDIA_FEATURE_TABLE         *skuTable);
+
+    //!
+    //! \brief    Destroy Virtual Engine State
+    //! \details  [Virtual Engine Interface] Destroy Virtual Engine State of provided streamState
+    //! \details  Caller: Hal (Scalability) only
+    //! \details  This func is called when a stream (Hal instance) need to destroy a VE state
+    //! \details  into provided stream.
+    //! \param    [in] streamState
+    //!           Handle of Os Stream State
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnDestroyVirtualEngineState)(
+        MOS_STREAM_HANDLE           streamState);
+
+    //!
+    //! \brief    Get resource handle
+    //! \details  Get resource handle
+    //! \param    [in] streamState
+    //!           Handle of Os Stream State
+    //! \param    [in] osResource
+    //!           Pointer to mos resource
+    //! \return   uint64_t
+    //!           Return resource handle
+    //!
+    uint64_t (*pfnGetResourceHandle)(
+        MOS_STREAM_HANDLE           streamState,
+        PMOS_RESOURCE               osResource);
+
+    //!
+    //! \brief    Get RT log resource info
+    //! \details  Get RT log resource info
+    //! \param    [in] streamState
+    //!           Handle of Os Stream State
+    //! \param    [in,out] osResource
+    //!           Reference to pointer of mos resource
+    //! \param    [in,out] size
+    //!           Reference to size
+    //! \return   void
+    //!
+    void (*pfnGetRtLogResourceInfo)(
+        PMOS_INTERFACE              osInterface,
+        PMOS_RESOURCE               &osResource,
+        uint32_t                    &size);
+
+    //!
+    //! \brief    OS reset resource
+    //! \details  Resets the OS resource
+    //! \param    PMOS_RESOURCE resource
+    //!           [in] Pointer to OS Resource
+    //! \return   void
+    //!           Return NONE
+    //!
+    void (*pfnResetResource)(
+        PMOS_RESOURCE               resource);
+
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    //!
+    //! \brief    Get engine count
+    //! \details  [Virtual Engine Interface] Get engine count from Virtual Engine State in provided stream
+    //! \details  Caller: Hal (Scalability) only
+    //! \details  Get engine count from virtual engine state
+    //! \param    [in] streamState
+    //!           Handle of Os Stream State
+    //! \return   uint8_t
+    //!           Engine count
+    //!
+    uint8_t (*pfnGetVeEngineCount)(
+        MOS_STREAM_HANDLE           streamState);
+
+    //!
+    //! \brief    Get Engine Logic Id
+    //! \details  [Virtual Engine Interface] Get engine Logic Id from Virtual Engine State in provided stream
+    //! \details  Caller: Hal (Scalability) only
+    //! \details  Get engine Logic Id from virtual engine state
+    //! \param    [in] streamState
+    //!           Handle of Os Stream State
+    //! \param    [in] instanceIdx
+    //!           Engine instance index
+    //! \return   uint8_t
+    //!
+    uint8_t (*pfnGetEngineLogicIdByIdx)(
+        MOS_STREAM_HANDLE           streamState,
+        uint32_t                    instanceIdx);
+
+    //!
+    //! \brief    Set Gpu Virtual Address for Debug
+    //! \details  Manually make page fault
+    //!
+    //! \param    [in] pResource
+    //!           Resource to set Gpu Address
+    //! \param    [in] address
+    //!           Address to set
+    //! \return   MOS_STATUS
+    //!
+    MOS_STATUS (*pfnSetGpuVirtualAddress)(
+        PMOS_RESOURCE               pResource,
+        uint64_t                    address);
+#endif
+
+#if MOS_MEDIASOLO_SUPPORTED
+    //!
+    //! \brief    Solo set ready to execute
+    //! \details  Solo set ready to execute
+    //! \param    [in] osInterface
+    //!           Pointer to OsInterface
+    //! \param    [in] readyToExecute
+    //!           ready to execute
+    //! \return   void
+    //!
+    void (*pfnMosSoloSetReadyToExecute)(
+        PMOS_INTERFACE              osInterface,
+        bool                        readyToExecute);
+
+    //!
+    //! \brief    Solo Check node limitation
+    //! \details  Solo Check node limitation
+    //! \param    [in] osInterface
+    //!           Pointer to OsInterface
+    //! \param    [out] pGpuNodeToUse
+    //!           Pointer to the GPU node to use
+    //! \return   void
+    //!
+    void (*pfnMosSoloCheckNodeLimitation)(
+        PMOS_INTERFACE              osInterface,
+        uint32_t                    *pGpuNodeToUse);
+
+    //!
+    //! \brief    Set MSDK event handling
+    //! \details  Receive MSDK event to be set in mediasolo
+    //! \param    [in] osInterface
+    //!           Pointer to OsInterface
+    //! \param    [out] gpuAppTaskEvent
+    //!           Event handle
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnMosSoloSetGpuAppTaskEvent)(
+        PMOS_INTERFACE              osInterface,
+        HANDLE                      gpuAppTaskEvent);
+
+    //!
+    //! \brief    Solo force dump
+    //! \details  After dwBufferDumpFrameNum submissions are dumped. Force enable mediasolo debug out dump.
+    //!           If no solo interface exists, creates one.
+    //! \param    [in] dwBufferDumpFrameNum
+    //!           Frame Number of the buffer to dump
+    //! \param    [in, out] osInterface
+    //!           Pointer to OsInterface
+    //! \return   void
+    //!
+    MOS_STATUS (*pfnMosSoloForceDumps)(
+        uint32_t                    dwBufferDumpFrameNum,
+        PMOS_INTERFACE              osInterface);
+
+    //!
+    //! \brief    Solo Pre Process for Decode
+    //! \details  Do solo specific operations before decode.
+    //!           Include disable aubload optimization.
+    //!           And set dumped resource in Aubcapture.
+    //! \param    [in] osInterface
+    //!           Indicate if this is first execute call
+    //! \param    [in] psDestSurface
+    //!           Pointer to the surface to add to Aubcapture dump
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnMosSoloPreProcessDecode)(
+        PMOS_INTERFACE              osInterface,
+        PMOS_SURFACE                psDestSurface);
+
+    //!
+    //! \brief    Solo Post Process for Decode
+    //! \details  Do solo specific operations after decode.
+    //!           Include remove dumped resource in Aubcapture.
+    //! \param    [in] osInterface
+    //!           Pointer to OsInterface
+    //! \param    [in] psDestSurface
+    //!           Pointer to the surface to remove from Aubcapture dump
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnMosSoloPostProcessDecode)(
+        PMOS_INTERFACE              osInterface,
+        PMOS_SURFACE                psDestSurface);
+
+    //!
+    //! \brief    Solo Pre Process for Encode
+    //! \details  Do solo specific operations before encode.
+    //!           Include set dumped resource in Aubcapture.
+    //! \param    [in] osInterface
+    //!           Pointer to OsInterface
+    //! \param    [in] pBitstreamBuffer
+    //!           Pointer to the resource to add to Aubcapture dump
+    //! \param    [in] pReconSurface
+    //!           Pointer to the surface to add to Aubcapture dump
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnMosSoloPreProcessEncode)(
+        PMOS_INTERFACE              osInterface,
+        PMOS_RESOURCE               pBitstreamBuffer,
+        PMOS_SURFACE                pReconSurface);
+
+    //!
+    //! \brief    Solo Post Process for Encode
+    //! \details  Do solo specific operations after encode.
+    //!           Include remove dumped resource in Aubcapture.
+    //! \param    [in] osInterface
+    //!           Pointer to OsInterface
+    //! \param    [in] pBitstreamBuffer
+    //!           Pointer to the resource to remove from Aubcapture dump
+    //! \param    [in] pReconSurface
+    //!           Pointer to the surface to remove from Aubcapture dump
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnMosSoloPostProcessEncode)(
+        PMOS_INTERFACE              osInterface,
+        PMOS_RESOURCE               pBitstreamBuffer,
+        PMOS_SURFACE                pReconSurface);
+
+    //!
+    //! \brief    Solo Disable Aubcapture Optimizations
+    //! \details  Solo Disable Aubcapture Optimizations
+    //! \param    [in] osInterface
+    //!           Pointer to OsInterface pointer list
+    //! \param    [in] bFirstExecuteCall
+    //!           Indicate if this is first execute call
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnMosSoloDisableAubcaptureOptimizations)(
+        PMOS_INTERFACE              osInterface,
+        int32_t                     bFirstExecuteCall);
+#endif
+    //!
     //! \brief    Notify shared Stream index
     //!
     //! \param    PMOS_INTERFACE pOsInterface
@@ -1397,6 +1800,248 @@ typedef struct _MOS_INTERFACE
     //!
     bool (*pfnIsMismatchOrderProgrammingSupported)();
 
+    //! \brief    Unified OS add command to command buffer
+    //! \details  Offset returned is dword aligned but size requested can be byte aligned
+    //! \param    PMOS_COMMAND_BUFFER pCmdBuffer
+    //!           [in/out] Pointer to Command Buffer
+    //! \param    void  *pCmd
+    //!           [in] Command Pointer
+    //! \param    uint32_t dwCmdSize
+    //!           [in] Size of command in bytes
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS (*pfnAddCommand)(
+        PMOS_COMMAND_BUFFER pCmdBuffer,
+        const void          *pCmd,
+        uint32_t            dwCmdSize);
+
+    //!
+    //! \brief    Check virtual engine is supported
+    //! \details  Check virtual engine is supported
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] OS Interface
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if succeeded, otherwise error code
+    //!
+    MOS_STATUS (*pfnVirtualEngineSupported)(
+        PMOS_INTERFACE osInterface,
+        bool           isDecode,
+        bool           veDefaultEnable);
+
+    //!
+    //! \brief    Retrieve the CachePolicyMemoryObject for a resource
+    //! \details  Retrieve the CachePolicyMemoryObject for a resource
+    //! \param    PMOS_INTERFACE osInterface
+    //!           [in] OS Interface
+    //! \param    PMOS_RESOURCE resource
+    //!           [in] resource
+    //! \return   MEMORY_OBJECT_CONTROL_STATE
+    //!           return a value of MEMORY_OBJECT_CONTROL_STATE
+    //!
+    MEMORY_OBJECT_CONTROL_STATE (*pfnGetResourceCachePolicyMemoryObject)(
+        PMOS_INTERFACE      osInterface,
+        PMOS_RESOURCE       resource);
+
+    //!
+    //! \brief    Get Buffer Type
+    //! \details  Returns the type of buffer, 1D, 2D or volume
+    //! \param    PMOS_RESOURCE pOsResource
+    //!           [in] Pointer to OS Resource
+    //! \return   GFX resource Type
+    //!
+    MOS_GFXRES_TYPE (*pfnGetResType)(
+        PMOS_RESOURCE pOsResource);
+
+    //!
+    //! \brief    Get TimeStamp frequency base
+    //! \details  Get TimeStamp frequency base from OsInterface
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] OS Interface
+    //! \return   uint32_t
+    //!           time stamp frequency base
+    //!
+    uint32_t (*pfnGetTsFrequency)(
+        PMOS_INTERFACE         pOsInterface);
+
+    //!
+    //! \brief    Set hint parameters
+    //! \details  
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] Pointer to OS interface structure
+    //! \param    MOS_VIRTUALENGINE_SET_PARAMS veParams
+    //!           [out] VIRTUALENGINE SET PARAMS
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if succeeded, otherwise error code
+    //!
+    MOS_STATUS (*pfnSetHintParams)(
+        PMOS_INTERFACE                pOsInterface,
+        PMOS_VIRTUALENGINE_SET_PARAMS veParams);
+
+    //!
+    //! \brief    Checks whether the requested resource is releasable
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] OS Interface
+    //! \param    PMOS_RESOURCE pOsResource
+    //!           [in] Pointer to OS Resource
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if requested can be released, otherwise MOS_STATUS_UNKNOWN
+    //!
+    MOS_STATUS (*pfnIsResourceReleasable)(
+        PMOS_INTERFACE         pOsInterface,
+        PMOS_RESOURCE          pOsResource);
+
+    //!
+    //! \brief    Virtual Engine Init for media Scalability
+    //! \details  
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] Pointer to OS interface structure
+    //! \param    PMOS_VIRTUALENGINE_HINT_PARAMS veHitParams
+    //!           [out] Pointer to Virtual Engine hint parameters
+    //! \param    PMOS_VIRTUALENGINE_INTERFACE veInterface
+    //!           [out] Pointer to Virtual Engine Interface
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if succeeded, otherwise error code
+    //!
+    MOS_STATUS (*pfnVirtualEngineInit)(
+        PMOS_INTERFACE                  pOsInterface,
+        PMOS_VIRTUALENGINE_HINT_PARAMS* veHitParams,
+        MOS_VIRTUALENGINE_INIT_PARAMS&  veInParams);
+    //!
+    //! \brief    initialize virtual engine interface
+    //! \details  initialize virtual engine interface
+    //! \param    [in]  PMOS_INTERFACE
+    //!                pointer to mos interface
+    //! \param    [in]  PMOS_VIRTUALENGINE_INIT_PARAMS pVEInitParms
+    //!                pointer to VE init parameters
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS (*pfnVirtualEngineInterfaceInitialize)(
+        PMOS_INTERFACE                    pOsInterface,
+        PMOS_VIRTUALENGINE_INIT_PARAMS    pVEInitParms);
+
+    //!
+    //! \brief    Destroy veInterface
+    //! \details  
+    //! \param    PMOS_VIRTUALENGINE_INTERFACE *veInterface
+    //!           [in] Pointer to PMOS_VIRTUALENGINE_INTERFACE
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if succeeded, otherwise error code
+    //!
+    MOS_STATUS (*pfnDestroyVeInterface)(
+        PMOS_VIRTUALENGINE_INTERFACE *veInterface);
+
+    //!
+    //! \brief    Creates a CmDevice from a MOS context.
+    //! \details  If an existing CmDevice has already associated to the MOS context,
+    //!           the existing CmDevice will be returned. Otherwise, a new CmDevice
+    //!           instance will be created and associatied with that MOS context.
+    //! \param    mosContext
+    //!           [in] pointer to MOS conetext.
+    //! \param    device
+    //!           [in,out] reference to the pointer to the CmDevice.
+    //! \param    devCreateOption
+    //!           [in] option to customize CmDevice.
+    //! \return   int32_t
+    //!           CM_SUCCESS if the CmDevice is successfully created.
+    //!           CM_NULL_POINTER if pMosContext is null.
+    //!           CM_FAILURE otherwise.
+    //!
+    int32_t (*pfnCreateCmDevice)(
+        MOS_CONTEXT             *mosContext,
+        CMRT_UMD::CmDevice      *&device,
+        uint32_t                devCreateOption,
+        uint8_t                 priority);
+
+    //!
+    //! \brief    Destroys the CmDevice. 
+    //! \details  This function also destroys surfaces, kernels, programs, samplers,
+    //!           threadspaces, tasks and the queues that were created using this
+    //!           device instance but haven't explicitly been destroyed by calling
+    //!           respective destroy functions. 
+    //! \param    device
+    //!           [in] reference to the pointer to the CmDevice.
+    //! \return   int32_t
+    //!           CM_SUCCESS if CmDevice is successfully destroyed.
+    //!           CM_FAILURE otherwise.
+    //!
+    int32_t (*pfnDestroyCmDevice)(
+        CMRT_UMD::CmDevice      *&device);
+
+    //!
+    //! \brief    Initialize cm hal ddi interfaces
+    //! \details  Initialize cm hal ddi interfaces
+    //! \param    cmState
+    //!           [in,out] the pointer to the cm state.
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if succeeded, otherwise error code
+    //!
+    MOS_STATUS (*pfnInitCmInterface)(
+        PCM_HAL_STATE           cmState);
+
+    //!
+    //! \brief    Create MhwCpInterface Object
+    //!           Must use Delete_MhwCpInterface to delete created Object to avoid ULT Memory Leak errors
+    //!
+    //! \return   Return CP Wrapper Object if CPLIB not loaded
+    //!
+    MhwCpInterface* (*pfnCreateMhwCpInterface)(PMOS_INTERFACE osInterface);
+
+    //!
+    //! \brief    Delete the MhwCpInterface Object
+    //!
+    //! \param    [in] *pMhwCpInterface
+    //!           MhwCpInterface
+    //!
+    void (*pfnDeleteMhwCpInterface)(MhwCpInterface *mhwCpInterface);
+
+    //!
+    //! \brief    Create CodechalSecureDeocde Object
+    //!           Must use Delete_CodechalSecureDecodeInterface to delete created Object to avoid ULT Memory Leak errors
+    //!
+    //! \return   Return CP Wrapper Object
+    //!
+    CodechalSecureDecodeInterface* (*pfnCreateSecureDecodeInterface)(
+        CodechalSetting *codechalSettings,
+        CodechalHwInterface *hwInterfaceInput);
+
+    //!
+    //! \brief    Delete the CodecHalSecureDecode Object
+    //!
+    //! \param    [in] *codechalSecureDecodeInterface
+    //!           CodechalSecureDecodeInterface
+    //!
+    void (*pfnDeleteSecureDecodeInterface)(CodechalSecureDecodeInterface *codechalSecureDecodeInterface);
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    //!
+    //! \brief    gpuCtxCreateOption Init for media Scalability
+    //! \details  
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] Pointer to OS interface structure
+    //! \param    uint8_t id
+    //!           [out] EngineLogicId
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if succeeded, otherwise error code
+    //!
+    MOS_STATUS (*pfnGetEngineLogicId)(
+        PMOS_INTERFACE                 pOsInterface,
+        uint8_t&                       id);
+#endif
+    //!
+    //! \brief    Is Device Async or not
+    //! \details  Is Device Async or not.
+    //!
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] OS Interface
+    //!
+    //! \return   bool
+    //!           Return true if is async, otherwise false
+    //!
+    bool (*pfnIsAsynDevice)(
+        PMOS_INTERFACE              osInterface);
+
     //!
     //! \brief   Get User Setting instance
     //!
@@ -1406,6 +2051,10 @@ typedef struct _MOS_INTERFACE
     //!
     MediaUserSettingSharedPtr (*pfnGetUserSettingInstance)(
         PMOS_INTERFACE              pOsInterface);
+
+    bool (*pfnInsertCacheSetting)(CACHE_COMPONENTS id, std::map<uint64_t, MOS_CACHE_ELEMENT> *cacheTablesPtr);
+
+    bool (*pfnGetCacheSetting)(MOS_COMPONENT id, uint32_t feature, bool bOut, ENGINE_TYPE engineType, MOS_CACHE_ELEMENT &element, bool isHeapSurf);
 
     // Virtual Engine related
     int32_t                         bSupportVirtualEngine;                        //!< Enable virtual engine flag
@@ -1417,19 +2066,11 @@ typedef struct _MOS_INTERFACE
     bool                            phasedSubmission = false;                     //!< Flag to indicate if secondary command buffers are submitted together (Win) or separately (Linux)
     bool                            frameSplit = true;                            //!< Flag to indicate if frame split is enabled
     bool                            bSetHandleInvalid = false;
-    bool                            bGucSubmission = false;                       //!< Flag to indicate if guc submission is enabled
+    bool                            bParallelSubmission = false;                       //!< Flag to indicate if parallel submission is enabled
     MOS_CMD_BUF_ATTRI_VE            bufAttriVe[MOS_GPU_CONTEXT_MAX];
 
     MOS_STATUS (*pfnCheckVirtualEngineSupported)(
         PMOS_INTERFACE              pOsInterface);
-
-    bool (*pfnIsCpEnabled)(
-        PMOS_INTERFACE              pOsInterface);
-
-    MOS_STATUS (*pfnPrepareResources)(
-        PMOS_INTERFACE pOsInterface,
-        void *source[], uint32_t sourceCount,
-        void *target[], uint32_t targetCount);
 
 #if MOS_MEDIASOLO_SUPPORTED
     int32_t                         bSupportMediaSoloVirtualEngine;               //!< Flag to indicate if MediaSolo uses VE solution in cmdbuffer submission.
@@ -1449,6 +2090,8 @@ typedef struct _MOS_INTERFACE
 
     bool                            bOptimizeCpuTiming;                           //!< Optimize Cpu Timing
 
+    bool                            bNullHwIsEnabled;                             //!< Null Hw is enabled or not
+
     //!< os interface extension
     void                            *pOsExt;
 } MOS_INTERFACE;
@@ -1461,14 +2104,16 @@ extern "C" {
 //! \details  OS Interface initilization
 //! \param    PMOS_INTERFACE pOsInterface
 //!           [in/out] Pointer to OS Interface
-//! \param    PMOS_CONTEXT pOsDriverContext
+//! \param    MOS_CONTEXT_HANDLE pOsDriverContext
 //!           [in] Pointer to Driver context
+//! \param    MOS_COMPONENT component
+//!           [in] OS component
 //! \return   MOS_STATUS
 //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
 //!
-MOS_STATUS Mos_InitInterface(
+MOS_STATUS Mos_InitOsInterface(
     PMOS_INTERFACE      pOsInterface,
-    PMOS_CONTEXT        pOsDriverContext,
+    MOS_CONTEXT_HANDLE  pOsDriverContext,
     MOS_COMPONENT       component);
 
 //! \brief    Destroy the mos interface
@@ -1560,10 +2205,38 @@ struct _MOS_GPUCTX_CREATOPTIONS_ENHANCED : public _MOS_GPUCTX_CREATOPTIONS
 #if (_DEBUG || _RELEASE_INTERNAL)
         for (auto i = 0; i < MOS_MAX_ENGINE_INSTANCE_PER_CLASS; i++)
         {
-            EngineInstance[i] = 0xff;
+            EngineInstance[i] = MOS_INVALID_ENGINE_INSTANCE;
         }
 #endif
     }
+
+    _MOS_GPUCTX_CREATOPTIONS_ENHANCED(_MOS_GPUCTX_CREATOPTIONS* createOption)
+        : _MOS_GPUCTX_CREATOPTIONS(createOption)
+    {
+        if (typeid(*createOption) == typeid(_MOS_GPUCTX_CREATOPTIONS_ENHANCED))
+        {
+            Flags     = ((MOS_GPUCTX_CREATOPTIONS_ENHANCED *)createOption)->Flags;
+            LRCACount = ((MOS_GPUCTX_CREATOPTIONS_ENHANCED *)createOption)->LRCACount;
+#if (_DEBUG || _RELEASE_INTERNAL)
+            for (auto i = 0; i < MOS_MAX_ENGINE_INSTANCE_PER_CLASS; i++)
+            {
+                EngineInstance[i] = ((MOS_GPUCTX_CREATOPTIONS_ENHANCED *)createOption)->EngineInstance[i];
+            }
+#endif
+        }
+        else
+        {
+            Flags     = 0;
+            LRCACount = 0;
+#if (_DEBUG || _RELEASE_INTERNAL)
+            for (auto i = 0; i < MOS_MAX_ENGINE_INSTANCE_PER_CLASS; i++)
+            {
+                EngineInstance[i] = MOS_INVALID_ENGINE_INSTANCE;
+            }
+#endif
+        }
+    }
+    
 };
 
 #define MOS_VE_SUPPORTED(pOsInterface) \
@@ -1587,6 +2260,19 @@ __inline void Mos_SetVirtualEngineSupported(PMOS_INTERFACE pOsInterface, bool bE
         pOsInterface->bSupportVirtualEngine = bEnabled;
     }
 }
+
+//!
+//! \brief   Check whether the parameter of mos surface is valid for copy
+//!
+//! \param    [in] mosSurface
+//!           Pointer to MosSurface
+//!
+//! \return   bool
+//!           Whether the paramter of mosSurface is valid
+//!
+MOS_STATUS Mos_VerifyMosSurface(
+    PMOS_SURFACE mosSurface,
+    bool        &bIsValid);
 
 //!
 //! \brief    Check virtual engine is supported
@@ -1614,6 +2300,272 @@ MOS_STATUS Mos_CheckVirtualEngineSupported(
 MEMORY_OBJECT_CONTROL_STATE Mos_GetResourceCachePolicyMemoryObject(
     PMOS_INTERFACE      osInterface,
     PMOS_RESOURCE       resource);
+
+//!
+//! \brief    Is Device Async or not
+//! \details  Is Device Async or not.
+//! \param    [in] streamState
+//!           Handle of Os Stream State.
+//! \return   bool
+//!           Return true if is async, otherwise false
+//!
+bool Mos_IsAsyncDevice(
+    MOS_STREAM_HANDLE   streamState);
+
+//!
+//! \brief    Mos format to os format
+//! \details  Mos format to os format
+//! \param    [in] format
+//!           Mos format.
+//! \return   uint32_t
+//!           Return OS FORMAT
+//!
+uint32_t Mos_MosFmtToOsFmt(
+    MOS_FORMAT          format);
+
+//!
+//! \brief    Os format to Mos format
+//! \details  Os format to Mos format
+//! \param    [in] format
+//!           Os format.
+//! \return   MOS_FORMAT
+//!           Return MOS FORMAT
+//!
+MOS_FORMAT Mos_OsFmtToMosFmt(
+    uint32_t            format);
+
+//!
+//! \brief    Mos format to GMM format
+//! \details  Mos format to GMM format
+//! \param    [in] format
+//!           Mos format.
+//! \return   GMM_RESOURCE_FORMAT
+//!           Return GMM FORMAT
+//!
+GMM_RESOURCE_FORMAT Mos_MosFmtToGmmFmt(
+    MOS_FORMAT          format);
+
+//!
+//! \brief    GMM format to mos format
+//! \details  GMM format to mos format
+//! \param    [in] format
+//!           GMM_RESOURCE_FORMAT.
+//! \return   MOS_FORMAT
+//!           Return MOS FORMAT
+//!
+MOS_FORMAT Mos_GmmFmtToMosFmt(
+    GMM_RESOURCE_FORMAT format);
+
+//!
+//! \brief    Wait For cmd Completion
+//! \details  [GPU Context Interface] Waiting for the completion of cmd in provided GPU context
+//! \details  Caller: HAL only
+//! \param    [in] streamState
+//!           Handle of Os Stream State
+//! \param    [in] gpuCtx
+//!           GpuContext handle of the gpu context to wait cmd completion
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+//!
+MOS_STATUS Mos_WaitForCmdCompletion(
+    MOS_STREAM_HANDLE   streamState,
+    GPU_CONTEXT_HANDLE  gpuCtx);
+
+//!
+//! \brief    Get Resource array index
+//! \details  Returns the array index
+//! \param    PMOS_RESOURCE
+//!           [in] Pointer to  MOS_RESOURCE
+//! \return   uint32_t - array index
+//!
+uint32_t Mos_GetResourceArrayIndex(
+    PMOS_RESOURCE       resource);
+
+//!
+//! \brief    Setup VE Attribute Buffer
+//! \details  [Cmd Buffer Interface] Setup VE Attribute Buffer into cmd buffer.
+//! \details  Caller: MHW only
+//! \details  This interface is called to setup into cmd buffer.
+//! \param    [in] streamState
+//!           Handle of Os Stream State
+//! \param    [out] cmdBuffer
+//!           Cmd buffer to setup VE attribute.
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+//!
+MOS_STATUS Mos_SetupAttributeVeBuffer(
+    MOS_STREAM_HANDLE       streamState,
+    COMMAND_BUFFER_HANDLE   cmdBuffer);
+
+//!
+//! \brief    Get VE Attribute Buffer
+//! \details  [Cmd Buffer Interface] Get VE Attribute Buffer from cmd buffer.
+//! \details  Caller: HAL only
+//! \details  This interface is called to get VE attribute buffer from cmd buffer if it contains one.
+//!           If there is no VE attribute buffer returned, it means the cmd buffer has no such buffer
+//!           in current MOS module. It is not error state if it is nullptr.
+//! \param    [out] cmdBuffer
+//!           Cmd buffer to setup VE attribute.
+//! \return   MOS_CMD_BUF_ATTRI_VE*
+//!           Return pointer of VE attribute buffer, nullptr if current cmdBuffer didn't contain attribute.
+//!
+MOS_CMD_BUF_ATTRI_VE *Mos_GetAttributeVeBuffer(
+    COMMAND_BUFFER_HANDLE   cmdBuffer);
+
+//!
+//! \brief    Setup commandlist and command pool from os interface
+//! \details  Set the commandlist and commandPool used in this stream from os interface.
+//! \param    [in] osInterface
+//!           pointer to the mos interface
+//! \param    [out] streamState
+//!           Handle of Os Stream State.
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+//!
+MOS_STATUS Mos_SetupCurrentCmdListAndPool(
+    PMOS_INTERFACE          osInterface,
+    MOS_STREAM_HANDLE       streamState);
+
+//!
+//! \brief    Get MOS_HW_RESOURCE_DEF
+//! \details  [Resource Interface] Get Mos HW Resource DEF
+//!           Caller: HAL & MHW
+//! \param    [in] gmmResUsage
+//!           Gmm Resource usage as index
+//! \return   MOS_HW_RESOURCE_DEF
+//!           Mos HW resource definition
+//!
+MOS_HW_RESOURCE_DEF Mos_GmmToMosResourceUsageType(
+    GMM_RESOURCE_USAGE_TYPE gmmResUsage);
+
+//!
+//! \brief    Get Adapter Info
+//! \details  [System info Interface] Get Adapter Info
+//! \details  Caller: DDI & HAL
+//! \details  This func is called to differentiate the behavior according to Adapter Info.
+//! \param    [in] streamState
+//!           Handle of Os Stream State
+//! \return   ADAPTER_INFO*
+//!           Read-only Adapter Info got, nullptr if failed to get
+//!
+ADAPTER_INFO *Mos_GetAdapterInfo(
+    MOS_STREAM_HANDLE       streamState);
+
+//!
+//! \brief    Surface compression is supported
+//! \details  Surface compression is supported
+//! \param    [in] skuTable
+//!           Pointer to MEDIA_FEATURE_TABLE
+//! \return   bool
+//!           If true, compression is enabled
+//!
+bool Mos_IsCompressibelSurfaceSupported(
+    MEDIA_FEATURE_TABLE     *skuTable);
+
+//!
+//! \brief    Destroy Virtual Engine State
+//! \details  [Virtual Engine Interface] Destroy Virtual Engine State of provided streamState
+//! \details  Caller: Hal (Scalability) only
+//! \details  This func is called when a stream (Hal instance) need to destroy a VE state
+//! \details  into provided stream.
+//! \param    [in] streamState
+//!           Handle of Os Stream State
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+//!
+MOS_STATUS Mos_DestroyVirtualEngineState(
+    MOS_STREAM_HANDLE       streamState);
+
+//!
+//! \brief    Get resource handle
+//! \details  Get resource handle
+//! \param    [in] streamState
+//!           Handle of Os Stream State
+//! \param    [in] osResource
+//!           Pointer to mos resource
+//! \return   uint64_t
+//!           Return resource handle
+//!
+uint64_t Mos_GetResourceHandle(
+    MOS_STREAM_HANDLE       streamState,
+    PMOS_RESOURCE           osResource);
+
+//!
+//! \brief    Get RT log resource info
+//! \details  Get RT log resource info
+//! \param    [in] streamState
+//!           Handle of Os Stream State
+//! \param    [in,out] osResource
+//!           Reference to pointer of mos resource
+//! \param    [in,out] size
+//!           Reference to size
+//! \return   void
+//!
+void Mos_GetRtLogResourceInfo(
+    PMOS_INTERFACE          osInterface,
+    PMOS_RESOURCE           &osResource,
+    uint32_t                &size);
+
+//!
+//! \brief    OS reset resource
+//! \details  Resets the OS resource
+//! \param    PMOS_RESOURCE resource
+//!           [in] Pointer to OS Resource
+//! \return   void
+//!           Return NONE
+//!
+void Mos_ResetMosResource(
+    PMOS_RESOURCE           resource);
+
+
+bool Mos_InsertCacheSetting(CACHE_COMPONENTS id, std::map<uint64_t, MOS_CACHE_ELEMENT> *cacheTablesPtr);
+
+bool Mos_GetCacheSetting(MOS_COMPONENT id, uint32_t feature, bool bOut, ENGINE_TYPE engineType, MOS_CACHE_ELEMENT &element, bool isHeapSurf);
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+//!
+//! \brief    Get engine count
+//! \details  [Virtual Engine Interface] Get engine count from Virtual Engine State in provided stream
+//! \details  Caller: Hal (Scalability) only
+//! \details  Get engine count from virtual engine state
+//! \param    [in] streamState
+//!           Handle of Os Stream State
+//! \return   uint8_t
+//!           Engine count
+//!
+uint8_t Mos_GetVeEngineCount(
+    MOS_STREAM_HANDLE       streamState);
+
+//!
+//! \brief    Get Engine Logic Id
+//! \details  [Virtual Engine Interface] Get engine Logic Id from Virtual Engine State in provided stream
+//! \details  Caller: Hal (Scalability) only
+//! \details  Get engine Logic Id from virtual engine state
+//! \param    [in] streamState
+//!           Handle of Os Stream State
+//! \param    [in] instanceIdx
+//!           Engine instance index
+//! \return   uint8_t
+//!
+uint8_t Mos_GetEngineLogicId(
+    MOS_STREAM_HANDLE       streamState,
+    uint32_t                instanceIdx);
+
+//!
+//! \brief    Set Gpu Virtual Address for Debug
+//! \details  Manually make page fault
+//!
+//! \param    [in] pResource
+//!           Resource to set Gpu Address
+//! \param    [in] address
+//!           Address to set
+//! \return   MOS_STATUS
+//!
+MOS_STATUS MOS_SetGpuVirtualAddress(
+    PMOS_RESOURCE pResource, 
+    uint64_t      address);
+
+#endif
 
 struct ContextRequirement
 {

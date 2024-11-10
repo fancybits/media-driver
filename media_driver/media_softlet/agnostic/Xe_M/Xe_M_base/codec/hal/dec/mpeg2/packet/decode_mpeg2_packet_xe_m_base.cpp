@@ -26,9 +26,9 @@
 
 #include "decode_mpeg2_packet_xe_m_base.h"
 #include "decode_utils.h"
-#include "decode_marker_packet.h"
+#include "decode_marker_packet_g12.h"
 #include "decode_status_report_defs.h"
-#include "decode_predication_packet.h"
+#include "decode_predication_packet_g12.h"
 #include "codechal_debug.h"
 
 namespace decode {
@@ -57,12 +57,15 @@ namespace decode {
         DECODE_CHK_NULL(m_picturePkt);
         DECODE_CHK_STATUS(m_picturePkt->CalculateCommandSize(m_pictureStatesSize, m_picturePatchListSize));
 
+        uint32_t secondLevelBBSize = 0;
+        uint32_t numMacroblocks = m_mpeg2BasicFeature->m_picWidthInMb * m_mpeg2BasicFeature->m_picHeightInMb;
         if (m_mpeg2BasicFeature->m_mode == CODECHAL_DECODE_MODE_MPEG2VLD)
         {
             subPacket = m_mpeg2Pipeline->GetSubPacket(DecodePacketId(m_mpeg2Pipeline, mpeg2SliceSubPacketId));
             m_slicePkt = dynamic_cast<Mpeg2DecodeSlcPktXe_M_Base*>(subPacket);
             DECODE_CHK_NULL(m_slicePkt);
             DECODE_CHK_STATUS(m_slicePkt->CalculateCommandSize(m_sliceStatesSize, m_slicePatchListSize));
+            secondLevelBBSize = (m_sliceStatesSize * numMacroblocks) + m_hwInterface->m_sizeOfCmdBatchBufferEnd;
         }
         else
         {
@@ -70,12 +73,11 @@ namespace decode {
             m_mbPkt = dynamic_cast<Mpeg2DecodeMbPktXe_M_Base*>(subPacket);
             DECODE_CHK_NULL(m_mbPkt);
             DECODE_CHK_STATUS(m_mbPkt->CalculateCommandSize(m_mbStatesSize, m_mbPatchListSize));
+            secondLevelBBSize = (m_mbStatesSize * numMacroblocks) + m_hwInterface->m_sizeOfCmdBatchBufferEnd;
         }
 
-        uint32_t numMacroblocks = m_mpeg2BasicFeature->m_picWidthInMb * m_mpeg2BasicFeature->m_picHeightInMb;
-        uint32_t size = (m_sliceStatesSize * numMacroblocks) + m_hwInterface->m_sizeOfCmdBatchBufferEnd;
         m_secondLevelBBArray = m_allocator->AllocateBatchBufferArray(
-            size, 1, CODEC_MPEG2_BATCH_BUFFERS_NUM, true, lockableVideoMem);
+            secondLevelBBSize, 1, CODEC_MPEG2_BATCH_BUFFERS_NUM, true, lockableVideoMem);
         DECODE_CHK_NULL(m_secondLevelBBArray);
 
         return MOS_STATUS_SUCCESS;
@@ -135,7 +137,7 @@ namespace decode {
         DECODE_FUNC_CALL();
 
         DecodeSubPacket* subPacket = m_mpeg2Pipeline->GetSubPacket(DecodePacketId(m_mpeg2Pipeline, markerSubPacketId));
-        DecodeMarkerPkt* makerPacket = dynamic_cast<DecodeMarkerPkt*>(subPacket);
+        DecodeMarkerPktG12* makerPacket = dynamic_cast<DecodeMarkerPktG12*>(subPacket);
         DECODE_CHK_NULL(makerPacket);
         DECODE_CHK_STATUS(makerPacket->Execute(cmdBuffer));
 
@@ -160,7 +162,7 @@ namespace decode {
         DECODE_CHK_STATUS(Mhw_SendGenericPrologCmd(&cmdBuffer, &genericPrologParams));
 
         subPacket = m_mpeg2Pipeline->GetSubPacket(DecodePacketId(m_mpeg2Pipeline, predicationSubPacketId));
-        DecodePredicationPkt* predicationPacket = dynamic_cast<DecodePredicationPkt*>(subPacket);
+        DecodePredicationPktG12* predicationPacket = dynamic_cast<DecodePredicationPktG12*>(subPacket);
         DECODE_CHK_NULL(predicationPacket);
         DECODE_CHK_STATUS(predicationPacket->Execute(cmdBuffer));
 

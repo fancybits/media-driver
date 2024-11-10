@@ -341,6 +341,11 @@ MOS_STATUS CodechalDecodeJpegG12::DecodePrimitiveLevel()
     {
         // Using scanCount here because the same command is used for JPEG decode and encode
         uint32_t quantTableSelector                                      = m_jpegPicParams->m_quantTableSelector[scanCount];
+        if (quantTableSelector >= JPEG_MAX_NUM_OF_QUANTMATRIX)
+        {
+            CODECHAL_DECODE_ASSERTMESSAGE("Unsupported QuantTableSelector in JPEG Picture parameter.");
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
         qmParams.pJpegQuantMatrix->m_jpegQMTableType[quantTableSelector] = scanCount;
         qmParams.JpegQMTableSelector = quantTableSelector;
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_mfxInterface->AddMfxQmCmd(
@@ -506,7 +511,7 @@ MOS_STATUS CodechalDecodeJpegG12::DecodePrimitiveLevel()
         CODECHAL_DECODE_CHK_STATUS_RETURN(m_debugInterface->DumpCmdBuffer(
             &cmdBuffer,
             CODECHAL_NUM_MEDIA_STATES,
-            "_DEC"));
+            "_JPEG_DECODE_0"));
     )
 
     if (m_copiedDataBufferInUse)
@@ -619,7 +624,7 @@ CodechalDecodeJpegG12::CodechalDecodeJpegG12(
 
     CODECHAL_DECODE_CHK_NULL_NO_STATUS_RETURN(m_osInterface);
 
-    Mos_CheckVirtualEngineSupported(m_osInterface, true, true);
+    m_osInterface->pfnVirtualEngineSupported(m_osInterface, true, true);
 }
 
 void CodechalDecodeJpegG12::CalcRequestedSpace(

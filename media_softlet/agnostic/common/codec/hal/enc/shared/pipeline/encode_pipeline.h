@@ -30,7 +30,7 @@
 
 #include "media_pipeline.h"
 
-#include "codechal_hw.h"
+#include "codec_hw_next.h"
 #include "codec_def_encode.h"
 #include "media_scalability.h"
 #include "encode_allocator.h"
@@ -58,7 +58,7 @@ public:
     //!         Pointer to CodechalDebugInterface
     //!
     EncodePipeline(
-        CodechalHwInterface *   hwInterface,
+        CodechalHwInterfaceNext *hwInterface,
         CodechalDebugInterface *debugInterface);
 
     virtual ~EncodePipeline() {}
@@ -68,7 +68,7 @@ public:
     MOS_STATUS ContextSwitchBack();
 
     EncodeAllocator *    GetEncodeAllocator() { return m_allocator; };
-    CodechalHwInterface *GetHWInterface() { return m_hwInterface; };
+    CodechalHwInterfaceNext *GetHWInterface() { return m_hwInterface; };
     PacketUtilities *    GetPacketUtilities() { return m_packetUtilities; };
 
     //!
@@ -127,6 +127,7 @@ public:
     enum CommonPacketIds
     {
         basicPacket  = CONSTRUCTPACKETID(PACKET_COMPONENT_ENCODE, PACKET_SUBCOMPONENT_COMMON, 0),
+        encodePreEncPacket,
 #if _MEDIA_RESERVED
 #define ENCODE_PACKET_IDS_EXT
 #include "encode_pipeline_ext.h"
@@ -284,6 +285,16 @@ public:
     }
 
     //!
+    //! \brief    Help function to get ddi target usage
+    //!
+    //! \return   DDI Target Usage
+    //!
+    virtual uint8_t GetDDITU()
+    {
+        return m_featureManager->GetDDITargetUsage();
+    }
+
+    //!
     //! \brief    Help function to get pass number
     //!
     //! \return   Pass number
@@ -307,6 +318,9 @@ public:
 
     MOS_STATUS ExecuteResolveMetaData(PMOS_RESOURCE pInput, PMOS_RESOURCE pOutput);
 
+    MOS_STATUS ReportErrorFlag(PMOS_RESOURCE pMetadataBuffer,
+        uint32_t size, uint32_t offset, uint32_t flag);
+
 #define CODECHAL_ENCODE_RECYCLED_BUFFER_NUM 6
 #define VDENC_BRC_NUM_OF_PASSES 2
 
@@ -316,9 +330,8 @@ protected:
     uint32_t          m_mode     = 0;   //!< The encode mode
     CODECHAL_FUNCTION m_codecFunction = CODECHAL_FUNCTION_INVALID;  //!< The encode state's codec function used
 
-    CodechalHwInterface *m_hwInterface = nullptr;  //!< CodechalHwInterface
+    CodechalHwInterfaceNext *m_hwInterface = nullptr;  //!< CodechalHwInterface
     MOS_INTERFACE *      m_osInterface = nullptr;
-    MhwMiInterface *     m_miInterface = nullptr;
     EncodeAllocator *    m_allocator   = nullptr;
     TrackedBuffer *      m_trackedBuf  = nullptr;
     RecycleResource *    m_recycleBuf  = nullptr;

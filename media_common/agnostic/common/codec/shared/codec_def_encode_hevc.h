@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2016-2018, Intel Corporation
+* Copyright (c) 2016-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -45,6 +45,8 @@
 #define CODECHAL_HEVC_FRAME_HEADER_SIZE     8192
 #define CODECHAL_HEVC_MAX_LCU_SIZE_G10      64
 #define CODECHAL_ENCODE_RECYCLED_BUFFER_NUM 6
+#define CODECHAL_ENCODE_HEVC_MIN_STREAM_BUFFER_ALIGNMENT     4096
+#define CODECHAL_ENCODE_HEVC_MI_COPY_MEM_MEM_CMD_ALIGNMENT 4
 
 #define CODECHAL_HEVC_BRC_MAX_QUALITY_LAYER   16
 #define CODECHAL_HEVC_BRC_MAX_TEMPORAL_LAYER  3
@@ -76,6 +78,11 @@
 #define ENCODE_VDENC_HEVC_MAX_ROI_DELTA_QP_G10  7        // Max delta QP for VDEnc ROI
 #define ENCODE_VDENC_HEVC_PADDING_DW_SIZE       8
 #define CODECHAL_ENCODE_HEVC_MAX_NUM_DIRTYRECT  16
+
+#define ENCODE_HEVC_MAX_16K_PIC_WIDTH 16384
+#define ENCODE_HEVC_MAX_16K_PIC_HEIGHT 16384
+#define CODECHAL_ENCODE_HEVC_NUM_MAX_VDENC_L0_REF_G10 3  // multiref, hevc vdenc
+#define CODECHAL_ENCODE_HEVC_NUM_MAX_VDENC_L1_REF_G10 3  // multiref, hevc vdenc
 
 // HEVC DP
 #define ENCODE_DP_HEVC_NUM_MAX_VME_L0_REF_G9  3
@@ -482,7 +489,9 @@ typedef struct _CODEC_HEVC_ENCODE_SEQUENCE_PARAMS
             uint32_t    RGBEncodingEnable                   : 1;
             uint32_t    PrimaryChannelForRGBEncoding        : 2;
             uint32_t    SecondaryChannelForRGBEncoding      : 2;
-            uint32_t                                        : 15;  // [0]
+            uint32_t    RGBInputStudioRange                 : 1;
+            uint32_t    ConvertedYUVStudioRange             : 1;
+            uint32_t                                        : 13;  // [0]
         };
         uint32_t    EncodeTools;
     };
@@ -957,6 +966,20 @@ typedef struct _CODEC_HEVC_ENCODE_PICTURE_PARAMS
         } fields;
         uint16_t value;
     } StatusReportEnable;
+
+    /*! \brief quality information report enable flags.
+    */
+    union
+    {
+        struct
+        {
+            uint8_t enable_frame : 1;
+            uint8_t reserved : 7;
+        } fields;
+        uint8_t value;
+    } QualityInfoSupportFlags;
+
+    uint8_t AdaptiveTUEnabled;
 } CODEC_HEVC_ENCODE_PICTURE_PARAMS, *PCODEC_HEVC_ENCODE_PICTURE_PARAMS;
 
 /*! \brief Slice-level parameters of a compressed picture for HEVC encoding.

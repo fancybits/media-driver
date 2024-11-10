@@ -23,7 +23,6 @@
 #define __GPU_CMD_HCP_PIPE_BUF_ADDR_H__
 
 #include "gpu_cmd.h"
-#include "mhw_vdbox_hcp_hwcmd_g10_X.h"
 
 template<typename _CmdType>
 class GpuCmdHcpPipeBufAddr : public GpuCmd<_CmdType>
@@ -89,20 +88,6 @@ protected:
         CacheCheck2(m_pCmd->SseSourcePixelRowstoreBufferAttributesReadWrite.DW0.Value,
             pCmd->SseSourcePixelRowstoreBufferAttributesReadWrite.DW0.Value);
     }
-};
-
-class GpuCmdHcpPipeBufAddrG10 : public GpuCmdHcpPipeBufAddr<mhw_vdbox_hcp_g10_X::HCP_PIPE_BUF_ADDR_STATE_CMD>
-{
-public:
-
-    GpuCmdHcpPipeBufAddrG10()
-    {
-        InitCachePolicy();
-    }
-    
-protected:
-
-    void InitCachePolicy();
 };
 
 #endif // __GPU_CMD_HCP_PIPE_BUF_ADDR_H__

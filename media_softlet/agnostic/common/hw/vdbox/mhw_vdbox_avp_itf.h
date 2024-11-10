@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2022, Intel Corporation
+* Copyright (c) 2020-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -43,7 +43,7 @@
     DEF(AVP_SURFACE_STATE);           \
     DEF(AVP_BSD_OBJECT);              \
     DEF(AVP_PAK_INSERT_OBJECT);       \
-    DEF(AVP_CMD1)
+    DEF(AVP_FILM_GRAIN_STATE)
 
 namespace mhw
 {
@@ -80,6 +80,7 @@ public:
         AVP_PIC_STATE_CMD_NUMBER_OF_ADDRESSES               = 0,
         AVP_REF_IDX_STATE_CMD_NUMBER_OF_ADDRESSES           = 0,
         AVP_SEGMENT_STATE_CMD_NUMBER_OF_ADDRESSES           = 0,
+        AVP_TILE_CODING_CMD_LST_NUMBER_OF_ADDRESSES         =  0,
         AVP_TILE_CODING_CMD_NUMBER_OF_ADDRESSES             = 0,
         AVP_BSD_OBJECT_CMD_NUMBER_OF_ADDRESSES              = 0,
         AVP_INLOOP_FILTER_STATE_CMD_NUMBER_OF_ADDRESSES     = 0,
@@ -106,6 +107,7 @@ public:
     virtual MOS_STATUS GetAvpPrimitiveCmdSize(uint32_t *commandsSize, uint32_t *patchListSize, PMHW_VDBOX_STATE_CMDSIZE_PARAMS params) = 0;
     virtual MOS_STATUS GetAvpStateCmdSize(uint32_t *commandsSize, uint32_t *patchListSize, PMHW_VDBOX_STATE_CMDSIZE_PARAMS params) = 0;
     virtual AvpMmioRegisters* GetMmioRegisters(MHW_VDBOX_NODE_IND index) = 0;
+    virtual MOS_STATUS GetRowstoreCachingAddrs(mhw::vdbox::avp::AvpVdboxRowStorePar rowstoreParams) = 0;
 
     _AVP_CMD_DEF(_MHW_CMD_ALL_DEF_FOR_ITF);
 MEDIA_CLASS_DEFINE_END(mhw__vdbox__avp__Itf)

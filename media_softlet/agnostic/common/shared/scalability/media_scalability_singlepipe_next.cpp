@@ -53,19 +53,20 @@ MOS_STATUS MediaScalabilitySinglePipeNext::Initialize(const MediaScalabilityOpti
 #if !EMUL
     if (MOS_VE_SUPPORTED(m_osInterface))
     {
-        MOS_VIRTUALENGINE_INIT_PARAMS VEInitParams;
-        MOS_ZeroMemory(&VEInitParams, sizeof(VEInitParams));
-        VEInitParams.bScalabilitySupported = false;
-
-        SCALABILITY_CHK_NULL_RETURN(m_osInterface->osStreamState);
-        SCALABILITY_CHK_STATUS_RETURN(MosInterface::CreateVirtualEngineState(
-            m_osInterface->osStreamState, &VEInitParams, m_veState));
-        SCALABILITY_CHK_NULL_RETURN(m_veState);
-
-        SCALABILITY_CHK_STATUS_RETURN(MosInterface::GetVeHintParams(m_osInterface->osStreamState, false, &m_veHitParams));
-        SCALABILITY_CHK_NULL_RETURN(m_veHitParams);
+        MOS_VIRTUALENGINE_INIT_PARAMS veInitParms;
+        MOS_ZeroMemory(&veInitParms, sizeof(veInitParms));
+        veInitParms.bScalabilitySupported = false;
+        MOS_STATUS status                 = m_osInterface->pfnVirtualEngineInit(m_osInterface, &m_veHitParams, veInitParms);
+        SCALABILITY_CHK_STATUS_MESSAGE_RETURN(status, "Virtual Engine Init failed");
+        m_veInterface = m_osInterface->pVEInterf;
+        if (m_osInterface->osStreamState && m_osInterface->osStreamState->virtualEngineInterface)
+        {
+            // we set m_veState here when pOsInterface->apoMosEnabled is true
+            m_veState = m_osInterface->osStreamState->virtualEngineInterface;
+        }
     }
 #endif
+
     PMOS_GPUCTX_CREATOPTIONS_ENHANCED gpuCtxCreateOption = MOS_New(MOS_GPUCTX_CREATOPTIONS_ENHANCED);
     SCALABILITY_CHK_NULL_RETURN(gpuCtxCreateOption);
 
@@ -78,8 +79,11 @@ MOS_STATUS MediaScalabilitySinglePipeNext::Initialize(const MediaScalabilityOpti
     if (m_osInterface->bEnableDbgOvrdInVE)
     {
         gpuCtxCreateOption->DebugOverride = true;
-        SCALABILITY_ASSERT(MosInterface::GetVeEngineCount(m_osInterface->osStreamState) == 1);
-        gpuCtxCreateOption->EngineInstance[0] = MosInterface::GetEngineLogicId(m_osInterface->osStreamState, 0);
+        uint8_t engineLogicId             = 0;
+        if (m_osInterface->pfnGetEngineLogicId(m_osInterface, engineLogicId) == MOS_STATUS_SUCCESS)
+        {
+            gpuCtxCreateOption->EngineInstance[0] = engineLogicId;
+        }
     }
 #endif
     m_gpuCtxCreateOption = (PMOS_GPUCTX_CREATOPTIONS)gpuCtxCreateOption;
@@ -92,6 +96,7 @@ MOS_STATUS MediaScalabilitySinglePipeNext::Destroy()
     SCALABILITY_FUNCTION_ENTER;
 
     SCALABILITY_CHK_STATUS_RETURN(MediaScalability::Destroy());
+    SCALABILITY_CHK_NULL_RETURN(m_osInterface);
 
     if (m_gpuCtxCreateOption != nullptr)
     {
@@ -102,7 +107,9 @@ MOS_STATUS MediaScalabilitySinglePipeNext::Destroy()
     {
         MOS_Delete(m_scalabilityOption);
     }
-
+#if !EMUL
+    m_osInterface->pfnDestroyVeInterface(&m_veInterface);
+#endif
     return MOS_STATUS_SUCCESS;
 }
 
@@ -165,7 +172,6 @@ MOS_STATUS MediaScalabilitySinglePipeNext::SetHintParams()
     SCALABILITY_FUNCTION_ENTER;
 
     SCALABILITY_CHK_NULL_RETURN(m_osInterface);
-    SCALABILITY_CHK_NULL_RETURN(m_osInterface->osStreamState);
 
     MOS_STATUS                   eStatus = MOS_STATUS_SUCCESS;
     MOS_VIRTUALENGINE_SET_PARAMS veParams;
@@ -181,8 +187,12 @@ MOS_STATUS MediaScalabilitySinglePipeNext::SetHintParams()
         veParams.bSameEngineAsLastSubmission = false;
         veParams.bSFCInUse                   = false;
     }
+    m_osInterface->pVEInterf = m_veInterface;
+#if !EMUL
+    eStatus = m_osInterface->pfnSetHintParams(m_osInterface, &veParams);
+#endif
+    SCALABILITY_CHK_STATUS_MESSAGE_RETURN(eStatus, "SetHintParams failed");
 
-    SCALABILITY_CHK_STATUS_RETURN(MosInterface::SetVeHintParams(m_osInterface->osStreamState, &veParams));
     return eStatus;
 }
 
@@ -191,9 +201,10 @@ MOS_STATUS MediaScalabilitySinglePipeNext::PopulateHintParams(PMOS_COMMAND_BUFFE
     SCALABILITY_FUNCTION_ENTER;
     SCALABILITY_CHK_NULL_RETURN(cmdBuffer);
     SCALABILITY_CHK_NULL_RETURN(m_veHitParams);
+    SCALABILITY_CHK_NULL_RETURN(m_osInterface);
 
     MOS_STATUS            eStatus  = MOS_STATUS_SUCCESS;
-    PMOS_CMD_BUF_ATTRI_VE attriVe  = MosInterface::GetAttributeVeBuffer(cmdBuffer);
+    PMOS_CMD_BUF_ATTRI_VE attriVe  = m_osInterface->pfnGetAttributeVeBuffer(cmdBuffer);
     if (attriVe)
     {
         attriVe->VEngineHintParams     = *(m_veHitParams);

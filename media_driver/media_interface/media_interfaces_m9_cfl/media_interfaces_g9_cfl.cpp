@@ -31,7 +31,6 @@ extern template class MediaFactory<uint32_t, MhwInterfaces>;
 extern template class MediaFactory<uint32_t, MmdDevice>;
 extern template class MediaFactory<uint32_t, CodechalDevice>;
 extern template class MediaFactory<uint32_t, CMHalDevice>;
-extern template class MediaFactory<uint32_t, MosUtilDevice>;
 extern template class MediaFactory<uint32_t, VphalDevice>;
 extern template class MediaFactory<uint32_t, RenderHalDevice>;
 extern template class MediaFactory<uint32_t, Nv12ToP010Device>;
@@ -45,7 +44,7 @@ static bool cflRegisteredMhw =
     MediaFactory<uint32_t, MhwInterfaces>::
     Register<MhwInterfacesG9Kbl>((uint32_t)IGFX_COFFEELAKE);
 
-#ifdef _MMC_SUPPORTED
+#if defined(_MMC_SUPPORTED) && defined(ENABLE_KERNELS) && !defined(_FULL_OPEN_SOURCE)
 static bool cflRegisteredMmd =
     MediaFactory<uint32_t, MmdDevice>::
     Register<MmdDeviceG9Kbl>((uint32_t)IGFX_COFFEELAKE);
@@ -106,10 +105,6 @@ MOS_STATUS CMHalInterfacesG9Cfl::Initialize(CM_HAL_STATE *pCmState)
     pGen9Device->OverwriteSteppingTable(CmSteppingInfo_CFL, sizeof(CmSteppingInfo_CFL)/sizeof(const char *));
     return MOS_STATUS_SUCCESS;
 }
-
-static bool cflRegisteredMosUtil =
-    MediaFactory<uint32_t, MosUtilDevice>::
-    Register<MosUtilDeviceG9Kbl>((uint32_t)IGFX_COFFEELAKE);
 
 static bool cflRegisteredRenderHal =
     MediaFactory<uint32_t, RenderHalDevice>::

@@ -25,7 +25,6 @@
 #include "gpu_cmd.h"
 #include "mhw_vdbox_mfx_hwcmd_g9_bxt.h"
 #include "mhw_vdbox_mfx_hwcmd_g9_skl.h"
-#include "mhw_vdbox_mfx_hwcmd_g10_X.h"
 
 template<typename _CmdType>
 class GpuCmdMfxBspBufBaseAddr : public GpuCmd<_CmdType>
@@ -67,20 +66,6 @@ class GpuCmdMfxBspBufBaseAddrG9Skl : public GpuCmdMfxBspBufBaseAddr<mhw_vdbox_mf
 public:
 
     GpuCmdMfxBspBufBaseAddrG9Skl()
-    {
-        InitCachePolicy();
-    }
-    
-protected:
-
-    void InitCachePolicy();
-};
-
-class GpuCmdMfxBspBufBaseAddrG10 : public GpuCmdMfxBspBufBaseAddr<mhw_vdbox_mfx_g10_X::MFX_BSP_BUF_BASE_ADDR_STATE_CMD>
-{
-public:
-
-    GpuCmdMfxBspBufBaseAddrG10()
     {
         InitCachePolicy();
     }

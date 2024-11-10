@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2022, Intel Corporation
+* Copyright (c) 2020-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -30,6 +30,7 @@
 
 #include "codec_def_common_encode.h"
 #include "codec_def_common_av1.h"
+#include "codec_def_decode_av1.h"
 #include "mhw_vdbox.h"
 #include "mhw_vdbox_cmdpar.h"
 
@@ -115,6 +116,18 @@ struct AvpBufferSizePar
     uint32_t     curFrameTileNum;
     uint32_t     numTileCol;
     uint8_t      numOfActivePipes;
+    uint16_t     chromaFormat;
+};
+
+struct AvpVdboxRowStorePar
+{
+    uint32_t mode;
+    uint32_t picWidth;
+    uint32_t mbaff;
+    bool     isFrame;
+    uint8_t  bitDepthMinus8;
+    uint8_t  chromaFormat;
+    uint8_t  lcuSize;
 };
 
 struct _MHW_PAR_T(AVP_PIPE_MODE_SELECT)
@@ -239,6 +252,7 @@ struct _MHW_PAR_T(AVP_PIC_STATE)
 
     bool     allowScreenContentTools             = false;
     bool     allowIntraBC                        = false;
+    bool     VdaqmEnable                         = false;
 
     __MHW_VDBOX_AVP_WRAPPER_EXT(AVP_PIC_STATE_CMDPAR_EXT);
 };
@@ -277,7 +291,7 @@ struct _MHW_PAR_T(AVP_INLOOP_FILTER_STATE)
 struct _MHW_PAR_T(AVP_TILE_CODING)
 {
     uint16_t tileId                                  = 0;
-    uint16_t tileNum                                 = 0;  //!< Tile ID in its Tile group
+    uint16_t tgTileNum                                 = 0;  //!< Tile ID in its Tile group
     uint16_t tileGroupId                             = 0;
 
     uint16_t tileColPositionInSb                     = 0;
@@ -295,6 +309,9 @@ struct _MHW_PAR_T(AVP_TILE_CODING)
     bool     lastTileOfFrame                         = false;
     bool     disableCdfUpdateFlag                    = false;
     bool     disableFrameContextUpdateFlag           = false;
+#if (_DEBUG || _RELEASE_INTERNAL)
+    bool     enableAvpDebugMode                      = false;
+#endif
 
     uint8_t  numOfActiveBePipes                      = 0;
     uint16_t numOfTileColumnsInFrame                 = 0;
@@ -373,7 +390,7 @@ struct _MHW_PAR_T(AVP_PIPE_BUF_ADDR_STATE)
     PMOS_RESOURCE     filmGrainSampleTemplateBuffer    = nullptr;
     PMOS_RESOURCE     filmGrainOutputSurface           = nullptr;
 
-    PMOS_RESOURCE     rhoDomainThresholdTableBuffer    = nullptr;
+    PMOS_RESOURCE     AvpPipeBufAddrStatePar0          = nullptr;
 };
 
 struct _MHW_PAR_T(AVP_INTER_PRED_STATE)
@@ -439,9 +456,38 @@ struct _MHW_PAR_T(AVP_PAK_INSERT_OBJECT)
     PMHW_BATCH_BUFFER batchBufferForPakSlices    = nullptr;
 };
 
-struct _MHW_PAR_T(AVP_CMD1)
+struct _MHW_PAR_T(AVP_FILM_GRAIN_STATE)
 {
-    __MHW_VDBOX_AVP_WRAPPER_EXT(AVP_CMD1_CMDPAR_EXT);
+    uint16_t    grainRandomSeed            = 0;
+    uint8_t     clipToRestrictedRange      = 0;
+    uint8_t     numOfYPoints               = 0;
+    uint8_t     numOfCbPoints              = 0;
+    uint8_t     numOfCrPoints              = 0;
+    uint8_t     matrixCoefficients         = 0;
+    uint8_t     grainScalingMinus8         = 0;
+    uint8_t     arCoeffLag                 = 0;
+    uint32_t    arCoeffShiftMinus6         = 0;
+    uint32_t    grainScaleShift            = 0;
+    uint32_t    chromaScalingFromLuma      = 0;
+    uint32_t    grainNoiseOverlap          = 0;
+                                               
+    uint8_t     pointYValue[14]            = {};
+    uint8_t     pointYScaling[14]          = {};
+    uint8_t     pointCbValue[10]           = {};
+    uint8_t     pointCbScaling[10]         = {};
+    uint8_t     pointCrValue[10]           = {};
+    uint8_t     pointCrScaling[10]         = {};
+                                               
+    int8_t      arCoeffsY[24]              = {};
+    int8_t      arCoeffsCb[25]             = {};
+    int8_t      arCoeffsCr[25]             = {};
+                                               
+    uint8_t     cbMult                     = 0;
+    uint8_t     cbLumaMult                 = 0;
+    uint16_t    cbOffset                   = 0;
+    uint8_t     crMult                     = 0;
+    uint8_t     crLumaMult                 = 0;
+    uint16_t    crOffset                   = 0;
 };
 
 }  // namespace avp

@@ -31,47 +31,50 @@ namespace encode {
     MOS_STATUS PacketUtilities::Init()
     {
 #if USE_CODECHAL_DEBUG_TOOL
-        MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            __MEDIA_USER_FEATURE_VALUE_CODECHAL_ENABLE_FAKE_HEADER_SIZE_ID,
-            &userFeatureData,
-            m_hwInterface->GetOsInterface()->pOsContext);
-        m_enableFakeHrdSize = (uint32_t)userFeatureData.u32Data;
+        MediaUserSetting::Value outValue;
+        ReadUserSettingForDebug(
+            m_userSettingPtr,
+            outValue,
+            "Fake Header Size Enable",
+            MediaUserSetting::Group::Sequence);
+        m_enableFakeHrdSize = outValue.Get<uint32_t>();
 
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            __MEDIA_USER_FEATURE_VALUE_CODECHAL_FAKE_IFRAME_HEADER_SIZE_ID,
-            &userFeatureData,
-            m_hwInterface->GetOsInterface()->pOsContext);
-        m_fakeIFrameHrdSize = (uint32_t)userFeatureData.u32Data;
+        ReadUserSettingForDebug(
+            m_userSettingPtr,
+            outValue,
+            "Fake IFrame Header Size",
+            MediaUserSetting::Group::Sequence);
+        m_fakeIFrameHrdSize = outValue.Get<uint32_t>();
 
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            __MEDIA_USER_FEATURE_VALUE_CODECHAL_FAKE_PBFRAME_HEADER_SIZE_ID,
-            &userFeatureData,
-            m_hwInterface->GetOsInterface()->pOsContext);
-        m_fakePBFrameHrdSize = (uint32_t)userFeatureData.u32Data;
+        ReadUserSettingForDebug(
+            m_userSettingPtr,
+            outValue,
+            "Fake PBFrame Header Size",
+            MediaUserSetting::Group::Sequence);
+        m_fakePBFrameHrdSize = outValue.Get<uint32_t>();
 #endif
 
         return MOS_STATUS_SUCCESS;
     }
 
-    PacketUtilities::PacketUtilities(CodechalHwInterface *hwInterface, MediaFeatureManager *featureManager)
+    PacketUtilities::PacketUtilities(CodechalHwInterfaceNext *hwInterface, MediaFeatureManager *featureManager)
     {
         m_hwInterface       = hwInterface;
         m_featureManager    = featureManager;
 
         ENCODE_CHK_NULL_NO_STATUS_RETURN(hwInterface);
-        m_miInterface       = hwInterface->GetMiInterface();
+        m_miItf          = hwInterface->GetMiInterfaceNext();
+        auto osInterface = hwInterface->GetOsInterface();
+        ENCODE_CHK_NULL_NO_STATUS_RETURN(osInterface);
+        m_userSettingPtr = osInterface->pfnGetUserSettingInstance(osInterface);
+        if (!m_userSettingPtr)
+        {
+            ENCODE_NORMALMESSAGE("Initialize m_userSettingPtr instance failed!");
+        }
     }
 
     PacketUtilities::~PacketUtilities()
     {
-        m_miInterface     = nullptr;
     }
 
     MOS_STATUS PacketUtilities::AddMemCopyCmd(PMOS_COMMAND_BUFFER cmdBuf, PMOS_RESOURCE pDst, PMOS_RESOURCE pSrc, uint32_t size)
@@ -83,18 +86,153 @@ namespace encode {
         ENCODE_CHK_NULL_RETURN(cmdBuf);
         ENCODE_CHK_NULL_RETURN(pDst);
         ENCODE_CHK_NULL_RETURN(pSrc);
-        ENCODE_CHK_NULL_RETURN(m_miInterface);
-        MHW_MI_COPY_MEM_MEM_PARAMS cpyParams;
-        cpyParams.presSrc = pSrc;
-        cpyParams.presDst = pDst;
+        ENCODE_CHK_NULL_RETURN(m_miItf);
+
+        auto &copyMemMemParams       = m_miItf->MHW_GETPAR_F(MI_COPY_MEM_MEM)();
+        copyMemMemParams             = {};
+        copyMemMemParams.presSrc     = pSrc;
+        copyMemMemParams.presDst     = pDst;
         for (uint32_t i = 0; i < size; i = i + 4)
         {
-            cpyParams.dwSrcOffset = i;
-            cpyParams.dwDstOffset = i;
-            m_miInterface->AddMiCopyMemMemCmd(cmdBuf, &cpyParams);
+            copyMemMemParams.dwSrcOffset = i;
+            copyMemMemParams.dwDstOffset = i;
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuf));
+        }
+        return eStatus;
+    }
+
+    MOS_STATUS PacketUtilities::AddStoreDataImmCmd(PMOS_COMMAND_BUFFER cmdBuf, PMOS_RESOURCE pSrc, uint32_t offset, uint32_t flag)
+    {
+        ENCODE_FUNC_CALL();
+        auto &storeDataParam = m_miItf->MHW_GETPAR_F(MI_STORE_DATA_IMM)();
+        storeDataParam                  = {};
+        storeDataParam.pOsResource      = pSrc;
+        storeDataParam.dwResourceOffset = offset;
+        storeDataParam.dwValue          = flag;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_DATA_IMM)(cmdBuf));
+
+        auto &flushDwParams                         = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
+        flushDwParams                               = {};
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuf));
+        return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS PacketUtilities::SendMarkerCommand(PMOS_COMMAND_BUFFER cmdBuffer, PMOS_RESOURCE presSetMarker)
+    {
+        ENCODE_FUNC_CALL();
+
+        ENCODE_CHK_NULL_RETURN(cmdBuffer);
+
+        EncodeBasicFeature *basicFeature = dynamic_cast<EncodeBasicFeature *>(m_featureManager->GetFeature(FeatureIDs::basicFeature));
+        ENCODE_CHK_NULL_RETURN(basicFeature);
+
+        if (presSetMarker == nullptr)
+        {
+            return MOS_STATUS_SUCCESS;
         }
 
-        return eStatus;
+        // Send flush_dw to get the timestamp
+        auto &params             = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
+        params                   = {};
+        params.pOsResource       = presSetMarker;
+        params.dwResourceOffset  = 0;  //sizeof(uint64_t);
+        params.postSyncOperation = MHW_FLUSH_WRITE_TIMESTAMP_REG;
+        params.bQWordEnable      = 1;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer));
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS PacketUtilities::SendPredicationCommand(PMOS_COMMAND_BUFFER cmdBuffer)
+    {
+        ENCODE_FUNC_CALL();
+
+        ENCODE_CHK_NULL_RETURN(cmdBuffer);
+
+        EncodeBasicFeature *basicFeature = dynamic_cast<EncodeBasicFeature *>(m_featureManager->GetFeature(FeatureIDs::basicFeature));
+        ENCODE_CHK_NULL_RETURN(basicFeature);
+
+        // Predication can be set based on the value of 64-bits within a buffer
+        auto PreparePredicationBuf = [&](bool predicationNotEqualZero) {
+            auto  mmioRegistersMfx = m_hwInterface->SelectVdAndGetMmioReg(m_vdboxIndex, cmdBuffer);
+            auto &flushDwParams    = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
+            flushDwParams          = {};
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer));
+
+            // load presPredication to general purpose register0
+            auto &miLoadRegMemParams           = m_miItf->MHW_GETPAR_F(MI_LOAD_REGISTER_MEM)();
+            miLoadRegMemParams                  = {};
+            miLoadRegMemParams.presStoreBuffer  = basicFeature->m_presPredication;
+            miLoadRegMemParams.dwOffset         = (uint32_t)basicFeature->m_predicationResOffset;
+            miLoadRegMemParams.dwRegister       = mmioRegistersMfx->generalPurposeRegister0LoOffset;
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_MEM)(cmdBuffer));
+
+            auto &miLoadRegImmParams      = m_miItf->MHW_GETPAR_F(MI_LOAD_REGISTER_IMM)();
+            miLoadRegImmParams            = {};
+            miLoadRegImmParams.dwData     = 0;
+            miLoadRegImmParams.dwRegister = mmioRegistersMfx->generalPurposeRegister0HiOffset;
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
+
+            miLoadRegMemParams                 = {};
+            miLoadRegMemParams.presStoreBuffer = basicFeature->m_presPredication;
+            miLoadRegMemParams.dwOffset        = (uint32_t)basicFeature->m_predicationResOffset + sizeof(uint32_t);
+            miLoadRegMemParams.dwRegister      = mmioRegistersMfx->generalPurposeRegister4LoOffset;
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_MEM)(cmdBuffer));
+
+            miLoadRegImmParams            = {};
+            miLoadRegImmParams.dwData     = 0;
+            miLoadRegImmParams.dwRegister = mmioRegistersMfx->generalPurposeRegister4HiOffset;
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
+
+            mhw::mi::MHW_MI_ALU_PARAMS miAluParams[4] = {};
+            miAluParams[0].AluOpcode         = MHW_MI_ALU_LOAD;
+            miAluParams[0].Operand1          = MHW_MI_ALU_SRCA;
+            miAluParams[0].Operand2          = MHW_MI_ALU_GPREG0;
+            // load     srcB, reg4
+            miAluParams[1].AluOpcode = MHW_MI_ALU_LOAD;
+            miAluParams[1].Operand1  = MHW_MI_ALU_SRCB;
+            miAluParams[1].Operand2  = MHW_MI_ALU_GPREG4;
+            // add      srcA, srcB
+            miAluParams[2].AluOpcode = predicationNotEqualZero ? MHW_MI_ALU_ADD : MHW_MI_ALU_OR;
+            miAluParams[2].Operand1  = MHW_MI_ALU_SRCB;
+            miAluParams[2].Operand2  = MHW_MI_ALU_GPREG4;
+            // store      reg0, ZF
+            miAluParams[3].AluOpcode = MHW_MI_ALU_STORE;
+            miAluParams[3].Operand1  = MHW_MI_ALU_GPREG0;
+            miAluParams[3].Operand2  = predicationNotEqualZero ? MHW_MI_ALU_ZF : MHW_MI_ALU_ACCU;
+
+            auto &miMathParams = m_miItf->MHW_GETPAR_F(MI_MATH)();
+            miMathParams                = {};
+            miMathParams.pAluPayload = miAluParams;
+            miMathParams.dwNumAluParams = 4;
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_MATH)(cmdBuffer));
+
+            // if MHW_MI_ALU_ZF, the zero flag will be 0xFFFFFFFF, else zero flag will be 0x0.
+            // if MHW_MI_ALU_ACCU, the OR result directly copied
+            auto &miStoreRegMemParams           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
+            miStoreRegMemParams                 = {};
+            miStoreRegMemParams.presStoreBuffer = basicFeature->m_predicationBuffer;
+            miStoreRegMemParams.dwOffset        = 0;
+            miStoreRegMemParams.dwRegister      = mmioRegistersMfx->generalPurposeRegister0LoOffset;
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+
+            ENCODE_CHK_NULL_RETURN(basicFeature->m_tempPredicationBuffer);
+            *basicFeature->m_tempPredicationBuffer = basicFeature->m_predicationBuffer;
+
+            return MOS_STATUS_SUCCESS;
+        };
+
+        ENCODE_CHK_STATUS_RETURN(PreparePredicationBuf(basicFeature->m_predicationNotEqualZero));
+
+        auto &miConditionalBatchBufferEndParams               = m_miItf->MHW_GETPAR_F(MI_CONDITIONAL_BATCH_BUFFER_END)();
+        miConditionalBatchBufferEndParams                     = {};
+        miConditionalBatchBufferEndParams.dwOffset            = 0;
+        miConditionalBatchBufferEndParams.dwValue             = 0;
+        miConditionalBatchBufferEndParams.bDisableCompareMask = true;
+        miConditionalBatchBufferEndParams.presSemaphoreBuffer = basicFeature->m_predicationBuffer;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_CONDITIONAL_BATCH_BUFFER_END)(cmdBuffer));
+
+        return MOS_STATUS_SUCCESS;
     }
 
 #if USE_CODECHAL_DEBUG_TOOL
@@ -147,6 +285,47 @@ namespace encode {
         return MOS_STATUS_SUCCESS;
     }
 
+    MOS_STATUS PacketUtilities::ModifyEncodedFrameSizeWithFakeHeaderSizeAVC(
+        PMOS_COMMAND_BUFFER cmdBuffer,
+        uint32_t            fakeHeaderSizeInByte,
+        PMOS_RESOURCE       *resBrcUpdateCurbe,
+        uint32_t            targetSizePos,
+        PMOS_RESOURCE       resPakStat,
+        uint32_t            slcHrdSizePos)
+    {
+        ENCODE_FUNC_CALL();
+
+        ENCODE_CHK_NULL_RETURN(m_featureManager);
+        EncodeBasicFeature *basicFeature = dynamic_cast<EncodeBasicFeature *>(m_featureManager->GetFeature(FeatureIDs::basicFeature));
+        ENCODE_CHK_NULL_RETURN(basicFeature);
+
+        //calculate all frame headers size, including 1st slice header
+        uint32_t totalHeaderSize = uint32_t(basicFeature->m_bsBuffer.pCurrent - basicFeature->m_bsBuffer.pBase);
+
+        // change encoded frame size for next frame and next pass
+        for (int i = 0; i < 2; i++)
+        {
+            if (resBrcUpdateCurbe[i] == nullptr)
+                continue;
+            ENCODE_CHK_STATUS_RETURN(AddBufferWithIMMValue(
+                cmdBuffer,
+                resBrcUpdateCurbe[i],
+                sizeof(uint32_t) * 5,
+                fakeHeaderSizeInByte - totalHeaderSize,
+                true));
+        }
+
+        // change headers size (U16)
+        ENCODE_CHK_STATUS_RETURN(SetBufferWithIMMValueU16(
+            cmdBuffer,
+            resPakStat,
+            0,
+            fakeHeaderSizeInByte * 8,
+            0));  // second or first word in dword
+            
+        return MOS_STATUS_SUCCESS;
+    }
+
     MOS_STATUS PacketUtilities::AddBufferWithIMMValue(
         PMOS_COMMAND_BUFFER     cmdBuffer,
         PMOS_RESOURCE           presStoreBuffer,
@@ -157,98 +336,225 @@ namespace encode {
         MHW_MI_STORE_REGISTER_MEM_PARAMS    StoreRegParams;
         MHW_MI_STORE_DATA_PARAMS            StoreDataParams;
         MHW_MI_LOAD_REGISTER_REG_PARAMS     LoadRegRegParams;
-        MHW_MI_LOAD_REGISTER_IMM_PARAMS     LoadRegisterImmParams;
-        MHW_MI_FLUSH_DW_PARAMS              FlushDwParams;
-        MHW_MI_MATH_PARAMS                  MiMathParams;
-        MHW_MI_ALU_PARAMS                   MiAluParams[4];
         MOS_STATUS                          eStatus = MOS_STATUS_SUCCESS;
 
         ENCODE_FUNC_CALL();
 
         ENCODE_CHK_NULL_RETURN(m_hwInterface);
-        ENCODE_CHK_NULL_RETURN(m_hwInterface->GetMfxInterface());
 
-        if (m_vdboxIndex > m_hwInterface->GetMfxInterface()->GetMaxVdboxIndex())
+        if (m_vdboxIndex > m_hwInterface->GetMaxVdboxIndex())
         {
             ENCODE_ASSERTMESSAGE("ERROR - vdbox index exceed the maximum");
             eStatus = MOS_STATUS_INVALID_PARAMETER;
             return eStatus;
         }
 
-        auto pMmioRegistersMfx = m_hwInterface->GetMfxInterface()->GetMmioRegisters(m_vdboxIndex);
+        auto pMmioRegisters = m_hwInterface->GetVdencInterfaceNext()->GetMmioRegisters(m_vdboxIndex);
 
-        MOS_ZeroMemory(&FlushDwParams, sizeof(FlushDwParams));
-        ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMiFlushDwCmd(cmdBuffer, &FlushDwParams));
+        auto &parFlush = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
+        parFlush       = {};
+        m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer);
 
         MOS_ZeroMemory(&LoadRegRegParams, sizeof(LoadRegRegParams));
 
-        MHW_MI_LOAD_REGISTER_MEM_PARAMS miLoadRegMemParams;
-        MOS_ZeroMemory(&miLoadRegMemParams, sizeof(miLoadRegMemParams));
+        auto &registerMemParams           = m_miItf->MHW_GETPAR_F(MI_LOAD_REGISTER_MEM)();
+        registerMemParams                 = {};
+        registerMemParams.presStoreBuffer = presStoreBuffer;
+        registerMemParams.dwOffset        = offset;
+        registerMemParams.dwRegister      = pMmioRegisters->generalPurposeRegister0LoOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_MEM)(cmdBuffer));
 
-        miLoadRegMemParams.presStoreBuffer = presStoreBuffer;
-        miLoadRegMemParams.dwOffset = offset;
-        miLoadRegMemParams.dwRegister = pMmioRegistersMfx->generalPurposeRegister0LoOffset;
-        ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMiLoadRegisterMemCmd(cmdBuffer, &miLoadRegMemParams));
+        auto &loadRegImmParams      = m_miItf->MHW_GETPAR_F(MI_LOAD_REGISTER_IMM)();
+        loadRegImmParams            = {};
+        loadRegImmParams.dwRegister = pMmioRegisters->generalPurposeRegister0HiOffset;
+        loadRegImmParams.dwData     = 0;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
 
-        MOS_ZeroMemory(&LoadRegisterImmParams, sizeof(LoadRegisterImmParams));
-        LoadRegisterImmParams.dwData = 0;
-        LoadRegisterImmParams.dwRegister = pMmioRegistersMfx->generalPurposeRegister0HiOffset;
-        ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMiLoadRegisterImmCmd(
-            cmdBuffer,
-            &LoadRegisterImmParams));
+        loadRegImmParams            = {};
+        loadRegImmParams.dwData     = value;
+        loadRegImmParams.dwRegister = pMmioRegisters->generalPurposeRegister4LoOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
 
-        MOS_ZeroMemory(&LoadRegisterImmParams, sizeof(LoadRegisterImmParams));
-        LoadRegisterImmParams.dwData = value;
-        LoadRegisterImmParams.dwRegister = pMmioRegistersMfx->generalPurposeRegister4LoOffset;
-        ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMiLoadRegisterImmCmd(
-            cmdBuffer,
-            &LoadRegisterImmParams));
-        MOS_ZeroMemory(&LoadRegisterImmParams, sizeof(LoadRegisterImmParams));
-        LoadRegisterImmParams.dwData = 0;
-        LoadRegisterImmParams.dwRegister = pMmioRegistersMfx->generalPurposeRegister4HiOffset;
-        ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMiLoadRegisterImmCmd(
-            cmdBuffer,
-            &LoadRegisterImmParams));
+        loadRegImmParams            = {};
+        loadRegImmParams.dwData     = 0;
+        loadRegImmParams.dwRegister = pMmioRegisters->generalPurposeRegister4HiOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
 
-        MOS_ZeroMemory(&MiMathParams, sizeof(MiMathParams));
-        MOS_ZeroMemory(&MiAluParams, sizeof(MiAluParams));
+        mhw::mi::MHW_MI_ALU_PARAMS aluParams[4] = {0};
+        int                        aluCount     = 0;
+
         // load     srcA, reg0
-        MiAluParams[0].AluOpcode = MHW_MI_ALU_LOAD;
-        MiAluParams[0].Operand1 = MHW_MI_ALU_SRCA;
-        MiAluParams[0].Operand2 = MHW_MI_ALU_GPREG0;
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_LOAD;
+        aluParams[aluCount].Operand1  = MHW_MI_ALU_SRCA;
+        aluParams[aluCount].Operand2  = MHW_MI_ALU_GPREG0;
+        ++aluCount;
         // load     srcB, reg4
-        MiAluParams[1].AluOpcode = MHW_MI_ALU_LOAD;
-        MiAluParams[1].Operand1 = MHW_MI_ALU_SRCB;
-        MiAluParams[1].Operand2 = MHW_MI_ALU_GPREG4;
-
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_LOAD;
+        aluParams[aluCount].Operand1  = MHW_MI_ALU_SRCB;
+        aluParams[aluCount].Operand2  = MHW_MI_ALU_GPREG4;
+        ++aluCount;
         if (bAdd)
         {
             // add      srcA, srcB
-            MiAluParams[2].AluOpcode = MHW_MI_ALU_ADD;
+            aluParams[aluCount].AluOpcode = MHW_MI_ALU_ADD;
         }
         else
         {
             // sub      srcA, srcB
-            MiAluParams[2].AluOpcode = MHW_MI_ALU_SUB;
+            aluParams[aluCount].AluOpcode = MHW_MI_ALU_SUB;
         }
-
+        ++aluCount;
         // store      reg0, ACCU
-        MiAluParams[3].AluOpcode = MHW_MI_ALU_STORE;
-        MiAluParams[3].Operand1 = MHW_MI_ALU_GPREG0;
-        MiAluParams[3].Operand2 = MHW_MI_ALU_ACCU;
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_STORE;
+        aluParams[aluCount].Operand1  = MHW_MI_ALU_GPREG0;
+        aluParams[aluCount].Operand2  = MHW_MI_ALU_ACCU;
+        ++aluCount;
 
-        MiMathParams.pAluPayload = MiAluParams;
-        MiMathParams.dwNumAluParams = 4; // four ALU commands needed for this substract opertaion. see following ALU commands.
-        ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMiMathCmd(
-            cmdBuffer,
-            &MiMathParams));
+        auto &miMathParams          = m_miItf->MHW_GETPAR_F(MI_MATH)();
+        miMathParams                = {};
+        miMathParams.dwNumAluParams = aluCount;
+        miMathParams.pAluPayload    = aluParams;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_MATH)(cmdBuffer));
 
         // update the value
-        MOS_ZeroMemory(&StoreRegParams, sizeof(StoreRegParams));
-        StoreRegParams.presStoreBuffer = presStoreBuffer;
-        StoreRegParams.dwOffset = offset;
-        StoreRegParams.dwRegister = pMmioRegistersMfx->generalPurposeRegister0LoOffset;
-        ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMiStoreRegisterMemCmd(cmdBuffer, &StoreRegParams));
+        auto &miStoreRegMemParams           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
+        miStoreRegMemParams                 = {};
+        miStoreRegMemParams.presStoreBuffer = presStoreBuffer;
+        miStoreRegMemParams.dwOffset        = offset;
+        miStoreRegMemParams.dwRegister      = pMmioRegisters->generalPurposeRegister0LoOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+        return eStatus;
+    }
+
+    MOS_STATUS PacketUtilities::SetBufferWithIMMValueU16(
+        PMOS_COMMAND_BUFFER cmdBuffer,
+        PMOS_RESOURCE       presStoreBuffer,
+        uint32_t            offset,
+        uint32_t            value,
+        bool                bSecond)
+    {
+        MHW_MI_STORE_REGISTER_MEM_PARAMS StoreRegParams;
+        MHW_MI_LOAD_REGISTER_IMM_PARAMS  LoadRegisterImmParams;
+        MHW_MI_MATH_PARAMS               MiMathParams;
+        MHW_MI_ALU_PARAMS                MiAluParams[4];  // is used twice
+        MOS_STATUS                       eStatus = MOS_STATUS_SUCCESS;
+
+        ENCODE_FUNC_CALL();
+
+        ENCODE_CHK_NULL_RETURN(m_hwInterface);
+
+        if (m_vdboxIndex > m_hwInterface->GetMaxVdboxIndex())
+        {
+            ENCODE_ASSERTMESSAGE("ERROR - vdbox index exceed the maximum");
+            eStatus = MOS_STATUS_INVALID_PARAMETER;
+            return eStatus;
+        }
+
+        auto pMmioRegisters = m_hwInterface->GetVdencInterfaceNext()->GetMmioRegisters(m_vdboxIndex);
+
+        auto &parFlush = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
+        parFlush       = {};
+        m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer);
+
+        auto &registerMemParams           = m_miItf->MHW_GETPAR_F(MI_LOAD_REGISTER_MEM)();
+        registerMemParams                 = {};
+        registerMemParams.presStoreBuffer = presStoreBuffer;
+        registerMemParams.dwOffset        = offset;
+        registerMemParams.dwRegister      = pMmioRegisters->generalPurposeRegister0LoOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_MEM)(cmdBuffer));
+
+        auto &loadRegImmParams      = m_miItf->MHW_GETPAR_F(MI_LOAD_REGISTER_IMM)();
+        loadRegImmParams            = {};
+        loadRegImmParams.dwRegister = pMmioRegisters->generalPurposeRegister0HiOffset;
+        loadRegImmParams.dwData     = 0;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
+
+        uint32_t mask = bSecond ? 0xffff : 0xffff0000;
+        value         = bSecond ? value << 16 : value;
+
+        loadRegImmParams            = {};
+        loadRegImmParams.dwData     = mask;
+        loadRegImmParams.dwRegister = pMmioRegisters->generalPurposeRegister4LoOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
+
+        loadRegImmParams            = {};
+        loadRegImmParams.dwData     = 0;
+        loadRegImmParams.dwRegister = pMmioRegisters->generalPurposeRegister4HiOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
+
+        mhw::mi::MHW_MI_ALU_PARAMS aluParams[4] = {0};
+        int                        aluCount     = 0;
+
+        // load    srcA, reg0
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_LOAD;
+        aluParams[aluCount].Operand1  = MHW_MI_ALU_SRCA;
+        aluParams[aluCount].Operand2  = MHW_MI_ALU_GPREG0;
+        aluCount++;
+        // load    srcB, reg4
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_LOAD;
+        aluParams[aluCount].Operand1  = MHW_MI_ALU_SRCB;
+        aluParams[aluCount].Operand2  = MHW_MI_ALU_GPREG4;
+        aluCount++;
+        // and     srcA, srcB
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_AND;
+        aluCount++;
+        // store   reg0, ACCU
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_STORE;
+        aluParams[aluCount].Operand1  = MHW_MI_ALU_GPREG0;
+        aluParams[aluCount].Operand2  = MHW_MI_ALU_ACCU;
+        aluCount++;
+
+        auto &miMathParams          = m_miItf->MHW_GETPAR_F(MI_MATH)();
+        miMathParams                = {};
+        miMathParams.dwNumAluParams = aluCount;
+        miMathParams.pAluPayload    = aluParams;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_MATH)(cmdBuffer));
+
+        loadRegImmParams            = {};
+        loadRegImmParams.dwData     = value;
+        loadRegImmParams.dwRegister = pMmioRegisters->generalPurposeRegister4LoOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
+
+        loadRegImmParams            = {};
+        loadRegImmParams.dwData     = 0;
+        loadRegImmParams.dwRegister = pMmioRegisters->generalPurposeRegister4HiOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
+
+        aluCount = 0;
+        // load    srcA, reg0
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_LOAD;
+        aluParams[aluCount].Operand1  = MHW_MI_ALU_SRCA;
+        aluParams[aluCount].Operand2  = MHW_MI_ALU_GPREG0;
+        aluCount++;
+        // load    srcB, reg4
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_LOAD;
+        aluParams[aluCount].Operand1  = MHW_MI_ALU_SRCB;
+        aluParams[aluCount].Operand2  = MHW_MI_ALU_GPREG4;
+        aluCount++;
+
+        // or      srcA, srcB
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_OR;
+        aluCount++;
+
+        // store   reg0, ACCU
+        aluParams[aluCount].AluOpcode = MHW_MI_ALU_STORE;
+        aluParams[aluCount].Operand1  = MHW_MI_ALU_GPREG0;
+        aluParams[aluCount].Operand2  = MHW_MI_ALU_ACCU;
+        aluCount++;
+
+        miMathParams                = {};
+        miMathParams                = {};
+        miMathParams.dwNumAluParams = aluCount;
+        miMathParams.pAluPayload    = aluParams;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_MATH)(cmdBuffer));
+
+        // update the value
+        auto &miStoreRegMemParams           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
+        miStoreRegMemParams                 = {};
+        miStoreRegMemParams.presStoreBuffer = presStoreBuffer;
+        miStoreRegMemParams.dwOffset        = offset;
+        miStoreRegMemParams.dwRegister      = pMmioRegisters->generalPurposeRegister0LoOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
 
         return eStatus;
     }

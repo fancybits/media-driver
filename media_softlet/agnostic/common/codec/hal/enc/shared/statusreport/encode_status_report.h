@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2021, Intel Corporation
+* Copyright (c) 2018-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -195,6 +195,25 @@ namespace encode {
             uint32_t reserved[8];
         };
 
+        struct BLOCK_SSIM_INFO
+        {
+            uint32_t NumBlockInColumns;
+            uint32_t NumBlockInRows;
+            uint8_t* BlockSsimArray;
+            uint32_t reserved1[2];
+            uint64_t reserved2[2];
+        };
+
+        struct BLOCK_QUALITY_INFO
+        {
+            BLOCK_SSIM_INFO BlockSsim2DS;
+            BLOCK_SSIM_INFO BlockSsim4DS;
+            BLOCK_SSIM_INFO BlockSsim8DS;
+            BLOCK_SSIM_INFO BlockSsim16DS;
+            uint32_t        reserved1[32];
+            uint64_t        reserved2[12];
+        };
+
         CODECHAL_STATUS                 codecStatus;            //!< Status for the picture associated with this status report
         uint32_t                        statusReportNumber;     //!< Status report number associated with the picture in this status report provided in CodechalEncoderState::Execute()
         CODEC_PICTURE                   currOriginalPic;        //!< Uncompressed frame information for the picture associated with this status report
@@ -271,6 +290,16 @@ namespace encode {
 
         FRAME_STATS_INFO *pFrmStatsInfo;
         BLOCK_STATS_INFO *pBlkStatsInfo;
+
+        // Store Data for Av1 Back Annotation
+        uint32_t                        av1FrameHdrOBUSizeByteOffset;
+        uint32_t                        av1EnableFrameOBU;
+        uint32_t                        frameWidth;
+        uint32_t                        frameHeight;
+
+        uint32_t                        MSE[3];
+
+        BLOCK_QUALITY_INFO* pBlkQualityInfo;
     };
 
     class EncoderStatusReport : public MediaStatusReport
@@ -287,7 +316,7 @@ namespace encode {
         //! \param  [in] enableRcs
         //!         Enable Rcs status buffer contarol if true
         //!
-        EncoderStatusReport(EncodeAllocator *allocator, bool enableMfx, bool enableRcs, bool enableCp);
+        EncoderStatusReport(EncodeAllocator *allocator, PMOS_INTERFACE pOsInterface, bool enableMfx, bool enableRcs, bool enableCp);
         virtual ~EncoderStatusReport();
 
         //!
@@ -397,6 +426,7 @@ namespace encode {
 
     protected:
         EncodeStatusReportData m_statusReportData[m_statusNum] = {};
+        PMOS_INTERFACE         m_osInterface = nullptr;
         bool                   m_enableMfx = false;
         bool                   m_enableRcs = false;
         bool                   m_enableCp  = false;

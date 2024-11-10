@@ -33,7 +33,7 @@
 
 namespace encode
 {
-    MOS_STATUS EncodeHucBasic::Init()
+    MOS_STATUS EncodeHucPkt::Init()
     {
         HUC_CHK_STATUS_RETURN(CmdPacket::Init());
         m_allocator = m_pipeline->GetEncodeAllocator();
@@ -53,20 +53,7 @@ namespace encode
         return MOS_STATUS_SUCCESS;
     }
 
-#if _SW_BRC
-    MOS_STATUS EncodeHucBasic::InitSwBrc(HuCFunction function)
-    {
-        if (m_swBrc == nullptr)
-        {
-            EncodeBasicFeature* basicFeature = dynamic_cast<EncodeBasicFeature*>(m_featureManager->GetFeature(FeatureIDs::basicFeature));
-            HUC_CHK_NULL_RETURN(basicFeature);
-            m_swBrc = EncodeSwBrc::CreateFactory(basicFeature->m_mode, m_allocator, m_hwInterface->GetOsInterface(), function);
-        }
-        return MOS_STATUS_SUCCESS;
-    }
- #endif  // !_SW_BRC
-
-    bool EncodeHucBasic::IsHuCStsUpdNeeded()
+    bool EncodeHucPkt::IsHuCStsUpdNeeded()
     {
         bool enabled = false;
 #if _SW_BRC
@@ -75,7 +62,7 @@ namespace encode
         return enabled;
     }
 
-    MOS_STATUS EncodeHucBasic::AllocateResources()
+    MOS_STATUS EncodeHucPkt::AllocateResources()
     {
         MOS_ALLOC_GFXRES_PARAMS allocParamsForBufferLinear;
         MOS_ZeroMemory(&allocParamsForBufferLinear, sizeof(MOS_ALLOC_GFXRES_PARAMS));
@@ -86,38 +73,15 @@ namespace encode
         // HUC STATUS 2 Buffer for HuC status check in COND_BB_END
         allocParamsForBufferLinear.dwBytes = sizeof(uint64_t);
         allocParamsForBufferLinear.pBufName = "HUC STATUS 2 Buffer";
-        MOS_RESOURCE *allocatedbuffer       = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
+        PMOS_RESOURCE allocatedbuffer       = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
         ENCODE_CHK_NULL_RETURN(allocatedbuffer);
-        m_resHucStatus2Buffer = *allocatedbuffer;
+        m_resHucStatus2Buffer = allocatedbuffer;
 
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS EncodeHucBasic::Execute(PMOS_COMMAND_BUFFER cmdBuffer, bool storeHucStatus2Needed, bool prologNeeded, HuCFunction function)
-    {
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS EncodeHucBasic::SetHucPipeModeSelectParameters()
-    {
-        HUC_CHK_NULL_RETURN(m_featureManager);
-        EncodeBasicFeature* basicFeature = dynamic_cast<EncodeBasicFeature*>(m_featureManager->GetFeature(FeatureIDs::basicFeature));
-        HUC_CHK_NULL_RETURN(basicFeature);
-
-        MOS_ZeroMemory(&m_pipeModeSelectParams, sizeof(m_pipeModeSelectParams));
-        m_pipeModeSelectParams.Mode = basicFeature->m_mode;
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS EncodeHucBasic::SetVdPipeFlushParameters()
-    {
-        MOS_ZeroMemory(&m_vdPipeFlushParams, sizeof(m_vdPipeFlushParams));
-        m_vdPipeFlushParams.Flags.bFlushHEVC = 1;
-        m_vdPipeFlushParams.Flags.bWaitDoneHEVC = 1;
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS EncodeHucBasic::StoreHuCStatus2Register(PMOS_COMMAND_BUFFER cmdBuffer, bool storeHucStatus2Needed)
+    MOS_STATUS EncodeHucPkt::StoreHuCStatus2Register(PMOS_COMMAND_BUFFER cmdBuffer, bool storeHucStatus2Needed)
     {
         HUC_CHK_NULL_RETURN(cmdBuffer);
         HUC_CHK_NULL_RETURN(m_statusReport);
@@ -142,7 +106,7 @@ namespace encode
             // Write HUC_STATUS2 mask - bit 6 - valid IMEM loaded
             auto &storeDataParams            = m_miItf->MHW_GETPAR_F(MI_STORE_DATA_IMM)();
             storeDataParams                  = {};
-            storeDataParams.pOsResource      = &m_resHucStatus2Buffer;
+            storeDataParams.pOsResource      = m_resHucStatus2Buffer;
             storeDataParams.dwResourceOffset = 0;
             storeDataParams.dwValue          = m_hucItf->GetHucStatus2ImemLoadedMask();
             HUC_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_DATA_IMM)(cmdBuffer));
@@ -150,7 +114,7 @@ namespace encode
             // Store HUC_STATUS2 register
             auto &storeRegParams             = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
             storeRegParams                   = {};
-            storeRegParams.presStoreBuffer   = &m_resHucStatus2Buffer;
+            storeRegParams.presStoreBuffer   = m_resHucStatus2Buffer;
             storeRegParams.dwOffset          = sizeof(uint32_t);
             storeRegParams.dwRegister        = mmioRegisters->hucStatus2RegOffset;
             HUC_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
@@ -159,7 +123,7 @@ namespace encode
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS EncodeHucBasic::SendPrologCmds(
+    MOS_STATUS EncodeHucPkt::SendPrologCmds(
         MOS_COMMAND_BUFFER &cmdBuffer)
     {
         MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
@@ -177,8 +141,7 @@ namespace encode
         MOS_ZeroMemory(&genericPrologParams, sizeof(genericPrologParams));
         ENCODE_CHK_NULL_RETURN(m_hwInterface);
         genericPrologParams.pOsInterface = m_hwInterface->GetOsInterface();
-        ENCODE_CHK_NULL_RETURN(m_hwInterface->GetMiInterface());
-        std::shared_ptr<void> m_miItf = m_hwInterface->GetMiInterface()->GetNewMiInterface();
+        std::shared_ptr<void> m_miItf     = m_hwInterface->GetMiInterfaceNext();
         genericPrologParams.pvMiInterface = nullptr;
         genericPrologParams.bMmcEnabled   = mmcEnabled;
         ENCODE_CHK_STATUS_RETURN(Mhw_SendGenericPrologCmdNext(&cmdBuffer, &genericPrologParams, m_miItf));
@@ -186,7 +149,7 @@ namespace encode
         return eStatus;
     }
 
-    MOS_STATUS EncodeHucBasic::AddForceWakeup(MOS_COMMAND_BUFFER &cmdBuffer)
+    MOS_STATUS EncodeHucPkt::AddForceWakeup(MOS_COMMAND_BUFFER &cmdBuffer)
     {
         ENCODE_FUNC_CALL();
 
@@ -202,7 +165,7 @@ namespace encode
         return MOS_STATUS_SUCCESS;
     }
 
-    void EncodeHucBasic::SetPerfTag(uint16_t type, uint16_t mode, uint16_t picCodingType)
+    void EncodeHucPkt::SetPerfTag(uint16_t type, uint16_t mode, uint16_t picCodingType)
     {
         ENCODE_FUNC_CALL();
 
@@ -215,57 +178,25 @@ namespace encode
         m_osInterface->pfnIncPerfBufferID(m_osInterface);
     }
 
-    MOS_STATUS EncodeHucBasic::StartPerfCollect(MOS_COMMAND_BUFFER& cmdBuffer)
+    MOS_STATUS EncodeHucPkt::StartPerfCollect(MOS_COMMAND_BUFFER& cmdBuffer)
     {
         MediaPerfProfiler *perfProfiler = MediaPerfProfiler::Instance();
         ENCODE_CHK_NULL_RETURN(perfProfiler);
         ENCODE_CHK_STATUS_RETURN(perfProfiler->AddPerfCollectStartCmd(
-            (void *)m_pipeline, m_osInterface, m_miInterface, &cmdBuffer));
+            (void *)m_pipeline, m_osInterface, m_miItf, &cmdBuffer));
 
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS EncodeHucBasic::EndPerfCollect(MOS_COMMAND_BUFFER& cmdBuffer)
+    MOS_STATUS EncodeHucPkt::EndPerfCollect(MOS_COMMAND_BUFFER& cmdBuffer)
     {
         MediaPerfProfiler *perfProfiler = MediaPerfProfiler::Instance();
         ENCODE_CHK_NULL_RETURN(perfProfiler);
         ENCODE_CHK_STATUS_RETURN(perfProfiler->AddPerfCollectEndCmd(
-            (void *)m_pipeline, m_osInterface, m_miInterface, &cmdBuffer));
+            (void *)m_pipeline, m_osInterface, m_miItf, &cmdBuffer));
 
         return MOS_STATUS_SUCCESS;
     }
-
-#if USE_CODECHAL_DEBUG_TOOL
-    MOS_STATUS EncodeHucBasic::DumpRegion(
-        uint32_t regionNum,
-        const char *regionName,
-        bool inputBuffer,
-        CodechalHucRegionDumpType dumpType,
-        uint32_t size)
-    {
-        auto bufferToDump = m_virtualAddrParams.regionParams[regionNum].presRegion;
-        auto offset       = m_virtualAddrParams.regionParams[regionNum].dwOffset;
-
-        CodechalDebugInterface *debugInterface = m_pipeline->GetDebugInterface();
-        ENCODE_CHK_NULL_RETURN(debugInterface);
-
-        if (bufferToDump)
-        {
-            // Dump the full region when size = 0 or exceed the region size, else dump the size indicated
-            ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-                bufferToDump,
-                offset,
-                size ? size : bufferToDump->iSize,
-                regionNum,
-                regionName,
-                inputBuffer,
-                m_pipeline->GetCurrentPass(),
-                dumpType));
-        }
-
-        return MOS_STATUS_SUCCESS;
-    }
-#endif
 
      MOS_STATUS EncodeHucPkt::AddAllCmds_HUC_PIPE_MODE_SELECT(PMOS_COMMAND_BUFFER cmdBuffer) const
     {
@@ -305,17 +236,15 @@ namespace encode
     {
         HUC_CHK_NULL_RETURN(cmdBuffer);
 
-        HUC_CHK_STATUS_RETURN(SetVdPipeFlushParameters());
-
 #if _SW_BRC
         HUC_CHK_STATUS_RETURN(InitSwBrc(function));
-        if (m_swBrc && m_swBrc->SwBrcEnabled())
+        if (function != NONE_BRC && m_swBrc && m_swBrc->SwBrcEnabled())
         {
             SETPAR(HUC_DMEM_STATE, m_hucItf);
             SETPAR(HUC_VIRTUAL_ADDR_STATE, m_hucItf);
 
-            LoadLegacyHucRegions();
-            LoadLegacyHucDmemParams();
+            auto &virtualAddrParams = m_hucItf->MHW_GETPAR_F(HUC_VIRTUAL_ADDR_STATE)();
+            auto &dmemParams = m_hucItf->MHW_GETPAR_F(HUC_DMEM_STATE)();
 
             CODECHAL_DEBUG_TOOL(
                 ENCODE_CHK_STATUS_RETURN(DumpInput());)
@@ -324,8 +253,8 @@ namespace encode
             HUC_CHK_NULL_RETURN(basicFeature);
             return m_swBrc->SwBrcImpl(
                 function,
-                m_virtualAddrParams,
-                m_dmemParams,
+                virtualAddrParams,
+                dmemParams,
                 basicFeature->m_recycleBuf->GetBuffer(VdencBrcPakMmioBuffer, 0));
         }
 #endif  // !_SW_BRC
@@ -349,8 +278,6 @@ namespace encode
 
         SETPAR_AND_ADDCMD(HUC_START, m_hucItf, cmdBuffer);
 
-        LoadLegacyHucRegions();
-
         CODECHAL_DEBUG_TOOL(
             ENCODE_CHK_STATUS_RETURN(DumpInput());)
 
@@ -368,24 +295,6 @@ namespace encode
         return MOS_STATUS_SUCCESS;
     }
 
-    void EncodeHucPkt::LoadLegacyHucRegions()
-    {
-        auto &params = m_hucItf->MHW_GETPAR_F(HUC_VIRTUAL_ADDR_STATE)();
-
-        m_virtualAddrParams = {};
-        std::copy_n(params.regionParams, 16, m_virtualAddrParams.regionParams);
-    }
-
-    void EncodeHucPkt::LoadLegacyHucDmemParams()
-    {
-        auto &params = m_hucItf->MHW_GETPAR_F(HUC_DMEM_STATE)();
-
-        m_dmemParams                   = {};
-        m_dmemParams.dwDataLength      = params.dataLength;
-        m_dmemParams.dwDmemOffset      = params.dmemOffset;
-        m_dmemParams.presHucDataSource = params.hucDataSource;
-    }
-
     MHW_SETPAR_DECL_SRC(VD_PIPELINE_FLUSH, EncodeHucPkt)
     {
         params.waitDoneHEVC = true;
@@ -393,7 +302,7 @@ namespace encode
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS EncodeHucBasic::Completed(void *mfxStatus, void *rcsStatus, void *statusReport)
+    MOS_STATUS EncodeHucPkt::Completed(void *mfxStatus, void *rcsStatus, void *statusReport)
     {
         ENCODE_FUNC_CALL();
 
@@ -457,11 +366,10 @@ namespace encode
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS EncodeHucBasic::StoreHuCStatusRegister(PMOS_COMMAND_BUFFER cmdBuffer)
+    MOS_STATUS EncodeHucPkt::StoreHuCStatusRegister(PMOS_COMMAND_BUFFER cmdBuffer)
     {
         HUC_CHK_NULL_RETURN(cmdBuffer);
         HUC_CHK_NULL_RETURN(m_statusReport);
-        HUC_CHK_NULL_RETURN(m_miInterface);
 
         auto mmioRegisters = m_hucItf->GetMmioRegisters(m_vdboxIndex);
         HUC_CHK_NULL_RETURN(mmioRegisters);
@@ -481,4 +389,52 @@ namespace encode
 
         return MOS_STATUS_SUCCESS;
     }
+
+#if _SW_BRC
+    MOS_STATUS EncodeHucPkt::InitSwBrc(HuCFunction function)
+    {
+        if (m_swBrc == nullptr)
+        {
+            EncodeBasicFeature* basicFeature = dynamic_cast<EncodeBasicFeature*>(m_featureManager->GetFeature(FeatureIDs::basicFeature));
+            HUC_CHK_NULL_RETURN(basicFeature);
+            m_swBrc = EncodeSwBrc::CreateFactory(basicFeature->m_mode, m_allocator, m_hwInterface->GetOsInterface(), function);
+        }
+        return MOS_STATUS_SUCCESS;
+    }
+ #endif  // !_SW_BRC
+
+#if USE_CODECHAL_DEBUG_TOOL
+    MOS_STATUS EncodeHucPkt::DumpRegion(
+        uint32_t regionNum,
+        const char *regionName,
+        bool inputBuffer,
+        CodechalHucRegionDumpType dumpType,
+        uint32_t size)
+    {
+        auto virtualAddrParams = m_hucItf->MHW_GETPAR_F(HUC_VIRTUAL_ADDR_STATE)();
+        auto bufferToDump      = virtualAddrParams.regionParams[regionNum].presRegion;
+        auto offset            = virtualAddrParams.regionParams[regionNum].dwOffset;
+
+        CodechalDebugInterface *debugInterface = m_pipeline->GetDebugInterface();
+        ENCODE_CHK_NULL_RETURN(debugInterface);
+
+        if (bufferToDump)
+        {
+            // Dump the full region when size = 0 or exceed the region size, else dump the size indicated
+            GMM_SIZE_PARAM GmmSizeParam = GMM_MAIN_SURF;
+            uint32_t bufferSize         = (uint32_t)bufferToDump->pGmmResInfo->GetSize(GmmSizeParam);
+            ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
+                bufferToDump,
+                offset,
+                size ? size : bufferSize,
+                regionNum,
+                regionName,
+                inputBuffer,
+                m_pipeline->GetCurrentPass(),
+                dumpType));
+        }
+
+        return MOS_STATUS_SUCCESS;
+    }
+#endif
 }

@@ -62,7 +62,6 @@ public:
     DeclareDecodePacketId(av1DecodePacketId);
     DeclareDecodePacketId(av1PictureSubPacketId);
     DeclareDecodePacketId(av1TileSubPacketId);
-    DeclareDecodePacketId(defaultCdfBufCopyPacketId);
 
 protected:
     //!
@@ -120,6 +119,22 @@ protected:
     //!
     virtual MOS_STATUS CreateSubPackets(DecodeSubPacketManager &subPacketManager, CodechalSetting &codecSettings) override;
 
+    //!
+    //! \brief  Create post sub packets
+    //! \param  [in] subPipelineManager
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS CreatePostSubPipeLines(DecodeSubPipelineManager &subPipelineManager) override;
+
+    //!
+    //! \brief  Create pre sub packets
+    //! \param  [in] subPipelineManager
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS CreatePreSubPipeLines(DecodeSubPipelineManager &subPipelineManager) override;
+
 #if USE_CODECHAL_DEBUG_TOOL
         //! \brief    Dump the parameters
         //!
@@ -149,15 +164,15 @@ protected:
         //! \return   MOS_STATUS
         //!           MOS_STATUS_SUCCESS if success, else fail reason
         //!
-        MOS_STATUS DumpBitstreamControlParams(CodecAv1TileParams *tileParams, uint32_t tileNum);
+        MOS_STATUS DumpTileParams(CodecAv1TileParams *tileParams, uint32_t tileNum);
 #endif
 
 protected:
-    HucCopyPktItf  *m_cdfCopyPkt       = nullptr;          //!< Update default cdf buffer with huc stream out packet
     Av1DecodeMode  m_decodeMode       = baseDecodeMode;   //!< Decode mode
     uint16_t       m_passNum          = 1;                //!< Decode pass number
     bool           m_isFirstTileInFrm = true;             //!< First tile in the first frame
     bool           m_forceTileBasedDecoding = false;      //!< Force tile based decoding
+    CodechalHwInterface *m_hwInterface            = nullptr;
 MEDIA_CLASS_DEFINE_END(decode__Av1PipelineG12_Base)
 };
 

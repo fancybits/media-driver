@@ -30,7 +30,9 @@
 #include "media_factory.h"
 #include "vp_base.h"
 #include "vp_utils.h"
-
+#include "mhw_mi_itf.h"
+#include "mhw_vebox_itf.h"
+#include "mhw_sfc_itf.h"
 namespace vp
 {
 class VpPipeline;
@@ -80,10 +82,18 @@ public:
     //!           returns a valid pointer if successful and nullptr if failed.
     //!
     static VpBase *CreateFactoryNext(
-        PMOS_INTERFACE osInterface,
-        PMOS_CONTEXT   osDriverContext,
-        MOS_STATUS *   eStatus);
+        PMOS_INTERFACE     osInterface,
+        MOS_CONTEXT_HANDLE osDriverContext,
+        MOS_STATUS         *eStatus,
+        bool               clearViewMode = false);
 
+    static MOS_STATUS CreateVPMhwInterfaces(
+        bool                             sfcNeeded,
+        bool                             veboxNeeded,
+        std::shared_ptr<mhw::vebox::Itf> &veboxItf,
+        std::shared_ptr<mhw::sfc::Itf>   &sfcItf,
+        std::shared_ptr<mhw::mi::Itf>    &miItf,
+        PMOS_INTERFACE                   osInterface);
     //!
     //! \brief    Initializes platform specific state
     //! \param    [in] osInterface
@@ -98,9 +108,9 @@ public:
     //!
     virtual MOS_STATUS Initialize(
         PMOS_INTERFACE  osInterface,
-        PMOS_CONTEXT    osDriverContext,
         bool            bInitVphalState,
-        MOS_STATUS      *eStatus) = 0;
+        MOS_STATUS      *eStatus,
+        bool            clearViewMode = false) = 0;
 
     virtual MOS_STATUS CreateVpPlatformInterface(
         PMOS_INTERFACE osInterface,

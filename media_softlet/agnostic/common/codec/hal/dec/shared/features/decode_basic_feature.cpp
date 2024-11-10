@@ -28,22 +28,20 @@
 //!
 #include "decode_basic_feature.h"
 #include "decode_utils.h"
+#include "codechal_debug.h"
 
 namespace decode {
 
 DecodeBasicFeature::DecodeBasicFeature(
     DecodeAllocator *allocator,
-    CodechalHwInterface *hwInterface):
-    m_hwInterface(hwInterface), m_allocator(allocator)
+    void *hwInterface,
+    PMOS_INTERFACE osInterface) :
+    m_hwInterface(hwInterface), m_allocator(allocator), m_osInterface(osInterface)
 {
-    if(hwInterface != nullptr)
+    if (osInterface != nullptr)
     {
-        PMOS_INTERFACE osInterface  = hwInterface->GetOsInterface();
-        if (osInterface != nullptr)
-        {
-            MEDIA_WA_TABLE* waTable = osInterface->pfnGetWaTable(osInterface);
-            m_useDummyReference = (waTable != nullptr) ? MEDIA_IS_WA(waTable, WaDummyReference) : false;
-        }
+        MEDIA_WA_TABLE* waTable = osInterface->pfnGetWaTable(osInterface);
+        m_useDummyReference = (waTable != nullptr) ? MEDIA_IS_WA(waTable, WaDummyReference) : false;
     }
 
     MOS_ZeroMemory(&m_destSurface, sizeof(m_destSurface));
@@ -53,7 +51,7 @@ DecodeBasicFeature::DecodeBasicFeature(
 
 DecodeBasicFeature::~DecodeBasicFeature()
 {
-    if (m_dummyReferenceStatus == CODECHAL_DUMMY_REFERENCE_ALLOCATED)
+    if (m_allocator != nullptr && m_dummyReferenceStatus == CODECHAL_DUMMY_REFERENCE_ALLOCATED)
     {
         m_allocator->Destroy(m_dummyReference);
     }
@@ -81,6 +79,8 @@ MOS_STATUS DecodeBasicFeature::Init(void *setting)
     m_picHeightInMb = (uint16_t)CODECHAL_GET_HEIGHT_IN_MACROBLOCKS(m_height);
 
     m_disableDecodeSyncLock = codecSettings->disableDecodeSyncLock ? true : false;
+
+    m_frameNum = DecodeFrameIndex;
 
     return MOS_STATUS_SUCCESS;
 }
@@ -113,11 +113,12 @@ MOS_STATUS DecodeBasicFeature::Update(void *params)
 
     DECODE_CHK_NULL(decodeParams->m_dataBuffer);
     m_resDataBuffer.OsResource = *(decodeParams->m_dataBuffer);
-    m_allocator->UpdateResoreceUsageType(&m_resDataBuffer.OsResource, resourceInputBitstream);
+    DECODE_CHK_STATUS(m_allocator->UpdateResoreceUsageType(&m_resDataBuffer.OsResource, resourceInputBitstream));
 
     if (decodeParams->m_destSurface != nullptr)
     {
         DECODE_CHK_STATUS(UpdateDestSurface(*decodeParams->m_destSurface));
+        DECODE_CHK_STATUS(m_allocator->UpdateResoreceUsageType(&m_destSurface.OsResource, resourceOutputPicture));
         DECODE_CHK_STATUS(m_allocator->GetSurfaceInfo(&m_destSurface));
     }
     else

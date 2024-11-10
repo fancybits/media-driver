@@ -35,7 +35,7 @@ class EncodeHevcVdencPipelineAdapterXe_Xpm_Base : public EncoderPipelineAdapter
 {
 public:
     EncodeHevcVdencPipelineAdapterXe_Xpm_Base(
-        CodechalHwInterface *   hwInterface,
+        CodechalHwInterfaceNext *   hwInterface,
         CodechalDebugInterface *debugInterface);
 
     virtual ~EncodeHevcVdencPipelineAdapterXe_Xpm_Base() {}
@@ -43,6 +43,10 @@ public:
     virtual MOS_STATUS Allocate(CodechalSetting *codecHalSettings) override;
 
     virtual MOS_STATUS Execute(void *params) override;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    virtual MOS_STATUS Reformat() override;
+#endif
 
     virtual MOS_STATUS GetStatusReport(void *status, uint16_t numStatus) override;
 

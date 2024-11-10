@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2021, Intel Corporation
+* Copyright (c) 2019-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -31,6 +31,8 @@
 #include "sw_filter_handle.h"
 #include "vp_utils.h"
 #include "vp_user_feature_control.h"
+#include "vp_utils.h"
+
 using namespace vp;
 
 template <typename T>
@@ -133,6 +135,13 @@ void SwFilter::DestroySwFilter(SwFilter* p)
     }
 }
 
+VP_MHWINTERFACE *SwFilter::GetHwInterface()
+{
+    VP_FUNC_CALL();
+
+    return m_vpInterface.GetHwInterface();
+}
+
 /****************************************************************************************************/
 /*                                      SwFilterCsc                                                 */
 /****************************************************************************************************/
@@ -170,8 +179,13 @@ MOS_STATUS SwFilterCsc::Configure(VP_PIPELINE_PARAMS &params, bool isInputSurf, 
     m_Params.formatOutput           = surfOutput->Format;
     m_Params.input.chromaSiting     = surfInput->ChromaSiting;
     m_Params.output.chromaSiting    = surfOutput->ChromaSiting;
+    m_Params.input.tileMode         = surfInput->TileModeGMM;
+    m_Params.output.tileMode        = surfOutput->TileModeGMM;
+    m_Params.isFullRgbG10P709       = surfOutput->pGamutParams ? surfOutput->pGamutParams->GammaValue == GAMMA_1P0 : 0 && surfOutput->ColorSpace == CSpace_sRGB && IS_RGB64_FLOAT_FORMAT(surfOutput->Format);
     // Alpha should be handled in input pipe to avoid alpha data lost from image.
     m_Params.pAlphaParams           = params.pCompAlpha;
+    // formatForCUS will be set on demand in Policy::GetCSCExecutionCapsBT2020ToRGB.
+    m_Params.formatforCUS           = Format_None;
 
     VP_PUBLIC_NORMALMESSAGE("formatInput %d, formatOutput %d", m_Params.formatInput, m_Params.formatOutput);
 
@@ -181,7 +195,7 @@ MOS_STATUS SwFilterCsc::Configure(VP_PIPELINE_PARAMS &params, bool isInputSurf, 
 namespace vp
 {
 MOS_STATUS GetVeboxOutputParams(VP_EXECUTE_CAPS &executeCaps, MOS_FORMAT inputFormat, MOS_TILE_TYPE inputTileType, MOS_FORMAT outputFormat,
-                                MOS_FORMAT &veboxOutputFormat, MOS_TILE_TYPE &veboxOutputTileType);
+                                MOS_FORMAT &veboxOutputFormat, MOS_TILE_TYPE &veboxOutputTileType, VPHAL_CSPACE colorSpaceOutput);
 }
 
 MOS_STATUS SwFilterCsc::Configure(PVP_SURFACE surfInput, PVP_SURFACE surfOutput, VP_EXECUTE_CAPS caps)
@@ -199,11 +213,15 @@ MOS_STATUS SwFilterCsc::Configure(PVP_SURFACE surfInput, PVP_SURFACE surfOutput,
         MOS_TILE_TYPE   veboxOutputTileType = surfInput->osSurface->TileType;
 
         GetVeboxOutputParams(caps, surfInput->osSurface->Format, surfInput->osSurface->TileType,
-                            surfOutput->osSurface->Format, veboxOutputFormat, veboxOutputTileType);
+                            surfOutput->osSurface->Format, veboxOutputFormat, veboxOutputTileType, surfOutput->ColorSpace);
         m_Params.input.colorSpace = surfInput->ColorSpace;
         m_Params.output.colorSpace = surfInput->ColorSpace;
 
+        m_Params.input.tileMode  = surfInput->osSurface->TileModeGMM;
+        m_Params.output.tileMode = surfOutput->osSurface->TileModeGMM;
         m_Params.formatInput = surfInput->osSurface->Format;
+        // formatForCUS will be set on demand in Policy::GetCSCExecutionCapsBT2020ToRGB.
+        m_Params.formatforCUS = Format_None;
         m_Params.formatOutput = veboxOutputFormat;
         m_Params.input.chromaSiting = surfInput->ChromaSiting;
         m_Params.output.chromaSiting = surfOutput->ChromaSiting;
@@ -220,6 +238,10 @@ MOS_STATUS SwFilterCsc::Configure(PVP_SURFACE surfInput, PVP_SURFACE surfOutput,
         // Skip CSC and only for chroma sitting purpose
         m_Params.input.colorSpace = m_Params.output.colorSpace = surfInput->ColorSpace;
         m_Params.formatInput = m_Params.formatOutput = surfInput->osSurface->Format;
+        m_Params.input.tileMode                      = surfInput->osSurface->TileModeGMM;
+        m_Params.output.tileMode                     = surfOutput->osSurface->TileModeGMM;
+        // formatForCUS will be set on demand in Policy::GetCSCExecutionCapsBT2020ToRGB.
+        m_Params.formatforCUS                        = Format_None;
         m_Params.input.chromaSiting                  = surfInput->ChromaSiting;
         m_Params.output.chromaSiting                 = surfOutput->ChromaSiting;
         m_Params.pAlphaParams                        = nullptr;
@@ -229,8 +251,6 @@ MOS_STATUS SwFilterCsc::Configure(PVP_SURFACE surfInput, PVP_SURFACE surfOutput,
 
         return MOS_STATUS_SUCCESS;
     }
-
-    return MOS_STATUS_UNIMPLEMENTED;
 }
 
 MOS_STATUS SwFilterCsc::Configure(FeatureParamCsc &params)
@@ -252,8 +272,12 @@ MOS_STATUS SwFilterCsc::Configure(VEBOX_SFC_PARAMS &params)
     }
     m_Params.input.colorSpace       = params.input.colorSpace;
     m_Params.output.colorSpace      = params.output.colorSpace;
+    m_Params.input.tileMode         = params.input.surface->TileModeGMM;
+    m_Params.output.tileMode        = params.output.surface->TileModeGMM;
     m_Params.pIEFParams             = nullptr;
     m_Params.formatInput            = params.input.surface->Format;
+    // formatForCUS will be set on demand in Policy::GetCSCExecutionCapsBT2020ToRGB.
+    m_Params.formatforCUS           = Format_None;
     m_Params.formatOutput           = params.output.surface->Format;
     m_Params.input.chromaSiting     = params.input.chromaSiting;
     m_Params.output.chromaSiting    = params.output.chromaSiting;
@@ -374,14 +398,12 @@ MOS_STATUS SwFilterScaling::Configure(VP_PIPELINE_PARAMS &params, bool isInputSu
     // Alpha should be handled in input pipe to avoid alpha data lost from image.
     m_Params.pCompAlpha             = params.pCompAlpha;
 
-    if (surfInput->Rotation == VPHAL_ROTATION_IDENTITY ||
-        surfInput->Rotation == VPHAL_ROTATION_180 ||
-        surfInput->Rotation == VPHAL_MIRROR_HORIZONTAL ||
-        surfInput->Rotation == VPHAL_MIRROR_VERTICAL)
+    if (!VpUtils::IsVerticalRotation(surfInput->Rotation))
     {
         m_Params.rotation.rotationNeeded    = false;
         m_Params.output.dwWidth             = surfOutput->dwWidth;
         m_Params.output.dwHeight            = surfOutput->dwHeight;
+        m_Params.output.dwPitch             = surfOutput->dwPitch;
         m_Params.input.rcDst                = surfInput->rcDst;
         m_Params.output.rcSrc               = surfOutput->rcSrc;
         m_Params.output.rcDst               = surfOutput->rcDst;
@@ -392,6 +414,7 @@ MOS_STATUS SwFilterScaling::Configure(VP_PIPELINE_PARAMS &params, bool isInputSu
         m_Params.rotation.rotationNeeded    = true;
         m_Params.output.dwWidth             = surfOutput->dwHeight;
         m_Params.output.dwHeight            = surfOutput->dwWidth;
+        m_Params.output.dwPitch             = surfOutput->dwPitch;
         RECT_ROTATE(m_Params.input.rcDst, surfInput->rcDst);
         RECT_ROTATE(m_Params.output.rcSrc, surfOutput->rcSrc);
         RECT_ROTATE(m_Params.output.rcDst, surfOutput->rcDst);
@@ -483,6 +506,7 @@ MOS_STATUS SwFilterScaling::Configure(VEBOX_SFC_PARAMS &params)
         m_Params.rotation.rotationNeeded = false;
         m_Params.output.dwWidth     = params.output.surface->dwWidth;
         m_Params.output.dwHeight    = params.output.surface->dwHeight;
+        m_Params.output.dwPitch     = params.output.surface->dwPitch;
         m_Params.input.rcDst        = params.output.rcDst;
         m_Params.output.rcSrc       = recOutput;
         m_Params.output.rcDst       = recOutput;
@@ -493,6 +517,7 @@ MOS_STATUS SwFilterScaling::Configure(VEBOX_SFC_PARAMS &params)
         m_Params.rotation.rotationNeeded = true;
         m_Params.output.dwWidth     = params.output.surface->dwHeight;
         m_Params.output.dwHeight    = params.output.surface->dwWidth;
+        m_Params.output.dwPitch     = params.output.surface->dwPitch;
 
         RECT_ROTATE(m_Params.input.rcDst, params.output.rcDst);
         RECT_ROTATE(m_Params.output.rcSrc, recOutput);
@@ -531,6 +556,7 @@ MOS_STATUS SwFilterScaling::Configure(PVP_SURFACE surfInput, PVP_SURFACE surfOut
     m_Params.rotation.rotationNeeded    = false;
     m_Params.output.dwWidth             = surfOutput->osSurface->dwWidth;
     m_Params.output.dwHeight            = surfOutput->osSurface->dwHeight;
+    m_Params.output.dwPitch             = surfOutput->osSurface->dwPitch;
     m_Params.output.rcSrc               = surfOutput->rcSrc;
     m_Params.output.rcDst               = surfOutput->rcDst;
     m_Params.output.rcMaxSrc            = surfOutput->rcMaxSrc;
@@ -610,10 +636,7 @@ MOS_STATUS SwFilterScaling::Update(VP_SURFACE *inputSurf, VP_SURFACE *outputSurf
     m_Params.csc.colorSpaceOutput   = outputSurf->ColorSpace;
 
     if (rotMir &&
-        (rotMir->GetSwFilterParams().rotation == VPHAL_ROTATION_90 ||
-        rotMir->GetSwFilterParams().rotation == VPHAL_ROTATION_270 ||
-        rotMir->GetSwFilterParams().rotation == VPHAL_ROTATE_90_MIRROR_VERTICAL ||
-        rotMir->GetSwFilterParams().rotation == VPHAL_ROTATE_90_MIRROR_HORIZONTAL))
+        VpUtils::IsVerticalRotation(rotMir->GetSwFilterParams().rotation))
     {
         m_Params.rotation.rotationNeeded = true;
 
@@ -806,6 +829,7 @@ MOS_STATUS SwFilterDenoise::Configure(VP_PIPELINE_PARAMS& params, bool isInputSu
     m_Params.formatInput   = surfInput->Format;
     m_Params.formatOutput  = surfInput->Format;// Denoise didn't change the original format;
     m_Params.heightInput   = surfInput->dwHeight;
+    m_Params.srcBottom     = surfInput->rcSrc.bottom;
 
     m_Params.denoiseParams.bEnableChroma =
         m_Params.denoiseParams.bEnableChroma && m_Params.denoiseParams.bEnableLuma;
@@ -825,6 +849,21 @@ MOS_STATUS SwFilterDenoise::Configure(VP_PIPELINE_PARAMS& params, bool isInputSu
         m_Params.secureDnNeeded = true;
     }
 #endif
+
+    VP_PUBLIC_NORMALMESSAGE("denoiseLevel = %d,secureDn = %d, AutoDn = %d", m_Params.denoiseParams.NoiseLevel, m_Params.secureDnNeeded, m_Params.denoiseParams.bAutoDetect);
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS SwFilterDenoise::Configure(FeatureParamDenoise &params)
+{
+    VP_FUNC_CALL();
+
+    m_Params.sampleTypeInput = params.sampleTypeInput;
+    m_Params.denoiseParams   = params.denoiseParams;
+    m_Params.formatInput     = params.formatInput;
+    m_Params.formatOutput    = params.formatOutput;
+    m_Params.heightInput     = params.heightInput;
+    m_Params.secureDnNeeded  = params.secureDnNeeded;
 
     VP_PUBLIC_NORMALMESSAGE("denoiseLevel = %d,secureDn = %d, AutoDn = %d", m_Params.denoiseParams.NoiseLevel, m_Params.secureDnNeeded, m_Params.denoiseParams.bAutoDetect);
     return MOS_STATUS_SUCCESS;
@@ -894,6 +933,7 @@ MOS_STATUS SwFilterDeinterlace::Clean()
     VP_FUNC_CALL();
 
     VP_PUBLIC_CHK_STATUS_RETURN(SwFilter::Clean());
+    MOS_ZeroMemory(&m_Params, sizeof(m_Params));
     return MOS_STATUS_SUCCESS;
 }
 
@@ -904,6 +944,8 @@ MOS_STATUS SwFilterDeinterlace::Configure(VP_PIPELINE_PARAMS& params, bool isInp
     PVPHAL_SURFACE surfInput = isInputSurf ? params.pSrc[surfIndex] : params.pSrc[0];
     VP_PUBLIC_CHK_NULL_RETURN(surfInput);
     VP_PUBLIC_CHK_NULL_RETURN(surfInput->pDeinterlaceParams);
+
+    MOS_ZeroMemory(&m_Params, sizeof(m_Params));
 
     m_Params.formatInput          = surfInput->Format;
     m_Params.formatOutput         = surfInput->Format;
@@ -995,12 +1037,16 @@ MOS_STATUS SwFilterSte::Configure(VP_PIPELINE_PARAMS& params, bool isInputSurf, 
 
     if (surfInput->pColorPipeParams)
     {
-        m_Params.bEnableSTE =  surfInput->pColorPipeParams->bEnableSTE;
+        m_Params.bEnableSTE  =  surfInput->pColorPipeParams->bEnableSTE;
+        m_Params.bEnableSTD  = surfInput->pColorPipeParams->bEnableSTD;
+        m_Params.STDParam    = surfInput->pColorPipeParams->StdParams;
         m_Params.dwSTEFactor = surfInput->pColorPipeParams->SteParams.dwSTEFactor;
     }
     else
     {
-        m_Params.bEnableSTE = false;
+        m_Params.bEnableSTE  = false;
+        m_Params.bEnableSTD  = false;
+        m_Params.STDParam    = {};
         m_Params.dwSTEFactor = 0;
     }
 
@@ -1257,40 +1303,123 @@ MOS_STATUS SwFilterHdr::Clean()
 MOS_STATUS SwFilterHdr::Configure(VP_PIPELINE_PARAMS &params, bool isInputSurf, int surfIndex)
 {
     VP_FUNC_CALL();
-
     PVPHAL_SURFACE surfInput  = isInputSurf ? params.pSrc[surfIndex] : params.pSrc[0];
     PVPHAL_SURFACE surfOutput = isInputSurf ? params.pTarget[0] : params.pTarget[surfIndex];
+    MOS_STATUS     eStatus    = MOS_STATUS_SUCCESS;
+    uint32_t       i          = 0;
+    uint32_t     dwUpdateMask = 0;
+    bool                        bSupported       = false;
+    VPHAL_HDR_LUT_MODE          CurrentLUTMode      = VPHAL_HDR_LUT_MODE_NONE;
+    VP_PUBLIC_CHK_NULL_RETURN(m_vpInterface.GetHwInterface());
+    VP_PUBLIC_CHK_NULL_RETURN(m_vpInterface.GetHwInterface()->m_userFeatureControl);
+    VP_PUBLIC_CHK_NULL_RETURN(m_vpInterface.GetHwInterface()->m_vpPlatformInterface);
+    VP_PUBLIC_CHK_NULL_RETURN(m_vpInterface.GetHwInterface()->m_reporting);
+
+    auto userFeatureControl = m_vpInterface.GetHwInterface()->m_userFeatureControl;
+    auto vpPlatformInterface = m_vpInterface.GetHwInterface()->m_vpPlatformInterface;
+    VpFeatureReport *vpFeatureReport  = dynamic_cast<VpFeatureReport *>(m_vpInterface.GetHwInterface()->m_reporting);
+#if (_DEBUG || _RELEASE_INTERNAL)
+    m_Params.isL0KernelEnabled               = (vpPlatformInterface->IsAdvanceNativeKernelSupported() && userFeatureControl->EnableL03DLut());
+    vpFeatureReport->GetFeatures().isL03DLut = m_Params.isL0KernelEnabled;
+#endif
 
     VP_PUBLIC_CHK_NULL_RETURN(surfInput);
     VP_PUBLIC_CHK_NULL_RETURN(surfOutput);
-    VP_PUBLIC_CHK_NULL_RETURN(surfInput->pHDRParams);
+    VP_PUBLIC_CHK_NULL_RETURN(m_vpInterface.GetHwInterface());
+    VP_PUBLIC_CHK_NULL_RETURN(m_vpInterface.GetHwInterface()->m_osInterface);
 
     m_Params.formatInput  = surfInput->Format;
     m_Params.formatOutput = surfOutput->Format;
+    m_Params.widthInput   = surfInput->dwWidth;
+    m_Params.heightInput  = surfInput->dwHeight;
+    if (surfInput->p3DLutParams)
+    {
+        m_Params.external3DLutParams = surfInput->p3DLutParams;
+    }
 
     // For H2S, it is possible that there is no HDR params for render target.
-    m_Params.uiMaxContentLevelLum = surfInput->pHDRParams->MaxCLL;
+    m_Params.uiMaxContentLevelLum = 4000;
     m_Params.srcColorSpace        = surfInput->ColorSpace;
     m_Params.dstColorSpace        = surfOutput->ColorSpace;
-    if (surfInput->pHDRParams->EOTF == VPHAL_HDR_EOTF_SMPTE_ST2084)
+
+    if (surfInput->pHDRParams)
     {
-        m_Params.hdrMode = VPHAL_HDR_MODE_TONE_MAPPING;
-        if (surfOutput->pHDRParams)
+        m_Params.uiMaxContentLevelLum = surfInput->pHDRParams->MaxCLL;
+        if (surfInput->pHDRParams->EOTF == VPHAL_HDR_EOTF_SMPTE_ST2084 ||
+           (surfInput->pHDRParams->EOTF == VPHAL_HDR_EOTF_TRADITIONAL_GAMMA_SDR && IS_RGB64_FLOAT_FORMAT(surfInput->Format))) // For FP16 HDR CSC typical usage
         {
-            m_Params.uiMaxDisplayLum = surfOutput->pHDRParams->max_display_mastering_luminance;
-            if (surfOutput->pHDRParams->EOTF == VPHAL_HDR_EOTF_SMPTE_ST2084)
+            m_Params.hdrMode = VPHAL_HDR_MODE_TONE_MAPPING;
+            if (surfOutput->pHDRParams)
             {
-                m_Params.hdrMode = VPHAL_HDR_MODE_H2H;
+                m_Params.uiMaxDisplayLum = surfOutput->pHDRParams->max_display_mastering_luminance;
+                if (surfOutput->pHDRParams->EOTF == VPHAL_HDR_EOTF_SMPTE_ST2084)
+                {
+                    m_Params.hdrMode = VPHAL_HDR_MODE_H2H;
+                }
             }
         }
+        else if (surfInput->pHDRParams->EOTF == VPHAL_HDR_EOTF_TRADITIONAL_GAMMA_SDR && surfOutput->pHDRParams->EOTF == VPHAL_HDR_EOTF_SMPTE_ST2084)
+        {
+            m_Params.hdrMode = VPHAL_HDR_MODE_INVERSE_TONE_MAPPING;
+        }
     }
-    if (m_Params.hdrMode == VPHAL_HDR_MODE_NONE)
+
+    m_Params.pColorFillParams = params.pColorFillParams;
+
+    if (surfInput->SurfType == SURF_IN_PRIMARY && m_Params.globalLutMode != VPHAL_HDR_LUT_MODE_3D)
     {
-        VP_PUBLIC_ASSERTMESSAGE("HDR Mode is NONE");
-        VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+        CurrentLUTMode = VPHAL_HDR_LUT_MODE_2D;
     }
-    return MOS_STATUS_SUCCESS;
+    else
+    {
+        CurrentLUTMode = VPHAL_HDR_LUT_MODE_3D;
+    }
+
+    // Neither 1D nor 3D LUT is needed in linear output case.
+    if (IS_RGB64_FLOAT_FORMAT(surfOutput->Format))
+    {
+        CurrentLUTMode = VPHAL_HDR_LUT_MODE_NONE;
+    }
+
+    m_Params.lutMode = CurrentLUTMode;
+
+    VP_PUBLIC_CHK_STATUS_RETURN(HdrIsInputFormatSupported(surfInput, &bSupported));
+
+    if (!bSupported)
+    {
+        VP_RENDER_ASSERTMESSAGE("HDR Unsupported Source Format\n");
+        return MOS_STATUS_SUCCESS;
+    }
+
+    if (surfInput && surfInput->pHDRParams)
+    {
+        MOS_SecureMemcpy(&m_Params.srcHDRParams, sizeof(HDR_PARAMS), (HDR_PARAMS *)surfInput->pHDRParams, sizeof(HDR_PARAMS));
+    }
+    else
+    {
+        MOS_ZeroMemory(&m_Params.srcHDRParams, sizeof(HDR_PARAMS));
+    }
+
+    VP_PUBLIC_CHK_STATUS_RETURN(HdrIsOutputFormatSupported(surfOutput, &bSupported));
+
+    if (!bSupported)
+    {
+        VP_RENDER_ASSERTMESSAGE("HDR Unsupported Target Format\n");
+        return MOS_STATUS_SUCCESS;
+    }
+
+    if (surfOutput && surfOutput->pHDRParams)
+    {
+        MOS_SecureMemcpy(&m_Params.targetHDRParams, sizeof(HDR_PARAMS), (HDR_PARAMS *)surfOutput->pHDRParams, sizeof(HDR_PARAMS));
+    }
+    else
+    {
+        MOS_ZeroMemory(&m_Params.targetHDRParams, sizeof(HDR_PARAMS));
+    }
+
+     return MOS_STATUS_SUCCESS;
 }
+
 FeatureParamHdr &SwFilterHdr::GetSwFilterParams()
 {
     VP_FUNC_CALL();
@@ -1315,6 +1444,116 @@ SwFilter *SwFilterHdr::Clone()
     return p;
 }
 
+//!
+//! \brief    Checks to see if HDR can be enabled for the formats
+//! \details  Checks to see if HDR can be enabled for the formats
+//! \param    PVPHAL_SURFACE pSrcSurface
+//!           [in] Pointer to source surface
+//! \param    bool* pbSupported
+//!           [out] true supported false not supported
+//! \return   MOS_STATUS
+//!           MOS_STATUS_SUCCESS if successful, otherwise failed
+//!
+MOS_STATUS SwFilterHdr::HdrIsInputFormatSupported(
+    PVPHAL_SURFACE pSrcSurface,
+    bool          *pbSupported)
+{
+    VP_FUNC_CALL();
+
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    VP_PUBLIC_CHK_NULL(pSrcSurface);
+    VP_PUBLIC_CHK_NULL(pbSupported);
+
+    // HDR supported formats
+    if (pSrcSurface->Format == Format_A8R8G8B8 ||
+        pSrcSurface->Format == Format_X8R8G8B8 ||
+        pSrcSurface->Format == Format_A8B8G8R8 ||
+        pSrcSurface->Format == Format_X8B8G8R8 ||
+        pSrcSurface->Format == Format_R10G10B10A2 ||
+        pSrcSurface->Format == Format_B10G10R10A2 ||
+        pSrcSurface->Format == Format_A16B16G16R16 ||
+        pSrcSurface->Format == Format_A16R16G16B16 ||
+        pSrcSurface->Format == Format_A16B16G16R16F ||
+        pSrcSurface->Format == Format_A16R16G16B16F ||
+        pSrcSurface->Format == Format_P016 ||
+        pSrcSurface->Format == Format_NV12 ||
+        pSrcSurface->Format == Format_P010 ||
+        pSrcSurface->Format == Format_YUY2 ||
+        pSrcSurface->Format == Format_AYUV ||
+        pSrcSurface->Format == Format_Y410 ||
+        pSrcSurface->Format == Format_Y416 ||
+        pSrcSurface->Format == Format_Y210 ||
+        pSrcSurface->Format == Format_Y216)
+    {
+        *pbSupported = true;
+        goto finish;
+    }
+    else
+    {
+        VP_RENDER_ASSERTMESSAGE(
+            "HDR Unsupported Source Format: '0x%08x'\n",
+            pSrcSurface->Format);
+        *pbSupported = false;
+    }
+
+finish:
+    return eStatus;
+}
+
+//!
+//! \brief    Checks to see if HDR can be enabled for the formats
+//! \details  Checks to see if HDR can be enabled for the formats
+//! \param    PVPHAL_SURFACE pTargetSurface
+//!           [in] Pointer to target surface
+//! \param    bool* pbSupported
+//!           [out] true supported false not supported
+//! \return   MOS_STATUS
+//!           MOS_STATUS_SUCCESS if successful, otherwise failed
+//!
+MOS_STATUS SwFilterHdr::HdrIsOutputFormatSupported(
+    PVPHAL_SURFACE pTargetSurface,
+    bool          *pbSupported)
+{
+    VP_FUNC_CALL();
+
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    VP_PUBLIC_CHK_NULL(pTargetSurface);
+    VP_PUBLIC_CHK_NULL(pbSupported);
+
+    // HDR supported formats
+    if (pTargetSurface->Format == Format_A8R8G8B8 ||
+        pTargetSurface->Format == Format_X8R8G8B8 ||
+        pTargetSurface->Format == Format_A8B8G8R8 ||
+        pTargetSurface->Format == Format_X8B8G8R8 ||
+        pTargetSurface->Format == Format_R10G10B10A2 ||
+        pTargetSurface->Format == Format_B10G10R10A2 ||
+        pTargetSurface->Format == Format_A16B16G16R16 ||
+        pTargetSurface->Format == Format_A16R16G16B16 ||
+        pTargetSurface->Format == Format_YUY2 ||
+        pTargetSurface->Format == Format_P016 ||
+        pTargetSurface->Format == Format_NV12 ||
+        pTargetSurface->Format == Format_P010 ||
+        pTargetSurface->Format == Format_P016 ||
+        pTargetSurface->Format == Format_A16R16G16B16F ||
+        pTargetSurface->Format == Format_A16B16G16R16F)
+    {
+        *pbSupported = true;
+        goto finish;
+    }
+    else
+    {
+        VP_RENDER_ASSERTMESSAGE(
+            "HDR Unsupported Target Format: '0x%08x'\n",
+            pTargetSurface->Format);
+        *pbSupported = false;
+    }
+
+finish:
+    return eStatus;
+}
+
 bool vp::SwFilterHdr::operator==(SwFilter &swFilter)
 {
     VP_FUNC_CALL();
@@ -1326,6 +1565,12 @@ bool vp::SwFilterHdr::operator==(SwFilter &swFilter)
 MOS_STATUS vp::SwFilterHdr::Update(VP_SURFACE *inputSurf, VP_SURFACE *outputSurf, SwFilterSubPipe &pipe)
 {
     VP_FUNC_CALL();
+
+    if (m_Params.stage == HDR_STAGE_VEBOX_3DLUT_UPDATE)
+    {
+        VP_PUBLIC_NORMALMESSAGE("HDR 3DLUT Kernel path already update format, skip further update.");
+        return MOS_STATUS_SUCCESS;
+    }
 
     VP_PUBLIC_CHK_NULL_RETURN(inputSurf);
     VP_PUBLIC_CHK_NULL_RETURN(inputSurf->osSurface);
@@ -1460,6 +1705,20 @@ MOS_STATUS SwFilterBlending::Configure(VP_PIPELINE_PARAMS& params, bool isInputS
     m_Params.formatOutput   = surfInput->Format;
     m_Params.blendingParams = surfInput->pBlendingParams;
 
+    //Skip Blend PARTIAL for alpha input non alpha output
+    if (m_Params.blendingParams && m_Params.blendingParams->BlendType == BLEND_PARTIAL)
+    {
+        auto surfOutput = params.pTarget[0];
+        if (surfOutput)
+        {
+            if (IS_ALPHA_FORMAT(m_Params.formatInput) &&
+                !IS_ALPHA_FORMAT(surfOutput->Format))
+            {
+                VP_PUBLIC_NORMALMESSAGE("Force to use Blend Source instead of Blend Partial");
+                m_Params.blendingParams->BlendType = BLEND_SOURCE;
+            }
+        }
+    }
     return MOS_STATUS_SUCCESS;
 }
 
@@ -1756,6 +2015,135 @@ MOS_STATUS vp::SwFilterAlpha::Update(VP_SURFACE* inputSurf, VP_SURFACE* outputSu
 }
 
 /****************************************************************************************************/
+/*                                      SwFilterCgc                                                 */
+/****************************************************************************************************/
+
+SwFilterCgc::SwFilterCgc(VpInterface& vpInterface) : SwFilter(vpInterface, FeatureTypeCgc)
+{
+    m_Params.type = m_type;
+}
+
+SwFilterCgc::~SwFilterCgc()
+{
+    Clean();
+}
+
+MOS_STATUS SwFilterCgc::Clean()
+{
+    VP_FUNC_CALL();
+
+    VP_PUBLIC_CHK_STATUS_RETURN(SwFilter::Clean());
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS SwFilterCgc::Configure(VP_PIPELINE_PARAMS& params, bool isInputSurf, int surfIndex)
+{
+    VP_FUNC_CALL();
+
+    PVPHAL_SURFACE surfInput = static_cast<PVPHAL_SURFACE>(isInputSurf ? params.pSrc[surfIndex] : params.pSrc[0]);
+    PVPHAL_SURFACE surfOutput = isInputSurf ? params.pTarget[0] : params.pTarget[surfIndex];
+    VP_PUBLIC_CHK_NULL_RETURN(surfInput);
+    VP_PUBLIC_CHK_NULL_RETURN(surfOutput);
+
+    m_Params.formatInput   = surfInput->Format;
+    m_Params.formatOutput  = surfInput->Format; // CGC didn't change the original format;
+
+    if (IsBt2020ToRGB(params, isInputSurf, surfIndex))
+    {
+        m_Params.formatOutput     = Format_A8B8G8R8;
+        m_Params.bBt2020ToRGB     = true;
+        m_Params.colorSpace       = surfInput->ColorSpace;
+        m_Params.GCompMode        = GAMUT_MODE_NONE;
+        m_Params.bExtendedSrcGamut = false;
+        m_Params.bExtendedDstGamut = false;
+        m_Params.dwAttenuation = 0;
+        MOS_ZeroMemory(m_Params.displayRGBW_x, sizeof(m_Params.displayRGBW_x));
+        MOS_ZeroMemory(m_Params.displayRGBW_y, sizeof(m_Params.displayRGBW_y));
+    }
+    else
+    {
+        m_Params.GCompMode = GAMUT_MODE_NONE;
+        m_Params.colorSpace = CSpace_Any;
+        m_Params.bExtendedSrcGamut = false;
+        m_Params.bExtendedDstGamut = false;
+        m_Params.dwAttenuation = 0;
+        MOS_ZeroMemory(m_Params.displayRGBW_x, sizeof(m_Params.displayRGBW_x));
+        MOS_ZeroMemory(m_Params.displayRGBW_y, sizeof(m_Params.displayRGBW_y));
+    }
+
+    return MOS_STATUS_SUCCESS;
+}
+
+FeatureParamCgc& SwFilterCgc::GetSwFilterParams()
+{
+    VP_FUNC_CALL();
+
+    return m_Params;
+}
+
+SwFilter * SwFilterCgc::Clone()
+{
+    VP_FUNC_CALL();
+
+    SwFilter* p = CreateSwFilter(m_type);
+
+    SwFilterCgc *swFilter = dynamic_cast<SwFilterCgc *>(p);
+    if (nullptr == swFilter)
+    {
+        DestroySwFilter(p);
+        return nullptr;
+    }
+
+    swFilter->m_Params = m_Params;
+    return p;
+}
+
+bool SwFilterCgc::operator==(SwFilter& swFilter)
+{
+    VP_FUNC_CALL();
+
+    SwFilterCgc* p = dynamic_cast<SwFilterCgc*>(&swFilter);
+    return nullptr != p && 0 == memcmp(&this->m_Params, &p->m_Params, sizeof(FeatureParamCgc));
+}
+
+MOS_STATUS SwFilterCgc::Update(VP_SURFACE* inputSurf, VP_SURFACE* outputSurf, SwFilterSubPipe &pipe)
+{
+    VP_FUNC_CALL();
+
+    VP_PUBLIC_CHK_NULL_RETURN(inputSurf);
+    VP_PUBLIC_CHK_NULL_RETURN(inputSurf->osSurface);
+    VP_PUBLIC_CHK_NULL_RETURN(outputSurf);
+    VP_PUBLIC_CHK_NULL_RETURN(outputSurf->osSurface);
+    m_Params.formatInput = inputSurf->osSurface->Format;
+    m_Params.formatOutput = outputSurf->osSurface->Format;
+    return MOS_STATUS_SUCCESS;
+}
+
+bool SwFilterCgc::IsBt2020ToRGB(VP_PIPELINE_PARAMS& params, bool isInputSurf, int surfIndex)
+{
+    VP_FUNC_CALL();
+
+    PVPHAL_SURFACE surfInput = static_cast<PVPHAL_SURFACE>(isInputSurf ? params.pSrc[surfIndex] : params.pSrc[0]);
+    PVPHAL_SURFACE surfOutput = isInputSurf ? params.pTarget[0] : params.pTarget[surfIndex];
+
+    if (surfInput && surfOutput &&
+        IS_COLOR_SPACE_BT2020_YUV(surfInput->ColorSpace))
+    {
+        if ((surfOutput->ColorSpace == CSpace_BT601) ||
+            (surfOutput->ColorSpace == CSpace_BT709) ||
+            (surfOutput->ColorSpace == CSpace_BT601_FullRange) ||
+            (surfOutput->ColorSpace == CSpace_BT709_FullRange) ||
+            (surfOutput->ColorSpace == CSpace_stRGB) ||
+            (surfOutput->ColorSpace == CSpace_sRGB))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/****************************************************************************************************/
 /*                                      SwFilterSet                                                 */
 /****************************************************************************************************/
 
@@ -1859,6 +2247,20 @@ MOS_STATUS SwFilterSet::Update(VP_SURFACE *inputSurf, VP_SURFACE *outputSurf, Sw
     {
         VP_PUBLIC_CHK_NULL_RETURN(swFilter.second);
         VP_PUBLIC_CHK_STATUS_RETURN(swFilter.second->Update(inputSurf, outputSurf, pipe));
+    }
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS SwFilterSet::AddFeatureGraphRTLog()
+{
+    VP_FUNC_CALL();
+
+    for (auto swFilter : m_swFilters)
+    {
+        if (swFilter.second)
+        {
+            swFilter.second->AddFeatureGraphRTLog();
+        }
     }
     return MOS_STATUS_SUCCESS;
 }

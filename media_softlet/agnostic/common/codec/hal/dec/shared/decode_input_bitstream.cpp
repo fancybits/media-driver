@@ -29,7 +29,6 @@
 #include "decode_input_bitstream.h"
 #include "decode_basic_feature.h"
 #include "decode_pipeline.h"
-
 #include "decode_huc_packet_creator_base.h"
 
 namespace decode {
@@ -40,14 +39,17 @@ DecodeInputBitstream::DecodeInputBitstream(DecodePipeline* pipeline, MediaTask* 
 
 DecodeInputBitstream::~DecodeInputBitstream()
 {
-    m_allocator->Destroy(m_catenatedBuffer);
+    if (m_allocator)
+    {
+        m_allocator->Destroy(m_catenatedBuffer);
+    }
 }
 
 MOS_STATUS DecodeInputBitstream::Init(CodechalSetting& settings)
 {
     DECODE_CHK_NULL(m_pipeline);
 
-    CodechalHwInterface* hwInterface = m_pipeline->GetHwInterface();
+    CodechalHwInterfaceNext *hwInterface = m_pipeline->GetHwInterface();
     DECODE_CHK_NULL(hwInterface);
     PMOS_INTERFACE osInterface = hwInterface->GetOsInterface();
     DECODE_CHK_NULL(osInterface);

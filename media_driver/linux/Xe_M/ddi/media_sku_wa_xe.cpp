@@ -31,7 +31,7 @@
 #include "linux_media_skuwa.h"
 #include "mos_utilities.h"
 #include "mos_os_specific.h"
-#include "media_user_setting.h"
+#include "media_user_setting_specific.h"
 
 #ifndef SI_REV_LO
 #define SI_REV_LO(SteppingID) (SteppingID & 0xFFFF)
@@ -138,7 +138,8 @@ static struct LinuxCodecInfo PvcCodecInfo =
 static bool InitTglMediaSkuExt(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
                              struct LinuxDriverInfo *drvInfo,
-                             struct LinuxCodecInfo *codecInfo)
+                             struct LinuxCodecInfo *codecInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
     if ((devInfo == nullptr) || (skuTable == nullptr) || (drvInfo == nullptr))
     {
@@ -299,6 +300,8 @@ static bool InitTglMediaSkuExt(struct GfxDeviceInfo *devInfo,
     MEDIA_WR_SKU(skuTable, FtrLinearCCS, 1);
     MEDIA_WR_SKU(skuTable, FtrFlatPhysCCS, 0);
 
+    MEDIA_WR_SKU(skuTable, FtrHeight8AlignVE3DLUTDualPipe, 1);
+
     // Disable MMC for all components if set reg key
     MOS_USER_FEATURE_VALUE_DATA userFeatureData;
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -317,15 +320,17 @@ static bool InitTglMediaSkuExt(struct GfxDeviceInfo *devInfo,
 
      bool compressibleSurfaceEnable = false;
 
-    ReadUserSetting(nullptr,
+    ReadUserSetting(userSettingPtr,
         compressibleSurfaceEnable,
         "Enable Compressible Surface Creation",
         MediaUserSetting::Group::Device);
-
+        
+#ifdef _MMC_SUPPORTED
     if (compressibleSurfaceEnable)
     {
         MEDIA_WR_SKU(skuTable, FtrCompressibleSurfaceDefault, 1);
     }
+#endif
 
     if (drvInfo->devId == 0xFF20)
     {
@@ -438,14 +443,16 @@ static bool InitTglMediaWaExt(struct GfxDeviceInfo *devInfo,
     }
 
     MEDIA_WR_WA(waTable, WaEnableVPPCopy, 1);
+    MEDIA_WR_WA(waTable, Wa_AvcUnalignedHeight, 1);
     return true;
 }
 
 static bool InitXehpSDVMediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
-    if (!InitTglMediaSkuExt(devInfo, skuTable, drvInfo, &XehpSdvCodecInfo))
+    if (!InitTglMediaSkuExt(devInfo, skuTable, drvInfo, &XehpSdvCodecInfo, userSettingPtr))
     {
         return false;
     }
@@ -567,9 +574,10 @@ static bool InitXehpSDVMediaWa(struct GfxDeviceInfo *devInfo,
 
 static bool InitPvcMediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
-    if (!InitTglMediaSkuExt(devInfo, skuTable, drvInfo, &PvcCodecInfo))
+    if (!InitTglMediaSkuExt(devInfo, skuTable, drvInfo, &PvcCodecInfo, userSettingPtr))
     {
         return false;
     }
@@ -739,9 +747,10 @@ static bool InitPvcMediaWa(struct GfxDeviceInfo *devInfo,
 
 static bool InitDg2MediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
-    if (!InitTglMediaSkuExt(devInfo, skuTable, drvInfo, &Dg2CodecInfo))
+    if (!InitTglMediaSkuExt(devInfo, skuTable, drvInfo, &Dg2CodecInfo, userSettingPtr))
     {
         return false;
     }
@@ -821,6 +830,16 @@ static bool InitDg2MediaSku(struct GfxDeviceInfo *devInfo,
     // Enable HVS Denoise
     MEDIA_WR_SKU(skuTable, FtrHVSDenoise, 1);
 
+    #define IS_SERVER_SKU(d) (((d) >= 0x56C0) && ((d) <= 0x56C1))
+    if (IS_SERVER_SKU(drvInfo->devId))
+    {
+        drvInfo->isServer = 1;
+    }
+    else
+    {
+        drvInfo->isServer = 0;
+    }
+
     return true;
 }
 
@@ -855,32 +874,10 @@ static bool InitDg2MediaWa(struct GfxDeviceInfo *devInfo,
         MEDIA_WR_WA(waTable, Wa_22011700429, 1);
     }
 
+    // For DG2 128/512 need to distinguish A stepping and B stepping
     // Disable B+ stepping features on DG2A
-    if (drvInfo->devId == 0x4F80 ||
-        drvInfo->devId == 0x4F81 ||
-        drvInfo->devId == 0x4F82 ||
-        drvInfo->devId == 0x4F83 ||
-        drvInfo->devId == 0x4F84 ||
-        drvInfo->devId == 0x4F85 ||
-        drvInfo->devId == 0x4F86 ||
-        drvInfo->devId == 0x5690 ||
-        drvInfo->devId == 0x5691 ||
-        drvInfo->devId == 0x5692 ||
-        drvInfo->devId == 0x5695 ||
-        drvInfo->devId == 0x5696 ||
-        drvInfo->devId == 0x5697 ||
-        drvInfo->devId == 0x5698 ||
-        drvInfo->devId == 0x56A0 ||
-        drvInfo->devId == 0x56A1 ||
-        drvInfo->devId == 0x56A2 ||
-        drvInfo->devId == 0x56A3 ||
-        drvInfo->devId == 0x56A4 ||
-        drvInfo->devId == 0x56A5 ||
-        drvInfo->devId == 0x56A6 ||
-        drvInfo->devId == 0x56A7 ||
-        drvInfo->devId == 0x56A8 ||
-        drvInfo->devId == 0x56A9 ||
-        drvInfo->devId == 0x56C0)
+    if (GFX_IS_DG2_G10_CONFIG(drvInfo->devId) ||
+        GFX_IS_DG2_G11_CONFIG(drvInfo->devId))
     {
         if (drvInfo->devRev < 4)
         {
@@ -890,6 +887,12 @@ static bool InitDg2MediaWa(struct GfxDeviceInfo *devInfo,
             MEDIA_WR_WA(waTable, Wa_2209975292, 1);
             MEDIA_WR_WA(waTable, WaHEVCVDEncForceDeltaQpRoiNotSupported, 1);
         }
+        MEDIA_WR_WA(waTable, Wa_22011549751, 1);
+    }
+
+    // for DG2 256EU, support B+ features, don't need wa for A stepping
+    if (GFX_IS_DG2_G12_CONFIG(drvInfo->devId))
+    {
         MEDIA_WR_WA(waTable, Wa_22011549751, 1);
     }
 
@@ -910,6 +913,10 @@ static bool InitDg2MediaWa(struct GfxDeviceInfo *devInfo,
 
     // Remove the WA of DummyReference
     MEDIA_WR_WA(waTable, WaDummyReference, 0);
+
+    MEDIA_WR_WA(waTable, WaDisableSetObjectCapture, 1);
+
+    MEDIA_WR_WA(waTable, Wa_15013355402, 1);
 
     return true;
 }

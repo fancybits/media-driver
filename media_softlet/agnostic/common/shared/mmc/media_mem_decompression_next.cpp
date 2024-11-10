@@ -27,6 +27,7 @@
 #include "media_mem_decompression_next.h"
 #include "vp_utils.h"
 #include "renderhal.h"
+#include "mos_os_cp_interface_specific.h"
 
 MediaMemDeCompNext::MediaMemDeCompNext():
     m_osInterface(nullptr),
@@ -35,6 +36,10 @@ MediaMemDeCompNext::MediaMemDeCompNext():
     m_cpInterface(nullptr)
 {
     m_veboxMMCResolveEnabled = false;
+    if (!m_renderMutex)
+    {
+        m_renderMutex = MosUtilities::MosCreateMutex();
+    }
 }
 
 MediaMemDeCompNext::~MediaMemDeCompNext()
@@ -48,8 +53,15 @@ MediaMemDeCompNext::~MediaMemDeCompNext()
 
     if (m_cpInterface)
     {
-        Delete_MhwCpInterface(m_cpInterface);
-        m_cpInterface = nullptr;
+        if (m_osInterface)
+        {
+            m_osInterface->pfnDeleteMhwCpInterface(m_cpInterface);
+            m_cpInterface = nullptr;
+        }
+        else
+        {
+            VPHAL_MEMORY_DECOMP_ASSERTMESSAGE("Failed to destroy cpInterface.");
+        }
     }
 
     if (m_osInterface)
@@ -58,12 +70,11 @@ MediaMemDeCompNext::~MediaMemDeCompNext()
         MOS_FreeMemory(m_osInterface);
         m_osInterface = nullptr;
     }
-
-    if (m_miInterface)
+    if (m_renderMutex)
     {
-        MOS_Delete(m_miInterface);
+        MosUtilities::MosDestroyMutex(m_renderMutex);
+        m_renderMutex = nullptr;
     }
-
 }
 
 MOS_STATUS MediaMemDeCompNext::MemoryDecompress(PMOS_RESOURCE targetResource)
@@ -96,7 +107,32 @@ MOS_STATUS MediaMemDeCompNext::MemoryDecompress(PMOS_RESOURCE targetResource)
 
             if (targetSurface.bCompressible)
             {
-                VPHAL_MEMORY_DECOMP_CHK_STATUS_RETURN(RenderDecompCMD(&targetSurface));
+                VPHAL_MEMORY_DECOMP_CHK_NULL_RETURN(m_renderMutex);
+                MosUtilities::MosLockMutex(m_renderMutex);
+
+#if (_DEBUG || _RELEASE_INTERNAL) && !defined(LINUX)
+                TRACEDATA_MEDIA_MEM_DECOMP eventData = {0};
+                TRACEDATA_MEDIA_MEM_DECOMP_INIT(
+                    eventData,
+                    targetResource->AllocationInfo.m_AllocationHandle,
+                    targetSurface.dwWidth,
+                    targetSurface.dwHeight,
+                    targetSurface.Format,
+                    *((int64_t *)&targetResource->pGmmResInfo->GetResFlags().Gpu),
+                    *((int64_t *)&targetResource->pGmmResInfo->GetResFlags().Info)
+                );
+                MOS_TraceEventExt(EVENT_DDI_MEDIA_MEM_DECOMP_CALLBACK, EVENT_TYPE_INFO, &eventData, sizeof(eventData), nullptr, 0);
+#endif
+                eStatus = RenderDecompCMD(&targetSurface);
+                if (eStatus != MOS_STATUS_SUCCESS)
+                {
+                    MosUtilities::MosUnlockMutex(m_renderMutex);
+                    VPHAL_MEMORY_DECOMP_CHK_STATUS_RETURN(eStatus);
+                }
+                else
+                {
+                    MosUtilities::MosUnlockMutex(m_renderMutex);
+                }
             }
         }
     }
@@ -106,7 +142,9 @@ MOS_STATUS MediaMemDeCompNext::MemoryDecompress(PMOS_RESOURCE targetResource)
 
 MOS_STATUS MediaMemDeCompNext::MediaMemoryCopy(PMOS_RESOURCE inputResource, PMOS_RESOURCE outputResource, bool outputCompressed)
 {
-    MOS_STATUS                          eStatus = MOS_STATUS_SUCCESS;
+    MOS_STATUS eStatus             = MOS_STATUS_SUCCESS;
+    bool       bValidInputSurface  = false;
+    bool       bValidOutputSurface = false;
 
     MHW_FUNCTION_ENTER;
 
@@ -189,8 +227,8 @@ MOS_STATUS MediaMemDeCompNext::MediaMemoryCopy(PMOS_RESOURCE inputResource, PMOS
                 break;
             }
             // This resource is a series of bytes. Is not 2 dimensional.
-            uint32_t sizeSrcMain = sourceSurface.dwWidth;
-            uint32_t sizeTargetMain = targetSurface.dwWidth;
+            uint32_t sizeSrcMain    = sourceSurface.dwSize;
+            uint32_t sizeTargetMain = targetSurface.dwSize;
             eStatus = MOS_SecureMemcpy(lockedTarAddr, sizeTargetMain, lockedSrcAddr, sizeSrcMain);
             m_osInterface->pfnUnlockResource(m_osInterface, &sourceSurface.OsResource);
             m_osInterface->pfnUnlockResource(m_osInterface, &targetSurface.OsResource);
@@ -218,6 +256,14 @@ MOS_STATUS MediaMemDeCompNext::MediaMemoryCopy(PMOS_RESOURCE inputResource, PMOS
         return eStatus;
     }
 
+    //Check whether surface is valid, or it will cause page fault
+    m_osInterface->pfnVerifyMosSurface(&sourceSurface, bValidInputSurface);
+    m_osInterface->pfnVerifyMosSurface(&targetSurface, bValidOutputSurface);
+    if (!bValidInputSurface || !bValidOutputSurface)
+    {
+        VPHAL_MEMORY_DECOMP_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+    }
+
     //Get context before proceeding
     auto gpuContext = m_osInterface->CurrentGpuContextOrdinal;
 
@@ -235,15 +281,40 @@ MOS_STATUS MediaMemDeCompNext::MediaMemoryCopy(PMOS_RESOURCE inputResource, PMOS
         MOS_GPU_CONTEXT_VEBOX,
         false);
 
+#if (_DEBUG || _RELEASE_INTERNAL) && !defined(LINUX)
+    TRACEDATA_MEDIACOPY eventData = {0};
+    TRACEDATA_MEDIACOPY_INIT(
+        eventData,
+        inputResource->AllocationInfo.m_AllocationHandle,
+        sourceSurface.dwWidth,
+        sourceSurface.dwHeight,
+        sourceSurface.Format,
+        *((int64_t *)&inputResource->pGmmResInfo->GetResFlags().Gpu),
+        *((int64_t *)&inputResource->pGmmResInfo->GetResFlags().Info),
+        inputResource->pGmmResInfo->GetSetCpSurfTag(0, 0),
+        outputResource->AllocationInfo.m_AllocationHandle,
+        targetSurface.dwWidth,
+        targetSurface.dwHeight,
+        targetSurface.Format,
+        *((int64_t *)&outputResource->pGmmResInfo->GetResFlags().Gpu),
+        *((int64_t *)&outputResource->pGmmResInfo->GetResFlags().Info),
+        outputResource->pGmmResInfo->GetSetCpSurfTag(0, 0)
+
+    );
+    MOS_TraceEventExt(EVENT_MEDIA_COPY, EVENT_TYPE_INFO, &eventData, sizeof(eventData), nullptr, 0);
+#endif
+
     VPHAL_MEMORY_DECOMP_CHK_STATUS_RETURN(RenderDoubleBufferDecompCMD(&sourceSurface, &targetSurface));
 
     MOS_TraceEventExt(EVENT_MEDIA_COPY, EVENT_TYPE_END, nullptr, 0, nullptr, 0);
     return eStatus;
 }
 
-MOS_STATUS MediaMemDeCompNext::MediaMemoryCopy2D(PMOS_RESOURCE inputResource, PMOS_RESOURCE outputResource, uint32_t copyWidth, uint32_t copyHeight, uint32_t copyInputOffset, uint32_t copyOutputOffset, uint32_t bpp, bool outputCompressed)
+MOS_STATUS MediaMemDeCompNext::MediaMemoryCopy2D(PMOS_RESOURCE inputResource, PMOS_RESOURCE outputResource, uint32_t copyPitch, uint32_t copyHeight, uint32_t copyInputOffset, uint32_t copyOutputOffset, uint32_t bpp, bool outputCompressed)
 {
-    MOS_STATUS                          eStatus = MOS_STATUS_SUCCESS;
+    MOS_STATUS eStatus             = MOS_STATUS_SUCCESS;
+    bool       bValidInputSurface  = false;
+    bool       bValidOutputSurface = false;
 
     MHW_FUNCTION_ENTER;
 
@@ -323,10 +394,20 @@ MOS_STATUS MediaMemDeCompNext::MediaMemoryCopy2D(PMOS_RESOURCE inputResource, PM
     sourceSurface.dwOffset = copyInputOffset;
     targetSurface.dwOffset = copyOutputOffset;
 
-    sourceSurface.dwWidth = copyWidth / pixelInByte;
+    sourceSurface.dwWidth = copyPitch / pixelInByte;
+    sourceSurface.dwPitch  = copyPitch;
     sourceSurface.dwHeight = copyHeight;
-    targetSurface.dwWidth = copyWidth / pixelInByte;
+    targetSurface.dwWidth = copyPitch / pixelInByte;
+    targetSurface.dwPitch  = copyPitch;
     targetSurface.dwHeight = copyHeight;
+
+    //Check whether surface is valid, or it will cause page fault
+    m_osInterface->pfnVerifyMosSurface(&sourceSurface, bValidInputSurface);
+    m_osInterface->pfnVerifyMosSurface(&targetSurface, bValidOutputSurface);
+    if (!bValidInputSurface || !bValidOutputSurface)
+    {
+        VPHAL_MEMORY_DECOMP_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+    }
 
     // Sync for Vebox write
     m_osInterface->pfnSyncOnResource(
@@ -454,9 +535,6 @@ MOS_STATUS MediaMemDeCompNext::Initialize(PMOS_INTERFACE osInterface, MhwInterfa
     m_miItf       = mhwInterfaces->m_miItf;
     m_veboxItf    = mhwInterfaces->m_veboxItf;
 
-    // track legacy vebox/mi interface after mhw created
-    m_miInterface    = mhwInterfaces->m_miInterface;
-
     m_userSettingPtr = m_osInterface->pfnGetUserSettingInstance(m_osInterface);
 
     // Set-Up Vebox decompression enable or not
@@ -464,7 +542,7 @@ MOS_STATUS MediaMemDeCompNext::Initialize(PMOS_INTERFACE osInterface, MhwInterfa
 
     if (m_veboxItf)
     {
-        gpuNodeLimit.bCpEnabled = (m_osInterface->pfnIsCpEnabled(m_osInterface)) ? true : false;
+        gpuNodeLimit.bCpEnabled = (m_osInterface->osCpInterface->IsCpEnabled()) ? true : false;
 
         // Check GPU Node decide logic together in this function
         VPHAL_MEMORY_DECOMP_CHK_STATUS_RETURN(m_veboxItf->FindVeboxGpuNodeToUse(&gpuNodeLimit));

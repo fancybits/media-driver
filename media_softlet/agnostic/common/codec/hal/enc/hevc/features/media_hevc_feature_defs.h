@@ -42,11 +42,9 @@ struct HevcFeatureIDs : public FeatureIDs
         hevcVdencSccFeature,
         vdencLplaAnalysisFeature,
         hevcVdencLplaEncFeature,
-#if _MEDIA_RESERVED
-#define HEVC_FEATURE_IDS_EXT
-#include "media_hevc_feature_defs_ext.h"
-#undef HEVC_FEATURE_IDS_EXT
-#endif
+        hevcFullEncFeature,
+        hevcAqm,
+        hevcVdencFastPassFeature,
     };
 };
 

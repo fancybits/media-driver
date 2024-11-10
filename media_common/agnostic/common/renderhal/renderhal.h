@@ -35,9 +35,10 @@
 #include "mhw_state_heap.h"
 #include "mhw_render.h"
 #include "mhw_memory_pool.h"
-#include "media_perf_profiler_next.h"
+#include "media_perf_profiler.h"
 #include "frame_tracker.h"
 #include "media_common_defs.h"
+#include "surface_state_heap_mgr.h"
 
 class XRenderHal_Platform_Interface;
 
@@ -701,6 +702,9 @@ typedef enum _RENDERHAL_PLANE_DEFINITION
     RENDERHAL_PLANES_R32G32B32A32F,
     RENDERHAL_PLANES_Y8_ADV,
     RENDERHAL_PLANES_G32R32F,
+    RENDERHAL_PLANES_NV12_2PLANES_COMBINED,
+    RENDERHAL_PLANES_P016_2PLANES_COMBINED,
+    RENDERHAL_PLANES_YUY2_2PLANES_WIDTH_UNALIGNED,
 
     RENDERHAL_PLANES_DEFINITION_COUNT
 } RENDERHAL_PLANE_DEFINITION, *PRENDERHAL_PLANE_DEFINITION;
@@ -841,6 +845,7 @@ typedef struct _RENDERHAL_STATE_HEAP_SETTINGS
     int32_t             iSurfaceStates;                                         // Number of Surfaces per SSH
     int32_t             iSurfacesPerBT;                                         // Number of Surfaces per BT
     int32_t             iBTAlignment;                                           // BT Alignment size
+    MOS_HW_RESOURCE_DEF heapUsageType;
 } RENDERHAL_STATE_HEAP_SETTINGS, *PRENDERHAL_STATE_HEAP_SETTINGS;
 
 typedef struct _RENDERHAL_STATE_HEAP
@@ -965,7 +970,7 @@ typedef struct _RENDERHAL_STATE_HEAP
     RENDERHAL_KRN_ALLOC_LIST       KernelAllocationPool;                        // Pool of kernel allocation objects
     RENDERHAL_KRN_ALLOC_LIST       KernelsSubmitted;                            // Kernel submission list
     RENDERHAL_KRN_ALLOC_LIST       KernelsAllocated;                            // kernel allocation list (kernels in ISH not currently being executed)
-
+    SurfaceStateHeapManager       *surfaceStateMgr;                             // Surface state manager
 } RENDERHAL_STATE_HEAP, *PRENDERHAL_STATE_HEAP;
 
 typedef struct _RENDERHAL_DYNAMIC_MEDIA_STATE_PARAMS
@@ -1022,7 +1027,11 @@ typedef struct _RENDERHAL_SURFACE_STATE_PARAMS
     uint32_t                        bChromasiting             : 1;              // Flag for chromasiting use
     uint32_t                        bVmeUse                   : 1;              // Flag for VME use
     uint32_t                        bBufferUse                : 1;              // Flags for 1D buffer use
-    uint32_t                                                  : 3;
+    uint32_t                        bSurfaceTypeDefined       : 1;
+    uint32_t                        forceCommonSurfaceMessage : 1;
+    uint32_t                        surfaceType               : 11;
+    MOS_COMPONENT                   Component                 : 4;
+    uint32_t                        combineChannelY           : 1;              // Combine 2 Luma Channel pixels into 1 pixel, so that kernel can reduce write times
     RENDERHAL_MEMORY_OBJECT_CONTROL MemObjCtl;                                  // Caching attributes
 } RENDERHAL_SURFACE_STATE_PARAMS, *PRENDERHAL_SURFACE_STATE_PARAMS;
 
@@ -1122,6 +1131,18 @@ typedef struct _RENDERHAL_SETMARKER_SETTINGS
 
 typedef MhwMiInterface *PMHW_MI_INTERFACE;
 
+typedef struct _RENDERHAL_ENLARGE_PARAMS
+{
+    //for ReAllocateStateHeapsforAdvFeatureWithSshEnlarged and ReAllocateStateHeapsforAdvFeatureWithAllHeapsEnlarged
+    int32_t iBindingTables;   // Number of BT per SSH instance
+    int32_t iSurfaceStates;   // Number of Surfaces per SSH
+    int32_t  iSurfacesPerBT;   // Size of BT
+    //for ReAllocateStateHeapsforAdvFeatureWithAllHeapsEnlarged only
+    int32_t iKernelCount;     // Number of Kernels that can be loaded
+    int32_t iKernelHeapSize;  // Size of GSH block for kernels
+    int32_t iCurbeSize;       // Size of CURBE area
+} RENDERHAL_ENLARGE_PARAMS, *PRENDERHAL_ENLARGE_PARAMS;
+
 //!
 // \brief   Hardware dependent render engine interface
 //!
@@ -1157,11 +1178,13 @@ typedef struct _RENDERHAL_INTERFACE
     PMHW_RENDER_ENGINE_CAPS       pHwCaps;                                      // HW Capabilities
     PMHW_RENDER_STATE_SIZES       pHwSizes;                                     // Sizes of HW commands/states
     RENDERHAL_STATE_HEAP_SETTINGS StateHeapSettings;                            // State Heap Settings
+    RENDERHAL_ENLARGE_PARAMS      enlargeStateHeapSettingsForAdv;               // State Heap Settings for Adv Feature
 
     // MHW parameters
     MHW_STATE_BASE_ADDR_PARAMS   StateBaseAddressParams;
     MHW_SIP_STATE_PARAMS         SipStateParams;
     MHW_WALKER_MODE              MediaWalkerMode;                               // Media object walker mode from Regkey: repel, dual mode, quad mode
+    uint32_t                     euThreadSchedulingMode;
 
     RENDERHAL_SURFACE_STATE_TYPE SurfaceTypeDefault;                            // Surface State type default
     RENDERHAL_SURFACE_STATE_TYPE SurfaceTypeAdvanced;                           // Surface State type advanced
@@ -1179,6 +1202,7 @@ typedef struct _RENDERHAL_INTERFACE
     bool                        bEnableGpgpuMidBatchPreEmption;                 // Middle Batch Buffer Preemption
     bool                        bEnableGpgpuMidThreadPreEmption;                // Middle Thread Preemption
     bool                        bComputeContextInUse;                           // Compute Context use for media
+    bool                        isBindlessHeapInUse;                            // Bindless Heap Mode use
 
     uint32_t                    dwMaskCrsThdConDataRdLn;                        // Unifies pfnSetupInterfaceDescriptor for g75,g8,...
     uint32_t                    dwMinNumberThreadsInGroup;                      // Unifies pfnSetupInterfaceDescriptor for g75,g8,...
@@ -1253,10 +1277,18 @@ typedef struct _RENDERHAL_INTERFACE
     bool                        bIsAVS;
 
     bool                        isMMCEnabled;
+#if (_DEBUG || _RELEASE_INTERNAL)
+    // RT Old cacheSetting
+    uint32_t                    oldCacheSettingForTargetSurface = 0;
+#endif
 
-    MediaPerfProfilerNext           *pPerfProfilerNext  = nullptr;  //!< Performance data profiler
-    bool                            eufusionBypass = false;
+    MediaPerfProfiler           *pPerfProfiler = nullptr; //!< Performance data profiler
+    bool                        eufusionBypass = false;
+    MediaUserSettingSharedPtr   userSettingPtr = nullptr; //!< Shared pointer to User Setting instance
 
+    // if it's true, will disable preemption by setting NeedsMidBatchPreEmptionSupport flag in command buffer attribute as false;
+    // will also skip preemption control bits configure.
+    bool                        forceDisablePreemption = false;
     //---------------------------
     // HW interface functions
     //---------------------------
@@ -1277,9 +1309,13 @@ typedef struct _RENDERHAL_INTERFACE
                 PRENDERHAL_INTERFACE            pRenderHal,
                 PRENDERHAL_STATE_HEAP_SETTINGS  pSettings);
 
-    MOS_STATUS (* pfnReAllocateStateHeapsforAdvFeature) (
+    MOS_STATUS (* pfnReAllocateStateHeapsforAdvFeatureWithSshEnlarged)(
                 PRENDERHAL_INTERFACE            pRenderHal,
                 bool                            &bAllocated);
+
+    MOS_STATUS (*pfnReAllocateStateHeapsforAdvFeatureWithAllHeapsEnlarged)(
+        PRENDERHAL_INTERFACE                    pRenderHal,
+        bool                                    &bAllocated);
 
     MOS_STATUS (* pfnFreeStateHeaps) (
                 PRENDERHAL_INTERFACE     pRenderHal);
@@ -1343,6 +1379,13 @@ typedef struct _RENDERHAL_INTERFACE
                 PRENDERHAL_INTERFACE            pRenderHal,
                 int32_t                         *piBindingTable);
 
+    MOS_STATUS (* pfnAssignBindlessSurfaceStates) (
+                PRENDERHAL_INTERFACE            pRenderHal);
+
+    MOS_STATUS (*pfnSendBindlessSurfaceStates) (
+                PRENDERHAL_INTERFACE            pRenderHal,
+                bool                            bNeedNullPatch);
+
     MOS_STATUS (* pfnBindSurfaceState) (
                 PRENDERHAL_INTERFACE            pRenderHal,
                 int32_t                         iBindingTableIndex,
@@ -1352,6 +1395,13 @@ typedef struct _RENDERHAL_INTERFACE
     uint32_t (* pfnGetSurfaceMemoryObjectControl) (
                 PRENDERHAL_INTERFACE            pRenderHal,
                 PRENDERHAL_SURFACE_STATE_PARAMS pParams);
+
+    MOS_STATUS (*pfnGetPlaneDefinitionForCommonMessage) (
+        PRENDERHAL_INTERFACE             pRenderHal,
+        MOS_FORMAT                       format,
+        PRENDERHAL_SURFACE_STATE_PARAMS &pParam,
+        bool                             isRenderTarget,
+        RENDERHAL_PLANE_DEFINITION      &planeDefinition);
 
     //---------------------------
     // State Setup - HW + OS Specific
@@ -1427,6 +1477,13 @@ typedef struct _RENDERHAL_INTERFACE
                 int32_t                     iMediaID,
                 PMHW_SAMPLER_STATE_PARAM    pSamplerParams,
                 int32_t                     iSamplers);
+
+    MOS_STATUS (*pfnSetAndGetSamplerStates) (
+                PRENDERHAL_INTERFACE     pRenderHal,
+                int32_t                  iMediaID,
+                PMHW_SAMPLER_STATE_PARAM pSamplerParams,
+                int32_t                  iSamplers,
+                std::map<uint32_t, uint32_t> &samplerMap);
 
     int32_t (* pfnAllocateMediaID) (
                 PRENDERHAL_INTERFACE        pRenderHal,

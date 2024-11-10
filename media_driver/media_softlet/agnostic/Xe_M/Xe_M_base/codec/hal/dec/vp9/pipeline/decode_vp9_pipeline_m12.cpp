@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2021, Intel Corporation
+* Copyright (c) 2020-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -37,14 +37,22 @@
 #include "decode_common_feature_defs.h"
 #include "decode_resource_auto_lock.h"
 #include "decode_vp9_feature_manager_m12.h"
+#include "decode_vp9_buffer_update_m12.h"
+#include "decode_sfc_histogram_postsubpipeline_m12.h"
+#include "decode_input_bitstream_m12.h"
+#include "decode_cp_bitstream_m12.h"
+#include "decode_marker_packet_g12.h"
+#include "decode_predication_packet_g12.h"
+#include "mos_interface.h"
 
 namespace decode
 {
 Vp9PipelineG12::Vp9PipelineG12(
     CodechalHwInterface *   hwInterface,
     CodechalDebugInterface *debugInterface)
-    : Vp9Pipeline(hwInterface, debugInterface)
+    : Vp9Pipeline(*hwInterface, debugInterface)
 {
+    m_hwInterface = hwInterface;
 }
 
 MOS_STATUS Vp9PipelineG12::Init(void *settings)
@@ -98,10 +106,6 @@ MOS_STATUS Vp9PipelineG12::Prepare(void *params)
                 DECODE_CHK_STATUS(DumpParams(*m_basicFeature));
                 );
 
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-            TraceDataDumpInternalBuffers(*m_basicFeature);
-#endif
-
             DecodeStatusParameters inputParameters = {};
             MOS_ZeroMemory(&inputParameters, sizeof(DecodeStatusParameters));
             inputParameters.statusReportFeedbackNumber = m_basicFeature->m_vp9PicParams->StatusReportFeedbackNumber;
@@ -111,6 +115,14 @@ MOS_STATUS Vp9PipelineG12::Prepare(void *params)
             inputParameters.currOriginalPic            = m_basicFeature->m_curRenderPic;
             inputParameters.currDecodedPicRes          = m_basicFeature->m_destSurface.OsResource;
             inputParameters.numUsedVdbox               = m_numVdbox;
+            
+            CODECHAL_DEBUG_TOOL(
+                if (m_streamout != nullptr)  
+                {  
+                    DECODE_CHK_STATUS(m_streamout->InitStatusReportParam(inputParameters));  
+                }  
+            );
+
 #if (_DEBUG || _RELEASE_INTERNAL)
 #ifdef _DECODE_PROCESSING_SUPPORTED
             DecodeDownSamplingFeature *downSamplingFeature = dynamic_cast<DecodeDownSamplingFeature *>(
@@ -118,7 +130,7 @@ MOS_STATUS Vp9PipelineG12::Prepare(void *params)
             if (downSamplingFeature != nullptr)
             {
                 auto frameIdx                   = m_basicFeature->m_curRenderPic.FrameIdx;
-                inputParameters.sfcOutputPicRes = &downSamplingFeature->m_outputSurfaceList[frameIdx].OsResource;
+                inputParameters.sfcOutputSurface = &downSamplingFeature->m_outputSurfaceList[frameIdx];
                 if (downSamplingFeature->m_histogramBuffer != nullptr)
                 {
                     inputParameters.histogramOutputBuf = &downSamplingFeature->m_histogramBuffer->OsResource;
@@ -131,6 +143,74 @@ MOS_STATUS Vp9PipelineG12::Prepare(void *params)
         }
     }
 
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS Vp9PipelineG12::InitContexOption(Vp9BasicFeature &basicFeature)
+{
+    DecodeScalabilityPars scalPars;
+    MOS_ZeroMemory(&scalPars, sizeof(scalPars));
+
+    scalPars.usingHcp           = true;
+    scalPars.enableVE           = MOS_VE_SUPPORTED(m_osInterface);
+    scalPars.disableScalability = m_hwInterface->IsDisableScalability();
+    scalPars.surfaceFormat      = basicFeature.m_destSurface.Format;
+    scalPars.frameWidth         = basicFeature.m_frameWidthAlignedMinBlk;
+    scalPars.frameHeight        = basicFeature.m_frameHeightAlignedMinBlk;
+    scalPars.numVdbox           = m_numVdbox;
+    bool isMultiDevices = false, isMultiEngine = false;
+    m_osInterface->pfnGetMultiEngineStatus(m_osInterface, nullptr, COMPONENT_Encode, isMultiDevices, isMultiEngine);
+    if (isMultiDevices && !isMultiEngine)
+    {
+        scalPars.disableScalability = true;
+    }
+#if (_DEBUG || _RELEASE_INTERNAL)
+    if (m_osInterface->bHcpDecScalabilityMode == MOS_SCALABILITY_ENABLE_MODE_FALSE)
+    {
+        scalPars.disableScalability = true;
+    }
+    else if (m_osInterface->bHcpDecScalabilityMode == MOS_SCALABILITY_ENABLE_MODE_USER_FORCE)
+    {
+        scalPars.disableScalability = false;
+    }
+    scalPars.modeSwithThreshold1 =
+        ReadUserFeature(m_userSettingPtr, "HCP Decode Mode Switch TH1", MediaUserSetting::Group::Sequence).Get<uint32_t>();
+    scalPars.modeSwithThreshold2 =
+        ReadUserFeature(m_userSettingPtr, "HCP Decode Mode Switch TH2", MediaUserSetting::Group::Sequence).Get<uint32_t>();
+    scalPars.forceMultiPipe =
+        ReadUserFeature(m_userSettingPtr, "HCP Decode Always Frame Split", MediaUserSetting::Group::Sequence).Get<bool>();
+    scalPars.userPipeNum =
+        ReadUserFeature(m_userSettingPtr, "HCP Decode User Pipe Num", MediaUserSetting::Group::Sequence).Get<uint8_t>();
+#endif
+
+#ifdef _DECODE_PROCESSING_SUPPORTED
+    DecodeDownSamplingFeature *downSamplingFeature = dynamic_cast<DecodeDownSamplingFeature *>(
+        m_featureManager->GetFeature(DecodeFeatureIDs::decodeDownSampling));
+    if (downSamplingFeature != nullptr && downSamplingFeature->IsEnabled())
+    {
+        scalPars.usingSfc = true;
+        if (!MEDIA_IS_SKU(m_skuTable, FtrSfcScalability))
+        {
+            scalPars.disableScalability = true;
+        }
+    }
+    //Disable Scalability when histogram is enabled
+    if (downSamplingFeature != nullptr && (downSamplingFeature->m_histogramDestSurf || downSamplingFeature->m_histogramDebug))
+    {
+        scalPars.disableScalability = true;
+    }
+#endif
+
+    if (MEDIA_IS_SKU(m_skuTable, FtrVirtualTileScalabilityDisable))
+    {
+        scalPars.disableScalability = true;
+        scalPars.disableVirtualTile = true;
+    }
+
+    if (!scalPars.disableScalability)
+        m_osInterface->pfnSetMultiEngineEnabled(m_osInterface, COMPONENT_Decode, true);
+
+    DECODE_CHK_STATUS(m_scalabOption.SetScalabilityOption(&scalPars));
     return MOS_STATUS_SUCCESS;
 }
 
@@ -160,7 +240,9 @@ MOS_STATUS Vp9PipelineG12::Execute()
             {
                 DECODE_CHK_STATUS(UserFeatureReport());
             }
-            m_basicFeature->m_frameNum++;
+
+            DecodeFrameIndex++;
+            m_basicFeature->m_frameNum = DecodeFrameIndex;
 
             DECODE_CHK_STATUS(m_statusReport->Reset());
 
@@ -206,13 +288,15 @@ MOS_STATUS Vp9PipelineG12::Destroy()
 
     Uninitialize();
 
+    m_osInterface->pfnSetMultiEngineEnabled(m_osInterface, COMPONENT_Decode, false);
+
     return MOS_STATUS_SUCCESS;
 }
 
 MOS_STATUS Vp9PipelineG12::CreateFeatureManager()
 {
     DECODE_FUNC_CALL();
-    m_featureManager = MOS_New(DecodeVp9FeatureManagerM12, m_allocator, m_hwInterface);
+    m_featureManager = MOS_New(DecodeVp9FeatureManagerM12, m_allocator, m_hwInterface, m_osInterface);
     DECODE_CHK_NULL(m_featureManager);
     return MOS_STATUS_SUCCESS;
 }
@@ -221,7 +305,69 @@ MOS_STATUS Vp9PipelineG12::Initialize(void *settings)
 {
     DECODE_FUNC_CALL();
 
-    DECODE_CHK_STATUS(Vp9Pipeline::Initialize(settings));
+    DECODE_CHK_STATUS(MediaPipeline::InitPlatform());
+    DECODE_CHK_STATUS(MediaPipeline::CreateMediaCopyWrapper());
+    DECODE_CHK_NULL(m_mediaCopyWrapper);
+
+    DECODE_CHK_NULL(m_waTable);
+
+    auto *codecSettings = (CodechalSetting *)settings;
+    DECODE_CHK_NULL(m_hwInterface);
+    DECODE_CHK_STATUS(m_hwInterface->Initialize(codecSettings));
+
+    if (m_mediaCopyWrapper->MediaCopyStateIsNull())
+    {
+        m_mediaCopyWrapper->SetMediaCopyState(m_hwInterface->CreateMediaCopy(m_osInterface));
+    }
+
+    CODECHAL_DEBUG_TOOL(
+        m_debugInterface = MOS_New(CodechalDebugInterface);
+        DECODE_CHK_NULL(m_debugInterface);
+        DECODE_CHK_STATUS(
+            m_debugInterface->Initialize(m_hwInterface, codecSettings->codecFunction, m_mediaCopyWrapper)););
+
+    if (m_hwInterface->m_hwInterfaceNext)
+    {
+        m_hwInterface->m_hwInterfaceNext->legacyHwInterface = m_hwInterface;
+    }
+    m_mediaContext = MOS_New(MediaContext, scalabilityDecoder, m_hwInterface->m_hwInterfaceNext, m_osInterface);
+    DECODE_CHK_NULL(m_mediaContext);
+
+    m_task = CreateTask(MediaTask::TaskType::cmdTask);
+    DECODE_CHK_NULL(m_task);
+
+    m_numVdbox = GetSystemVdboxNumber();
+
+    bool limitedLMemBar = MEDIA_IS_SKU(m_skuTable, FtrLimitedLMemBar) ? true : false;
+    m_allocator         = MOS_New(DecodeAllocator, m_osInterface, limitedLMemBar);
+    DECODE_CHK_NULL(m_allocator);
+
+    DECODE_CHK_STATUS(CreateStatusReport());
+
+    m_decodecp = Create_DecodeCpInterface(codecSettings, m_hwInterface->GetCpInterface(), m_hwInterface->GetOsInterface());
+    if (m_decodecp)
+    {
+        DECODE_CHK_STATUS(m_decodecp->RegisterParams(codecSettings));
+    }
+    DECODE_CHK_STATUS(CreateFeatureManager());
+    DECODE_CHK_STATUS(m_featureManager->Init(codecSettings));
+
+    DECODE_CHK_STATUS(CreateSubPipeLineManager(codecSettings));
+    DECODE_CHK_STATUS(CreateSubPacketManager(codecSettings));
+
+    // Create basic GPU context
+    DecodeScalabilityPars scalPars;
+    MOS_ZeroMemory(&scalPars, sizeof(scalPars));
+    DECODE_CHK_STATUS(m_mediaContext->SwitchContext(VdboxDecodeFunc, &scalPars, &m_scalability));
+    m_decodeContext = m_osInterface->pfnGetGpuContext(m_osInterface);
+
+    m_basicFeature = dynamic_cast<Vp9BasicFeature *>(m_featureManager->GetFeature(FeatureIDs::basicFeature));
+    DECODE_CHK_NULL(m_basicFeature);
+
+    auto *bufferUpdatePipeline = MOS_New(DecodeVp9BufferUpdateM12, this, m_task, m_numVdbox, m_hwInterface);
+    DECODE_CHK_NULL(bufferUpdatePipeline);
+    DECODE_CHK_STATUS(m_preSubPipeline->Register(*bufferUpdatePipeline));
+    DECODE_CHK_STATUS(bufferUpdatePipeline->Init(*codecSettings));
 #ifdef _MMC_SUPPORTED
     DECODE_CHK_STATUS(InitMmcState());
 #endif
@@ -255,10 +401,18 @@ MOS_STATUS Vp9PipelineG12::UserFeatureReport()
 
 MOS_STATUS Vp9PipelineG12::CreateSubPackets(DecodeSubPacketManager &subPacketManager, CodechalSetting &codecSettings)
 {
-    DECODE_CHK_STATUS(Vp9Pipeline::CreateSubPackets(subPacketManager, codecSettings));
+    DecodePredicationPktG12 *predicationPkt = MOS_New(DecodePredicationPktG12, this, m_hwInterface);
+    DECODE_CHK_NULL(predicationPkt);
+    DECODE_CHK_STATUS(subPacketManager.Register(
+        DecodePacketId(this, predicationSubPacketId), *predicationPkt));
+
+    DecodeMarkerPktG12 *markerPkt = MOS_New(DecodeMarkerPktG12, this, m_hwInterface);
+    DECODE_CHK_NULL(markerPkt);
+    DECODE_CHK_STATUS(subPacketManager.Register(
+        DecodePacketId(this, markerSubPacketId), *markerPkt));
 
 #ifdef _DECODE_PROCESSING_SUPPORTED
-    Vp9DownSamplingPkt *downSamplingPkt = MOS_New(Vp9DownSamplingPkt, this, m_hwInterface);
+    Vp9DownSamplingPkt *downSamplingPkt = MOS_New(Vp9DownSamplingPkt, this, *m_hwInterface);
     DECODE_CHK_NULL(downSamplingPkt);
     DECODE_CHK_STATUS(subPacketManager.Register(
         DecodePacketId(this, downSamplingSubPacketId), *downSamplingPkt));
@@ -283,6 +437,31 @@ MOS_STATUS Vp9PipelineG12::CreateSubPackets(DecodeSubPacketManager &subPacketMan
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS Vp9PipelineG12::CreatePostSubPipeLines(DecodeSubPipelineManager &subPipelineManager)
+{
+    DECODE_FUNC_CALL();
+
+#ifdef _DECODE_PROCESSING_SUPPORTED
+    auto sfcHistogramPostSubPipeline = MOS_New(DecodeSfcHistogramSubPipelineM12, this, m_task, m_numVdbox, m_hwInterface);
+    DECODE_CHK_NULL(sfcHistogramPostSubPipeline);
+    DECODE_CHK_STATUS(m_postSubPipeline->Register(*sfcHistogramPostSubPipeline));
+#endif
+
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS Vp9PipelineG12::CreatePreSubPipeLines(DecodeSubPipelineManager &subPipelineManager)
+{
+    m_bitstream = MOS_New(DecodeInputBitstreamM12, this, m_task, m_numVdbox, m_hwInterface);
+    DECODE_CHK_NULL(m_bitstream);
+    DECODE_CHK_STATUS(subPipelineManager.Register(*m_bitstream));
+
+    m_streamout = MOS_New(DecodeStreamOutM12, this, m_task, m_numVdbox, m_hwInterface);
+    DECODE_CHK_NULL(m_streamout);
+    DECODE_CHK_STATUS(subPipelineManager.Register(*m_streamout));
+    return MOS_STATUS_SUCCESS;
+}
+
 MOS_STATUS Vp9PipelineG12::InitMmcState()
 {
 #ifdef _MMC_SUPPORTED
@@ -303,13 +482,12 @@ MOS_STATUS Vp9PipelineG12::DumpParams(Vp9BasicFeature &basicFeature)
     m_debugInterface->m_secondField               = basicFeature.m_secondField;
     m_debugInterface->m_bufferDumpFrameNum        = basicFeature.m_frameNum;
 
-    DECODE_CHK_STATUS(DumpPicParams(
-        basicFeature.m_vp9PicParams));
+    DECODE_CHK_STATUS(DumpPicParams(basicFeature.m_vp9PicParams));
+    DECODE_CHK_STATUS(DumpSliceParams(basicFeature.m_vp9SliceParams));
+    DECODE_CHK_STATUS(DumpSegmentParams(basicFeature.m_vp9SegmentParams));
+    DECODE_CHK_STATUS(DumpBitstream(&basicFeature.m_resDataBuffer.OsResource, basicFeature.m_dataSize, 0));
 
-    DECODE_CHK_STATUS(DumpSegmentParams(
-        basicFeature.m_vp9SegmentParams));
-
-     DECODE_CHK_STATUS(m_debugInterface->DumpBuffer(
+    DECODE_CHK_STATUS(m_debugInterface->DumpBuffer(
         &(basicFeature.m_resVp9SegmentIdBuffer->OsResource),
         CodechalDbgAttr::attrSegId,
         "SegId_beforeHCP",
@@ -320,53 +498,6 @@ MOS_STATUS Vp9PipelineG12::DumpParams(Vp9BasicFeature &basicFeature)
         CodechalDbgAttr::attrCoefProb,
         "PakHwCoeffProbs_beforeHCP",
         CODEC_VP9_PROB_MAX_NUM_ELEM));
-
-    //dump bitstream
-    DECODE_CHK_STATUS(m_debugInterface->DumpBuffer(
-        &basicFeature.m_resDataBuffer.OsResource, 
-        CodechalDbgAttr::attrBitstream, 
-        "_DEC", 
-        basicFeature.m_dataSize, 0, CODECHAL_NUM_MEDIA_STATES));
-
-    return MOS_STATUS_SUCCESS;
-}
-#endif
-
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-MOS_STATUS Vp9PipelineG12::TraceDataDumpInternalBuffers(Vp9BasicFeature &basicFeature)
-{  
-    if (MOS_TraceKeyEnabled(TR_KEY_DECODE_INTERNAL))
-    {
-        if (!m_allocator->ResourceIsNull(&(basicFeature.m_resVp9SegmentIdBuffer->OsResource)))
-        {
-            ResourceAutoLock resLock(m_allocator, &(basicFeature.m_resVp9SegmentIdBuffer->OsResource));
-            auto             pData = (uint8_t *)resLock.LockResourceForRead();
-            DECODE_CHK_NULL(pData);
-
-            MOS_TraceDataDump(
-                "Decode_Vp9SegmentIdBeforeHCP",
-                0,
-                pData,
-                basicFeature.m_allocatedWidthInSb * basicFeature.m_allocatedHeightInSb * CODECHAL_CACHELINE_SIZE);
-
-            m_allocator->UnLock(&(basicFeature.m_resVp9SegmentIdBuffer->OsResource));
-        }
-
-        if (!m_allocator->ResourceIsNull(&(basicFeature.m_resVp9ProbBuffer[basicFeature.m_frameCtxIdx]->OsResource)))
-        {
-            ResourceAutoLock resLock(m_allocator, &(basicFeature.m_resVp9ProbBuffer[basicFeature.m_frameCtxIdx]->OsResource));
-            auto             pData = (uint8_t *)resLock.LockResourceForRead();
-            DECODE_CHK_NULL(pData);
-
-            MOS_TraceDataDump(
-                "Decode_Vp9CoeffProbsBeforeHCP",
-                0,
-                pData,
-                CODEC_VP9_PROB_MAX_NUM_ELEM);
-
-            m_allocator->UnLock(&(basicFeature.m_resVp9ProbBuffer[basicFeature.m_frameCtxIdx]->OsResource));
-        }
-    }
 
     return MOS_STATUS_SUCCESS;
 }

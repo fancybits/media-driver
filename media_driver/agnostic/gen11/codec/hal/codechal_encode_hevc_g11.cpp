@@ -1623,6 +1623,7 @@ MOS_STATUS CodechalEncHevcStateG11::GetStatusReport(
 
     MOS_LOCK_PARAMS lockFlags;
     MOS_ZeroMemory(&lockFlags, sizeof(MOS_LOCK_PARAMS));
+    CODECHAL_ENCODE_CHK_NULL_RETURN(m_osInterface);
     HCPPakHWTileSizeRecord_G11* tileStatusReport = (HCPPakHWTileSizeRecord_G11*)m_osInterface->pfnLockResource(
         m_osInterface,
         &tileSizeStatusReport->sResource,
@@ -6916,6 +6917,7 @@ CodechalEncHevcStateG11::CodechalEncHevcStateG11(
     MOS_ZeroMemory(m_resHucPakStitchDmemBuffer, sizeof(m_resHucPakStitchDmemBuffer));
     MOS_ZeroMemory(&m_resBrcDataBuffer, sizeof(m_resBrcDataBuffer));
 
+    CODECHAL_ENCODE_CHK_NULL_NO_STATUS_RETURN(m_osInterface);
     m_hwInterface->GetStateHeapSettings()->dwNumSyncTags    = CODECHAL_ENCODE_HEVC_NUM_SYNC_TAGS;
     m_hwInterface->GetStateHeapSettings()->dwDshSize        = CODECHAL_INIT_DSH_SIZE_HEVC_ENC;
 
@@ -6930,7 +6932,7 @@ CodechalEncHevcStateG11::CodechalEncHevcStateG11(
     m_hwInterface->GetStateHeapSettings()->dwIshSize +=
         MOS_ALIGN_CEIL(m_combinedKernelSize, (1 << MHW_KERNEL_OFFSET_SHIFT));
 
-    Mos_CheckVirtualEngineSupported(m_osInterface, false, true);
+    m_osInterface->pfnVirtualEngineSupported(m_osInterface, false, true);
     Mos_SetVirtualEngineSupported(m_osInterface, true);
 }
 
@@ -8445,7 +8447,7 @@ MOS_STATUS CodechalEncHevcStateG11::ReturnCommandBuffer(PMOS_COMMAND_BUFFER cmdB
 
 MOS_STATUS CodechalEncHevcStateG11::SubmitCommandBuffer(
     PMOS_COMMAND_BUFFER cmdBuffer,
-    bool                nullRendering)
+    bool                bNullRendering)
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
@@ -8460,7 +8462,7 @@ MOS_STATUS CodechalEncHevcStateG11::SubmitCommandBuffer(
         {
             CODECHAL_ENCODE_CHK_STATUS_RETURN(SetAndPopulateVEHintParams(cmdBuffer));
         }
-        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, cmdBuffer, nullRendering));
+        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, cmdBuffer, bNullRendering));
         return eStatus;
     }
 
@@ -8502,7 +8504,7 @@ MOS_STATUS CodechalEncHevcStateG11::SubmitCommandBuffer(
     if(eStatus == MOS_STATUS_SUCCESS)
     {
         CODECHAL_ENCODE_CHK_STATUS_RETURN(SetAndPopulateVEHintParams(&m_realCmdBuffer));
-        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &m_realCmdBuffer, nullRendering));
+        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &m_realCmdBuffer, bNullRendering));
     }
 
     return eStatus;

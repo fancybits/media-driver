@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2022, Intel Corporation
+* Copyright (c) 2017-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -29,6 +29,7 @@
 
 #include "mos_defs.h"
 #include "mos_os.h"
+#include "media_defs.h"
 #include <math.h>
 
 #define CODEC_MAX_NUM_REF_FRAME             16
@@ -57,6 +58,7 @@
 #define CODECHAL_NUM_UNCOMPRESSED_SURFACE_VP8   128
 #define CODECHAL_NUM_UNCOMPRESSED_SURFACE_HEVC  127 // 7 bits, 0x7f is invalid one
 #define CODECHAL_NUM_UNCOMPRESSED_SURFACE_VP9   128
+#define CODECHAL_NUM_UNCOMPRESSED_SURFACE_AV1   128
 
 #define WIDTH_IN_DW(w)  ((w + 0x3) >> 2)
 
@@ -83,6 +85,34 @@
 #define HUC_DMEM_OFFSET_RTOS_GEMS                  0x2000
 #define VDBOX_HUC_VDENC_BRC_INIT_KERNEL_DESCRIPTOR 4
 
+#define CODEC_720P_MAX_PIC_WIDTH       1280
+#define CODEC_720P_MAX_PIC_HEIGHT      1280
+
+#define CODEC_MAX_PIC_WIDTH            1920
+#define CODEC_MAX_PIC_HEIGHT           1920                // Tablet usage in portrait mode, image resolution = 1200x1920, so change MAX_HEIGHT to 1920
+
+#define CODEC_2K_MAX_PIC_WIDTH         2048
+#define CODEC_2K_MAX_PIC_HEIGHT        2048
+
+#define CODEC_4K_VC1_MAX_PIC_WIDTH     3840
+#define CODEC_4K_VC1_MAX_PIC_HEIGHT    3840
+
+#define CODEC_4K_MAX_PIC_WIDTH         4096
+#define CODEC_4K_MAX_PIC_HEIGHT        4096
+
+#define CODEC_8K_MAX_PIC_WIDTH         8192
+#define CODEC_8K_MAX_PIC_HEIGHT        8192
+
+#define CODEC_16K_MAX_PIC_WIDTH        16384
+#define CODEC_12K_MAX_PIC_HEIGHT       12288
+#define CODEC_16K_MAX_PIC_HEIGHT       16384
+
+#define CODECHAL_MAD_BUFFER_SIZE                4 // buffer size is 4 bytes
+
+#define CODEC_128_MIN_PIC_WIDTH        128
+#define CODEC_96_MIN_PIC_HEIGHT        96
+#define CODEC_128_MIN_PIC_HEIGHT       128
+
 /*! \brief Flags for various picture properties.
 */
 typedef enum _CODEC_PICTURE_FLAG
@@ -93,7 +123,7 @@ typedef enum _CODEC_PICTURE_FLAG
     PICTURE_INTERLACED_FRAME        = 0x08,
     PICTURE_SHORT_TERM_REFERENCE    = 0x10,
     PICTURE_LONG_TERM_REFERENCE     = 0x20,
-    PICTURE_RESERVED0               = 0x40,
+    PICTURE_UNAVAILABLE_FRAME       = 0x40,
     PICTURE_INVALID                 = 0x80,
     PICTURE_RESIZE                  = 0xF0,
     PICTURE_MAX_7BITS               = 0xFF
@@ -134,43 +164,13 @@ enum REFLIST
 };
 
 //!
-//! \enum     CODECHAL_STANDARD 
-//! \brief    Codec standard
-//!
-enum CODECHAL_STANDARD
-{
-    // MFX/MFL pipeline
-    CODECHAL_MPEG2      = 0,
-    CODECHAL_VC1        = 1,
-    CODECHAL_AVC        = 2,
-    CODECHAL_JPEG       = 3,
-    CODECHAL_RESERVED   = 4,    //formerly SVC
-    CODECHAL_VP8        = 5,
-    CODECHAL_UNDEFINED  = 9,
-
-    // Cenc Decode
-    CODECHAL_CENC       = 63,
-
-    // HCP pipeline
-    CODECHAL_HCP_BASE   = 64,
-    CODECHAL_HEVC       = CODECHAL_HCP_BASE,
-    CODECHAL_VP9        = CODECHAL_HCP_BASE + 1,
-
-    //AVP pipeline
-    CODECHAL_AVP_BASE   = CODECHAL_HCP_BASE + 2,
-    CODECHAL_AV1        = CODECHAL_AVP_BASE,
-
-    CODECHAL_RESERVED1,
-    CODECHAL_STANDARD_MAX
-};
-
-//!
 //! \enum    CODECHAL_MODE
 //! \brief   Mode requested (high level combination between CODEC_STANDARD and CODEC_FUCNTION).
 //!          Note: These modes are may be used for performance tagging. Be sure to notify tool owners if changing the definitions.
 //!
 enum CODECHAL_MODE
 {
+    CODECHAL_DECODE_MODE_BEGIN              = 0,
     CODECHAL_DECODE_MODE_MPEG2IDCT          = 0,
     CODECHAL_DECODE_MODE_MPEG2VLD           = 1,
     CODECHAL_DECODE_MODE_VC1IT              = 2,
@@ -185,23 +185,23 @@ enum CODECHAL_MODE
     CODECHAL_DECODE_MODE_MVCVLD             = 11,   // Needed for CP. Not in use by Codec HAL.
     CODECHAL_DECODE_MODE_VP9VLD             = 12,
     CODECHAL_DECODE_MODE_CENC               = 13,   // Only for getting HuC-based DRM command size. Not an actual mode.
-    CODECHAL_DECODE_MODE_RESERVED0          = 14,
-    CODECHAL_NUM_DECODE_MODES               = 15,
+    CODECHAL_DECODE_MODE_VVCVLD             = 14,
+    CODECHAL_DECODE_MODE_RESERVED1          = 15,
+    CODECHAL_DECODE_MODE_RESERVED2          = 16,
+    CODECHAL_DECODE_MODE_END                = 17,
 
-    CODECHAL_ENCODE_MODE_AVC                = 16,   // Must be a power of 2 to match perf report expectations
-    CODECHAL_ENCODE_MODE_MPEG2              = 18,
-    CODECHAL_ENCODE_MODE_VP8                = 19,
-    CODECHAL_ENCODE_MODE_JPEG               = 20,
-    CODECHAL_ENCODE_MODE_HEVC               = 22,
-    CODECHAL_ENCODE_MODE_VP9                = 23,
-    CODECHAL_ENCODE_MODE_AV1                = 24,
-    CODECHAL_NUM_ENCODE_MODES               = 8,
+    CODECHAL_ENCODE_MODE_BEGIN              = 32,
+    CODECHAL_ENCODE_MODE_AVC                = 32,   // Must be a power of 2 to match perf report expectations
+    CODECHAL_ENCODE_MODE_MPEG2              = 34,
+    CODECHAL_ENCODE_MODE_VP8                = 35,
+    CODECHAL_ENCODE_MODE_JPEG               = 36,
+    CODECHAL_ENCODE_MODE_HEVC               = 38,
+    CODECHAL_ENCODE_MODE_VP9                = 39,
+    CODECHAL_ENCODE_MODE_AV1                = 40,
+    CODECHAL_Rsvd                           = 41,
+    CODECHAL_ENCODE_MODE_END                = 42,
 
-    CODECHAL_Rsvd                           = 25,
-    CODECHAL_NUM_MODES                      = 26,   // Use the value for the last encode mode to determine this
-    CODECHAL_UNSUPPORTED_MODE               = 26,
-    CODECHAL_MODE_MAX                       = 26
-
+    CODECHAL_UNSUPPORTED_MODE               = 96
 };
 
 // Slice group mask
@@ -409,16 +409,9 @@ typedef enum _CODECHAL_STATUS
     *   Only error reporting parameters in the status reporting structure will be valid. This status will be returned if the workload(s) for the picture in question resulted in a HW hang or HW status indicators indicate a failure.
     */
     CODECHAL_STATUS_ERROR       = 2,
-    CODECHAL_STATUS_UNAVAILABLE = 3     //!< Indicates that the entry in the status reporting array was not used
+    CODECHAL_STATUS_UNAVAILABLE = 3,    //!< Indicates that the entry in the status reporting array was not used
+    CODECHAL_STATUS_RESET       = 4     //!< Indicates that Media Reset happend
 } CODECHAL_STATUS, *PCODECHAL_STATUS;
-
-typedef enum _CODECHAL_SCALING_MODE
-{
-    CODECHAL_SCALING_NEAREST = 0,
-    CODECHAL_SCALING_BILINEAR,
-    CODECHAL_SCALING_AVS,
-    CODECHAL_SCALING_ADV_QUALITY        // !< Advance Perf mode
-} CODECHAL_SCALING_MODE;
 
 typedef enum _CODECHAL_CHROMA_SITING_TYPE
 {

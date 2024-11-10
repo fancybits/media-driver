@@ -33,7 +33,7 @@
 namespace encode {
 
 HevcVdencPipeline::HevcVdencPipeline(
-    CodechalHwInterface *   hwInterface,
+    CodechalHwInterfaceNext *   hwInterface,
     CodechalDebugInterface *debugInterface)
     : HevcPipeline(hwInterface, debugInterface)
 {
@@ -84,6 +84,16 @@ MOS_STATUS HevcVdencPipeline::Prepare(void *params)
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS HevcVdencPipeline::HuCCheckAndInit()
+{
+    ENCODE_FUNC_CALL();
+
+    bool immediateSubmit = !m_singleTaskPhaseSupported;
+    ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucBrcInit, immediateSubmit, 0, 0));
+
+    return MOS_STATUS_SUCCESS;
+}
+
 MOS_STATUS HevcVdencPipeline::ActivateVdencVideoPackets()
 {
     ENCODE_FUNC_CALL();
@@ -94,7 +104,7 @@ MOS_STATUS HevcVdencPipeline::ActivateVdencVideoPackets()
 
     if (brcFeature->IsBRCInitRequired())
     {
-        ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucBrcInit, immediateSubmit, 0, 0));
+        ENCODE_CHK_STATUS_RETURN(HuCCheckAndInit());
     }
 
     bool tileEnabled = false;
@@ -102,32 +112,34 @@ MOS_STATUS HevcVdencPipeline::ActivateVdencVideoPackets()
 
     for (uint8_t curPass = 0; curPass < GetPassNum(); curPass++)
     {
-        if (brcFeature->IsBRCUpdateRequired())
-        {
-            ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucBrcUpdate, immediateSubmit, curPass, 0));
-        }
-
-        for (uint8_t curPipe = 0; curPipe < GetPipeNum(); curPipe++)
-        {
-            ENCODE_CHK_STATUS_RETURN(ActivatePacket(hevcVdencPacket, immediateSubmit, curPass, curPipe, GetPipeNum()));
-        }
-
         auto laAnalysisFeature = dynamic_cast<VdencLplaAnalysis *>(m_featureManager->GetFeature(HevcFeatureIDs::vdencLplaAnalysisFeature));
+        if (laAnalysisFeature && !laAnalysisFeature->IsLastPicInStream())
+        {
+            if (brcFeature->IsBRCUpdateRequired())
+            {
+                ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucBrcUpdate, immediateSubmit, curPass, 0));
+            }
+
+            for (uint8_t curPipe = 0; curPipe < GetPipeNum(); curPipe++)
+            {
+                ENCODE_CHK_STATUS_RETURN(ActivatePacket(hevcVdencPacket, immediateSubmit, curPass, curPipe, GetPipeNum()));
+            }
+        }
+       
         if (laAnalysisFeature && laAnalysisFeature->IsLaAnalysisRequired())
         {
-            if (laAnalysisFeature->IsLaInitRequired())
+            if (!laAnalysisFeature->IsLastPicInStream())
             {
-                ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucLaInit, immediateSubmit, 0, 0));
+                if (laAnalysisFeature->IsLaInitRequired())
+                {
+                    ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucLaInit, immediateSubmit, 0, 0));
+                }
+                ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucLaUpdate, immediateSubmit, curPass, 0));
             }
-            ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucLaUpdate, immediateSubmit, curPass, 0));
-
-            if (laAnalysisFeature->IsLastPicInStream())
+            else
             {
                 // Flush the last frames
-                while (!laAnalysisFeature->IsLaRecordsEmpty())
-                {
-                    ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucLaUpdate, immediateSubmit, curPass, 0));
-                }
+                ENCODE_CHK_STATUS_RETURN(ActivatePacket(HucLaUpdate, immediateSubmit, curPass, 0));
             }
         }
 
@@ -137,20 +149,18 @@ MOS_STATUS HevcVdencPipeline::ActivateVdencVideoPackets()
         }
     }
 
-    SetFrameTrackingForMultiTaskPhase();
-
     // Last element in m_activePacketList must be immediately submitted
     m_activePacketList.back().immediateSubmit = true;
 
-#ifdef _ENCODE_RESERVED
     auto basicFeature = dynamic_cast<HevcBasicFeature *>(m_featureManager->GetFeature(FeatureIDs::basicFeature));
     ENCODE_CHK_NULL_RETURN(basicFeature);
-    if (basicFeature->m_rsvdState && basicFeature->m_rsvdState->GetFeatureRsvdFlag())
+    if (basicFeature->m_422State && basicFeature->m_422State->GetFeature422Flag())
     {
         m_activePacketList.front().frameTrackingRequested = false;
-        ENCODE_CHK_STATUS_RETURN(ActivatePacket(hevcVdencPacketRsvd, true, 0, 0));
+        ENCODE_CHK_STATUS_RETURN(ActivatePacket(hevcVdencPacket422, true, 0, 0));
     }
-#endif
+
+    SetFrameTrackingForMultiTaskPhase();
 
     return MOS_STATUS_SUCCESS;
 }
@@ -205,6 +215,8 @@ MOS_STATUS HevcVdencPipeline::ActivateVdencTileReplayVideoPackets()
 
     // Frame Level Pak Integration
     ENCODE_CHK_STATUS_RETURN(ActivatePacket(hevcPakIntegrate, immediateSubmit, 0, 0));
+
+    SetFrameTrackingForMultiTaskPhase();
 
     // Last element in m_activePacketList must be immediately submitted
     m_activePacketList.back().immediateSubmit = true;

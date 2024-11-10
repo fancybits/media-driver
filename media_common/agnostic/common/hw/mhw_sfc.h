@@ -31,8 +31,7 @@
 #include "mhw_state_heap.h"
 #include "mhw_utilities.h"
 #include "mos_os.h"
-#include "codec_def_common.h"
-#include "codec_def_decode_jpeg.h"
+#include "media_defs.h"
 
 static const int   MHW_SFC_CACHELINE_SIZE    = 64;
 static const int   MHW_SFC_MIN_HEIGHT        = 128;
@@ -283,6 +282,7 @@ typedef struct _MHW_SFC_STATE_PARAMS
     uint16_t                        wOutputSurfaceUYOffset;                     // Output Frame offset (page internal U offset for Y axis)
     uint16_t                        wOutputSurfaceVXOffset;                     // Output Frame offset (page internal V offset for X axis)
     uint16_t                        wOutputSurfaceVYOffset;                     // Output Frame offset (page internal V offset for Y axis)
+    bool                            isDemosaicEnabled         = false;          //!< Enable Demosaic
 
 } MHW_SFC_STATE_PARAMS, *PMHW_SFC_STATE_PARAMS;
 

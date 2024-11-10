@@ -233,13 +233,13 @@ MOS_STATUS CodechalDecodeAvcG11::DecodePrimitiveLevel()
     DecodeProcessingParams *decProcessingParams = (DecodeProcessingParams *)m_decodeParams.m_procParams;
     if (decProcessingParams != nullptr && decProcessingParams->m_isReferenceOnlyPattern)
     {
-        HucCopy(&cmdBuffer, 
-            &m_destSurface.OsResource, 
-            &decProcessingParams->m_outputSurface->OsResource, 
-            decProcessingParams->m_outputSurface->dwSize,
-            m_destSurface.dwOffset,
-            decProcessingParams->m_outputSurface->dwOffset
-        );
+        CODECHAL_DECODE_CHK_STATUS_RETURN(HucCopy(&cmdBuffer, 
+                                            &m_destSurface.OsResource, 
+                                            &decProcessingParams->m_outputSurface->OsResource, 
+                                            decProcessingParams->m_outputSurface->dwSize,
+                                            m_destSurface.dwOffset,
+                                            decProcessingParams->m_outputSurface->dwOffset
+        ));
     }
 #endif
 
@@ -329,7 +329,7 @@ MOS_STATUS CodechalDecodeAvcG11::DecodePrimitiveLevel()
         CodecHalDecodeSinglePipeVE_PopulateHintParams(m_veState, &cmdBuffer, true);
     }
 
-    HalOcaInterface::DumpCodechalParam(cmdBuffer, *m_osInterface->pOsContext, m_pCodechalOcaDumper, CODECHAL_AVC);
+    HalOcaInterface::DumpCodechalParam(cmdBuffer, (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext, m_pCodechalOcaDumper, CODECHAL_AVC);
     HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &cmdBuffer, m_videoContextUsesNullHw));
@@ -413,6 +413,6 @@ CodechalDecodeAvcG11::CodechalDecodeAvcG11(
 
     CODECHAL_DECODE_CHK_NULL_NO_STATUS_RETURN(m_osInterface);
 
-    Mos_CheckVirtualEngineSupported(m_osInterface, true, true);
+    m_osInterface->pfnVirtualEngineSupported(m_osInterface, true, true);
 };
 

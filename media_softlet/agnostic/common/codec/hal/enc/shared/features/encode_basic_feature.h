@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2021, Intel Corporation
+* Copyright (c) 2018-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -26,7 +26,7 @@
 #ifndef __ENCODE_BASIC_FEATURE_H__
 #define __ENCODE_BASIC_FEATURE_H__
 
-#include "codechal_hw.h"
+#include "codec_hw_next.h"
 #include "codec_def_encode.h"
 #include "codechal_setting.h"
 #include "encode_tracked_buffer.h"
@@ -40,7 +40,7 @@ class EncodeBasicFeature:public MediaFeature
 {
 public:
     EncodeBasicFeature(EncodeAllocator *allocator,
-                        CodechalHwInterface *hwInterface,
+                        CodechalHwInterfaceNext *hwInterface,
                         TrackedBuffer *trackedBuf,
                         RecycleResource *recycleBuf);
     virtual ~EncodeBasicFeature() { }
@@ -98,6 +98,9 @@ public:
     uint32_t                    m_frameFieldHeight = 0;       //!< Frame height in luma samples
     uint32_t                    m_oriFrameHeight = 0;         //!< Original frame height
     uint32_t                    m_oriFrameWidth = 0;          //!< Original frame width
+    uint16_t                    m_frame_crop_bottom_offset = 0;                       //!< frame_crop_bottom_offset
+    uint16_t                    m_frame_mbs_only_flag      = 0;                       //!< frame_mbs_only_flag
+    uint16_t                    m_frame_cropping_flag    = 0;                         //!< frame_cropping_flag
     uint16_t                    m_picWidthInMb = 0;           //!< Picture Width in MB width count
     uint16_t                    m_picHeightInMb = 0;          //!< Picture Height in MB height count
     uint16_t                    m_frameFieldHeightInMb = 0;   //!< Frame/field Height in MB
@@ -107,7 +110,7 @@ public:
     CODEC_PICTURE               m_currOriginalPic = {};       //!< Raw.
     CODEC_PICTURE               m_currReconstructedPic = {};  //!< RECON.
     uint16_t                    m_pictureCodingType = 0;      //!< I, P, or B frame
-    int16_t                     m_frameNum = 0;               //!< Frame number
+    uint32_t                    m_frameNum             = 0;   //!< Frame number
     bool                        m_firstField = true;          //!< Flag to indicate if it is first field
     bool                        m_resolutionChanged = false;  //!< Flag to indicate if resolution is changed
 
@@ -165,6 +168,13 @@ public:
     MOS_SURFACE                 m_mbQpDataSurface = {};            //!< pointer to surface of Mb QP Data
     bool                        m_rgbEncodingEnable = false;       //!< Enable RGB encoding
     bool                        m_captureModeEnable = false;       //!< Enable Capture mode with display
+    bool                        m_predicationNotEqualZero = false;       //!< [Predication] Predication mode
+    bool                        m_predicationEnabled      = false;       //!< [Predication] Indicates whether or not Predication is enabled
+    bool                        m_setMarkerEnabled        = false;       //!< [SetMarker] Indicates whether or not SetMarker is enabled
+    uint64_t                    m_predicationResOffset    = 0;           //!< [Predication] Offset for Predication resource
+    PMOS_RESOURCE               m_presPredication         = nullptr;     //!< [Predication] Resource for predication
+    PMOS_RESOURCE              *m_tempPredicationBuffer   = nullptr;     //!< [Predication] Temp buffer for Predication
+    PMOS_RESOURCE               m_predicationBuffer       = nullptr;     //!< [Predication] Internal buffer for predication
 
     uint8_t                     m_targetUsage =0;
 
@@ -181,6 +191,18 @@ public:
 
     uint8_t m_par65Inter = 0;
     uint8_t m_par65Intra = 0;
+
+    /*! \brief Specifies motion search modes that will be used.
+    *
+    *    SubPelMode is only valid when bEnableSubPelMode is true. Following are valid values of SubPelMode:
+    *    0:Integer mode searching
+    *    1:Half-pel mode searching
+    *    2:Reserved
+    *    3:Quarter-pel mode searching
+    */
+    bool    m_bEnableSubPelMode = false;
+    uint8_t m_SubPelMode        = 3;
+    bool    m_dualEncEnable     = false;
 
 protected:
     //!

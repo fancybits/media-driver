@@ -35,7 +35,7 @@ namespace encode
     HEVCEncodeBRC::HEVCEncodeBRC(
         MediaFeatureManager *featureManager,
         EncodeAllocator *allocator,
-        CodechalHwInterface *hwInterface,
+        CodechalHwInterfaceNext *hwInterface,
         void *constSettings) :
         MediaFeature(constSettings, hwInterface ? hwInterface->GetOsInterface() : nullptr),
         m_hwInterface(hwInterface),
@@ -104,6 +104,15 @@ namespace encode
             "HEVC VDEnc ACQP Enable",
             m_hevcVDEncAcqpEnabled,
             MediaUserSetting::Group::Sequence);
+
+        ENCODE_CHK_NULL_RETURN(m_basicFeature->m_hevcPicParams);
+        MediaUserSetting::Value outValue;
+        ReadUserSetting(
+            m_userSettingPtr,
+            outValue,
+            "Adaptive TU Enable",
+            MediaUserSetting::Group::Sequence);
+        m_basicFeature->m_hevcPicParams->AdaptiveTUEnabled |= outValue.Get<uint8_t>();
 #endif
         return MOS_STATUS_SUCCESS;
     }
@@ -127,6 +136,7 @@ namespace encode
 
         allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(sizeof(CodechalVdencHevcPakInfo), CODECHAL_PAGE_SIZE);
         allocParamsForBufferLinear.pBufName = "VDENC BRC PakInfo";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
         m_basicFeature->m_recycleBuf->RegisterResource(PakInfo, allocParamsForBufferLinear, 6);
 
         // Allocate Frame Statistics Streamout Data Destination Buffer. DW98-100 in HCP PipeBufAddr command
@@ -136,6 +146,7 @@ namespace encode
         // BRC history buffer
         allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_brcHistoryBufSize, CODECHAL_PAGE_SIZE);
         allocParamsForBufferLinear.pBufName = "VDENC BRC History Buffer";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
         m_basicFeature->m_recycleBuf->RegisterResource(VdencBRCHistoryBuffer, allocParamsForBufferLinear, 1);
 
         for (auto j = 0; j < CODECHAL_ENCODE_RECYCLED_BUFFER_NUM; j++)
@@ -159,20 +170,24 @@ namespace encode
         uint32_t maxLcu = picWidthInMinLCU * picHeightInMinLCU;
         allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(maxLcu * CODECHAL_CACHELINE_SIZE, CODECHAL_PAGE_SIZE);
         allocParamsForBufferLinear.pBufName = "LcuBaseAddressBuffer";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
         m_basicFeature->m_recycleBuf->RegisterResource(LcuBaseAddressBuffer, allocParamsForBufferLinear, 1);
 
         // VDENC BRC PAK MMIO buffer
         allocParamsForBufferLinear.dwBytes = sizeof(VdencBrcPakMmio);
         allocParamsForBufferLinear.pBufName = "VDENC BRC PAK MMIO Buffer";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
         m_basicFeature->m_recycleBuf->RegisterResource(VdencBrcPakMmioBuffer, allocParamsForBufferLinear, 1);
 
         // Debug buffer
         allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_brcDebugBufSize, CODECHAL_PAGE_SIZE);
         allocParamsForBufferLinear.pBufName = "VDENC BRC Debug Buffer";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
         m_basicFeature->m_recycleBuf->RegisterResource(VdencBrcDebugBuffer, allocParamsForBufferLinear, 1);
 
         allocParamsForBufferLinear.dwBytes  = HEVC_BRC_PAK_STATISTCS_SIZE;
         allocParamsForBufferLinear.pBufName = "BRC PAK Statistics Buffer";
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
         m_basicFeature->m_recycleBuf->RegisterResource(BrcPakStatisticBuffer, allocParamsForBufferLinear, CODECHAL_ENCODE_RECYCLED_BUFFER_NUM);
 
         for (auto i = 0; i < CODECHAL_ENCODE_RECYCLED_BUFFER_NUM; i++)
@@ -218,7 +233,7 @@ namespace encode
             allocParamsForBufferLinear.Format   = Format_Buffer;
             allocParamsForBufferLinear.dwBytes  = MOS_ALIGN_CEIL(num_tiles * CODECHAL_CACHELINE_SIZE, CODECHAL_PAGE_SIZE);
             allocParamsForBufferLinear.pBufName = "BRC Data Buffer";
-
+            allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
             auto resource = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
             ENCODE_CHK_NULL_RETURN(resource);
             m_resBrcDataBuffer = *resource;
@@ -279,6 +294,8 @@ namespace encode
         hucVdencBrcUpdateDmem->SceneChgCurIntraPctThreshold_U8 = brcSettings.sceneChgCurIntraPctThreshold_U8;
 
         hucVdencBrcUpdateDmem->UPD_Randomaccess = m_basicFeature->m_hevcSeqParams->LowDelayMode == 1 ? 0 : 1;
+
+        hucVdencBrcUpdateDmem->UPD_AdaptiveTUEnabled = m_basicFeature->m_hevcPicParams->AdaptiveTUEnabled;
 
         return MOS_STATUS_SUCCESS;
     }

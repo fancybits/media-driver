@@ -607,9 +607,10 @@ MOS_STATUS CodechalEncodeVp8::AllocateResources()
             "Per MB Quant Data Buffer"));
 
     ///pred mv data surface
+    uint32_t picSizeInMb = m_picWidthInMb * m_picHeightInMb;
     CODECHAL_ENCODE_CHK_STATUS_RETURN(
         AllocateBuffer(&m_resPredMvDataSurface,
-            4 * m_picWidthInMb * m_picHeightInMb * sizeof(uint32_t),
+            4 * picSizeInMb * sizeof(uint32_t),
             "Per MV data surface"));
 
     //ModeCostUpdate Surface used by P-kernel and MPU kernel
@@ -1286,7 +1287,18 @@ MOS_STATUS CodechalEncodeVp8::SetPictureStructs()
     else
     {
         m_averagePFrameQp     = averageQp;
-        m_pFramePositionInGop = m_vp8SeqParams->RateControlMethod == RATECONTROL_CQP ? 0 : (m_storeData - 1) % m_vp8SeqParams->GopPicSize;
+        if (m_vp8SeqParams->RateControlMethod == RATECONTROL_CQP)
+        {
+            m_pFramePositionInGop = 0;
+        }
+        else
+        {
+            if (m_vp8SeqParams->GopPicSize == 0)
+            {
+                return MOS_STATUS_INVALID_PARAMETER;
+            }
+            m_pFramePositionInGop = (m_storeData - 1) % m_vp8SeqParams->GopPicSize;
+        }
     }
 
     numRef = 0;
@@ -3734,17 +3746,18 @@ MOS_STATUS CodechalEncodeVp8::EncodeSliceLevelBrc(PMOS_COMMAND_BUFFER cmdBuffer)
 
 MOS_STATUS CodechalEncodeVp8::ExecuteSliceLevel()
 {
-    MOS_COMMAND_BUFFER                          cmdBuffer;
-    MOS_SYNC_PARAMS                             syncParams;
-    EncodeReadBrcPakStatsParams                 readBrcPakStatsParams;
-    uint32_t                                    *data;
-    MOS_LOCK_PARAMS                             lockFlagsWriteOnly;
+    MOS_COMMAND_BUFFER                          cmdBuffer = {};
+    MOS_SYNC_PARAMS                             syncParams = {};
+    EncodeReadBrcPakStatsParams                 readBrcPakStatsParams = {};
+    uint32_t                                    *data = nullptr;
+    MOS_LOCK_PARAMS                             lockFlagsWriteOnly = {};
     MOS_STATUS                                  status = MOS_STATUS_SUCCESS;
 
     CODECHAL_ENCODE_FUNCTION_ENTER;
 
+    CODECHAL_ENCODE_CHK_NULL_RETURN(m_hwInterface);
     CODECHAL_ENCODE_CHK_NULL_RETURN(m_hwInterface->GetMiInterface());
-
+    CODECHAL_ENCODE_CHK_NULL_RETURN(m_osInterface);
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnGetCommandBuffer(m_osInterface, &cmdBuffer, 0));
 
     // read image status
@@ -3949,7 +3962,7 @@ MOS_STATUS CodechalEncodeVp8::ExecuteSliceLevel()
 
     CODECHAL_DEBUG_TOOL(
         if (!m_mmcUserFeatureUpdated) {
-            CODECHAL_UPDATE_ENCODE_MMC_USER_FEATURE(m_reconSurface, m_osInterface);
+            CODECHAL_UPDATE_ENCODE_MMC_USER_FEATURE(m_reconSurface, m_osInterface->pOsContext);
             m_mmcUserFeatureUpdated = true;
         })
 
@@ -4002,12 +4015,12 @@ MOS_STATUS CodechalEncodeVp8::ExecuteSliceLevel()
 
 MOS_STATUS CodechalEncodeVp8::ReadImageStatus(PMOS_COMMAND_BUFFER cmdBuffer)
 {
-    MhwMiInterface                      *commonMiInterface;
-    EncodeStatusBuffer                  *encodeStatusBuf;
-    MHW_MI_STORE_REGISTER_MEM_PARAMS    miStoreRegMemParams;
-    MHW_MI_FLUSH_DW_PARAMS              flushDwParams;
-    uint32_t                            baseOffset;
-    MmioRegistersMfx                    *mmioRegisters;
+    MhwMiInterface                      *commonMiInterface   = nullptr;
+    EncodeStatusBuffer                  *encodeStatusBuf     = nullptr;
+    MHW_MI_STORE_REGISTER_MEM_PARAMS     miStoreRegMemParams = {};
+    MHW_MI_FLUSH_DW_PARAMS               flushDwParams       = {};
+    uint32_t                             baseOffset          = 0;
+    MmioRegistersMfx                    *mmioRegisters       = nullptr;
     MOS_STATUS                          status = MOS_STATUS_SUCCESS;
 
     CODECHAL_ENCODE_FUNCTION_ENTER;

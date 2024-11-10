@@ -53,73 +53,30 @@ namespace encode
     class Av1VdencPktXe_M_Base : public Av1VdencPkt
     {
     public:
-        Av1VdencPktXe_M_Base(MediaPipeline *pipeline, MediaTask *task, CodechalHwInterface *hwInterface) :
+        Av1VdencPktXe_M_Base(MediaPipeline *pipeline, MediaTask *task, CodechalHwInterfaceNext *hwInterface) :
             Av1VdencPkt(pipeline, task, hwInterface)
         {
-            auto hwInterfaceG12 = dynamic_cast<CodechalHwInterfaceG12 *>(m_hwInterface);
-            ENCODE_CHK_NULL_NO_STATUS_RETURN(hwInterfaceG12);
+            //auto hwInterfaceG12 = dynamic_cast<CodechalHwInterfaceG12 *>(m_hwInterface);
+            //ENCODE_CHK_NULL_NO_STATUS_RETURN(hwInterfaceG12);
         }
 
         virtual ~Av1VdencPktXe_M_Base() {}
 
-        MOS_STATUS Prepare() override;
-
-
-        //!
-        //! \brief  Add the command sequence into the commandBuffer and
-        //!         and return to the caller task
-        //! \param  [in] commandBuffer
-        //!         Pointer to the command buffer which is allocated by caller
-        //! \return MOS_STATUS
-        //!         MOS_STATUS_SUCCESS if success, else fail reason
-        //!
-        virtual MOS_STATUS Submit(
-            MOS_COMMAND_BUFFER* commandBuffer,
-            uint8_t packetPhase = otherPacket) override;
-
     protected:
-        MOS_STATUS PatchTileLevelCommands(MOS_COMMAND_BUFFER &cmdBuffer, uint8_t packetPhase);
         MOS_STATUS AddOneTileCommands(
             MOS_COMMAND_BUFFER  &cmdBuffer,
             uint32_t            tileRow,
             uint32_t            tileCol,
-            uint32_t            tileRowPass = 0);
+            uint32_t            tileRowPass = 0) override;
 
-        MOS_STATUS Construct3rdLevelBatch();
-
-        void UpdateParameters() override;
-
-        MOS_STATUS EnsureAllCommandsExecuted(MOS_COMMAND_BUFFER &cmdBuffer);
-        MOS_STATUS PatchPictureLevelCommands(const uint8_t &packetPhase, MOS_COMMAND_BUFFER  &cmdBuffer);
-
-        MOS_STATUS AddPictureVdencCommands(MOS_COMMAND_BUFFER &cmdBuffer);
+        MOS_STATUS EnsureAllCommandsExecuted(MOS_COMMAND_BUFFER &cmdBuffer) override;
 
         virtual MOS_STATUS AllocateResources() override;
 
         virtual MOS_STATUS CalculateAvpPictureStateCommandSize(uint32_t * commandsSize, uint32_t * patchListSize) override;
         virtual MOS_STATUS CalculateAvpCommandsSize() override;
 
-        MOS_STATUS ReadAvpStatus(MHW_VDBOX_NODE_IND vdboxIndex, MediaStatusReport *statusReport, MOS_COMMAND_BUFFER &cmdBuffer) override;
-        MOS_STATUS RegisterPostCdef();
-        MOS_STATUS UpdateUserFeatureKey(PMOS_SURFACE surface);
-
-        MHW_SETPAR_DECL_HDR(AVP_IND_OBJ_BASE_ADDR_STATE);
-
-        MHW_SETPAR_DECL_HDR(AVP_PIC_STATE);
-
-        MHW_SETPAR_DECL_HDR(AVP_TILE_CODING);
-
-        MOS_STATUS AddAllCmds_AVP_SEGMENT_STATE(PMOS_COMMAND_BUFFER cmdBuffer) const;
-
-        MOS_STATUS AddAllCmds_AVP_PAK_INSERT_OBJECT(PMOS_COMMAND_BUFFER cmdBuffer) const;
-
-        MOS_STATUS AddAllCmds_AVP_PIPE_MODE_SELECT(PMOS_COMMAND_BUFFER cmdBuffer) const;
-
-#if USE_CODECHAL_DEBUG_TOOL
-        MOS_STATUS DumpStatistics();
-#endif  // USE_CODECHAL_DEBUG_TOOL
-
-        bool  m_userFeatureUpdated_post_cdef = false;  //!< Inidate if mmc user feature key for post cdef is updated
+        MOS_STATUS RegisterPostCdef() override;
 
     private:
         uint16_t m_tileColStartSb[64];  //!< tile column start SB

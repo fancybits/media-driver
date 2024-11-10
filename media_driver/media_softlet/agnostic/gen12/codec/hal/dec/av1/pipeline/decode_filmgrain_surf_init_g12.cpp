@@ -32,9 +32,10 @@
 
 namespace decode {
 
-FilmGrainSurfaceInit::FilmGrainSurfaceInit(DecodePipeline *pipeline, MediaTask *task, uint8_t numVdbox)
+FilmGrainSurfaceInit::FilmGrainSurfaceInit(DecodePipeline *pipeline, MediaTask *task, uint8_t numVdbox, CodechalHwInterface *hwInterface)
     : DecodeSubPipeline(pipeline, task, numVdbox)
 {
+    m_hwInterface = hwInterface;
 }
 
 FilmGrainSurfaceInit::~FilmGrainSurfaceInit()
@@ -46,7 +47,7 @@ MOS_STATUS FilmGrainSurfaceInit::Init(CodechalSetting &settings)
 {
     DECODE_CHK_NULL(m_pipeline);
 
-    CodechalHwInterface* hwInterface = m_pipeline->GetHwInterface();
+    CodechalHwInterface* hwInterface = m_hwInterface;
     DECODE_CHK_NULL(hwInterface);
     PMOS_INTERFACE osInterface = hwInterface->GetOsInterface();
     DECODE_CHK_NULL(osInterface);
@@ -63,6 +64,7 @@ MOS_STATUS FilmGrainSurfaceInit::Init(CodechalSetting &settings)
     m_surfInitPkt             = MOS_New(HucCopyPktG12, m_pipeline, m_task, hwInterface);
     DECODE_CHK_NULL(m_surfInitPkt);
     Av1PipelineG12 *pipeline = dynamic_cast<Av1PipelineG12 *>(m_pipeline);
+    DECODE_CHK_NULL(pipeline);
     DECODE_CHK_STATUS(RegisterPacket(DecodePacketId(pipeline, hucCopyPacketId), *m_surfInitPkt));
     DECODE_CHK_STATUS(m_surfInitPkt->Init());
 
@@ -118,6 +120,7 @@ MOS_STATUS FilmGrainSurfaceInit::InitCoordinateSurface()
         m_surfInitPkt->PushCopyParams(copyParams);
 
         Av1PipelineG12 *pipeline = dynamic_cast<Av1PipelineG12 *>(m_pipeline);
+        DECODE_CHK_NULL(pipeline);
         DECODE_CHK_STATUS(ActivatePacket(DecodePacketId(pipeline, hucCopyPacketId), true, 0, 0));
     }
 

@@ -32,16 +32,16 @@
 #include "cm_mem.h"
 #include "cm_kernel_ex.h"
 #include "cm_group_space.h"
-
-#include "mhw_render_g12_X.h"
+#if IGFX_GEN11_SUPPORTED
 #include "mhw_render_g11_X.h"
+#endif
+#if IGFX_GEN12_SUPPORTED
+#include "mhw_render_g12_X.h"
 #include "mhw_mi_g12_X.h"
-#include "mhw_state_heap_hwcmd_g9_X.h" 
-
-#include "mos_solo_generic.h"
-#include "mhw_mmio_g9.h"
-
 #include "cm_hal_g12.h"
+#endif
+#include "mos_solo_generic.h"
+#include "mos_os_cp_interface_specific.h"
 
 CmCommandBuffer::CmCommandBuffer(CM_HAL_STATE *cmhal):
     m_cmhal(cmhal),
@@ -136,6 +136,7 @@ MOS_STATUS CmCommandBuffer::AddL3CacheConfig(L3ConfigRegisterValues *l3Values)
         CM_CHK_MOSSTATUS_RETURN(m_hwRender->EnableL3Caching(&l3CacheSettting));
         return m_hwRender->SetL3Cache(&m_cmdBuf);
     }
+#if IGFX_GEN11_SUPPORTED
     else if (m_cmhal->platform.eRenderCoreFamily == IGFX_GEN11_CORE)
     {
         MHW_RENDER_ENGINE_L3_CACHE_SETTINGS_G11 l3CacheSettting = {};
@@ -144,6 +145,8 @@ MOS_STATUS CmCommandBuffer::AddL3CacheConfig(L3ConfigRegisterValues *l3Values)
         CM_CHK_MOSSTATUS_RETURN(m_hwRender->EnableL3Caching(&l3CacheSettting));
         return m_hwRender->SetL3Cache(&m_cmdBuf);
     }
+#endif
+#if IGFX_GEN12_SUPPORTED
     else //gen12
     {
         MHW_RENDER_ENGINE_L3_CACHE_SETTINGS_G12 l3CacheSettting = {};
@@ -158,6 +161,8 @@ MOS_STATUS CmCommandBuffer::AddL3CacheConfig(L3ConfigRegisterValues *l3Values)
         CM_CHK_MOSSTATUS_RETURN(m_hwRender->EnableL3Caching(&l3CacheSettting));
         return m_hwRender->SetL3Cache(&m_cmdBuf);
     }
+#endif
+    return MOS_STATUS_UNKNOWN;
 }
 
 MOS_STATUS CmCommandBuffer::AddPipelineSelect(bool gpgpu)
@@ -200,17 +205,21 @@ MOS_STATUS CmCommandBuffer::AddStateBaseAddress(CmISH *ish, CmMediaState *mediaS
 MOS_STATUS CmCommandBuffer::AddMediaVFE(CmMediaState *mediaState, bool fusedEuDispatch, CMRT_UMD::CmThreadSpaceRT **threadSpaces, uint32_t count)
 {
     MHW_VFE_PARAMS vfeParams = {};
+#if IGFX_GEN12_SUPPORTED
     MHW_VFE_PARAMS_G12 vfeParamsG12 = {};
+#endif
     MHW_VFE_PARAMS *param = nullptr;
     if (m_cmhal->platform.eRenderCoreFamily <= IGFX_GEN11_CORE)
     {
         param = &vfeParams;
     }
+#if IGFX_GEN12_SUPPORTED
     else
     {
         param = &vfeParamsG12;
         vfeParamsG12.bFusedEuDispatch = fusedEuDispatch;
     }
+#endif
     MHW_RENDER_ENGINE_CAPS *hwCaps = m_hwRender->GetHwCaps();
 
     param->dwDebugCounterControl = MEDIASTATE_DEBUG_COUNTER_FREE_RUNNING;
@@ -420,7 +429,7 @@ MOS_STATUS CmCommandBuffer::AddMediaObjectWalker(CMRT_UMD::CmThreadSpaceRT *thre
     {
         case CM_WALK_DEFAULT:
         case CM_WALK_HORIZONTAL:
-            if (threadSpaceWidth == threadCount && threadSpaceHeight == 1)
+            if (threadSpaceWidth == threadCount && threadSpaceHeight == 1 && maxThreadWidth)
             {
                 mediaWalkerParams.BlockResolution.x = MOS_MIN(threadCount, maxThreadWidth);
                 mediaWalkerParams.BlockResolution.y = 1 + threadCount / maxThreadWidth;
@@ -623,6 +632,7 @@ MOS_STATUS CmCommandBuffer::AddBatchBufferEnd()
 
 MOS_STATUS CmCommandBuffer::AddMMCProlog()
 {
+#if IGFX_GEN12_SUPPORTED
     uint64_t auxTableBaseAddr = 0;
     
     auxTableBaseAddr = m_cmhal->osInterface->pfnGetAuxTableBaseAddr(m_cmhal->osInterface);
@@ -640,7 +650,7 @@ MOS_STATUS CmCommandBuffer::AddMMCProlog()
         lriParams.dwData = ((auxTableBaseAddr >> 32) & 0xffffffff);
         CM_CHK_MOSSTATUS_RETURN(m_miInterface->AddMiLoadRegisterImmCmd(&m_cmdBuf, &lriParams));
     }
-    
+#endif
     return MOS_STATUS_SUCCESS;
 }
 
@@ -901,15 +911,17 @@ MOS_STATUS CmCommandBuffer::AddGpgpuWalker(CMRT_UMD::CmThreadGroupSpace *threadG
     return MOS_STATUS_SUCCESS;
 }
 
+#if IGFX_GEN12_SUPPORTED
 struct PACKET_SURFACE_STATE
 {
     SURFACE_STATE_TOKEN_COMMON token;
     union
     {
-        mhw_state_heap_g9_X::RENDER_SURFACE_STATE_CMD cmdSurfaceState;
-        mhw_state_heap_g9_X::MEDIA_SURFACE_STATE_CMD cmdSurfaceStateAdv;
+        mhw_state_heap_g12_X::RENDER_SURFACE_STATE_CMD cmdSurfaceState;
+        mhw_state_heap_g12_X::MEDIA_SURFACE_STATE_CMD  cmdSurfaceStateAdv;
     };
 };
+#endif
 
 void CmCommandBuffer::Dump()
 {
@@ -920,7 +932,7 @@ void CmCommandBuffer::Dump()
             m_cmhal,
             &m_cmdBuf,
             offsetof(PACKET_SURFACE_STATE, cmdSurfaceState),
-            mhw_state_heap_g9_X::RENDER_SURFACE_STATE_CMD::byteSize);
+            mhw_state_heap_g12_X::RENDER_SURFACE_STATE_CMD::byteSize);
     }
 #endif
 }

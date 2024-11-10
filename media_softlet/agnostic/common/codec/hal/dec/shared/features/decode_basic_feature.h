@@ -31,7 +31,7 @@
 #include "codec_def_decode.h"
 #include "decode_allocator.h"
 #include "media_feature.h"
-#include "codechal_hw.h"
+#include "codec_hw_next.h"
 #include "codechal_setting.h"
 
 namespace decode {
@@ -39,7 +39,7 @@ namespace decode {
 class DecodeBasicFeature: public MediaFeature
 {
 public:
-    DecodeBasicFeature(DecodeAllocator *allocator, CodechalHwInterface *hwInterface);
+    DecodeBasicFeature(DecodeAllocator *allocator, void *hwInterface, PMOS_INTERFACE osInterface);
     virtual ~DecodeBasicFeature();
 
     //!
@@ -150,8 +150,9 @@ protected:
     //!
     virtual MOS_STATUS SetRequiredBitstreamSize(uint32_t requiredSize) = 0;
 
-    CodechalHwInterface *  m_hwInterface = nullptr;
+    void *                 m_hwInterface = nullptr;
     DecodeAllocator *      m_allocator   = nullptr;
+    PMOS_INTERFACE         m_osInterface = nullptr;
 
 #ifdef _MMC_SUPPORTED
     bool                   m_isMmcEnabled = false;   //!< Indicate MMC enabled for current picture

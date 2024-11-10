@@ -26,7 +26,7 @@
 
 #include "decode_avc_basic_feature.h"
 #include "decode_utils.h"
-#include "codechal_utilities.h"
+#include "codec_utilities_next.h"
 #include "decode_avc_reference_frames.h"
 #include "codec_def_decode_avc.h"
 
@@ -48,7 +48,7 @@ namespace decode
 
         m_basicFeature = basicFeature;
         m_allocator = &allocator;
-        DECODE_CHK_STATUS(CodecHalAllocateDataList(m_refList, CODEC_AVC_NUM_UNCOMPRESSED_SURFACE));
+        DECODE_CHK_STATUS(CodecUtilities::CodecHalAllocateDataList(m_refList, CODEC_AVC_NUM_UNCOMPRESSED_SURFACE));
         m_prevPic.PicFlags = PICTURE_INVALID;
         m_prevPic.FrameIdx = CODEC_AVC_NUM_UNCOMPRESSED_SURFACE;
         m_osInterface = basicFeature->GetOsInterface();
@@ -59,7 +59,7 @@ namespace decode
     AvcReferenceFrames::~AvcReferenceFrames()
     {
         DECODE_FUNC_CALL();
-        CodecHalFreeDataList(m_refList, CODEC_AVC_NUM_UNCOMPRESSED_SURFACE);
+        CodecUtilities::CodecHalFreeDataList(m_refList, CODEC_AVC_NUM_UNCOMPRESSED_SURFACE);
         m_activeReferenceList.clear();
     }
 
@@ -69,6 +69,7 @@ namespace decode
 
         DECODE_CHK_STATUS(UpdateCurFrame(picParams));
         DECODE_CHK_STATUS(UpdateCurRefList(picParams));
+        DECODE_CHK_STATUS(UpdateRefCachePolicy(picParams));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -349,6 +350,30 @@ namespace decode
         }
 
         m_prevPic = currPic;
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS AvcReferenceFrames::UpdateRefCachePolicy(const CODEC_AVC_PIC_PARAMS &picParams)
+    {
+        DECODE_FUNC_CALL();
+        MOS_STATUS sts = MOS_STATUS_SUCCESS;
+
+        AvcReferenceFrames         &refFrames     = m_basicFeature->m_refFrames;
+        const std::vector<uint8_t> &activeRefList = refFrames.GetActiveReferenceList(picParams);
+        for (uint8_t i = 0; i < activeRefList.size(); i++)
+        {
+            uint8_t frameIdx               = activeRefList[i];
+            if (frameIdx >= CODEC_AVC_NUM_UNCOMPRESSED_SURFACE)
+            {
+                continue;
+            }
+            sts = m_allocator->UpdateResoreceUsageType(&m_refList[frameIdx]->resRefPic, resourceInputReference);
+            if (sts != MOS_STATUS_SUCCESS)
+            {
+                DECODE_NORMALMESSAGE("GetReferenceByFrameIndex invalid\n");
+            }
+        }
 
         return MOS_STATUS_SUCCESS;
     }

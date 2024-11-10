@@ -68,27 +68,14 @@ MOS_STATUS MediaCopyStateXe_Xpm_Base::Initialize(  PMOS_INTERFACE  osInterface, 
     return eStatus;
 }
 
-//!
-//! \brief    surface copy pre process.
-//! \details  pre process before doing surface copy.
-//! \param    preferMethod
-//!           [in] Preferred media copy method
-//! \return   MOS_STATUS
-//!           Return MOS_STATUS_SUCCESS if support, otherwise return unspoort.
-//!
-MOS_STATUS MediaCopyStateXe_Xpm_Base::PreProcess(MCPY_METHOD preferMethod)
+MOS_STATUS MediaCopyStateXe_Xpm_Base::PreCheckCpCopy(
+    MCPY_STATE_PARAMS src, MCPY_STATE_PARAMS dest, MCPY_METHOD preferMethod)
 {
-    if ((preferMethod == MCPY_METHOD_POWERSAVING)
-        && m_mcpyEngineCaps.engineBlt
-        && (m_mcpySrc.CpMode == MCPY_CPMODE_CP)
-        && (m_mcpyDst.CpMode == MCPY_CPMODE_CLEAR))
+    if (preferMethod == MCPY_METHOD_POWERSAVING && 
+        (src.CpMode == MCPY_CPMODE_CP || dest.CpMode == MCPY_CPMODE_CP))
     {
-        //Allow blt engine to do copy when dst buffer is staging buffer and allocate in system mem, since protection off with blt engine.
-        m_allowCPBltCopy = true;
-    }
-    else
-    {
-        m_allowCPBltCopy = false;
+        MCPY_ASSERTMESSAGE("BLT Copy with CP is not supported");
+        return MOS_STATUS_PLATFORM_NOT_SUPPORTED;
     }
 
     return MOS_STATUS_SUCCESS;
@@ -102,8 +89,15 @@ MediaCopyStateXe_Xpm_Base::~MediaCopyStateXe_Xpm_Base()
     {
         if (m_mhwInterfaces->m_cpInterface)
         {
-            Delete_MhwCpInterface(m_mhwInterfaces->m_cpInterface);
-            m_mhwInterfaces->m_cpInterface = nullptr;
+            if (m_osInterface)
+            {
+                m_osInterface->pfnDeleteMhwCpInterface(m_mhwInterfaces->m_cpInterface);
+                m_mhwInterfaces->m_cpInterface = nullptr;
+            }
+            else
+            {
+                MHW_ASSERTMESSAGE("Failed to destroy cpInterface.");
+            }
         }
         MOS_Delete(m_mhwInterfaces->m_miInterface);
         MOS_Delete(m_mhwInterfaces->m_veboxInterface);
@@ -158,7 +152,7 @@ bool MediaCopyStateXe_Xpm_Base::IsVeboxCopySupported(PMOS_RESOURCE src, PMOS_RES
 
     if (m_veboxCopyState)
     {
-        supported = m_veboxCopyState->IsFormatSupported(src) && m_veboxCopyState->IsFormatSupported(dst);
+        supported = m_veboxCopyState->IsSurfaceSupported(src) && m_veboxCopyState->IsSurfaceSupported(dst);
     }
 
     if (src->TileType == MOS_TILE_LINEAR &&

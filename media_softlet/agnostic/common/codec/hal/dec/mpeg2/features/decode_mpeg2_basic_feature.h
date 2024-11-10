@@ -29,9 +29,6 @@
 #include "decode_basic_feature.h"
 #include "codec_def_decode_mpeg2.h"
 #include "decode_mpeg2_reference_frames.h"
-#include "mhw_vdbox_g12_X.h"
-#include "mhw_vdbox_mfx_interface.h"
-#include "codechal_hw_g12_X.h"
 
 namespace decode {
 
@@ -41,12 +38,12 @@ public:
     //!
     //! \brief  Mpeg2BasicFeature constructor
     //!
-    Mpeg2BasicFeature(DecodeAllocator *allocator, CodechalHwInterface *hwInterface) :
-                        DecodeBasicFeature(allocator, hwInterface)
+    Mpeg2BasicFeature(DecodeAllocator *allocator, void *hwInterface, PMOS_INTERFACE osInterface) :
+        DecodeBasicFeature(allocator, hwInterface, osInterface)
     {
-        if (hwInterface != nullptr)
+        if (osInterface != nullptr)
         {
-            m_osInterface  = hwInterface->GetOsInterface();
+            m_osInterface = osInterface;
         }
 
         MOS_ZeroMemory(&m_savedMpeg2MbParam, sizeof(m_savedMpeg2MbParam));
@@ -93,7 +90,7 @@ public:
     {
         uint16_t skippedMBs;
         uint16_t expectedMBAddr;
-        CodecDecodeMpeg2MbParmas recordMbParam;
+        CodecDecodeMpeg2MbParams recordMbParam;
     };
 
     // One MB size (16x16) intra MB, color = RGB[4, 4, 4]
@@ -157,7 +154,7 @@ public:
 
     CodecDecodeMpeg2PicParams      *m_mpeg2PicParams          = nullptr;          //!< Pointer to MPEG2 picture parameter
     CodecDecodeMpeg2SliceParams    *m_mpeg2SliceParams        = nullptr;          //!< Pointer to MPEG2 slice parameter
-    CodecDecodeMpeg2MbParmas       *m_mpeg2MbParams           = nullptr;          //!< Pointer to MPEG2 MB parameter
+    CodecDecodeMpeg2MbParams       *m_mpeg2MbParams           = nullptr;          //!< Pointer to MPEG2 MB parameter
     CodecMpeg2IqMatrix             *m_mpeg2IqMatrixParams     = nullptr;          //!< Pointer to MPEG2 IQ matrix parameter
     CodecMpeg2IqMatrix             *m_mpeg2IqMatrixBuffer     = nullptr;          //!< Pointer to MPEG2 IQ matrix parameter
     uint32_t                        m_numMacroblocks          = 0;                //!< Number of macro blocks
@@ -194,7 +191,7 @@ public:
 
     BufferArray                    *m_copiedDataBufArray = nullptr;               //!< Handles of copied bitstream buffer array
     PMOS_BUFFER                     m_copiedDataBuf      = nullptr;
-    CodecDecodeMpeg2MbParmas        m_savedMpeg2MbParam;                          //!< save last MB parameters to reconstruct MPEG2 IT Object Command for Skipped MBs.
+    CodecDecodeMpeg2MbParams        m_savedMpeg2MbParam;                          //!< save last MB parameters to reconstruct MPEG2 IT Object Command for Skipped MBs.
 
 protected:
     virtual MOS_STATUS SetRequiredBitstreamSize(uint32_t requiredSize) override

@@ -486,9 +486,9 @@ MOS_STATUS VpHal_RndrCommonSubmitCommands(
         *pRenderHalLegacy->pMhwMiInterface, *pMmioRegisters);
 
     // Add kernel info to log.
-    HalOcaInterface::DumpVpKernelInfo(CmdBuffer, *pOsContext, KernelID, 0, nullptr);
+    HalOcaInterface::DumpVpKernelInfo(CmdBuffer, (MOS_CONTEXT_HANDLE)pOsContext, KernelID, 0, nullptr);
     // Add vphal param to log.
-    HalOcaInterface::DumpVphalParam(CmdBuffer, *pOsContext, pRenderHalLegacy->pVphalOcaDumper);
+    HalOcaInterface::DumpVphalParam(CmdBuffer, (MOS_CONTEXT_HANDLE)pOsContext, pRenderHalLegacy->pVphalOcaDumper);
 
     // Initialize command buffer and insert prolog
     VPHAL_RENDER_CHK_STATUS(pRenderHalLegacy->pfnInitCommandBuffer(pRenderHalLegacy, &CmdBuffer, &GenericPrologParams));
@@ -497,7 +497,7 @@ MOS_STATUS VpHal_RndrCommonSubmitCommands(
     VPHAL_RENDER_CHK_STATUS(pRenderHalLegacy->pfnSendTimingData(pRenderHalLegacy, &CmdBuffer, true));
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectStartCmd((void*)pRenderHalLegacy, pOsInterface, pMhwMiInterface, &CmdBuffer));
 
-    VPHAL_RENDER_CHK_STATUS(NullHW::StartPredicate(pRenderHalLegacy->pMhwMiInterface, &CmdBuffer));
+    VPHAL_RENDER_CHK_STATUS(NullHW::StartPredicate(pOsInterface, pRenderHalLegacy->pMhwMiInterface, &CmdBuffer));
 
     bEnableSLM = (pGpGpuWalkerParams && pGpGpuWalkerParams->SLMSize > 0)? true : false;
     VPHAL_RENDER_CHK_STATUS(pRenderHalLegacy->pfnSetCacheOverrideParams(
@@ -521,7 +521,7 @@ MOS_STATUS VpHal_RndrCommonSubmitCommands(
             false,
             true));
 
-        HalOcaInterface::OnSubLevelBBStart(CmdBuffer, *pOsContext, &pBatchBuffer->OsResource, 0, true, 0);
+        HalOcaInterface::OnSubLevelBBStart(CmdBuffer, (MOS_CONTEXT_HANDLE)pOsContext, &pBatchBuffer->OsResource, 0, true, 0);
 
         // Send Start 2nd level batch buffer command (HW/OS dependent)
         VPHAL_RENDER_CHK_STATUS(pMhwMiInterface->AddMiBatchBufferStartCmd(
@@ -535,7 +535,7 @@ MOS_STATUS VpHal_RndrCommonSubmitCommands(
         VPHAL_RENDER_CHK_STATUS(pRenderHalLegacy->pfnSendRcsStatusTag(pRenderHalLegacy, &CmdBuffer));
     }
 
-    VPHAL_RENDER_CHK_STATUS(NullHW::StopPredicate(pRenderHalLegacy->pMhwMiInterface, &CmdBuffer));
+    VPHAL_RENDER_CHK_STATUS(NullHW::StopPredicate(pOsInterface, pRenderHalLegacy->pMhwMiInterface, &CmdBuffer));
 
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectEndCmd((void*)pRenderHalLegacy, pOsInterface, pMhwMiInterface, &CmdBuffer));
 
@@ -758,16 +758,16 @@ MOS_STATUS VpHal_RndrSubmitCommands(
         *pRenderHalLegacy->pMhwMiInterface, *pMmioRegisters);
 
     // Add kernel info to log.
-    HalOcaInterface::DumpVpKernelInfo(CmdBuffer, *pOsContext, KernelID, FcKernelCount, FcKernelList);
+    HalOcaInterface::DumpVpKernelInfo(CmdBuffer, (MOS_CONTEXT_HANDLE)pOsContext, KernelID, FcKernelCount, FcKernelList);
     // Add vphal param to log.
-    HalOcaInterface::DumpVphalParam(CmdBuffer, *pOsContext, pRenderHalLegacy->pVphalOcaDumper);
+    HalOcaInterface::DumpVphalParam(CmdBuffer, (MOS_CONTEXT_HANDLE)pOsContext, pRenderHalLegacy->pVphalOcaDumper);
 
     // Initialize command buffer and insert prolog
     VPHAL_RENDER_CHK_STATUS(pRenderHalLegacy->pfnInitCommandBuffer(pRenderHalLegacy, &CmdBuffer, &GenericPrologParams));
 
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectStartCmd((void*)pRenderHalLegacy, pOsInterface, pMhwMiInterface, &CmdBuffer));
 
-    VPHAL_RENDER_CHK_STATUS(NullHW::StartPredicate(pRenderHalLegacy->pMhwMiInterface, &CmdBuffer));
+    VPHAL_RENDER_CHK_STATUS(NullHW::StartPredicate(pOsInterface, pRenderHalLegacy->pMhwMiInterface, &CmdBuffer));
 
     // Write timing data for 3P budget
     VPHAL_RENDER_CHK_STATUS(pRenderHalLegacy->pfnSendTimingData(pRenderHalLegacy, &CmdBuffer, true));
@@ -802,7 +802,7 @@ MOS_STATUS VpHal_RndrSubmitCommands(
             false,
             true));
 
-        HalOcaInterface::OnSubLevelBBStart(CmdBuffer, *pOsContext, &pBatchBuffer->OsResource, 0, true, 0);
+        HalOcaInterface::OnSubLevelBBStart(CmdBuffer, (MOS_CONTEXT_HANDLE)pOsContext, &pBatchBuffer->OsResource, 0, true, 0);
 
         // Send Start 2nd level batch buffer command (HW/OS dependent)
         VPHAL_RENDER_CHK_STATUS(pMhwMiInterface->AddMiBatchBufferStartCmd(
@@ -816,7 +816,7 @@ MOS_STATUS VpHal_RndrSubmitCommands(
         VPHAL_RENDER_CHK_STATUS(pRenderHalLegacy->pfnSendRcsStatusTag(pRenderHalLegacy, &CmdBuffer));
     }
 
-    VPHAL_RENDER_CHK_STATUS(NullHW::StopPredicate(pRenderHalLegacy->pMhwMiInterface, &CmdBuffer));
+    VPHAL_RENDER_CHK_STATUS(NullHW::StopPredicate(pOsInterface, pRenderHalLegacy->pMhwMiInterface, &CmdBuffer));
 
     VPHAL_RENDER_CHK_STATUS(pPerfProfiler->AddPerfCollectEndCmd((void*)pRenderHalLegacy, pOsInterface, pMhwMiInterface, &CmdBuffer));
 
@@ -973,6 +973,9 @@ MOS_STATUS VpHal_RndrCommonInitRenderHalSurface(
     pRenderHalSurface->OsSurface.dwWidth            = pVpSurface->dwWidth;
     pRenderHalSurface->OsSurface.dwHeight           = pVpSurface->dwHeight;
     pRenderHalSurface->OsSurface.dwPitch            = pVpSurface->dwPitch;
+    pRenderHalSurface->OsSurface.dwYPitch           = pVpSurface->dwYPitch;
+    pRenderHalSurface->OsSurface.dwUPitch           = pVpSurface->dwUPitch;
+    pRenderHalSurface->OsSurface.dwVPitch           = pVpSurface->dwVPitch;
     pRenderHalSurface->OsSurface.Format             = pVpSurface->Format;
     pRenderHalSurface->OsSurface.TileType           = pVpSurface->TileType;
     pRenderHalSurface->OsSurface.TileModeGMM        = pVpSurface->TileModeGMM;
@@ -1709,7 +1712,6 @@ MOS_STATUS VpHal_RndrUpdateStatusTableAfterSubmit(
             pStatusTable->uiCurrent = uiLast;
         }
     }
-
     pStatusEntry                    = &pStatusTable->aTableEntries[pStatusTable->uiCurrent];
     pStatusEntry->StatusFeedBackID  = dwStatusFeedBackID;
     pStatusEntry->GpuContextOrdinal = eMosGpuContext;
@@ -1717,6 +1719,11 @@ MOS_STATUS VpHal_RndrUpdateStatusTableAfterSubmit(
     pStatusEntry->dwTag             = dwLastTag;
     pStatusEntry->dwStatus          = (eLastStatus == MOS_STATUS_SUCCESS)? VPREP_NOTREADY : VPREP_ERROR;
     pStatusTable->uiCurrent         = (pStatusTable->uiCurrent + 1) & (VPHAL_STATUS_TABLE_MAX_SIZE - 1);
+
+    if (pStatusTable->uiCurrent == pStatusTable->uiHead)
+    {
+        pStatusTable->uiHead = (pStatusTable->uiHead + 1) & (VPHAL_STATUS_TABLE_MAX_SIZE - 1);
+    }
 
     // CM may use a different streamIndex, record it here
     if (pStatusTableUpdateParams->bUpdateStreamIndex)

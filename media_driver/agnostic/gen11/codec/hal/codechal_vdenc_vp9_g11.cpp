@@ -38,7 +38,6 @@
 #include "codechal_kernel_header_g11.h"
 #include "codeckrnheader.h"
 #if defined(ENABLE_KERNELS) && !defined(_FULL_OPEN_SOURCE)
-#include "igcodeckrn_g10.h"
 #include "igcodeckrn_g11.h"
 #endif
 #include "mhw_vdbox_hcp_g11_X.h"
@@ -154,8 +153,8 @@ CodechalVdencVp9StateG11::CodechalVdencVp9StateG11(
     {
         MOS_ZeroMemory(&m_refPicList0[i], sizeof(m_refPicList0[i]));
     }
-
-    Mos_CheckVirtualEngineSupported(m_osInterface, false, true);
+    CODECHAL_ENCODE_CHK_NULL_NO_STATUS_RETURN(m_osInterface);
+    m_osInterface->pfnVirtualEngineSupported(m_osInterface, false, true);
     Mos_SetVirtualEngineSupported(m_osInterface, true);
 }
 
@@ -530,6 +529,7 @@ MOS_STATUS CodechalVdencVp9StateG11::SetupSegmentationStreamIn()
         return eStatus;
     }
 
+    CODECHAL_ENCODE_CHK_NULL_RETURN(m_osInterface);
     MOS_LOCK_PARAMS lockFlagsWriteOnly;
     MOS_ZeroMemory(&lockFlagsWriteOnly, sizeof(MOS_LOCK_PARAMS));
     lockFlagsWriteOnly.WriteOnly = 1;
@@ -620,7 +620,7 @@ MOS_STATUS CodechalVdencVp9StateG11::SetupSegmentationStreamIn()
 
 
     uint32_t dwPitch = m_mbSegmentMapSurface.dwPitch;
-    if (GetResType(&m_mbSegmentMapSurface.OsResource) == MOS_GFXRES_BUFFER)
+    if (m_osInterface->pfnGetResType(&m_mbSegmentMapSurface.OsResource) == MOS_GFXRES_BUFFER)
     {
         //application can send 1D or 2D buffer, based on that change the pitch to correctly access the map buffer
         //driver reads the seg ids from the buffer for each 16x16 block. Reads 4 values for each 32x32 block
@@ -2705,7 +2705,7 @@ MOS_STATUS CodechalVdencVp9StateG11::ReturnCommandBuffer(
 
 MOS_STATUS CodechalVdencVp9StateG11::SubmitCommandBuffer(
     PMOS_COMMAND_BUFFER cmdBuffer,
-    bool nullRendering)
+    bool bNullRendering)
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
@@ -2719,14 +2719,14 @@ MOS_STATUS CodechalVdencVp9StateG11::SubmitCommandBuffer(
         {
             CODECHAL_ENCODE_CHK_STATUS_RETURN(SetAndPopulateVEHintParams(cmdBuffer));
         }
-        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, cmdBuffer, nullRendering));
+        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, cmdBuffer, bNullRendering));
     }
     else // virtual engine
     {
         if (m_osInterface->phasedSubmission)
         {
             CodecHalEncodeScalability_EncodePhaseToSubmissionType(IsFirstPipe(),&m_realCmdBuffer);
-            CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &m_realCmdBuffer, nullRendering));
+            CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &m_realCmdBuffer, bNullRendering));
         }
         else
         {
@@ -2752,7 +2752,7 @@ MOS_STATUS CodechalVdencVp9StateG11::SubmitCommandBuffer(
             if (eStatus == MOS_STATUS_SUCCESS)
             {
                 CODECHAL_ENCODE_CHK_STATUS_RETURN(SetAndPopulateVEHintParams(&m_realCmdBuffer));
-                CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &m_realCmdBuffer, nullRendering));
+                CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &m_realCmdBuffer, bNullRendering));
             }
         }
     }
@@ -3128,7 +3128,7 @@ MOS_STATUS CodechalVdencVp9StateG11::ConstructPicStateBatchBuf(
         // Max 7 segments, 32 bytes each
         uint8_t zeroBlock[m_segmentStateBlockSize * (CODEC_VP9_MAX_SEGMENTS - 1)];
         MOS_ZeroMemory(zeroBlock, sizeof(zeroBlock));
-        Mhw_AddCommandCmdOrBB(&constructedCmdBuf, nullptr, zeroBlock, (CODEC_VP9_MAX_SEGMENTS - segmentCount) * m_segmentStateBlockSize);
+        Mhw_AddCommandCmdOrBB(m_osInterface, &constructedCmdBuf, nullptr, zeroBlock, (CODEC_VP9_MAX_SEGMENTS - segmentCount) * m_segmentStateBlockSize);
     }
     m_slbbImgStateOffset = (uint16_t)constructedCmdBuf.iOffset;
     constructedCmdBuf.iOffset += m_cmd2Size;
@@ -4358,44 +4358,63 @@ MOS_STATUS CodechalVdencVp9StateG11::ExecutePictureLevel()
     // set HCP_PIPE_MODE_SELECT values
     PMHW_VDBOX_PIPE_MODE_SELECT_PARAMS pipeModeSelectParams = nullptr;
     pipeModeSelectParams = m_vdencInterface->CreateMhwVdboxPipeModeSelectParams();
+    CODECHAL_ENCODE_CHK_NULL_RETURN(pipeModeSelectParams);
     SetHcpPipeModeSelectParams(*pipeModeSelectParams);
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hcpInterface->AddHcpPipeModeSelectCmd(&cmdBuffer, pipeModeSelectParams));
+
+    auto delete_func = [&]()
+    {
+        if (pipeModeSelectParams)
+        {
+            MOS_Delete(pipeModeSelectParams);
+            pipeModeSelectParams = nullptr;
+        }
+    };
+
+    CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_hcpInterface->AddHcpPipeModeSelectCmd(&cmdBuffer, pipeModeSelectParams), delete_func);
 
     // This wait cmd is needed to make sure copy is done as suggested by HW folk
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMfxWaitCmd(&cmdBuffer, nullptr, false));
+    CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_miInterface->AddMfxWaitCmd(&cmdBuffer, nullptr, false), delete_func);
 
     // Decoded picture
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hcpInterface->AddHcpSurfaceCmd(&cmdBuffer, &surfaceParams[CODECHAL_HCP_DECODED_SURFACE_ID]));
+    CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_hcpInterface->AddHcpSurfaceCmd(&cmdBuffer, &surfaceParams[CODECHAL_HCP_DECODED_SURFACE_ID]), delete_func);
 
     // Source input
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hcpInterface->AddHcpSurfaceCmd(&cmdBuffer, &surfaceParams[CODECHAL_HCP_SRC_SURFACE_ID]));
+    CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_hcpInterface->AddHcpSurfaceCmd(&cmdBuffer, &surfaceParams[CODECHAL_HCP_SRC_SURFACE_ID]), delete_func);
 
     // Last reference picture
     if (refSurface[0])
     {
-        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hcpInterface->AddHcpSurfaceCmd(&cmdBuffer, &surfaceParams[CODECHAL_HCP_LAST_SURFACE_ID]));
+        CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_hcpInterface->AddHcpSurfaceCmd(&cmdBuffer, &surfaceParams[CODECHAL_HCP_LAST_SURFACE_ID]), delete_func);
+    }
+
+    if (MEDIA_IS_WA(m_waTable, Wa_Vp9UnalignedHeight))
+    {
+        uint32_t real_height = m_oriFrameHeight;
+        uint32_t aligned_height = MOS_ALIGN_CEIL(real_height, CODEC_VP9_MIN_BLOCK_HEIGHT);
+
+        fill_pad_with_value(m_rawSurfaceToPak, real_height, aligned_height);
     }
 
     // Golden reference picture
     if (refSurface[1])
     {
-        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hcpInterface->AddHcpSurfaceCmd(&cmdBuffer, &surfaceParams[CODECHAL_HCP_GOLDEN_SURFACE_ID]));
+        CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_hcpInterface->AddHcpSurfaceCmd(&cmdBuffer, &surfaceParams[CODECHAL_HCP_GOLDEN_SURFACE_ID]), delete_func);
     }
 
     // Alt reference picture
     if (refSurface[2])
     {
-        CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hcpInterface->AddHcpSurfaceCmd(&cmdBuffer, &surfaceParams[CODECHAL_HCP_ALTREF_SURFACE_ID]));
+        CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_hcpInterface->AddHcpSurfaceCmd(&cmdBuffer, &surfaceParams[CODECHAL_HCP_ALTREF_SURFACE_ID]), delete_func);
     }
 
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hcpInterface->AddHcpPipeBufAddrCmd(&cmdBuffer, pipeBufAddrParams));
+    CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_hcpInterface->AddHcpPipeBufAddrCmd(&cmdBuffer, pipeBufAddrParams), delete_func);
 
     // set HCP_IND_OBJ_BASE_ADDR_STATE values
     MHW_VDBOX_IND_OBJ_BASE_ADDR_PARAMS indObjBaseAddrParams;
     SetHcpIndObjBaseAddrParams(indObjBaseAddrParams);
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_hcpInterface->AddHcpIndObjBaseAddrCmd(&cmdBuffer, &indObjBaseAddrParams));
+    CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_hcpInterface->AddHcpIndObjBaseAddrCmd(&cmdBuffer, &indObjBaseAddrParams), delete_func);
 
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_vdencInterface->AddVdencPipeModeSelectCmd(&cmdBuffer, pipeModeSelectParams));
+    CODECHAL_ENCODE_CHK_STATUS_WITH_DESTROY_RETURN(m_vdencInterface->AddVdencPipeModeSelectCmd(&cmdBuffer, pipeModeSelectParams), delete_func);
     if (pipeModeSelectParams)
     {
         MOS_Delete(pipeModeSelectParams);

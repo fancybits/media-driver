@@ -28,6 +28,7 @@
 #include "media_render_cmd_packet.h"
 #include "renderhal_platform_interface.h"
 #include "hal_oca_interface_next.h"
+#include "mos_os_cp_interface_specific.h"
 
 #define COMPUTE_WALKER_THREAD_SPACE_WIDTH 1
 #define COMPUTE_WALKER_THREAD_SPACE_HEIGHT 1
@@ -35,9 +36,9 @@
 
 RenderCmdPacket::RenderCmdPacket(MediaTask* task, PMOS_INTERFACE pOsInterface, RENDERHAL_INTERFACE* renderHal) : CmdPacket(task),
 m_renderHal(renderHal),
-m_cpInterface(nullptr),
-m_osInterface(pOsInterface)
+m_cpInterface(nullptr)
 {
+    m_osInterface = pOsInterface;
 }
 
 RenderCmdPacket::~RenderCmdPacket()
@@ -211,6 +212,10 @@ MOS_STATUS RenderCmdPacket::Submit(MOS_COMMAND_BUFFER *commandBuffer, uint8_t pa
         RENDER_PACKET_CHK_STATUS_RETURN(m_renderHal->pRenderHalPltInterface->AddMediaStateFlush(m_renderHal, commandBuffer, &FlushParam));
     }
 
+#if (_DEBUG || _RELEASE_INTERNAL)
+    RENDER_PACKET_CHK_STATUS_RETURN(StallBatchBuffer(commandBuffer));
+#endif
+
     HalOcaInterfaceNext::On1stLevelBBEnd(*commandBuffer, *pOsInterface);
 
     if (pBatchBuffer)
@@ -266,7 +271,7 @@ MOS_STATUS RenderCmdPacket::RenderEngineSetup()
 
     // Allocate and reset SSH instance
     if ((m_isMultiBindingTables == false) || (m_renderHal->pStateHeap->iCurrentBindingTable >= m_renderHal->StateHeapSettings.iBindingTables) ||
-        (m_renderHal->pStateHeap->iCurrentSurfaceState >= m_renderHal->StateHeapSettings.iSurfaceStates))
+        (m_renderHal->pStateHeap->iCurrentSurfaceState >= m_renderHal->StateHeapSettings.iSurfaceStates) || m_isMultiKernelOneMediaState)
     {
         RENDER_PACKET_CHK_STATUS_RETURN(m_renderHal->pfnAssignSshInstance(m_renderHal));
     }
@@ -370,7 +375,11 @@ MOS_STATUS RenderCmdPacket::SetPowerMode(uint32_t KernelID)
     return eStatus;
 }
 
-uint32_t RenderCmdPacket::SetSurfaceForHwAccess(PMOS_SURFACE surface, PRENDERHAL_SURFACE_NEXT pRenderSurface, PRENDERHAL_SURFACE_STATE_PARAMS pSurfaceParams, bool bWrite)
+uint32_t RenderCmdPacket::SetSurfaceForHwAccess(
+    PMOS_SURFACE                    surface,
+    PRENDERHAL_SURFACE_NEXT         pRenderSurface,
+    PRENDERHAL_SURFACE_STATE_PARAMS pSurfaceParams,
+    bool                            bWrite)
 {
     PMOS_INTERFACE                 pOsInterface;
     PRENDERHAL_SURFACE_STATE_ENTRY pSurfaceEntries[MHW_MAX_SURFACE_PLANES];
@@ -400,7 +409,7 @@ uint32_t RenderCmdPacket::SetSurfaceForHwAccess(PMOS_SURFACE surface, PRENDERHAL
 
         //set mem object control for cache
         surfaceParams.MemObjCtl = (m_renderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
-                                       MOS_MP_RESOURCE_USAGE_DEFAULT,
+                                       MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER,
                                        m_renderHal->pOsInterface->pfnGetGmmClientContext(m_renderHal->pOsInterface))).DwordValue;
 
         pSurfaceParams = &surfaceParams;
@@ -466,11 +475,123 @@ uint32_t RenderCmdPacket::SetSurfaceForHwAccess(PMOS_SURFACE surface, PRENDERHAL
     return iBTEntry;
 }
 
+
 uint32_t RenderCmdPacket::SetSurfaceForHwAccess(
     PMOS_SURFACE                    surface,
     PRENDERHAL_SURFACE_NEXT         pRenderSurface,
     PRENDERHAL_SURFACE_STATE_PARAMS pSurfaceParams,
-    uint32_t                        bindingIndex,
+    bool                            bWrite,
+    std::set<uint32_t>             &stateOffsets)
+{
+    PMOS_INTERFACE                 pOsInterface;
+    PRENDERHAL_SURFACE_STATE_ENTRY pSurfaceEntries[MHW_MAX_SURFACE_PLANES];
+    int32_t                        iSurfaceEntries;
+    int32_t                        i;
+    MOS_STATUS                     eStatus;
+    RENDERHAL_SURFACE_STATE_PARAMS surfaceParams;
+
+    // Initialize Variables
+    eStatus      = MOS_STATUS_SUCCESS;
+    pOsInterface = m_osInterface;
+
+    RENDER_PACKET_CHK_NULL_RETURN(pRenderSurface);
+    RENDER_PACKET_CHK_NULL_RETURN(pOsInterface);
+
+    // Register surfaces for rendering (GfxAddress/Allocation index)
+    // Register resource
+    RENDER_PACKET_CHK_STATUS_RETURN(m_osInterface->pfnRegisterResource(
+        m_osInterface,
+        &surface->OsResource,
+        bWrite,
+        true));
+
+    if (!pSurfaceParams)
+    {
+        MOS_ZeroMemory(&surfaceParams, sizeof(RENDERHAL_SURFACE_STATE_PARAMS));
+
+        //set mem object control for cache
+        surfaceParams.MemObjCtl = (m_renderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
+                                       MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER,
+                                       m_renderHal->pOsInterface->pfnGetGmmClientContext(m_renderHal->pOsInterface))).DwordValue;
+
+        pSurfaceParams = &surfaceParams;
+    }
+
+    if (pSurfaceParams->bAVS)
+    {
+        pSurfaceParams->Type = m_renderHal->SurfaceTypeAdvanced;
+    }
+    else
+    {
+        pSurfaceParams->Type = m_renderHal->SurfaceTypeDefault;
+    }
+
+    RENDER_PACKET_CHK_STATUS_RETURN(InitRenderHalSurface(
+        *surface,
+        pRenderSurface));
+
+    if (bWrite)
+    {
+        pRenderSurface->SurfType = RENDERHAL_SURF_OUT_RENDERTARGET;
+    }
+
+    // Setup surface states-----------------------------------------------------
+    RENDER_PACKET_CHK_STATUS_RETURN(m_renderHal->pfnSetupSurfaceState(
+        m_renderHal,
+        pRenderSurface,
+        pSurfaceParams,
+        &iSurfaceEntries,  // for most cases, surface entry should only take 1 entry, need align with kerenl design
+        pSurfaceEntries,
+        nullptr));
+
+    if (!m_isLargeSurfaceStateNeeded)
+    {
+        if (m_renderData.bindingTableEntry > 15)
+        {
+            RENDER_PACKET_ASSERTMESSAGE("input surface support up to 16 RSS");
+            m_renderData.bindingTableEntry = 0;
+        }
+    }
+    else
+    {
+        if (m_renderData.bindingTableEntry > 255)
+        {
+            RENDER_PACKET_ASSERTMESSAGE("input surface support up to 256 RSS");
+            m_renderData.bindingTableEntry = 0;
+        }
+    }
+
+    uint32_t iBTEntry = m_renderData.bindingTableEntry;
+    if (m_renderHal->isBindlessHeapInUse == false)
+    {
+        // Bind surface states------------------------------------------------------
+        for (i = 0; i < iSurfaceEntries; i++, m_renderData.bindingTableEntry++)
+        {
+            RENDER_PACKET_CHK_STATUS_RETURN(m_renderHal->pfnBindSurfaceState(
+                m_renderHal,
+                m_renderData.bindingTable,
+                m_renderData.bindingTableEntry,
+                pSurfaceEntries[i]));
+
+            pRenderSurface->Index = m_renderData.bindingTableEntry;
+        }
+    }
+    else
+    {
+        for (i = 0; i < iSurfaceEntries; i++)
+        {
+            stateOffsets.insert(pSurfaceEntries[i]->dwSurfStateOffset);
+        }
+    }
+
+    return iBTEntry;
+}
+
+MOS_STATUS RenderCmdPacket::SetSurfaceForHwAccess(
+    PMOS_SURFACE                    surface,
+    PRENDERHAL_SURFACE_NEXT         pRenderSurface,
+    PRENDERHAL_SURFACE_STATE_PARAMS pSurfaceParams,
+    uint32_t                        &bindingIndex,
     bool                            bWrite,
     PRENDERHAL_SURFACE_STATE_ENTRY *surfaceEntries,
     uint32_t *                      numOfSurfaceEntries)
@@ -513,7 +634,7 @@ uint32_t RenderCmdPacket::SetSurfaceForHwAccess(
 
         //set mem object control for cache
         surfaceParams.MemObjCtl = (m_renderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
-                                       MOS_MP_RESOURCE_USAGE_DEFAULT,
+                                       MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER,
                                        m_renderHal->pOsInterface->pfnGetGmmClientContext(m_renderHal->pOsInterface))).DwordValue;
 
         pSurfaceParams = &surfaceParams;
@@ -564,11 +685,135 @@ uint32_t RenderCmdPacket::SetSurfaceForHwAccess(
         *numOfSurfaceEntries = iSurfaceEntries;
     }
 
-    return bindingIndex;
+    return eStatus;
+}
+
+MOS_STATUS RenderCmdPacket::SetSurfaceForHwAccess(
+    PMOS_SURFACE                    surface,
+    PRENDERHAL_SURFACE_NEXT         pRenderSurface,
+    PRENDERHAL_SURFACE_STATE_PARAMS pSurfaceParams,
+    std::set<uint32_t>             &bindingIndexes,
+    bool                            bWrite,
+    std::set<uint32_t>             &stateOffsets,
+    uint32_t                        capcityOfSurfaceEntries,
+    PRENDERHAL_SURFACE_STATE_ENTRY *surfaceEntries,
+    uint32_t                       *numOfSurfaceEntries)
+{
+    PMOS_INTERFACE                  pOsInterface                              = nullptr;
+    PRENDERHAL_SURFACE_STATE_ENTRY  pSurfaceEntries[MHW_MAX_SURFACE_PLANES]   = {};
+    int32_t                         iSurfaceEntries                           = 0;
+    int32_t                         i                                         = 0;
+    MOS_STATUS                      eStatus                                   = MOS_STATUS_SUCCESS;
+    RENDERHAL_SURFACE_STATE_PARAMS  surfaceParams                             = {};
+
+    // Initialize Variables
+    eStatus      = MOS_STATUS_SUCCESS;
+    pOsInterface = m_osInterface;
+
+    RENDER_PACKET_CHK_NULL_RETURN(pRenderSurface);
+    RENDER_PACKET_CHK_NULL_RETURN(pOsInterface);
+
+    // Register surfaces for rendering (GfxAddress/Allocation index)
+    // Register resource
+    RENDER_PACKET_CHK_STATUS_RETURN(m_osInterface->pfnRegisterResource(
+        m_osInterface,
+        &surface->OsResource,
+        bWrite,
+        true));
+
+    if (!pSurfaceParams)
+    {
+        MOS_ZeroMemory(&surfaceParams, sizeof(RENDERHAL_SURFACE_STATE_PARAMS));
+
+        //set mem object control for cache
+        surfaceParams.MemObjCtl = (m_renderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
+                                       MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER,
+                                       m_renderHal->pOsInterface->pfnGetGmmClientContext(m_renderHal->pOsInterface)))
+                                      .DwordValue;
+
+        pSurfaceParams = &surfaceParams;
+    }
+
+    if (pSurfaceParams->bAVS)
+    {
+        pSurfaceParams->Type = m_renderHal->SurfaceTypeAdvanced;
+    }
+    else
+    {
+        pSurfaceParams->Type = m_renderHal->SurfaceTypeDefault;
+    }
+
+    RENDER_PACKET_CHK_STATUS_RETURN(InitRenderHalSurface(
+        *surface,
+        pRenderSurface));
+
+    if (bWrite)
+    {
+        pRenderSurface->SurfType = RENDERHAL_SURF_OUT_RENDERTARGET;
+    }
+
+    // Setup surface states-----------------------------------------------------
+    RENDER_PACKET_CHK_STATUS_RETURN(m_renderHal->pfnSetupSurfaceState(
+        m_renderHal,
+        pRenderSurface,
+        pSurfaceParams,
+        &iSurfaceEntries,  // for most cases, surface entry should only take 1 entry, need align with kerenl design
+        pSurfaceEntries,
+        nullptr));
+
+    if (iSurfaceEntries > MHW_MAX_SURFACE_PLANES)
+    {
+        RENDER_PACKET_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+    }
+    if (static_cast<uint32_t>(iSurfaceEntries) <= capcityOfSurfaceEntries && surfaceEntries != nullptr)
+    {
+        for (int32_t i = 0; i < iSurfaceEntries; ++i)
+        {
+            surfaceEntries[i] = pSurfaceEntries[i];
+        }
+    }
+
+    if (m_renderHal->isBindlessHeapInUse == false)
+    {
+        for (uint32_t const &bindingIndex : bindingIndexes)
+        {
+            uint32_t iBTEntry = bindingIndex;
+            // Bind surface states------------------------------------------------------
+            for (i = 0; i < iSurfaceEntries; i++, iBTEntry++)
+            {
+                RENDER_PACKET_CHK_STATUS_RETURN(m_renderHal->pfnBindSurfaceState(
+                    m_renderHal,
+                    m_renderData.bindingTable,
+                    iBTEntry,
+                    pSurfaceEntries[i]));
+
+                pRenderSurface->Index = iBTEntry;
+            }
+        }
+    }
+    else
+    {
+        for (i = 0; i < iSurfaceEntries; i++)
+        {
+            stateOffsets.insert(pSurfaceEntries[i]->dwSurfStateOffset);
+        }
+    }
+
+    if (numOfSurfaceEntries)
+    {
+        *numOfSurfaceEntries = iSurfaceEntries;
+    }
+
+    return eStatus;
 }
 
 
-uint32_t RenderCmdPacket::SetBufferForHwAccess(PMOS_SURFACE buffer, PRENDERHAL_SURFACE_NEXT pRenderSurface, PRENDERHAL_SURFACE_STATE_PARAMS pSurfaceParams, bool bWrite)
+uint32_t RenderCmdPacket::SetBufferForHwAccess(
+    PMOS_SURFACE                    buffer,
+    PRENDERHAL_SURFACE_NEXT         pRenderSurface,
+    PRENDERHAL_SURFACE_STATE_PARAMS pSurfaceParams,
+    bool                            bWrite,
+    std::set<uint32_t>             &stateOffsets)
 {
     RENDERHAL_SURFACE              RenderHalSurface;
     RENDERHAL_SURFACE_STATE_PARAMS SurfaceParam;
@@ -593,7 +838,7 @@ uint32_t RenderCmdPacket::SetBufferForHwAccess(PMOS_SURFACE buffer, PRENDERHAL_S
     {
         MOS_ZeroMemory(&SurfaceParam, sizeof(SurfaceParam));
 
-        auto memObjCtrlState = Mos_GetResourceCachePolicyMemoryObject(m_renderHal->pOsInterface, &buffer->OsResource);
+        auto memObjCtrlState = m_osInterface->pfnGetResourceCachePolicyMemoryObject(m_renderHal->pOsInterface, &buffer->OsResource);
         SurfaceParam.MemObjCtl = memObjCtrlState.DwordValue;
 
         pSurfaceParams = &SurfaceParam;
@@ -609,16 +854,23 @@ uint32_t RenderCmdPacket::SetBufferForHwAccess(PMOS_SURFACE buffer, PRENDERHAL_S
         pSurfaceParams,
         &pSurfaceEntry));
 
-    // Bind surface state-------------------------------------------------------
-    RENDER_PACKET_CHK_STATUS_RETURN(m_renderHal->pfnBindSurfaceState(
-        m_renderHal,
-        m_renderData.bindingTable,
-        m_renderData.bindingTableEntry,
-        pSurfaceEntry));
+    if (m_renderHal->isBindlessHeapInUse == false)
+    {
+        // Bind surface state-------------------------------------------------------
+        RENDER_PACKET_CHK_STATUS_RETURN(m_renderHal->pfnBindSurfaceState(
+            m_renderHal,
+            m_renderData.bindingTable,
+            m_renderData.bindingTableEntry,
+            pSurfaceEntry));
 
-    pRenderSurface->Index = m_renderData.bindingTableEntry;
+        pRenderSurface->Index = m_renderData.bindingTableEntry;
 
-    m_renderData.bindingTableEntry++;
+        m_renderData.bindingTableEntry++;
+    }
+    else
+    {
+        stateOffsets.insert(pSurfaceEntry->dwSurfStateOffset);
+    }
     return pRenderSurface->Index;
 }
 
@@ -649,7 +901,7 @@ uint32_t RenderCmdPacket::SetBufferForHwAccess(PMOS_SURFACE buffer, PRENDERHAL_S
 
         //set mem object control for cache
         SurfaceParam.MemObjCtl = (m_renderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
-                                      MOS_MP_RESOURCE_USAGE_DEFAULT,
+                                      MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER,
                                       m_renderHal->pOsInterface->pfnGetGmmClientContext(m_renderHal->pOsInterface))).DwordValue;
 
         pSurfaceParams = &SurfaceParam;
@@ -676,6 +928,80 @@ uint32_t RenderCmdPacket::SetBufferForHwAccess(PMOS_SURFACE buffer, PRENDERHAL_S
     pRenderSurface->Index = bindingIndex;
 
     return bindingIndex;
+}
+
+MOS_STATUS RenderCmdPacket::SetBufferForHwAccess(
+    PMOS_SURFACE                    buffer,
+    PRENDERHAL_SURFACE_NEXT         pRenderSurface,
+    PRENDERHAL_SURFACE_STATE_PARAMS pSurfaceParams,
+    std::set<uint32_t>             &bindingIndexes,
+    bool                            bWrite,
+    std::set<uint32_t>             &stateOffsets)
+{
+    RENDERHAL_SURFACE              RenderHalSurface = {};
+    RENDERHAL_SURFACE_STATE_PARAMS SurfaceParam     = {};
+    PRENDERHAL_SURFACE_STATE_ENTRY pSurfaceEntry    = {};
+    MOS_STATUS                     eStatus          = MOS_STATUS_SUCCESS;
+
+    RENDER_PACKET_CHK_NULL_RETURN(m_osInterface);
+    RENDER_PACKET_CHK_NULL_RETURN(m_osInterface->osCpInterface);
+    RENDER_PACKET_CHK_NULL_RETURN(buffer);
+
+    MOS_ZeroMemory(&RenderHalSurface, sizeof(RenderHalSurface));
+
+    // Register surfaces for rendering (GfxAddress/Allocation index)
+    // Register resource
+    RENDER_PACKET_CHK_STATUS_RETURN(m_osInterface->pfnRegisterResource(
+        m_osInterface,
+        &buffer->OsResource,
+        bWrite,
+        true));
+
+    // Setup Buffer surface-----------------------------------------------------
+    if (pSurfaceParams == nullptr)
+    {
+        MOS_ZeroMemory(&SurfaceParam, sizeof(SurfaceParam));
+
+        //set mem object control for cache
+        SurfaceParam.MemObjCtl = (m_renderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
+                                      MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER,
+                                      m_renderHal->pOsInterface->pfnGetGmmClientContext(m_renderHal->pOsInterface)))
+                                     .DwordValue;
+
+        pSurfaceParams = &SurfaceParam;
+    }
+
+    RENDER_PACKET_CHK_STATUS_RETURN(InitRenderHalSurface(
+        *buffer,
+        &RenderHalSurface));
+
+    RENDER_PACKET_CHK_STATUS_RETURN(m_renderHal->pfnSetupBufferSurfaceState(
+        m_renderHal,
+        &RenderHalSurface,
+        pSurfaceParams,
+        &pSurfaceEntry));
+
+    if (m_renderHal->isBindlessHeapInUse == false)
+    {
+        for (uint32_t const &bindingIndex : bindingIndexes)
+        {
+            uint32_t iBTEntry = bindingIndex;
+            // Bind surface state-------------------------------------------------------
+            RENDER_PACKET_CHK_STATUS_RETURN(m_renderHal->pfnBindSurfaceState(
+                m_renderHal,
+                m_renderData.bindingTable,
+                iBTEntry,
+                pSurfaceEntry));
+
+            pRenderSurface->Index = bindingIndex;
+        }
+    }
+    else
+    {
+        stateOffsets.insert(pSurfaceEntry->dwSurfStateOffset);
+    }
+
+    return eStatus;
 }
 
 uint32_t RenderCmdPacket::SetBufferForHwAccess(MOS_BUFFER buffer, PRENDERHAL_SURFACE_NEXT pRenderSurface, PRENDERHAL_SURFACE_STATE_PARAMS pSurfaceParams, bool bWrite)
@@ -710,7 +1036,7 @@ uint32_t RenderCmdPacket::SetBufferForHwAccess(MOS_BUFFER buffer, PRENDERHAL_SUR
 
         //set mem object control for cache
         SurfaceParam.MemObjCtl = (m_renderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
-                                      MOS_MP_RESOURCE_USAGE_DEFAULT,
+                                      MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER,
                                       m_renderHal->pOsInterface->pfnGetGmmClientContext(m_renderHal->pOsInterface))).DwordValue;
 
         pSurfaceParams = &SurfaceParam;
@@ -911,14 +1237,35 @@ MOS_STATUS RenderCmdPacket::PrepareComputeWalkerParams(KERNEL_WALKER_PARAMS para
         gpgpuWalker.GroupHeight += gpgpuWalker.GroupStartingY;
     }
 
-    gpgpuWalker.ThreadWidth              = COMPUTE_WALKER_THREAD_SPACE_WIDTH;
-    gpgpuWalker.ThreadHeight             = COMPUTE_WALKER_THREAD_SPACE_HEIGHT;
-    gpgpuWalker.ThreadDepth              = COMPUTE_WALKER_THREAD_SPACE_DEPTH;
+    if (params.threadDepth && params.threadWidth && params.threadHeight)
+    {
+        gpgpuWalker.ThreadWidth  = params.threadWidth;
+        gpgpuWalker.ThreadHeight = params.threadHeight;
+        gpgpuWalker.ThreadDepth  = params.threadDepth;
+    }
+    else
+    {
+        gpgpuWalker.ThreadWidth  = COMPUTE_WALKER_THREAD_SPACE_WIDTH;
+        gpgpuWalker.ThreadHeight = COMPUTE_WALKER_THREAD_SPACE_HEIGHT;
+        gpgpuWalker.ThreadDepth  = COMPUTE_WALKER_THREAD_SPACE_DEPTH;
+    }
     gpgpuWalker.IndirectDataStartAddress = params.iCurbeOffset;
     // Indirect Data Length is a multiple of 64 bytes (size of L3 cacheline). Bits [5:0] are zero.
     gpgpuWalker.IndirectDataLength = MOS_ALIGN_CEIL(params.iCurbeLength, 1 << MHW_COMPUTE_INDIRECT_SHIFT);
     gpgpuWalker.BindingTableID     = params.iBindingTable;
+    gpgpuWalker.ForcePreferredSLMZero = params.forcePreferredSLMZero;
 
+    gpgpuWalker.isEmitInlineParameter = params.isEmitInlineParameter;
+    gpgpuWalker.inlineDataLength      = params.inlineDataLength;
+    gpgpuWalker.inlineData            = params.inlineData;
+
+    gpgpuWalker.isGenerateLocalID = params.isGenerateLocalID;
+    gpgpuWalker.emitLocal         = params.emitLocal;
+
+    gpgpuWalker.SLMSize           = params.slmSize;
+    gpgpuWalker.hasBarrier        = params.hasBarrier;
+    gpgpuWalker.inlineDataParamBase   = params.inlineDataParamBase;
+    gpgpuWalker.inlineDataParamSize = params.inlineDataParamSize;
     return MOS_STATUS_SUCCESS;
 }
 

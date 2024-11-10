@@ -1,6 +1,6 @@
 /*===================== begin_copyright_notice ==================================
 
-# Copyright (c) 2021, Intel Corporation
+# Copyright (c) 2021-2023, Intel Corporation
 
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -43,6 +43,23 @@ MhwVdboxAvpInterfaceXe_Hpm::MhwVdboxAvpInterfaceXe_Hpm(
 MhwVdboxAvpInterfaceXe_Hpm::~MhwVdboxAvpInterfaceXe_Hpm()
 {
     MHW_FUNCTION_ENTER;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    MOS_USER_FEATURE_VALUE_WRITE_DATA UserFeatureWriteData = __NULL_USER_FEATURE_VALUE_WRITE_DATA__;
+    UserFeatureWriteData.ValueID                           = __MEDIA_USER_FEATURE_VALUE_IS_CODEC_ROW_STORE_CACHE_ENABLED_ID;
+    if (m_btdlRowstoreCache.bEnabled ||
+        m_smvlRowstoreCache.bEnabled ||
+        m_ipdlRowstoreCache.bEnabled ||
+        m_dflyRowstoreCache.bEnabled ||
+        m_dfluRowstoreCache.bEnabled ||
+        m_dflvRowstoreCache.bEnabled ||
+        m_cdefRowstoreCache.bEnabled)
+    {
+        UserFeatureWriteData.Value.i32Data = 1;
+    }
+    MOS_UserFeature_WriteValues_ID(nullptr, &UserFeatureWriteData, 1, m_osInterface->pOsContext);
+#endif
+
 }
 
 void MhwVdboxAvpPipeBufAddrParamsXe_Hpm::Initialize()
@@ -84,15 +101,15 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::GetAvpStateCommandSize(
         mhw::vdbox::avp::xe_hpm::Cmd::AVP_INTER_PRED_STATE_CMD::byteSize;
 
     patchListMaxSize =
-        PATCH_LIST_COMMAND(VD_PIPELINE_FLUSH_CMD) +
-        PATCH_LIST_COMMAND(MI_FLUSH_DW_CMD) +
-        PATCH_LIST_COMMAND(AVP_PIPE_MODE_SELECT_CMD) +
-        PATCH_LIST_COMMAND(AVP_SURFACE_STATE_CMD) * 11 +
-        PATCH_LIST_COMMAND(AVP_PIPE_BUF_ADDR_STATE_CMD) +
-        PATCH_LIST_COMMAND(AVP_IND_OBJ_BASE_ADDR_STATE_CMD) +
-        PATCH_LIST_COMMAND(AVP_SEGMENT_STATE_CMD) * 8 +
-        PATCH_LIST_COMMAND(AVP_INTER_PRED_STATE_CMD) +
-        PATCH_LIST_COMMAND(AVP_INLOOP_FILTER_STATE_CMD);
+        PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::VD_PIPELINE_FLUSH_CMD) +
+        PATCH_LIST_COMMAND(mhw::mi::Itf::MI_FLUSH_DW_CMD) +
+        PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_PIPE_MODE_SELECT_CMD) +
+        PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_SURFACE_STATE_CMD) * 11 +
+        PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_PIPE_BUF_ADDR_STATE_CMD) +
+        PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_IND_OBJ_BASE_ADDR_STATE_CMD) +
+        PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_SEGMENT_STATE_CMD) * 8 +
+        PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_INTER_PRED_STATE_CMD) +
+        PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_INLOOP_FILTER_STATE_CMD);
 
     if (m_decodeInUse)
     {
@@ -100,7 +117,7 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::GetAvpStateCommandSize(
             mhw::vdbox::avp::xe_hpm::Cmd::AVP_PIC_STATE_CMD::byteSize +
             mhw::mi::xe_xpm_base::Cmd::VD_CONTROL_STATE_CMD::byteSize * 2;
 
-        patchListMaxSize += PATCH_LIST_COMMAND(AVP_PIC_STATE_CMD);
+        patchListMaxSize += PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_PIC_STATE_CMD);
 
         MHW_CHK_NULL_RETURN(params);
         auto paramsG12 = dynamic_cast<PMHW_VDBOX_STATE_CMDSIZE_PARAMS_G12>(params);
@@ -140,8 +157,8 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::GetAvpPrimitiveCommandSize(
                 mhw::mi::xe_xpm_base::Cmd::MI_BATCH_BUFFER_END_CMD::byteSize;
 
             patchListMaxSize =
-                PATCH_LIST_COMMAND(AVP_TILE_CODING_CMD_LST) +
-                PATCH_LIST_COMMAND(AVP_BSD_OBJECT_CMD);
+                PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_TILE_CODING_CMD_LST) +
+                PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_BSD_OBJECT_CMD);
         }
         else
         {
@@ -151,8 +168,8 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::GetAvpPrimitiveCommandSize(
                 mhw::mi::xe_xpm_base::Cmd::MI_BATCH_BUFFER_END_CMD::byteSize;
 
             patchListMaxSize =
-                PATCH_LIST_COMMAND(AVP_TILE_CODING_CMD) +
-                PATCH_LIST_COMMAND(AVP_BSD_OBJECT_CMD);
+                PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_TILE_CODING_CMD) +
+                PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_BSD_OBJECT_CMD);
         }
     }
     else
@@ -172,17 +189,17 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::GetAvpPrimitiveCommandSize(
             mhw::mi::xe_xpm_base::Cmd::MI_BATCH_BUFFER_END_CMD::byteSize;
 
         patchListMaxSize =
-            PATCH_LIST_COMMAND(VD_PIPELINE_FLUSH_CMD) +
-            PATCH_LIST_COMMAND(AVP_PIPE_MODE_SELECT_CMD) +
-            PATCH_LIST_COMMAND(AVP_SURFACE_STATE_CMD) * 11 +
-            PATCH_LIST_COMMAND(AVP_PIPE_BUF_ADDR_STATE_CMD) +
-            PATCH_LIST_COMMAND(AVP_IND_OBJ_BASE_ADDR_STATE_CMD) +
-            PATCH_LIST_COMMAND(AVP_PIC_STATE_CMD) +
-            PATCH_LIST_COMMAND(AVP_INTER_PRED_STATE_CMD) +
-            PATCH_LIST_COMMAND(AVP_SEGMENT_STATE_CMD) * 8 +
-            PATCH_LIST_COMMAND(AVP_INLOOP_FILTER_STATE_CMD) +
-            PATCH_LIST_COMMAND(AVP_TILE_CODING_CMD) +
-            PATCH_LIST_COMMAND(AVP_PAK_INSERT_OBJECT_CMD);
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::VD_PIPELINE_FLUSH_CMD) +
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_PIPE_MODE_SELECT_CMD) +
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_SURFACE_STATE_CMD) * 11 +
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_PIPE_BUF_ADDR_STATE_CMD) +
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_IND_OBJ_BASE_ADDR_STATE_CMD) +
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_PIC_STATE_CMD) +
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_INTER_PRED_STATE_CMD) +
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_SEGMENT_STATE_CMD) * 8 +
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_INLOOP_FILTER_STATE_CMD) +
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_TILE_CODING_CMD) +
+            PATCH_LIST_COMMAND(mhw::vdbox::avp::Itf::AVP_PAK_INSERT_OBJECT_CMD);
     }
 
     *commandsSize  = maxSize;
@@ -217,6 +234,7 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::AddAvpPipeBufAddrCmd(
 
     MHW_FUNCTION_ENTER;
 
+    MHW_MI_CHK_NULL(m_osInterface);
     MHW_MI_CHK_NULL(cmdBuffer);
     MHW_MI_CHK_NULL(params);
     MHW_MI_CHK_NULL(params->m_decodedPic);
@@ -224,22 +242,6 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::AddAvpPipeBufAddrCmd(
     MHW_RESOURCE_PARAMS resourceParams;
     MOS_SURFACE details;
     mhw::vdbox::avp::xe_hpm::Cmd::AVP_PIPE_BUF_ADDR_STATE_CMD cmd;
-
-#if (_DEBUG || _RELEASE_INTERNAL)
-    MOS_USER_FEATURE_VALUE_WRITE_DATA UserFeatureWriteData = __NULL_USER_FEATURE_VALUE_WRITE_DATA__;
-    UserFeatureWriteData.ValueID = __MEDIA_USER_FEATURE_VALUE_IS_CODEC_ROW_STORE_CACHE_ENABLED_ID;
-    if (m_btdlRowstoreCache.bEnabled    ||
-        m_smvlRowstoreCache.bEnabled    ||
-        m_ipdlRowstoreCache.bEnabled    ||
-        m_dflyRowstoreCache.bEnabled    ||
-        m_dfluRowstoreCache.bEnabled    ||
-        m_dflvRowstoreCache.bEnabled    ||
-        m_cdefRowstoreCache.bEnabled)
-    {
-        UserFeatureWriteData.Value.i32Data = 1;
-    }
-    MOS_UserFeature_WriteValues_ID(nullptr, &UserFeatureWriteData, 1, m_osInterface->pOsContext);
-#endif
 
     MOS_ZeroMemory(&resourceParams, sizeof(resourceParams));
 
@@ -275,13 +277,6 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::AddAvpPipeBufAddrCmd(
             resourceParams.dwLocationInCmd = (i * 2) + 1;
             resourceParams.bIsWritable = false;
             resourceParams.dwSharedMocsOffset = 17 - resourceParams.dwLocationInCmd;
-
-            MOS_GPU_CONTEXT gpuContext = m_osInterface->pfnGetGpuContext(m_osInterface);
-            m_osInterface->pfnSyncOnResource(
-                m_osInterface,
-                params->m_references[i],
-                gpuContext,
-                false);
 
             MHW_MI_CHK_STATUS(AddResourceToCmd(
                 m_osInterface,
@@ -338,7 +333,7 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::AddAvpPipeBufAddrCmd(
         resourceParams.dwOffset = params->m_cdfTableInitializationBufferOffset;
         resourceParams.pdwCmd = (cmd.CdfTablesInitializationBufferAddress.DW0_1.Value);
         resourceParams.dwLocationInCmd = 27;
-        resourceParams.bIsWritable = true;
+        resourceParams.bIsWritable = false;
         InitMocsParams(resourceParams, &cmd.CdfTablesInitializationBufferAddressAttributes.DW0.Value, 1, 6);
         MHW_MI_CHK_STATUS(AddResourceToCmd(
             m_osInterface,
@@ -1165,18 +1160,7 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::AddAvpPipeBufAddrCmd(
         }
     }
 
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-    if (m_decodeInUse)
-    {
-        if (cmd.DecodedOutputFrameBufferAddressAttributes.DW0.BaseAddressMemoryCompressionEnable && !bMMCReported)
-        {
-            MOS_TraceEvent(EVENT_DECODE_FEATURE_MMC, EVENT_TYPE_INFO, NULL, 0, NULL, 0);
-            bMMCReported = true;
-        }
-    }
-#endif
-
-    MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, sizeof(cmd)));
+    MHW_MI_CHK_STATUS(m_osInterface->pfnAddCommand(cmdBuffer, &cmd, sizeof(cmd)));
     return MOS_STATUS_SUCCESS;
 }
 
@@ -1226,17 +1210,7 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::AddAvpPipeModeSelectCmd(
         cmd.DW6.SSEEnable = false;
     }
 
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-    if (m_decodeInUse)
-    {
-        if (cmd.DW1.PipeWorkingMode == MHW_VDBOX_HCP_PIPE_WORK_MODE_CABAC_REAL_TILE)
-        {
-            MOS_TraceEvent(EVENT_DECODE_FEATURE_RT_SCALABILITY, EVENT_TYPE_INFO, NULL, 0, NULL, 0);
-        }
-    }
-#endif
-
-    MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(cmdBuffer, params->pBatchBuffer, &cmd, sizeof(cmd)));
+    MHW_MI_CHK_STATUS(Mhw_AddCommandCmdOrBB(m_osInterface, cmdBuffer, params->pBatchBuffer, &cmd, sizeof(cmd)));
 
     // for Gen11+, we need to add MFX wait for both KIN and VRT before and after AVP Pipemode select...
     MHW_MI_CHK_STATUS(m_miInterface->AddMfxWaitCmd(cmdBuffer, nullptr, true));
@@ -1252,6 +1226,7 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::AddAvpPipeModeSelectCmd(
 
         MHW_FUNCTION_ENTER;
 
+        MHW_MI_CHK_NULL(m_osInterface);
         MHW_MI_CHK_NULL(params);
 
         MHW_RESOURCE_PARAMS resourceParams;
@@ -1329,7 +1304,7 @@ MOS_STATUS MhwVdboxAvpInterfaceXe_Hpm::AddAvpPipeModeSelectCmd(
             }
         }
 
-        MHW_MI_CHK_STATUS(Mos_AddCommand(cmdBuffer, &cmd, cmd.byteSize));
+        MHW_MI_CHK_STATUS(m_osInterface->pfnAddCommand(cmdBuffer, &cmd, cmd.byteSize));
 
         return eStatus;
     }

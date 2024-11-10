@@ -130,7 +130,7 @@ VAStatus DdiEncodeAV1::ContextInitialize(
     DDI_CHK_NULL(m_encodeCtx->pEncodeStatusReport, "nullptr m_encodeCtx->pEncodeStatusReport.", VA_STATUS_ERROR_ALLOCATION_FAILED);
 
     //Allocate Slice Header Data
-    m_encodeCtx->pSliceHeaderData = (CODEC_ENCODER_SLCDATA *)MOS_AllocAndZeroMemory(MAX_NUM_OBU_TYPES * sizeof(CODEC_ENCODER_SLCDATA));
+    m_encodeCtx->pSliceHeaderData = (CODEC_ENCODER_SLCDATA *)MOS_AllocAndZeroMemory(ENCODE_VDENC_AV1_MAX_TILE_GROUP_NUM * sizeof(CODEC_ENCODER_SLCDATA));
     DDI_CHK_NULL(m_encodeCtx->pSliceHeaderData, "nullptr m_encodeCtx->pSliceHeaderData.", VA_STATUS_ERROR_ALLOCATION_FAILED);
 
     // Create the bit stream buffer to hold the packed headers from application
@@ -414,7 +414,21 @@ VAStatus DdiEncodeAV1::ParseSeqParams(void *ptr)
     av1SeqParams->GopPicSize    = seqParams->intra_period;
     av1SeqParams->GopRefDist    = seqParams->ip_period;
  
-    av1SeqParams->RateControlMethod = VARC2HalRC(m_encodeCtx->uiRCMethod);
+    switch ((uint32_t)m_encodeCtx->uiRCMethod)
+    {
+    case VA_RC_TCBRC:
+    case VA_RC_VBR:
+        av1SeqParams->RateControlMethod = (uint8_t)RATECONTROL_VBR;
+        break;
+    case VA_RC_CQP:
+        av1SeqParams->RateControlMethod = (uint8_t)RATECONTROL_CQP;
+        break;
+    case VA_RC_ICQ:
+        av1SeqParams->RateControlMethod = (uint8_t)RATECONTROL_CQL;
+        break;
+    default:
+        av1SeqParams->RateControlMethod = (uint8_t)RATECONTROL_CBR;
+    }
 
     /* the bits_per_second is only used when the target bit_rate is not initialized */
     if (av1SeqParams->TargetBitRate[0] == 0)
@@ -434,7 +448,11 @@ VAStatus DdiEncodeAV1::ParseSeqParams(void *ptr)
     av1SeqParams->CodingToolFlags.fields.enable_restoration   = seqParams->seq_fields.bits.enable_restoration;
 
     av1SeqParams->order_hint_bits_minus_1 = seqParams->order_hint_bits_minus_1;
+#if VA_CHECK_VERSION(1, 16, 0)
+    av1SeqParams->SeqFlags.fields.HierarchicalFlag = seqParams->hierarchical_flag;
+#else
     av1SeqParams->SeqFlags.fields.HierarchicalFlag = seqParams->reserved8b;
+#endif
 
     return VA_STATUS_SUCCESS;
 }
@@ -547,7 +565,12 @@ VAStatus DdiEncodeAV1::ParsePicParams(DDI_MEDIA_CONTEXT *mediaCtx, void *ptr)
     av1PicParams->PicFlags.fields.DisableFrameRecon            = picParams->picture_flags.bits.disable_frame_recon;
     av1PicParams->PicFlags.fields.PaletteModeEnable            = picParams->picture_flags.bits.palette_mode_enable;
     av1PicParams->PicFlags.fields.SegIdBlockSize               = picParams->seg_id_block_size;
+
+#if VA_CHECK_VERSION(1, 16, 0)
+    av1PicParams->HierarchLevelPlus1                           = picParams->hierarchical_level_plus1;
+#else
     av1PicParams->HierarchLevelPlus1                           = picParams->reserved8bits0;
+#endif
 
     DDI_CHK_RET(
         MOS_SecureMemcpy(av1PicParams->filter_level,
@@ -640,6 +663,8 @@ VAStatus DdiEncodeAV1::ParsePicParams(DDI_MEDIA_CONTEXT *mediaCtx, void *ptr)
         "DDI: PicParams parsing failed!");
 
     DDI_CHK_RET(CheckCDEF(picParams, mediaCtx->platform.eProductFamily), "invalid CDEF Paramter");
+
+    DDI_CHK_RET(CheckTile(picParams), "invalid Tile Paramter");
 
     av1PicParams->context_update_tile_id = picParams->context_update_tile_id;
     av1PicParams->temporal_id            = picParams->temporal_id;
@@ -901,6 +926,9 @@ VAStatus DdiEncodeAV1::ParseMiscParamRC(void *data)
     PCODEC_AV1_ENCODE_SEQUENCE_PARAMS seqParams = (PCODEC_AV1_ENCODE_SEQUENCE_PARAMS)m_encodeCtx->pSeqParams;
     DDI_CHK_NULL(seqParams, "nullptr seqParams", VA_STATUS_ERROR_INVALID_PARAMETER);
 
+    PCODEC_AV1_ENCODE_PICTURE_PARAMS  picParams = (PCODEC_AV1_ENCODE_PICTURE_PARAMS)(m_encodeCtx->pPicParams);
+    DDI_CHK_NULL(picParams, "nullptr picParams", VA_STATUS_ERROR_INVALID_PARAMETER);
+
     uint32_t temporalId = vaEncMiscParamRC->rc_flags.bits.temporal_id;
     DDI_CHK_LESS(temporalId, (seqParams->NumTemporalLayersMinus1 + 1),
         "invalid temporal id", VA_STATUS_ERROR_INVALID_PARAMETER);
@@ -908,10 +936,17 @@ VAStatus DdiEncodeAV1::ParseMiscParamRC(void *data)
     uint32_t bitRate                    = MOS_ROUNDUP_DIVIDE(vaEncMiscParamRC->bits_per_second, CODECHAL_ENCODE_BRC_KBPS);
     seqParams->MaxBitRate               = MOS_MAX(seqParams->MaxBitRate, bitRate);
     seqParams->SeqFlags.fields.ResetBRC = vaEncMiscParamRC->rc_flags.bits.reset;
+    seqParams->FrameSizeTolerance       = static_cast<ENCODE_FRAMESIZE_TOLERANCE>(vaEncMiscParamRC->rc_flags.bits.frame_tolerance_mode);
+#if VA_CHECK_VERSION(1, 10, 0)
+    picParams->TargetFrameSize = vaEncMiscParamRC->target_frame_size;
+#endif
 
     if (VA_RC_CBR == m_encodeCtx->uiRCMethod)
     {
-        seqParams->TargetBitRate[temporalId] = bitRate * vaEncMiscParamRC->target_percentage / 100;
+        if(vaEncMiscParamRC->target_percentage != 0)
+            seqParams->TargetBitRate[temporalId] = bitRate * vaEncMiscParamRC->target_percentage / 100;
+        else
+            seqParams->TargetBitRate[temporalId] = bitRate; // Default 100 percent
         seqParams->MaxBitRate                = seqParams->TargetBitRate[temporalId];
         seqParams->MinBitRate                = seqParams->TargetBitRate[temporalId];
         seqParams->RateControlMethod         = RATECONTROL_CBR;
@@ -926,7 +961,10 @@ VAStatus DdiEncodeAV1::ParseMiscParamRC(void *data)
     }
     else if (VA_RC_VBR == m_encodeCtx->uiRCMethod)
     {
-        seqParams->TargetBitRate[temporalId] = bitRate * vaEncMiscParamRC->target_percentage / 100; //VBR target bits;
+        if(vaEncMiscParamRC->target_percentage != 0)
+            seqParams->TargetBitRate[temporalId] = bitRate * vaEncMiscParamRC->target_percentage / 100;
+        else
+            seqParams->TargetBitRate[temporalId] = bitRate;
         seqParams->MaxBitRate = bitRate;
         seqParams->MinBitRate = 0;
         seqParams->RateControlMethod = RATECONTROL_VBR;
@@ -940,6 +978,19 @@ VAStatus DdiEncodeAV1::ParseMiscParamRC(void *data)
             }
             savedTargetBit[temporalId]  = seqParams->TargetBitRate[temporalId];
             savedMaxBitRate[temporalId] = bitRate;
+        }
+    }
+    else if (VA_RC_ICQ == m_encodeCtx->uiRCMethod)
+    {   
+        seqParams->RateControlMethod = RATECONTROL_CQL;
+        seqParams->ICQQualityFactor = vaEncMiscParamRC->quality_factor;
+        if (savedQualityFactor != seqParams->ICQQualityFactor)
+        {
+            if (savedQualityFactor != 0)
+            {
+                seqParams->SeqFlags.fields.ResetBRC |= 0x01;
+            }
+            savedQualityFactor = seqParams->ICQQualityFactor;
         }
     }
 
@@ -1048,6 +1099,31 @@ VAStatus DdiEncodeAV1::CheckCDEF(const VAEncPictureParameterBufferAV1 *picParams
             return VA_STATUS_ERROR_INVALID_PARAMETER;
         }
     }
+    return VA_STATUS_SUCCESS;
+}
+
+VAStatus DdiEncodeAV1::CheckTile(const VAEncPictureParameterBufferAV1 *picParams)
+{
+    int minTileHeightInSB = picParams->height_in_sbs_minus_1[0] + 1;
+    int minTileWidthInSB = picParams->width_in_sbs_minus_1[0] + 1;
+
+    for(int i = 1;i < picParams->tile_cols;i++)
+    {
+        minTileWidthInSB = MOS_MIN(minTileWidthInSB, picParams->width_in_sbs_minus_1[i] + 1);
+    }
+    for(int i = 1;i < picParams->tile_rows;i++)
+    {
+        minTileHeightInSB = MOS_MIN(minTileHeightInSB, picParams->height_in_sbs_minus_1[i] + 1);
+    }
+
+    if(minTileWidthInSB * minTileHeightInSB < 4 ||
+        minTileWidthInSB < 2 ||
+        minTileHeightInSB < 2)
+    {
+        DDI_ASSERTMESSAGE("Unsupported Tile Size");
+        return VA_STATUS_ERROR_INVALID_PARAMETER;
+    }
+
     return VA_STATUS_SUCCESS;
 }
 

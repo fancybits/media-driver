@@ -27,12 +27,12 @@
 #include "encode_av1_vdenc_pipeline_adapter_xe_m_base.h"
 
 EncodeAv1VdencPipelineAdapterXe_M_Base::EncodeAv1VdencPipelineAdapterXe_M_Base(
-    CodechalHwInterface     *hwInterface,
+    CodechalHwInterfaceNext     *hwInterface,
     CodechalDebugInterface  *debugInterface)
     : EncoderPipelineAdapter(hwInterface, debugInterface)
 {
-    CODECHAL_ENCODE_CHK_NULL_NO_STATUS_RETURN(m_osInterface);
-    Mos_CheckVirtualEngineSupported(m_osInterface, false, true);
+    ENCODE_CHK_NULL_NO_STATUS_RETURN(m_osInterface);
+    m_osInterface->pfnVirtualEngineSupported(m_osInterface, false, true);
     Mos_SetVirtualEngineSupported(m_osInterface, true);
     m_vdencEnabled = true;
 }

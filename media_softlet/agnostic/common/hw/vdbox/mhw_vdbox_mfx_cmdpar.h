@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021 Intel Corporation
+* Copyright (c) 2021-2023 Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -45,6 +45,24 @@ namespace vdbox
 {
 namespace mfx
 {
+
+enum SURFACE_FORMAT
+{
+    SURFACE_FORMAT_YCRCBNORMAL      = 0,   //!< No additional details
+    SURFACE_FORMAT_YCRCBSWAPUVY     = 1,   //!< No additional details
+    SURFACE_FORMAT_YCRCBSWAPUV      = 2,   //!< No additional details
+    SURFACE_FORMAT_YCRCBSWAPY       = 3,   //!< No additional details
+    SURFACE_FORMAT_PLANAR4208       = 4,   //!< (NV12, IMC1,2,3,4, YV12)
+    SURFACE_FORMAT_PLANAR4118       = 5,   //!< Deinterlace Only
+    SURFACE_FORMAT_PLANAR4228       = 6,   //!< Deinterlace Only
+    SURFACE_FORMAT_STMMDNSTATISTICS = 7,   //!< Deinterlace Only
+    SURFACE_FORMAT_R10G10B10A2UNORM = 8,   //!< Sample_8x8 Only
+    SURFACE_FORMAT_R8G8B8A8UNORM    = 9,   //!< Sample_8x8 Only
+    SURFACE_FORMAT_R8B8UNORM_CRCB   = 10,  //!< Sample_8x8 Only
+    SURFACE_FORMAT_R8UNORM_CRCB     = 11,  //!< Sample_8x8 Only
+    SURFACE_FORMAT_Y8UNORM          = 12,  //!< Sample_8x8 Only
+};
+
 //!
 //! \enum     MfxDecoderModeSelect
 //! \brief    MFX decoder mode select
@@ -53,6 +71,40 @@ enum MfxDecoderModeSelect
 {
     mfxDecoderModeVld = 0,
     mfxDecoderModeIt  = 1
+};
+
+enum CommandsNumberOfAddresses
+{
+    // MFX Engine Commands
+    MI_BATCH_BUFFER_START_CMD_NUMBER_OF_ADDRESSES           = 1,   //  2 DW for  1 address field
+    MI_STORE_DATA_IMM_CMD_NUMBER_OF_ADDRESSES               = 1,   //  2 DW for  1 address field
+    MI_FLUSH_DW_CMD_NUMBER_OF_ADDRESSES                     = 1,   //  2 DW for  1 address field
+    MI_CONDITIONAL_BATCH_BUFFER_END_CMD_NUMBER_OF_ADDRESSES = 1,   //  2 DW for  1 address field
+    MI_STORE_REGISTER_MEM_CMD_NUMBER_OF_ADDRESSES           = 1,   //  2 DW for  1 address field
+    MFX_PIPE_MODE_SELECT_CMD_NUMBER_OF_ADDRESSES            = 0,   //  0 DW for    address fields
+    MFX_SURFACE_STATE_CMD_NUMBER_OF_ADDRESSES               = 0,   //  0 DW for    address fields
+    MFX_PIPE_BUF_ADDR_STATE_CMD_NUMBER_OF_ADDRESSES         = 27,  // 50 DW for 25 address fields, added 2 for DownScaledReconPicAddr
+    MFX_IND_OBJ_BASE_ADDR_STATE_CMD_NUMBER_OF_ADDRESSES     = 5,   // 10 DW for  5 address fields
+    MFX_WAIT_CMD_NUMBER_OF_ADDRESSES                        = 0,   //  0 DW for    address fields
+    MFX_BSP_BUF_BASE_ADDR_STATE_CMD_NUMBER_OF_ADDRESSES     = 3,   //  2 DW for  3 address fields
+    MFD_AVC_PICID_STATE_CMD_NUMBER_OF_ADDRESSES             = 0,   //  0 DW for    address fields
+    MFX_AVC_DIRECTMODE_STATE_CMD_NUMBER_OF_ADDRESSES        = 17,  // 50 DW for 17 address fields
+    MFX_AVC_IMG_STATE_CMD_NUMBER_OF_ADDRESSES               = 0,   //  0 DW for    address fields
+    MFX_QM_STATE_CMD_NUMBER_OF_ADDRESSES                    = 0,   //  0 DW for    address fields
+    MFX_FQM_STATE_CMD_NUMBER_OF_ADDRESSES                   = 0,   //  0 DW for    address fields
+    MFX_MPEG2_PIC_STATE_CMD_NUMBER_OF_ADDRESSES             = 0,   //  0 DW for    address fields
+    MFX_DBK_OBJECT_CMD_NUMBER_OF_ADDRESSES                  = 4,   //  2 DW for  4 address fields
+    MFX_VP8_PIC_STATE_CMD_NUMBER_OF_ADDRESSES               = 2,   //  2 DW for  2 address fields
+    MFX_AVC_SLICE_STATE_CMD_NUMBER_OF_ADDRESSES             = 0,   //  0 DW for    address fields
+    MFD_AVC_BSD_OBJECT_CMD_NUMBER_OF_ADDRESSES              = 0,   //  0 DW for    address fields
+    MFD_AVC_DPB_STATE_CMD_NUMBER_OF_ADDRESSES               = 0,   //  0 DW for    address fields
+    MFD_AVC_SLICEADDR_CMD_NUMBER_OF_ADDRESSES               = 0,   //  0 DW for    address fields
+    MFX_AVC_REF_IDX_STATE_CMD_NUMBER_OF_ADDRESSES           = 0,   //  0 DW for    address fields
+    MFX_AVC_WEIGHTOFFSET_STATE_CMD_NUMBER_OF_ADDRESSES      = 0,   //  0 DW for    address fields
+    MFC_AVC_PAK_INSERT_OBJECT_CMD_NUMBER_OF_ADDRESSES       = 0,   //  0 DW for    address fields
+    MFD_MPEG2_BSD_OBJECT_CMD_NUMBER_OF_ADDRESSES            = 0,   //  0 DW for    address fields
+    MFD_MPEG2_IT_OBJECT_CMD_NUMBER_OF_ADDRESSES             = 0,   //  0 DW for    address fields
+    MFD_VP8_BSD_OBJECT_CMD_NUMBER_OF_ADDRESSES              = 0,   //  0 DW for    address fields
 };
 
 /*MFX COMMON CMDS BELOW*/
@@ -87,7 +139,7 @@ struct _MHW_PAR_T(MFX_PIPE_MODE_SELECT)
     bool     shortFormatInUse                               = false;
     bool     vc1OddFrameHeight                              = false;
     uint32_t mediaSoftResetCounterPer1000Clocks             = 0;
-    bool     streamOutEnabled                               = false;
+    bool     sliceSizeStreamout32bit                        = false;
 };
 
 struct _MHW_PAR_T(MFX_SURFACE_STATE)
@@ -235,6 +287,7 @@ struct _MHW_PAR_T(MFX_AVC_IMG_STATE)
     uint32_t                  numMBs                                       = 0;
     uint32_t                  imgStructImageStructureImgStructure10        = 0;
     uint32_t                  interViewOrderDisable                        = 0;
+    bool                      vdaqmEnable                                  = false;
     
     __MHW_VDBOX_MFX_WRAPPER_EXT(MFX_AVC_IMG_STATE_CMDPAR_EXT);
 };
@@ -271,7 +324,7 @@ struct _MHW_PAR_T(MFX_AVC_SLICE_STATE)
     uint8_t                   numberOfReferencePicturesInInterPredictionList1 = 0;
     uint8_t                   sliceAlphaC0OffsetDiv2                          = 0;
     uint8_t                   sliceBetaOffsetDiv2                             = 0;
-    uint8_t                   sliceQuantizationParameter                      = 0;
+    int8_t                    sliceQuantizationParameter                      = 0;
     uint8_t                   cabacInitIdc10                                  = 0;
     uint8_t                   disableDeblockingFilterIndicator                = 0;
     uint8_t                   directPredictionType                            = 0;
@@ -462,7 +515,7 @@ struct _MHW_PAR_T(MFX_MPEG2_PIC_STATE)
     uint16_t Framewidthinmbsminus170PictureWidthInMacroblocks   = 0;
     uint16_t Frameheightinmbsminus170PictureHeightInMacroblocks = 0;
 
-    __MHW_VDBOX_MFX_WRAPPER_EXT(MFX_MPEG2_PIC_STATE_CMDPAR_EXT)
+    uint16_t mfxMpeg2PicStatePar0 = 0;
 
     uint32_t Roundintradc = 0;
     uint32_t Roundinterdc = 0;
@@ -682,7 +735,7 @@ struct _MHW_PAR_T(MFD_IT_OBJECT)
 
 struct _MHW_PAR_T(MFD_IT_OBJECT_MPEG2_INLINE_DATA)
 {
-    CodecDecodeMpeg2MbParmas *pMBParams = nullptr;
+    CodecDecodeMpeg2MbParams *pMBParams = nullptr;
 
     int32_t CodingType     = 0;
     int16_t sPackedMVs0[4] = {};

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2022, Intel Corporation
+* Copyright (c) 2009-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -56,9 +56,11 @@
 //!
 //! \brief Keys for Media Processing
 //!
+#define __MEDIA_USER_FEATURE_VALUE_APOGEIOS_ENABLE                      "ApogeiosEnable"
 #define __MEDIA_USER_FEATURE_VALUE_VDI_MODE                             "VDI Mode"
 #define __MEDIA_USER_FEATURE_VALUE_MEDIA_WALKER_MODE                    "Media Walker Mode"
-
+#define __MEDIA_USER_FEATURE_VALUE_RA_MODE_ENABLE                       "RA Mode Enable"
+#define __MEDIA_USER_FEATURE_VALUE_PROTECT_MODE_ENABLE                  "Protect Mode Enable"
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_HCP_SCALABILITY_DECODE        "Enable HCP Scalability Decode"
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_VEBOX_SCALABILITY_MODE        "Enable Vebox Scalability"
 
@@ -75,6 +77,23 @@
 
 #define __MEDIA_USER_FEATURE_VALUE_MEDIA_RESET_ENABLE                   "Media Reset"
 #define __MEDIA_USER_FEATURE_VALUE_FORCE_RESET_THRESHOLD                "Force media reset threshold"
+#define __MEDIA_USER_FEATURE_VALUE_FORCE_MEDIA_COMPRESSED_WRITE         "Force Media Compressed Write"
+
+//!
+//! \brief Keys for media
+//!
+#define __MEDIA_USER_FEATURE_VALUE_MEDIA_PREEMPTION_ENABLE              "Media Preemption Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIA_RESET_TH                       "Media Reset TH"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIA_DEBUG_CFG_GENERATION           "Media Debug Cfg Generation"
+#define __MEDIA_USER_FEATURE_MCPY_MODE                                  "MediaCopy Mode"
+#define __MEDIA_USER_FEATURE_VALUE_VEBOX_SPLIT_RATIO                    "Vebox Split Ratio"
+#define __MEDIA_USER_FEATURE_SET_MCPY_FORCE_MODE                        "MCPY Force Mode"
+#define __MEDIA_USER_FEATURE_ENABLE_VECOPY_SMALL_RESOLUTION             "Enable VE copy small resolution"  // resolution smaller than 64x32
+
+//!
+//! \brief Keys for mmc
+//!
+#define __MEDIA_USER_FEATURE_ENABLE_RENDER_ENGINE_MMC                   "Enable Media RenderEngine MMC"
 
 //!
 //! \brief ISA ASM Debug Enable and Debug Surface BTI
@@ -85,7 +104,24 @@
 //!
 //! \brief MediaSolo user feature keys
 //!
-#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_ENABLE                       "MediaSolo Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_ENABLE                             "MediaSolo Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_PLATFORM                           "MediaSolo Platform"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_STEPPING                           "MediaSolo Stepping"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_ENABLE_MEM_TRACE                   "MediaSolo Enable Mem Trace"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_ENABLE_LOCAL_MEM                   "MediaSolo Enable Local Mem"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_AUBLOAD_DIRECTORY                  "MediaSolo AubLoad Directory"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_OUTPUT_DIRECTORY                   "MediaSolo Output Directory"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_GT_SKU                             "MediaSolo GT SKU"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_DEBUG_OUTPUT_ENABLE                "MediaSolo Debug Output Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_AUBCAPTURE_ENABLE                  "MediaSolo AubCapture Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_PATHLIST_ENABLE                    "MediaSolo Patch List Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_RESET_GFXADDR_PER_CONTEXT_DISABLE  "MediaSolo Reset GfxAddr Per Context Disable"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_MMIO_GT_SETTING                    "MediaSolo PAVPC MMIO GT Setting"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_PERF_TEST_ENABLE                   "MediaSolo Perf Test Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_AUBLOAD_COMMAND_LINE_OPTIONS       "MediaSolo AubLoad Command Line Options"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_VE_SCHEDULE_FIXED_MODE_ENABLE      "MediaSolo VE Schedule Fixed Mode Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_AUBCAPTURE_BMP_DUMP_ENABLE         "MediaSolo AubCapture BMP Dump Enable"
+#define __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_AUBCAPTURE_RECON_DUMP_ENABLE       "MediaSolo AubCapture Recon Dump Enable"
 
 //!
 //! \brief enable Huc based DRM for CHV
@@ -112,6 +148,9 @@
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_DECODE_VE_CTXSCHEDULING         "Enable Decode VE CtxBasedScheduling"
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_DECODE_VIRTUAL_ENGINE           "Enable Decode VE"
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_ENCODE_VIRTUAL_ENGINE           "Enable Encode VE"
+
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_MEDIA_CCS                       "Enable Media CCS"
+
 #endif // (_DEBUG || _RELEASE_INTERNAL)
 
 #if MOS_COMMAND_BUFFER_DUMP_SUPPORTED
@@ -141,6 +180,8 @@
 #define __MOS_USER_FEATURE_KEY_MESSAGE_HLT_ENABLED                  "Message HLT Enabled"
 #define __MOS_USER_FEATURE_KEY_MESSAGE_HLT_OUTPUT_DIRECTORY         "Message HLT Output Directory"
 #define __MOS_USER_FEATURE_KEY_MESSAGE_PRINT_ENABLED                "Message Print Enabled"
+#define __MOS_USER_FEATURE_KEY_FLUSH_LOG_FILE_BEFORE_SUBMISSION     "Flush Log File Before Submission"
+#define __MOS_USER_FEATURE_KEY_ENABLE_MEMORY_FOOT_PRINT             "Enable Memory Foot Print"
 
 //!
 //! \brief Message level and assert flag for each component is set through the user feature keys
@@ -349,6 +390,15 @@
 #define __VPHAL_DBG_SURF_DUMP_ENABLE_AUX_DUMP                         "enableAuxDump"
 #define __VPHAL_DBG_SURF_DUMPER_RESOURCE_LOCK                         "SurfaceDumperResourceLockError"
 #define __VPHAL_DBG_STATE_DUMP_ENABLE                                 "enableStateDump"
+//User feature key for Codec debug
+#define __MEDIA_USER_FEATURE_VALUE_CODECHAL_DEBUG_OUTPUT_DIRECTORY    "CodecHal Debug Output Directory"
+#define __MEDIA_USER_FEATURE_VALUE_IS_CODEC_ROW_STORE_CACHE_ENABLED   "Codec Row Store Cache Enabled"
+
+// !
+// ! \brief User feature key for Split-Screen Demo Mode
+// !
+#define __MEDIA_USER_FEATURE_VALUE_SPLIT_SCREEN_DEMO_POSITION        "Split-Screen Demo Position"
+#define __MEDIA_USER_FEATURE_VALUE_SPLIT_SCREEN_DEMO_PARAMETERS      "Split-Screen Demo Parameters"
 #endif //(_DEBUG || _RELEASE_INTERNAL)
 
 //User feature key for UMD_OCA
@@ -363,6 +413,13 @@
 
 #define __VPHAL_ENABLE_VEBOX_MMC_DECOMPRESS                                     "Enable Vebox Decompress"
 
+//User feature key for MMC
+#define __MEDIA_USER_FEATURE_VALUE_CODEC_MMC_ENABLE                             "Enable Codec MMC"
+#define __MEDIA_USER_FEATURE_VALUE_CODEC_MMC_IN_USE                             "Codec MMC In Use"
+
+#define __VPHAL_ENABLE_MMC                                                      "Enable VP MMC"
+#define __MEDIA_USER_FEATURE_VALUE_VP_MMC_IN_USE                                "VP MMC In Use"
+
 #define __MEDIA_USER_FEATURE_VALUE_NULLHW_ENABLE                                "NULL HW Enable"
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_PLATFORM                         "MockAdaptor Platform"
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_STEPPING                         "MockAdaptor Stepping"
@@ -372,4 +429,46 @@
 #define __MEDIA_USER_FEATURE_VALUE_PERF_UTILITY_TOOL_ENABLE          "Perf Utility Tool Enable"
 #define __MEDIA_USER_FEATURE_VALUE_PERF_OUTPUT_DIRECTORY             "Perf Output Directory"
 
-#endif // __MOS_UTIL_USER_FEATURE_KEYS_H__
+//User feature key for media perf profile
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_ENABLE              "Perf Profiler Enable"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_ENABLE_MUL_PROC     "Perf Profiler Multi Process Support"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_ENABLE_MER_HEADER   "Perf Profiler Merge by Header Support"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_OUTPUT_FILE_NAME    "Perf Profiler Output File Name"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_BUFFER_SIZE_KEY     "Perf Profiler Buffer Size"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_MUL_PROC_SINGLE_BIN "Perf Profiler Multi Process Single Binary"
+
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_1      "Perf Profiler Register 1"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_2      "Perf Profiler Register 2"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_3      "Perf Profiler Register 3"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_4      "Perf Profiler Register 4"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_5      "Perf Profiler Register 5"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_6      "Perf Profiler Register 6"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_7      "Perf Profiler Register 7"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_8      "Perf Profiler Register 8"
+
+//User feature key for Gmm pooled resource enabling
+#define __MEDIA_USER_FEATURE_VALUE_MEDIA_TEXTURE_POOLING_ENABLE      "Enable Media Texture Pooling"
+
+//Perf
+#define __MEDIA_USER_FEATURE_VALUE_LINUX_PERFORMANCETAG_ENABLE       "Linux PerformanceTag Enable"
+
+// Tile resource info report
+#define __MEDIA_USER_FEATURE_VALUE_TILE_INFO                         "Tile Info"
+#define __MEDIA_USER_FEATURE_VALUE_ENGINE_INSTANCE_RCS               "RCS Instance"
+#define __MEDIA_USER_FEATURE_VALUE_ENGINE_INSTANCE_BLT               "BLT Instance"
+#define __MEDIA_USER_FEATURE_VALUE_ENGINE_INSTANCE_VCS               "VCS Instance"
+#define __MEDIA_USER_FEATURE_VALUE_ENGINE_INSTANCE_VECS              "VECS Instance"
+#define __MEDIA_USER_FEATURE_VALUE_ENGINE_INSTANCE_CCS               "CCS Instance"
+
+// IP alignment support
+#define __MEDIA_USER_FEATURE_VALUE_IP_ALIGNMENT_DECODE_ENABLE        "EnableSyncSubmissionDecode"
+#define __MEDIA_USER_FEATURE_VALUE_IP_ALIGNMENT_ENCODE_ENABLE        "EnableSyncSubmissionEncode"
+#define __MEDIA_USER_FEATURE_VALUE_IP_ALIGNMENT_VPP_ENABLE           "EnableSyncSubmissionVPP"
+#define __MEDIA_USER_FEATURE_VALUE_IP_ALIGNMENT_DECODE_TIMEOUT       "SyncSubmissionTimeOutDecode"
+#define __MEDIA_USER_FEATURE_VALUE_IP_ALIGNMENT_ENCODE_TIMEOUT       "SyncSubmissionTimeOutEncode"
+#define __MEDIA_USER_FEATURE_VALUE_IP_ALIGNMENT_VPP_TIMEOUT          "SyncSubmissionTimeOutVPP"
+
+// Native Fence Mode
+#define __MEDIA_USER_FEATURE_VALUE_MEDIA_NATIVE_FENCE_MODE           "Native Fence Mode"
+
+#endif  // __MOS_UTIL_USER_FEATURE_KEYS_H__

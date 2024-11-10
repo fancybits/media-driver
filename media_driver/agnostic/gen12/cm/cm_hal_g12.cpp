@@ -64,7 +64,10 @@ struct PACKET_SURFACE_STATE
 
 CM_HAL_G12_X::CM_HAL_G12_X(CM_HAL_STATE *cmState): CM_HAL_GENERIC(cmState)
 {   // Enables scheduling based on virtual enngine.
-    Mos_CheckVirtualEngineSupported(m_cmState->osInterface, false, true);
+    if (m_cmState && m_cmState->osInterface)
+    {
+        m_cmState->osInterface->pfnVirtualEngineSupported(m_cmState->osInterface, false, true);
+    }
     return;
 }
 
@@ -732,7 +735,7 @@ MOS_STATUS CM_HAL_G12_X::SubmitCommands(
 
     idLoadParams.pKernelState = nullptr;
     CM_CHK_MOSSTATUS_GOTOFINISH(mhwRender->AddMediaIDLoadCmd(&mosCmdBuffer, &idLoadParams));
-    HalOcaInterface::OnDispatch(mosCmdBuffer, *pOsContext, *renderHal->pMhwMiInterface, *pMmioRegisters);
+    HalOcaInterface::OnDispatch(mosCmdBuffer, *renderHal->pOsInterface, *renderHal->pMhwMiInterface, *pMmioRegisters);
     if (enableWalker)
     {
         // send media walker command, if required
@@ -922,7 +925,7 @@ MOS_STATUS CM_HAL_G12_X::SubmitCommands(
                 &mosSurface));
             mosSurface.OsResource = state->bufferTable[i].osResource;
 
-            CM_CHK_HRESULT_GOTOFINISH_MOSERROR(HalCm_SurfaceSync(state, &mosSurface, false));
+            CM_CHK_HRESULT_GOTOFINISH_MOSERROR(state->pfnSurfaceSync(state, &mosSurface, false));
         }
     }
 

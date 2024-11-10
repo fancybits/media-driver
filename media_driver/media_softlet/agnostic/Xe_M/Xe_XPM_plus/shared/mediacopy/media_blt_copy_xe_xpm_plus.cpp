@@ -91,7 +91,6 @@ BltStateXe_Xpm_Plus::~BltStateXe_Xpm_Plus()
 //!
 MOS_STATUS BltStateXe_Xpm_Plus::Initialize()
 {
-    BltState::Initialize();
     initialized = true;
 
     return MOS_STATUS_SUCCESS;
@@ -481,15 +480,14 @@ MOS_STATUS BltStateXe_Xpm_Plus::SetupCtrlSurfCopyBltParam(
 MOS_STATUS BltStateXe_Xpm_Plus::SubmitCMD(
     PBLT_STATE_PARAM pBltStateParam)
 {
-    MOS_STATUS                   eStatus = MOS_STATUS_SUCCESS;
     MOS_COMMAND_BUFFER           cmdBuffer;
     MHW_FAST_COPY_BLT_PARAM      fastCopyBltParam;
     MHW_CTRL_SURF_COPY_BLT_PARAM ctrlSurfCopyBltParam;
-    MOS_GPUCTX_CREATOPTIONS      createOption = {};
+    MOS_GPUCTX_CREATOPTIONS_ENHANCED createOption = {};
     int                          planeNum = 1;
     PMHW_BLT_INTERFACE_XE_HPC    pbltInterface = dynamic_cast<PMHW_BLT_INTERFACE_XE_HPC>(m_bltInterface);
 
-    BLT_CHK_NULL(pbltInterface);
+    BLT_CHK_NULL_RETURN(pbltInterface);
 
     // no gpucontext will be created if the gpu context has been created before.
     BLT_CHK_STATUS_RETURN(m_osInterface->pfnCreateGpuContext(
@@ -499,6 +497,10 @@ MOS_STATUS BltStateXe_Xpm_Plus::SubmitCMD(
         &createOption));
     // Set GPU context
     BLT_CHK_STATUS_RETURN(m_osInterface->pfnSetGpuContext(m_osInterface, MOS_GPU_CONTEXT_BLT));
+    // Register context with the Batch Buffer completion event
+    BLT_CHK_STATUS_RETURN(m_osInterface->pfnRegisterBBCompleteNotifyEvent(
+        m_osInterface,
+        MOS_GPU_CONTEXT_BLT));
 
     // Initialize the command buffer struct
     MOS_ZeroMemory(&cmdBuffer, sizeof(MOS_COMMAND_BUFFER));
@@ -517,6 +519,10 @@ MOS_STATUS BltStateXe_Xpm_Plus::SubmitCMD(
         return MOS_STATUS_INVALID_PARAMETER;
     }
     planeNum = GetPlaneNum(dstResDetails.Format);
+
+    MediaPerfProfiler* perfProfiler = MediaPerfProfiler::Instance();
+    BLT_CHK_NULL_RETURN(perfProfiler);
+    BLT_CHK_STATUS_RETURN(perfProfiler->AddPerfCollectStartCmd((void*)this, m_osInterface, m_miInterface, &cmdBuffer));
 
     if (pBltStateParam->bCopyMainSurface)
     {
@@ -541,7 +547,7 @@ MOS_STATUS BltStateXe_Xpm_Plus::SubmitCMD(
         }
 
         RegisterDwParams.dwData = swctrl.DW0.Value;
-        m_miInterface->AddMiLoadRegisterImmCmd(&cmdBuffer, &RegisterDwParams);
+        BLT_CHK_STATUS_RETURN(m_miInterface->AddMiLoadRegisterImmCmd(&cmdBuffer, &RegisterDwParams));
 
         BLT_CHK_STATUS_RETURN(m_bltInterface->AddFastCopyBlt(
             &cmdBuffer,
@@ -596,6 +602,8 @@ MOS_STATUS BltStateXe_Xpm_Plus::SubmitCMD(
         //    &ctrlSurfCopyBltParam));
     }
 
+    BLT_CHK_STATUS_RETURN(perfProfiler->AddPerfCollectEndCmd((void*)this, m_osInterface, m_miInterface, &cmdBuffer));
+
     // Add flush DW
     MHW_MI_FLUSH_DW_PARAMS FlushDwParams;
     MOS_ZeroMemory(&FlushDwParams, sizeof(FlushDwParams));
@@ -607,8 +615,7 @@ MOS_STATUS BltStateXe_Xpm_Plus::SubmitCMD(
     // Flush the command buffer
     BLT_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &cmdBuffer, false));
 
-finish:
-    return eStatus;
+    return MOS_STATUS_SUCCESS;
 }
 
 MOS_STATUS BltStateXe_Xpm_Plus::CopyMainSurface(
@@ -619,7 +626,6 @@ MOS_STATUS BltStateXe_Xpm_Plus::CopyMainSurface(
 
     BLT_CHK_NULL_RETURN(src);
     BLT_CHK_NULL_RETURN(dst);
-    MOS_TraceEventExt(EVENT_MEDIA_COPY, EVENT_TYPE_START, nullptr, 0, nullptr, 0);
 
     MOS_ZeroMemory(&bltStateParam, sizeof(BLT_STATE_PARAM));
     bltStateParam.bCopyMainSurface = true;
@@ -628,7 +634,6 @@ MOS_STATUS BltStateXe_Xpm_Plus::CopyMainSurface(
 
     BLT_CHK_STATUS_RETURN(SubmitCMD(&bltStateParam));
 
-    MOS_TraceEventExt(EVENT_MEDIA_COPY, EVENT_TYPE_END, nullptr, 0, nullptr, 0);
     return MOS_STATUS_SUCCESS;
 }
 

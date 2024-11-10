@@ -35,6 +35,8 @@
 #include "media_interfaces_vphal.h"
 #include "media_interfaces_mhw.h"
 #include "mhw_vebox_itf.h"
+#include "mos_oca_rtlog_mgr.h"
+#include "vp_user_setting.h"
 
 //!
 //! \brief    Allocate VPHAL Resources
@@ -57,6 +59,7 @@ MOS_STATUS VphalState::Allocate(
     bool                        addGpuCtxToCheckList  = false;
     MOS_STATUS                  eStatus;
 
+    VPHAL_PUBLIC_CHK_NULL(m_osInterface);
     VPHAL_PUBLIC_CHK_NULL(pVpHalSettings);
     VPHAL_PUBLIC_CHK_NULL(m_renderHal);
 
@@ -80,7 +83,7 @@ MOS_STATUS VphalState::Allocate(
 
             // MhwInterfaces always create CP and MI interfaces, so we have to delete those we don't need.
             MOS_Delete(mhwInterfaces->m_miInterface);
-            Delete_MhwCpInterface(mhwInterfaces->m_cpInterface);
+            m_osInterface->pfnDeleteMhwCpInterface(mhwInterfaces->m_cpInterface);
             mhwInterfaces->m_cpInterface = nullptr;
             MOS_Delete(mhwInterfaces);
         }
@@ -100,9 +103,15 @@ MOS_STATUS VphalState::Allocate(
     }
     addGpuCtxToCheckList = checkGpuCtxOverwriten && !IsGpuContextReused(m_renderGpuContext);
 
+    if (IsRenderContextBasedSchedulingNeeded())
+    {
+        Mos_SetVirtualEngineSupported(m_osInterface, true);
+        m_osInterface->pfnVirtualEngineSupported(m_osInterface, true, true);
+    }
+
     // Create Render GPU Context
     {
-        MOS_GPUCTX_CREATOPTIONS createOption;
+        MOS_GPUCTX_CREATOPTIONS_ENHANCED createOption = {};
         VPHAL_PUBLIC_CHK_STATUS(m_osInterface->pfnCreateGpuContext(
             m_osInterface,
             m_renderGpuContext,
@@ -242,7 +251,13 @@ static bool IsSurfNeedAvs(
 
         if (IS_YUV_FORMAT(pSurf->Format))
         {
-            return true;
+            // Not perform AVS for surface with VPHAL_SCALING_NEAREST
+            // or VPHAL_SCALING_BILINEAR scaling mode.
+            if (pSurf->ScalingMode == VPHAL_SCALING_AVS ||
+                pSurf->ScalingMode == VPHAL_SCALING_ADV_QUALITY)
+            {
+                return true;
+            }
         }
     }
 finish:
@@ -601,10 +616,6 @@ static MOS_STATUS VpHal_RenderWithAvsForMultiStreams(
             VPHAL_PUBLIC_ASSERTMESSAGE("Failed to redner for substreams, eStatus: %d.\n", eStatus);
             MT_ERR2(MT_VP_HAL_RENDER, MT_ERROR_CODE, eStatus, MT_CODE_LINE, __LINE__);
         }
-
-        //Free the temporary surface
-        pRenderer->GetOsInterface()->pfnFreeResource(pRenderer->GetOsInterface(), &(pIntermediateSurface->OsResource));
-
     }
 
 finish:
@@ -668,15 +679,12 @@ VphalFeatureReport* VphalState::GetRenderFeatureReport()
 //!           - Caller must call pfnAllocate to allocate all VPHAL states and objects.
 //! \param    [in] pOsInterface
 //!           OS interface, if provided externally - may be nullptr
-//! \param    [in] pOsDriverContext
-//!           OS driver context (UMD context, pShared, ...)
 //! \param    [in,out] peStatus
 //!           Pointer to the MOS_STATUS flag.
 //!           Will assign this flag to MOS_STATUS_SUCCESS if successful, otherwise failed
 //!
 VphalState::VphalState(
         PMOS_INTERFACE          pOsInterface,
-        PMOS_CONTEXT            pOsDriverContext,
         MOS_STATUS              *peStatus) :
         m_platform(),
         m_skuTable(nullptr),
@@ -702,7 +710,7 @@ VphalState::VphalState(
     m_waTable  = m_osInterface->pfnGetWaTable (m_osInterface);
 
     m_userSettingPtr = m_osInterface->pfnGetUserSettingInstance(m_osInterface);
-    VpUtils::DeclareUserSettings(m_userSettingPtr);
+    VpUserSetting::InitVpUserSetting(m_userSettingPtr);
 
     m_renderHal = (PRENDERHAL_INTERFACE_LEGACY)MOS_AllocAndZeroMemory(sizeof(RENDERHAL_INTERFACE_LEGACY));
     VPHAL_PUBLIC_CHK_NULL(m_renderHal);
@@ -727,6 +735,13 @@ VphalState::~VphalState()
 {
     MOS_STATUS              eStatus;
 
+    // Wait for all cmd before destroy gpu resource
+    if (m_osInterface && m_osInterface->pfnWaitAllCmdCompletion && m_osInterface->bDeallocateOnExit)
+    {
+        VP_PUBLIC_NORMALMESSAGE("WaitAllCmdCompletion in VphalState::~VphalState");
+        m_osInterface->pfnWaitAllCmdCompletion(m_osInterface);
+    }
+
     // Destroy rendering objects (intermediate surfaces, BBs, etc)
     if (m_renderer)
     {
@@ -750,8 +765,15 @@ VphalState::~VphalState()
 
     if (m_cpInterface)
     {
-        Delete_MhwCpInterface(m_cpInterface);
-        m_cpInterface = nullptr;
+        if (m_osInterface)
+        {
+            m_osInterface->pfnDeleteMhwCpInterface(m_cpInterface);
+            m_cpInterface = nullptr;
+        }
+        else
+        {
+            VPHAL_PUBLIC_ASSERTMESSAGE("Failed to destroy cpInterface.");
+        }
     }
 
     if (m_sfcInterface)
@@ -765,6 +787,11 @@ VphalState::~VphalState()
         if (m_veboxItf)
         {
             eStatus = m_veboxItf->DestroyHeap();
+            if (eStatus != MOS_STATUS_SUCCESS)
+            {
+                VPHAL_PUBLIC_ASSERTMESSAGE("Failed to destroy Vebox Interface, eStatus:%d.\n", eStatus);
+                MT_ERR1(MT_VP_HAL_DESTROY, MT_CODE_LINE, __LINE__);
+            }
         }
 
         eStatus = m_veboxInterface->DestroyHeap();
@@ -848,7 +875,14 @@ MOS_STATUS VphalState::GetStatusReport(
     pStatusTable         = &m_statusTable;
     uiNewHead            = pStatusTable->uiHead; // uiNewHead start from previous head value
     // entry length from head to tail
-    uiTableLen           = (pStatusTable->uiCurrent - pStatusTable->uiHead) & (VPHAL_STATUS_TABLE_MAX_SIZE - 1);
+    if (pStatusTable->uiCurrent < pStatusTable->uiHead)
+    {
+        uiTableLen = pStatusTable->uiCurrent + VPHAL_STATUS_TABLE_MAX_SIZE - pStatusTable->uiHead;
+    }
+    else
+    {
+        uiTableLen = pStatusTable->uiCurrent - pStatusTable->uiHead;
+    }
 
     // step 1 - update pStatusEntry from driver if command associated with the dwTag is done by gpu
     for (i = 0; i < wStatusNum && i < uiTableLen; i++)
@@ -921,7 +955,6 @@ MOS_STATUS VphalState::GetStatusReport(
         }
     }
     pStatusTable->uiHead = uiNewHead;
-
     // step 2 - mark VPREP_NOTAVAILABLE for unused entry
     for (/* continue from previous i */; i < wStatusNum; i++)
     {
@@ -957,7 +990,14 @@ MOS_STATUS VphalState::GetStatusReportEntryLength(
     pStatusTable = &m_statusTable;
 
     // entry length from head to tail
-    *puiLength = (pStatusTable->uiCurrent - pStatusTable->uiHead) & (VPHAL_STATUS_TABLE_MAX_SIZE - 1);
+    if (pStatusTable->uiCurrent < pStatusTable->uiHead)
+    {
+        *puiLength = pStatusTable->uiCurrent + VPHAL_STATUS_TABLE_MAX_SIZE - pStatusTable->uiHead;
+    }
+    else
+    {
+        *puiLength = pStatusTable->uiCurrent - pStatusTable->uiHead;
+    }
 finish:
 #else
     MOS_UNUSED(puiLength);
@@ -1041,9 +1081,9 @@ MOS_STATUS VphalState::DestroyGpuContextWithInvalidHandle()
             m_osInterface->CurrentGpuContextHandle != curGpuEntry.gpuContextHandle) &&
             m_osInterface->pfnGetGpuContextbyHandle(m_osInterface, curGpuEntry.gpuContextHandle) == curGpuEntry.pGpuContext)
         {
-            MosInterface::WaitForCmdCompletion(m_osInterface->osStreamState, curGpuEntry.gpuContextHandle);
+            m_osInterface->pfnWaitForCmdCompletion(m_osInterface->osStreamState, curGpuEntry.gpuContextHandle);
 
-            MosInterface::DestroyGpuContext(m_osInterface->osStreamState, curGpuEntry.gpuContextHandle);
+            m_osInterface->pfnDestroyGpuContextByHandle(m_osInterface, curGpuEntry.gpuContextHandle);
         }
     }
     if (m_osInterface->CurrentGpuContextOrdinal != originalGpuCtxOrdinal)

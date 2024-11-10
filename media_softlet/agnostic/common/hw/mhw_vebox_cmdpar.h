@@ -538,7 +538,10 @@ const MHW_VEBOX_SETTINGS g_Vebox_Settings =
         MHW_PAGE_SIZE,         //!< uiVertexTableSize
         MHW_PAGE_SIZE,         //!< uiCapturePipeStateSize
         MHW_PAGE_SIZE * 2,     //!< uiGammaCorrectionStateSize
-        MHW_PAGE_SIZE * 18     //!< uiHdrStateSize
+        MHW_PAGE_SIZE * 18,    //!< uiHdrStateSize
+#if (_DEBUG || _RELEASE_INTERNAL)
+        0                      //!< uiEngineDataSize
+#endif
 };
 
 enum MHW_VEBOX_INDEX
@@ -554,6 +557,7 @@ struct _MHW_PAR_T(VEBOX_STATE)
     MHW_VEBOX_MODE                   VeboxMode                   = {};
     MHW_VEBOX_CHROMA_SAMPLING        ChromaSampling              = {};
     MHW_VEBOX_3D_LUT                 LUT3D                       = {};
+    MHW_VEBOX_FP16_INPUT             FP16Input                   = {};
     bool                             bUseVeboxHeapKernelResource = false;
     PMOS_RESOURCE                    pLaceLookUpTables           = nullptr;
     PMOS_RESOURCE                    pVeboxParamSurf             = nullptr;
@@ -563,6 +567,7 @@ struct _MHW_PAR_T(VEBOX_STATE)
     MHW_MEMORY_OBJECT_CONTROL_PARAMS LaceLookUpTablesSurfCtrl    = {};
     MHW_MEMORY_OBJECT_CONTROL_PARAMS Vebox3DLookUpTablesSurfCtrl = {};
     bool                             bNoUseVeboxHeap             = false;
+    bool                             isTlbPrefetchDisable        = false;
     bool                             bCmBuffer                   = false;
 };
 

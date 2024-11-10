@@ -49,7 +49,7 @@ public:
     virtual VpCmdPacket *CreateVeboxPacket(MediaTask * task, _VP_MHWINTERFACE *hwInterface, VpAllocator *&allocator, VPMediaMemComp *mmc);
     virtual MOS_STATUS CreateSfcRender(SfcRenderBase *&sfcRender, VP_MHWINTERFACE &vpMhwinterface, PVpAllocator allocator);
     virtual VpCmdPacket *CreateRenderPacket(MediaTask * task, _VP_MHWINTERFACE *hwInterface, VpAllocator *&allocator, VPMediaMemComp *mmc, VpKernelSet* kernel);
-    virtual VpKernelConfig &GetKernelConfig();
+    virtual MediaCopyBaseState* CreateMediaCopy();
 
     virtual MOS_STATUS VeboxQueryStatLayout(
         VEBOX_STAT_QUERY_TYPE queryType,
@@ -74,6 +74,21 @@ public:
         return false;
     }
 
+    virtual bool IsAdvanceNativeKernelSupported()
+    {
+        return false;
+    }
+
+    virtual bool IsDecompForInterlacedSurfWaEnabled()
+    {
+        return true;
+    }
+
+    virtual bool IsLegacyEuCountInUse()
+    {
+        return true;
+    }
+
     virtual MOS_STATUS GetInputFrameWidthHeightAlignUnit(
         PVP_MHWINTERFACE          pvpMhwInterface,
         uint32_t                 &widthAlignUnit,
@@ -86,10 +101,17 @@ public:
         PVP_MHWINTERFACE          pvpMhwInterface,
         const MHW_VEBOX_HEAP    **ppVeboxHeap);
 
-    virtual bool VeboxScalabilitywith4K(
+    virtual bool IsVeboxScalabilityWith4KNotSupported(
         VP_MHWINTERFACE           vpMhwInterface);
 
     virtual MOS_STATUS ConfigureVpScalability(VP_MHWINTERFACE &vpMhwInterface);
+
+    virtual bool IsRenderMMCLimitationCheckNeeded()
+    {
+        return true;
+    }
+
+    virtual MOS_STATUS InitVpFeatureSupportBits() override;
 
 protected:
     bool m_disableSfcDithering = false;

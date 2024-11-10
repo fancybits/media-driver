@@ -30,6 +30,7 @@
 #include "decode_av1_feature_defs_g12.h"
 #include "mos_defs.h"
 #include "hal_oca_interface.h"
+#include "codechal_utilities.h"
 
 namespace decode 
 {
@@ -176,7 +177,7 @@ MOS_STATUS FilmGrainAppNoisePkt::Submit(MOS_COMMAND_BUFFER *commandBuffer, uint8
 
     HalOcaInterface::On1stLevelBBStart(*commandBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle,
         *m_hwInterface->GetMiInterface(), *m_hwInterface->GetMiInterface()->GetMmioRegisters());
-    HalOcaInterface::TraceMessage(*commandBuffer, *m_osInterface->pOsContext, __FUNCTION__, sizeof(__FUNCTION__));
+    HalOcaInterface::TraceMessage(*commandBuffer, (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext, __FUNCTION__, sizeof(__FUNCTION__));
 
     if (pOsInterface && !m_av1BasicFeature->m_singleKernelPerfFlag)
     {
@@ -328,7 +329,7 @@ MOS_STATUS FilmGrainAppNoisePkt::KernelStateSetup()
 
     PRENDERHAL_INTERFACE_LEGACY pRenderHalLegacy = (PRENDERHAL_INTERFACE_LEGACY)m_renderHal;
     // Initialize States
-    MOS_ZeroMemory(m_filter, sizeof(m_filter));
+    MOS_ZeroMemory(m_filter, sizeof(Kdll_FilterEntry));
     MOS_ZeroMemory(&m_renderData.KernelEntry, sizeof(Kdll_CacheEntry));
 
     // Set Kernel Parameter

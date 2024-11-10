@@ -34,11 +34,13 @@ class Av1BasicFeatureXe_Hpm : public Av1BasicFeature
 {
 public:
     Av1BasicFeatureXe_Hpm(EncodeAllocator* allocator,
-        CodechalHwInterface* hwInterface,
+        CodechalHwInterfaceNext* hwInterface,
         TrackedBuffer* trackedBuf,
         RecycleResource* recycleBuf,
         void* constSettings) :
         Av1BasicFeature(allocator, hwInterface, trackedBuf, recycleBuf, constSettings) {};
+
+    virtual MOS_STATUS Update(void *params) override;
 
     virtual ~Av1BasicFeatureXe_Hpm() {};
 
@@ -49,6 +51,7 @@ public:
     MHW_SETPAR_DECL_HDR(VDENC_HEVC_VP9_TILE_SLICE_STATE);
 
     MHW_SETPAR_DECL_HDR(VDENC_PIPE_BUF_ADDR_STATE); 
+
 MEDIA_CLASS_DEFINE_END(encode__Av1BasicFeatureXe_Hpm)
 };
 

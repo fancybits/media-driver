@@ -29,6 +29,7 @@
 #include "mhw_vebox_hwcmd_g12_X.h"
 #include "mhw_vebox_g12_X.h"
 #include "hal_oca_interface.h"
+#include "mos_os_cp_interface_specific.h"
 #include "vp_utils.h"
 
 MediaVeboxDecompStateG12::MediaVeboxDecompStateG12() :
@@ -122,7 +123,7 @@ MOS_STATUS MediaVeboxDecompStateG12::RenderDecompCMD(PMOS_SURFACE surface)
         &cmdBuffer,
         &mhwVeboxSurfaceStateCmdParams));
 
-    HalOcaInterface::OnDispatch(cmdBuffer, *pOsContext, *m_mhwMiInterface, *pMmioRegisters);
+    HalOcaInterface::OnDispatch(cmdBuffer, *m_osInterface, *m_mhwMiInterface, *pMmioRegisters);
 
     //---------------------------------
     // Send CMD: Vebox_Tiling_Convert
@@ -429,9 +430,9 @@ MOS_STATUS MediaVeboxDecompStateG12::VeboxSendVeboxTileConvertCMD(
     ResourceParams.bIsWritable     = true;
     ResourceParams.dwOffset        =
         (outputSurface != nullptr ? outputSurface->dwOffset : inputSurface->dwOffset) + veboxOutputSurfCtrlBits.DW0.Value;
-    m_veboxInterface->pfnAddResourceToCmd(m_osInterface, cmdBuffer, &ResourceParams);
+    VPHAL_MEMORY_DECOMP_CHK_STATUS_RETURN(m_veboxInterface->pfnAddResourceToCmd(m_osInterface, cmdBuffer, &ResourceParams));
 
-    Mos_AddCommand(cmdBuffer, &cmd, cmd.byteSize);
+    m_osInterface->pfnAddCommand(cmdBuffer, &cmd, cmd.byteSize);
 
     return eStatus;
 }

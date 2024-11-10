@@ -53,34 +53,6 @@
 #define CODEC_WP_OUTPUT_L0_START        0
 #define CODEC_WP_OUTPUT_L1_START        6
 
-#define CODEC_720P_MAX_PIC_WIDTH       1280
-#define CODEC_720P_MAX_PIC_HEIGHT      1280
-
-#define CODEC_MAX_PIC_WIDTH            1920
-#define CODEC_MAX_PIC_HEIGHT           1920                // Tablet usage in portrait mode, image resolution = 1200x1920, so change MAX_HEIGHT to 1920
-
-#define CODEC_2K_MAX_PIC_WIDTH         2048
-#define CODEC_2K_MAX_PIC_HEIGHT        2048
-
-#define CODEC_4K_VC1_MAX_PIC_WIDTH     3840
-#define CODEC_4K_VC1_MAX_PIC_HEIGHT    3840
-
-#define CODEC_4K_MAX_PIC_WIDTH         4096
-#define CODEC_4K_MAX_PIC_HEIGHT        4096
-
-#define CODEC_8K_MAX_PIC_WIDTH    8192
-#define CODEC_8K_MAX_PIC_HEIGHT   8192
-
-#define CODEC_16K_MAX_PIC_WIDTH        16384
-#define CODEC_12K_MAX_PIC_HEIGHT       12288
-#define CODEC_16K_MAX_PIC_HEIGHT       16384
-
-#define CODECHAL_MAD_BUFFER_SIZE                4 // buffer size is 4 bytes
-
-#define CODEC_128_MIN_PIC_WIDTH        128
-#define CODEC_96_MIN_PIC_HEIGHT        96
-#define CODEC_128_MIN_PIC_HEIGHT       128
-
 // HME
 #define SCALE_FACTOR_2x     2
 #define SCALE_FACTOR_4x     4
@@ -479,7 +451,8 @@ enum
     CODECHAL_ENCODE_PERFTAG_CALL_BRC_UPDATE_SECOND_PASS,
     CODECHAL_ENCODE_PERFTAG_CALL_HEVC_LA_UPDATE,
     CODECHAL_ENCODE_PERFTAG_CALL_VP9_HPU,
-    CODECHAL_ENCODE_PERFTAG_CALL_VP9_HPU_SECOND_PASS
+    CODECHAL_ENCODE_PERFTAG_CALL_VP9_HPU_SECOND_PASS,
+    CODECHAL_ENCODE_PERFTAG_CALL_RSVD,
 };
 
 typedef enum _CODECHAL_ENCODE_FUNCTION_ID
@@ -585,7 +558,7 @@ struct CodechalTileInfo
 // The current definition of the first encode mode CODECHAL_ENCODE_MODE_AVC should be used
 // as a base for subsequent encode modes
 #define CODECHAL_ENCODE_MODE_BIT_OFFSET     ((uint32_t)(log((double)CODECHAL_ENCODE_MODE_AVC)/log(2.)))
-#define CODECHAL_ENCODE_MODE_BIT_MASK       (( 1L << CODECHAL_ENCODE_MODE_BIT_OFFSET) - 1 )
+#define CODECHAL_ENCODE_MODE_BIT_MASK       ((( 1L << CODECHAL_ENCODE_MODE_BIT_OFFSET) - 1 ) & 0xF)
 
 template<typename ValueType>
 static ValueType SwapEndianness(ValueType value)

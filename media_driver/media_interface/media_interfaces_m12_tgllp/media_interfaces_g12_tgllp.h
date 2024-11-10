@@ -32,7 +32,6 @@
 #include "media_interfaces_mmd.h"
 #include "media_interfaces_mcpy.h"
 #include "media_interfaces_cmhal.h"
-#include "media_interfaces_mosutil.h"
 #include "media_interfaces_vphal.h"
 #include "media_interfaces_renderhal.h"
 #include "media_interfaces_nv12top010.h"
@@ -142,9 +141,10 @@
 #include "cm_hal_g12.h"
 #include "vphal_g12_tgllp.h"
 #include "renderhal_g12_0.h"
-#include "media_user_settings_mgr_g12.h"
 
 #include "codechal_decode_histogram_g12.h"
+#include "decode_scalability_singlepipe.h"
+#include "decode_scalability_multipipe.h"
 
 #if LINUX
 #include "vp_pipeline_adapter_g12.h"
@@ -302,14 +302,6 @@ protected:
         CM_HAL_STATE *pCmState);
 };
 
-class MosUtilDeviceG12Tgllp : public MosUtilDevice
-{
-public:
-    using MosUtil = MediaUserSettingsMgr_g12;
-
-    MOS_STATUS Initialize();
-};
-
 class VphalInterfacesG12Tgllp : public VphalDevice
 {
 public:
@@ -317,9 +309,9 @@ public:
 
     MOS_STATUS Initialize(
         PMOS_INTERFACE  osInterface,
-        PMOS_CONTEXT    osDriverContext,
         bool            bInitVphalState,
-        MOS_STATUS      *eStatus);
+        MOS_STATUS      *eStatus,
+        bool            clearViewMode = false);
 
     MOS_STATUS CreateVpPlatformInterface(
         PMOS_INTERFACE osInterface,

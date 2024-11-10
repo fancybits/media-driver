@@ -72,6 +72,11 @@
 //!
 #define MHW_MAX_VEBOX_STATES    16
 
+//!
+//! \brief  Vebox engine class ID value from https://gfxspecs.intel.com/Predator/Home/Index/60421
+//!
+#define MHW_VEBOX_ENGINE_CLASS_ID    2
+
 #define MHW_PI                     3.14159265358979324f         //!< Definition the const pi
 
 //!
@@ -176,7 +181,11 @@ typedef struct _MHW_VEBOX_MODE
     uint32_t    Hdr1DLutEnable                      : 1;
     uint32_t    Fp16ModeEnable                      : 1;
     uint32_t    Hdr1K1DLut                          : 1;
-    uint32_t                                        : 7; // Reserved
+    uint32_t    GamutExpansionPosition              : 1;
+    uint32_t    EotfPrecision                       : 1;
+    uint32_t    BypassCcm                           : 1;
+    uint32_t    BypassOetf                          : 1;
+    uint32_t                                        : 3; // Reserved
 } MHW_VEBOX_MODE, *PMHW_VEBOX_MODE;
 
 typedef enum _MHW_VEBOX_ADDRESS_SHIFT
@@ -204,8 +213,17 @@ typedef struct _MHW_VEBOX_3D_LUT
     uint32_t    Lut3dEnable                                 : 1;
     uint32_t    Lut3dSize                                   : 2;
     uint32_t    ChannelMappingSwapForLut3D                  : 1;
-    uint32_t                                                : 26; // Reserved
+    uint32_t    InterpolationMethod                         : 1;
+    uint32_t                                                : 25; // Reserved
 } MHW_VEBOX_3D_LUT, *PMHW_VEBOX_3D_LUT;
+
+typedef struct _MHW_VEBOX_FP16_INPUT
+{
+    uint32_t VeboxFp16InputEnable                           : 1;
+    uint32_t RgbSwapForFp16Input                            : 1;
+    uint32_t HdrGainFactor                                  : 8;
+    uint32_t                                                : 22;  // Reserved
+} MHW_VEBOX_FP16_INPUT, *PMHW_VEBOX_FP16_INPUT;
 
 //!
 //! \brief  Structure to handle VEBOX_STATE_CMD Command
@@ -215,6 +233,7 @@ typedef struct _MHW_VEBOX_STATE_CMD_PARAMS
     MHW_VEBOX_MODE                      VeboxMode;
     MHW_VEBOX_CHROMA_SAMPLING           ChromaSampling;
     MHW_VEBOX_3D_LUT                    LUT3D;
+    MHW_VEBOX_FP16_INPUT                FP16Input;
     bool                                bUseVeboxHeapKernelResource;
     PMOS_RESOURCE                       pLaceLookUpTables;
     PMOS_RESOURCE                       pVeboxParamSurf;
@@ -224,6 +243,7 @@ typedef struct _MHW_VEBOX_STATE_CMD_PARAMS
     MHW_MEMORY_OBJECT_CONTROL_PARAMS    LaceLookUpTablesSurfCtrl;
     MHW_MEMORY_OBJECT_CONTROL_PARAMS    Vebox3DLookUpTablesSurfCtrl;
     bool                                bNoUseVeboxHeap;
+    bool                                isTlbPrefetchDisable;
 } MHW_VEBOX_STATE_CMD_PARAMS, *PMHW_VEBOX_STATE_CMD_PARAMS;
 
 //!
@@ -334,6 +354,18 @@ typedef struct _MHW_STE_PARAMS
     uint32_t            satS1;
 } MHW_STE_PARAMS, *PMHW_STE_PARAMS;
 
+
+//!
+//! Structure MHW_STD_PARAMS
+//! \brief STD parameters - Skin Tone Detection
+//!
+typedef struct _MHW_STD_PARAMS
+{
+    uint32_t  paraSizeInBytes;  
+    void      *param;            
+} MHW_STD_PARAMS, *PMHW_STD_PARAMS;
+
+
 //!
 //! Structure MHW_TCC_PARAMS
 //! \brief TCC parameters - Total Color Control
@@ -369,12 +401,14 @@ typedef struct _MHW_COLORPIPE_PARAMS
     uint32_t            bActive;                    //!< Active or not
     bool                bEnableACE;
     bool                bEnableSTE;
+    bool                bEnableSTD;                 // vebox STD alone enabled or not
     bool                bEnableTCC;
     bool                bAceLevelChanged;
     uint32_t            dwAceLevel;
     uint32_t            dwAceStrength;
     bool                bEnableLACE;
     MHW_STE_PARAMS      SteParams;
+    MHW_STD_PARAMS      StdParams;
     MHW_TCC_PARAMS      TccParams;
     MHW_LACE_PARAMS     LaceParams;
 } MHW_COLORPIPE_PARAMS, *PMHW_COLORPIPE_PARAMS;
@@ -453,6 +487,16 @@ typedef enum _MHW_WB_MODE
     MHW_WB_AUTO_IMAGE,
     MHW_WB_COUNT
 } MHW_WB_MODE;
+
+//!
+//! Structure MHW_3DLUT_INTERPOLATION
+//! \brief 3DLut interpolation method
+//!
+typedef enum _MHW_3DLUT_INTERPOLATION
+{
+    MHW_3DLUT_INTERPOLATION_TRILINEAR            = 0,   //!< 3DLUT Trilinear interpolation method.
+    MHW_3DLUT_INTERPOLATION_TETRAHEDRAL          = 1    //!< 3DLUT Tetrahedral interpolation method.
+} MHW_3DLUT_INTERPOLATION;
 
 //!
 //! Structure MHW_WHITE_BALANCE_PARAMS
@@ -581,10 +625,11 @@ typedef struct _MHW_CAPPIPE_PARAMS
 //!
 typedef struct _MHW_3DLUT_PARAMS
 {
-    uint32_t bActive;                    //!< Active or not
-    uint32_t LUTSize;                    //!< Size (one dimensions) of the LUT
-    uint32_t LUTLength;                  //!< Length of the LUT, in unit of bit
-    uint8_t *pLUT;                       //!< Pointer to the LUT value
+    uint32_t                bActive;                    //!< Active or not
+    uint32_t                LUTSize;                    //!< Size (one dimensions) of the LUT
+    uint32_t                LUTLength;                  //!< Length of the LUT, in unit of bit
+    uint8_t                 *pLUT;                      //!< Pointer to the LUT value
+    MHW_3DLUT_INTERPOLATION InterpolationMethod;        //!< Vebox 3DLut interpolation method
 } MHW_3DLUT_PARAMS, *PMHW_3DLUT_PARAMS;
 
 //!
@@ -598,6 +643,17 @@ typedef struct _MHW_1DLUT_PARAMS
     int32_t *pCCM;
     uint32_t CCMSize;
 } MHW_1DLUT_PARAMS, *PMHW_1DLUT_PARAMS;
+
+//!
+//! Structure MHW_3DLUT_PARAMS
+//! \details No pre-si version for MHW_VEBOX_IECP_PARAMS, just leave it now and handle it later
+//!
+typedef struct _MHW_FP16_PARAMS
+{
+    uint32_t                isActive       = false;              //!< Active or not
+    uint32_t                OETFLutY[256]  = {};
+    uint32_t                OETFLutX[256]  = {};
+} MHW_FP16_PARAMS, *PMHW_FP16_PARAMS;
 
 //!
 //! \brief  VEBOX IECP parameters
@@ -624,6 +680,7 @@ typedef struct _MHW_VEBOX_IECP_PARAMS
 
     MHW_3DLUT_PARAMS                s3DLutParams;
     MHW_1DLUT_PARAMS                s1DLutParams;
+    MHW_FP16_PARAMS                 fp16Params;
 
     // Front End CSC params
     bool                            bFeCSCEnable;                               // Enable Front End CSC transform
@@ -633,6 +690,8 @@ typedef struct _MHW_VEBOX_IECP_PARAMS
 
     // FDFB
     bool                            iecpstateforFDFB;
+    // CSC via CCM for float 16bit output
+    bool                            bCcmCscEnable;
 } MHW_VEBOX_IECP_PARAMS, *PMHW_VEBOX_IECP_PARAMS;
 
 //!
@@ -805,12 +864,26 @@ typedef struct _MHW_VEBOX_SURFACE_CNTL_PARAMS
 } MHW_VEBOX_SURFACE_CNTL_PARAMS, *PMHW_VEBOX_SURFACE_CNTL_PARAMS;
 
 //!
+//! \brief  VEBOX Engine ID data struct in accordance with CommandStreamEngineIDDefintionRegister
+//!
+typedef struct _MHW_VEBOX_ENGINE_DATA
+{
+    uint32_t       classId            : 3;
+    uint32_t       reserved1          : 1;
+    uint32_t       instanceId         : 6;
+    uint32_t       reserved2          : 22;
+} MHW_VEBOX_ENGINE_DATA, *PMHW_VEBOX_ENGINE_DATA;
+
+//!
 //! \brief  VEBOX Heap State Structure
 //!
 typedef struct _MHW_VEBOX_HEAP_STATE
 {
     bool        bBusy;                                      // true if the state is in use (must sync before use)
     uint32_t    dwSyncTag;                                  // Vebox heap state sync tag
+#if (_DEBUG || _RELEASE_INTERNAL)
+    volatile MHW_VEBOX_ENGINE_DATA   *engineData;           // Pointer to EngineIDDefintion Register data
+#endif
 } MHW_VEBOX_HEAP_STATE, *PMHW_VEBOX_HEAP_STATE;
 
 //!
@@ -828,6 +901,9 @@ typedef struct _MHW_VEBOX_HEAP
     uint32_t                uiCapturePipeStateOffset;                           // Capture Pipe state offset
     uint32_t                uiGammaCorrectionStateOffset;                       // Gamma Correction state offset
     uint32_t                uiHdrStateOffset;                                   // Hdr State offset
+#if (_DEBUG || _RELEASE_INTERNAL)
+    uint32_t                uiEngineDataOffset;                                 // Engine data Offset
+#endif
     uint32_t                uiInstanceSize;                                     // Size of single instance of VEBOX states
     uint32_t                uiStateHeapSize;                                    // Total size of VEBOX States heap
     PMHW_VEBOX_HEAP_STATE   pStates;                                            // Array of VEBOX Heap States
@@ -855,6 +931,9 @@ typedef struct
     uint32_t            uiCapturePipeStateSize;                                 // Capture Pipe State Size (Gen8+)
     uint32_t            uiGammaCorrectionStateSize;                             // Gamma Correction State Size (Gen9+)
     uint32_t            uiHdrStateSize;                                         // HDR State Size
+#if (_DEBUG || _RELEASE_INTERNAL)
+    uint32_t            uiEngineDataSize;                                       // Engine data Size
+#endif
 } MHW_VEBOX_SETTINGS, *PMHW_VEBOX_SETTINGS;
 typedef const MHW_VEBOX_SETTINGS CMHW_VEBOX_SETTINGS, *PCMHW_VEBOX_SETTINGS;
 

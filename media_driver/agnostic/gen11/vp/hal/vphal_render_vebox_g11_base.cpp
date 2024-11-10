@@ -31,6 +31,7 @@
 #include "vphal_render_vebox_util_base.h"
 #include "vpkrnheader.h"
 #include "vphal_common_hdr.h"
+#include "vp_hal_ddi_utils.h"
 #if defined(ENABLE_KERNELS) && !defined(_FULL_OPEN_SOURCE)
 #include "igvpkrn_isa_g11_icllp.h"
 #endif
@@ -272,6 +273,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G11_BASE::GetFFDISurfParams(
     VPHAL_SAMPLE_TYPE   &SampleType)
 {
     PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
+    VPHAL_RENDER_CHK_NULL_RETURN(pRenderData);
 
     if (IS_VPHAL_OUTPUT_PIPE_SFC(pRenderData))
     {
@@ -315,6 +317,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G11_BASE::GetOutputSurfParams(
     MOS_TILE_TYPE       &TileType)
 {
     PVPHAL_VEBOX_RENDER_DATA      pRenderData = GetLastExecRenderData();
+    VPHAL_RENDER_CHK_NULL_RETURN(pRenderData);
 
     if (pRenderData->bDeinterlace)
     {
@@ -350,6 +353,11 @@ MOS_STATUS VPHAL_VEBOX_STATE_G11_BASE::GetOutputSurfParams(
 bool VPHAL_VEBOX_STATE_G11_BASE::IsDNOnly()
 {
     PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
+    if (pRenderData == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("pRenderData is nullptr");
+        return false;
+    }
 
     return pRenderData->bDenoise &&
            (!pRenderData->bDeinterlace) &&
@@ -360,6 +368,11 @@ bool VPHAL_VEBOX_STATE_G11_BASE::IsDNOnly()
 bool VPHAL_VEBOX_STATE_G11_BASE::IsFFDISurfNeeded()
 {
     PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
+    if (pRenderData == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("pRenderData is nullptr");
+        return false;
+    }
 
     if (pRenderData->bDeinterlace ||
         IsQueryVarianceEnabled()  ||
@@ -376,13 +389,26 @@ bool VPHAL_VEBOX_STATE_G11_BASE::IsFFDISurfNeeded()
 
 bool VPHAL_VEBOX_STATE_G11_BASE::IsFFDNSurfNeeded()
 {
-    return GetLastExecRenderData()->bDenoise ? true : false;
+    PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
+    if (pRenderData == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("pRenderData is nullptr");
+        return false;
+    }
+
+    return pRenderData->bDenoise ? true : false;
 }
 
 bool VPHAL_VEBOX_STATE_G11_BASE::IsSTMMSurfNeeded()
 {
+    PVPHAL_VEBOX_RENDER_DATA pRenderData = GetLastExecRenderData();
+    if (pRenderData == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("pRenderData is nullptr");
+        return false;
+    }
 
-    return (GetLastExecRenderData()->bDenoise || GetLastExecRenderData()->bDeinterlace);
+    return (pRenderData->bDenoise || pRenderData->bDeinterlace);
 }
 
 //!
@@ -509,6 +535,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G11_BASE::AllocateResources()
     // Or for 2 clip playback in WMP, the first one is HW decoding, the second one is SW decoding,
     // when the second clip playback starting without media pipeline recreation,
     // the internal FFDNSurfaces are compressed, but VP input surface is uncompressed.
+    VPHAL_RENDER_CHK_NULL(pRenderData);
     if ((pVeboxState->bDIEnabled && !pVeboxState->bDNEnabled && pRenderData->bDenoise) ||
         ((pVeboxState->m_currentSurface->bIsCompressed == false) && ((bSurfCompressible == true) || (pVeboxState->FFDNSurfaces[0]->bIsCompressed == true))))
     {
@@ -984,6 +1011,8 @@ MOS_STATUS VPHAL_VEBOX_STATE_G11_BASE::SetupDiIecpStateForOutputSurf(
     pOsInterface    = pVeboxState->m_pOsInterface;
     pRenderHal      = pVeboxState->m_pRenderHal;
     pVeboxInterface = pVeboxState->m_pVeboxInterface;
+
+    VPHAL_RENDER_CHK_NULL(pRenderData);
 
     // VEBOX final output surface
     if (IS_VPHAL_OUTPUT_PIPE_VEBOX(pRenderData))
@@ -1462,7 +1491,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G11_BASE::SetDNParams(
     VPHAL_RENDER_ASSERT(pSrcSurface);
     VPHAL_RENDER_ASSERT(pLumaParams);
     VPHAL_RENDER_ASSERT(pChromaParams);
-    VPHAL_RENDER_ASSERT(pRenderData);
+    VPHAL_RENDER_CHK_NULL_RETURN(pRenderData);
 
     eStatus             = MOS_STATUS_SUCCESS;
     pDNParams           = pSrcSurface->pDenoiseParams;
@@ -1657,6 +1686,11 @@ PVPHAL_SURFACE VPHAL_VEBOX_STATE_G11_BASE::GetSurfOutput(
     PVPHAL_SURFACE                          pSurface    = nullptr;
     PVPHAL_VEBOX_STATE_G11_BASE              pVeboxState = this;
     PVPHAL_VEBOX_RENDER_DATA                pRenderData = GetLastExecRenderData();
+    if (pRenderData == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("pRenderData is nullptr");
+        return nullptr;
+    }
 
     if (IS_VPHAL_OUTPUT_PIPE_VEBOX(pRenderData))                    // Vebox output pipe
     {
@@ -1702,6 +1736,11 @@ void VPHAL_VEBOX_STATE_G11_BASE::SetupSurfaceStates(
 {
     PVPHAL_VEBOX_STATE_G11_BASE              pVeboxState = this;
     PVPHAL_VEBOX_RENDER_DATA                pRenderData = GetLastExecRenderData();
+    if (pRenderData == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("pRenderData is nullptr");
+        return;
+    }
 
     MOS_ZeroMemory(pVeboxSurfaceStateCmdParams,
         sizeof(VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS));
@@ -1777,7 +1816,7 @@ void VPHAL_VEBOX_STATE_G11_BASE::SetupChromaSampling(
     {
         pSrcSurface->ChromaSiting = (CHROMA_SITING_HORZ_LEFT | CHROMA_SITING_VERT_CENTER);
     }
-    srcColorPack = VpHal_GetSurfaceColorPack(pSrcSurface->Format);
+    srcColorPack = VpHalDDIUtils::GetSurfaceColorPack(pSrcSurface->Format);
     switch (srcColorPack)
     {
         // For 422 format, vertical should be always 0.
@@ -1931,7 +1970,7 @@ void VPHAL_VEBOX_STATE_G11_BASE::SetupChromaSampling(
     {
         pRenderTarget->ChromaSiting = (CHROMA_SITING_HORZ_LEFT | CHROMA_SITING_VERT_CENTER);
     }
-    dstColorPack = VpHal_GetSurfaceColorPack(pRenderTarget->Format);
+    dstColorPack = VpHalDDIUtils::GetSurfaceColorPack(pRenderTarget->Format);
     switch (dstColorPack)
     {
         case VPHAL_COLORPACK_422:
@@ -2328,6 +2367,12 @@ bool VPHAL_VEBOX_STATE_G11_BASE::IsNeeded(
         goto finish;
     }
 
+    if (pRenderData == nullptr)
+    {
+        VPHAL_RENDER_ASSERTMESSAGE("pRenderData is nullptr");
+        goto finish;
+    }
+
     pRenderData->Init();
     if (MEDIA_IS_SKU(m_pSkuTable, FtrSFCPipe) && m_sfcPipeState)
     {
@@ -2517,6 +2562,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G11_BASE::LoadUpdateDenoiseKernelStaticData(
     iOffset2 = iOffset1 + iPitch;
     iOffset3 = iOffset2 + iPitch;
 
+    VPHAL_RENDER_CHK_NULL(pRenderData);
     // Load DN update kernel CURBE data
     if (pRenderData->bAutoDenoise)
     {
@@ -2575,6 +2621,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G11_BASE::SetupSurfaceStatesForDenoise()
     VPHAL_RENDER_CHK_STATUS(pVeboxState->m_pVeboxInterface->GetVeboxHeapInfo(
                                 &pVeboxHeap));
     VPHAL_RENDER_CHK_NULL(pVeboxHeap);
+    VPHAL_RENDER_CHK_NULL(pRenderData);
 
     bUseKernelResource = UseKernelResource();
 
@@ -2700,6 +2747,7 @@ MOS_STATUS VPHAL_VEBOX_STATE_G11_BASE::SetupVeboxKernel(
     eStatus             = MOS_STATUS_SUCCESS;
     pFilter             = &pVeboxState->SearchFilter[0];
     pCacheEntryTable    = pVeboxState->m_pKernelDllState->ComponentKernelCache.pCacheEntries;
+    VPHAL_RENDER_CHK_NULL(pRenderData);
 
     // Initialize States
     MOS_ZeroMemory(pFilter, sizeof(pVeboxState->SearchFilter));

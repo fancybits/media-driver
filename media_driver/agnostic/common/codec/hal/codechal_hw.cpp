@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2022, Intel Corporation
+* Copyright (c) 2011-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -25,6 +25,7 @@
 //!
 #include "codechal_hw.h"
 #include "codechal_setting.h"
+#include "mos_os_cp_interface_specific.h"
 
 CodechalHwInterface::CodechalHwInterface(
     PMOS_INTERFACE    osInterface,
@@ -37,6 +38,7 @@ CodechalHwInterface::CodechalHwInterface(
     // Basic intialization
     m_osInterface = osInterface;
 
+    MOS_ZeroMemory(&m_platform, sizeof(PLATFORM));
     m_osInterface->pfnGetPlatform(m_osInterface, &m_platform);
 
     m_skuTable = m_osInterface->pfnGetSkuTable(m_osInterface);
@@ -55,6 +57,16 @@ CodechalHwInterface::CodechalHwInterface(
     m_sfcInterface = mhwInterfaces->m_sfcInterface;
     m_miInterface = mhwInterfaces->m_miInterface;
     m_renderInterface = mhwInterfaces->m_renderInterface;
+    // Prevent double free
+    mhwInterfaces->m_cpInterface = nullptr;
+    mhwInterfaces->m_mfxInterface = nullptr;
+    mhwInterfaces->m_hcpInterface = nullptr;
+    mhwInterfaces->m_hucInterface = nullptr;
+    mhwInterfaces->m_vdencInterface = nullptr;
+    mhwInterfaces->m_veboxInterface = nullptr;
+    mhwInterfaces->m_sfcInterface   = nullptr;
+    mhwInterfaces->m_miInterface    = nullptr;
+    mhwInterfaces->m_renderInterface = nullptr;
 
     m_stateHeapSettings = MHW_STATE_HEAP_SETTINGS();
     m_disableScalability = disableScalability;
@@ -65,45 +77,15 @@ CodechalHwInterface::CodechalHwInterface(
     MOS_ZeroMemory(&m_conditionalBbEndDummy, sizeof(m_conditionalBbEndDummy));
 }
 
-#ifdef IGFX_MHW_INTERFACES_NEXT_SUPPORT
-CodechalHwInterface::CodechalHwInterface(
+CodechalHwInterface *CodechalHwInterface::Create(
     PMOS_INTERFACE    osInterface,
     CODECHAL_FUNCTION codecFunction,
-    MhwInterfacesNext *mhwInterfacesNext,
+    MhwInterfaces     *mhwInterfaces,
     bool              disableScalability)
 {
-    CODECHAL_HW_FUNCTION_ENTER;
-
-    // Basic intialization
-    m_osInterface = osInterface;
-
-    m_osInterface->pfnGetPlatform(m_osInterface, &m_platform);
-
-    m_skuTable = m_osInterface->pfnGetSkuTable(m_osInterface);
-    m_waTable = m_osInterface->pfnGetWaTable(m_osInterface);
-
-    CODECHAL_HW_ASSERT(m_skuTable);
-    CODECHAL_HW_ASSERT(m_waTable);
-
-    // Init sub-interfaces
-    m_cpInterface = mhwInterfacesNext->m_cpInterface;
-    m_mfxInterface = mhwInterfacesNext->m_mfxInterface;
-    m_hcpInterface = mhwInterfacesNext->m_hcpInterface;
-    m_vdencInterface = mhwInterfacesNext->m_vdencInterface;
-    m_veboxInterface = mhwInterfacesNext->m_veboxInterface;
-    m_sfcInterface = mhwInterfacesNext->m_sfcInterface;
-    m_miInterface = mhwInterfacesNext->m_miInterface;
-    m_renderInterface = mhwInterfacesNext->m_renderInterface;
-
-    m_stateHeapSettings = MHW_STATE_HEAP_SETTINGS();
-    m_disableScalability = disableScalability;
-
-    MOS_ZeroMemory(&m_hucDmemDummy, sizeof(m_hucDmemDummy));
-    MOS_ZeroMemory(&m_dummyStreamIn, sizeof(m_dummyStreamIn));
-    MOS_ZeroMemory(&m_dummyStreamOut, sizeof(m_dummyStreamOut));
-    MOS_ZeroMemory(&m_conditionalBbEndDummy, sizeof(m_conditionalBbEndDummy));
+    return MOS_New(CodechalHwInterface,
+        osInterface, codecFunction, mhwInterfaces, disableScalability);
 }
-#endif
 
 MOS_STATUS CodechalHwInterface::SetCacheabilitySettings(
     MHW_MEMORY_OBJECT_CONTROL_PARAMS cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_END_CODEC])
@@ -1549,7 +1531,7 @@ MOS_STATUS CodechalHwInterface::ReadMfcStatus(
 
     CODECHAL_HW_CHK_NULL_RETURN(cmdBuffer);
 
-    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > m_mfxInterface->GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
+    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
     MmioRegistersMfx* mmioRegisters = SelectVdboxAndGetMmioRegister(vdboxIndex, cmdBuffer);
 
     MHW_MI_FLUSH_DW_PARAMS flushDwParams;
@@ -1622,7 +1604,7 @@ MOS_STATUS CodechalHwInterface::ReadImageStatus(
 
     CODECHAL_HW_CHK_NULL_RETURN(cmdBuffer);
 
-    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > m_mfxInterface->GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
+    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
     MmioRegistersMfx* mmioRegisters = SelectVdboxAndGetMmioRegister(vdboxIndex, cmdBuffer);
 
     MOS_RESOURCE *osResource;
@@ -1699,7 +1681,7 @@ MOS_STATUS CodechalHwInterface::ReadBrcPakStatistics(
     CODECHAL_HW_CHK_NULL_RETURN(cmdBuffer);
     CODECHAL_HW_CHK_NULL_RETURN(params.presBrcPakStatisticBuffer);
 
-    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > m_mfxInterface->GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
+    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
     MmioRegistersMfx* mmioRegisters = SelectVdboxAndGetMmioRegister(vdboxIndex, cmdBuffer);
 
     MHW_MI_STORE_REGISTER_MEM_PARAMS miStoreRegMemParams;
@@ -1745,7 +1727,7 @@ MOS_STATUS CodechalHwInterface::ReadHcpStatus(
 
     CODECHAL_HW_CHK_NULL_RETURN(cmdBuffer);
 
-    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > m_mfxInterface->GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
+    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > GetMaxVdboxIndex()), "ERROR - vdbox index exceed the maximum");
 
     MHW_MI_FLUSH_DW_PARAMS flushDwParams;
     MOS_ZeroMemory(&flushDwParams, sizeof(flushDwParams));
@@ -1786,7 +1768,7 @@ MOS_STATUS CodechalHwInterface::ReadImageStatusForHcp(
 
     CODECHAL_HW_CHK_NULL_RETURN(cmdBuffer);
 
-    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > m_mfxInterface->GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
+    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
 
     auto mmioRegisters = m_hcpInterface->GetMmioRegisters(vdboxIndex);
 
@@ -1822,7 +1804,7 @@ MOS_STATUS CodechalHwInterface::ReadBrcPakStatisticsForHcp(
     CODECHAL_HW_CHK_NULL_RETURN(cmdBuffer);
     CODECHAL_HW_CHK_NULL_RETURN(params.presBrcPakStatisticBuffer);
 
-    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > m_mfxInterface->GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
+    CODECHAL_HW_CHK_COND_RETURN((vdboxIndex > GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
 
     auto mmioRegisters = m_hcpInterface->GetMmioRegisters(vdboxIndex);
 

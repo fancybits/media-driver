@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2019, Intel Corporation
+* Copyright (c) 2019-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -138,16 +138,10 @@ public:
     //!
     OsContextNext* GetOsContext(){ return m_osContext; }
 
-    //!
-    //! \brief    Get Gpu context number
-    //! \return   uint32_t
-    //!           Number of all Gpu contexts, include the node which was already destroyed
-    //!
-    uint32_t GetGpuContextNumber()
+    std::map<GPU_CONTEXT_HANDLE, GpuContextNext *> &GetGpuContextMap()
     {
-        return m_gpuContextArray.size();
+        return m_gpuContextMap;
     }
-
         //!
     //! \brief    Get the validity flag
     //! \return   bool
@@ -175,15 +169,19 @@ protected:
 
     //! \brief    Gpu context array mutex
     PMOS_MUTEX m_gpuContextArrayMutex = nullptr;
-    
+
+    //! \brief    Gpu context array mutex for delete
+    PMOS_MUTEX m_gpuContextDeleteArrayMutex = nullptr;
+
     //! \brief    Gpu context count
     uint32_t m_gpuContextCount = 0;
-
+    uint32_t m_gpuContextHanleForNonCycledCase = 0;
     //! \brief    Maintained gpu context array
-    std::vector<GpuContextNext *> m_gpuContextArray;
+    std::map<GPU_CONTEXT_HANDLE, GpuContextNext *> m_gpuContextMap;
 
     //! \brief   Flag to indicate gpu context mgr initialized or not
     bool m_initialized = false;
+
 MEDIA_CLASS_DEFINE_END(GpuContextMgrNext)
 };
 

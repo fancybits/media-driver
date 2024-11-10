@@ -49,24 +49,20 @@ MediaDebugConfigMgr::~MediaDebugConfigMgr()
 MOS_STATUS MediaDebugConfigMgr::ParseConfig(MOS_CONTEXT_HANDLE mosCtx)
 {
     std::string               configFileName;
-    MOS_USER_FEATURE_VALUE_ID configGenerateKey = __MOS_USER_FEATURE_KEY_INVALID_ID;
+    bool                      isGenCfgEnabled   = false;
 
-    configFileName = InitFileName(m_mediaFunction);
-
-    configGenerateKey = __MEDIA_USER_FEATURE_VALUE_MEDIA_DEBUG_CFG_GENERATION_ID;
+    configFileName    = InitFileName(m_mediaFunction);
     configFileName    = m_outputFolderPath + configFileName;
     std::ifstream configStream(configFileName);
 
     if (!configStream.good())
     {
-        MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-        MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-        MOS_UserFeature_ReadValue_ID(
-            nullptr,
-            configGenerateKey,
-            &userFeatureData,
-            mosCtx);
-        if (userFeatureData.i32Data)
+        ReadUserSettingForDebug(
+            GetUserSettingInstance(),
+            isGenCfgEnabled,
+            __MEDIA_USER_FEATURE_VALUE_MEDIA_DEBUG_CFG_GENERATION,
+            MediaUserSetting::Group::Device);
+        if (isGenCfgEnabled)
         {
             GenerateDefaultConfig(configFileName);
         }
@@ -318,18 +314,6 @@ MOS_STATUS MediaDebugConfigMgr::DeleteCfgNode(uint32_t frameIdx)
     return MOS_STATUS_SUCCESS;
 }
 
-std::string MediaDebugConfigMgr::GetMediaStateStr(MEDIA_DEBUG_STATE_TYPE mediaState)
-{
-    MediaDbgKernel::KernelStateMap::kernelMapType &kernelMap = MediaDbgKernel::KernelStateMap::GetKernelStateMap();
-    auto                                           it        = kernelMap.find(mediaState);
-    if (it != kernelMap.end())
-    {
-        return it->second;
-    }
-
-    return "";
-}
-
 bool MediaDebugConfigMgr::AttrIsEnabled(std::string attrName)
 {
     if (nullptr != m_debugAllConfigs)
@@ -350,37 +334,6 @@ bool MediaDebugConfigMgr::AttrIsEnabled(std::string attrName)
         }
     }
 
-    return false;
-}
-
-bool MediaDebugConfigMgr::AttrIsEnabled(
-    MEDIA_DEBUG_STATE_TYPE mediaState,
-    std::string            attrName)
-{
-    std::string kernelName = GetMediaStateStr(mediaState);
-    if (kernelName.empty())
-    {
-        return false;
-    }
-
-    if (nullptr != m_debugAllConfigs)
-    {
-        MediaKernelDumpConfig attrs   = m_debugAllConfigs->kernelAttribs[kernelName];
-        bool                  enabled = KernelAttrEnabled(attrs, attrName);
-        if (enabled)
-        {
-            return enabled;
-        }
-    }
-
-    for (auto it : m_debugFrameConfigs)
-    {
-        if (it.frameIndex == GetDumpFrameNum())
-        {
-            MediaKernelDumpConfig attrs = it.kernelAttribs[kernelName];
-            return KernelAttrEnabled(attrs, attrName);
-        }
-    }
     return false;
 }
 
@@ -446,6 +399,7 @@ void MediaDebugConfigMgr::GenerateDefaultConfig(std::string configFileName)
     ofs << "#" << MediaDbgAttr::attrSlcParams << ":0" << std::endl;
     ofs << "#" << MediaDbgAttr::attrSubsetsParams << ":0" << std::endl;
     ofs << "#" << MediaDbgAttr::attrIqParams << ":0" << std::endl;
+    ofs << "#" << MediaDbgAttr::attrDecodeBitstream << ":0" << std::endl;
     ofs << "#" << MediaDbgAttr::attrBitstream << ":0" << std::endl;
     ofs << "#" << MediaDbgAttr::attrHucRegions << ":0" << std::endl;
     ofs << "#" << MediaDbgAttr::attrHuCDmem << ":0" << std::endl;
@@ -458,6 +412,7 @@ void MediaDebugConfigMgr::GenerateDefaultConfig(std::string configFileName)
     ofs << "#" << MediaDbgAttr::attrDumpBufferInBinary << ":0" << std::endl;
     ofs << "#" << MediaDbgAttr::attrDumpToThreadFolder << ":0" << std::endl;
     ofs << "#" << MediaDbgAttr::attrDumpCmdBufInBinary << ":0" << std::endl;
+    ofs << "#" << MediaDbgAttr::attrEnableFastDump << ":1" << std::endl;
     ofs << "#" << MediaDbgAttr::attrStatusReport << ":0" << std::endl;
     ofs << std::endl;
 
@@ -470,6 +425,7 @@ void MediaDebugConfigMgr::GenerateDefaultConfig(std::string configFileName)
     ofs << "##" << MediaDbgAttr::attrDisableSwizzleForDumps << ":0" << std::endl;
     ofs << "##" << MediaDbgAttr::attrSfcOutputSurface << ":0" << std::endl;
     ofs << "##" << MediaDbgAttr::attrSfcBuffers << ":0" << std::endl;
+    ofs << "##" << MediaDbgAttr::attrDecodeReferenceSurfaces << ":0" << std::endl;
     ofs << "##" << MediaDbgAttr::attrReferenceSurfaces << ":0" << std::endl;
     ofs << "##" << MediaDbgAttr::attrEncodeRawInputSurface << ":0" << std::endl;
     ofs << "##" << MediaDbgAttr::attrReconstructedSurface << ":0" << std::endl;
@@ -533,17 +489,6 @@ void MediaDebugConfigMgr::GenerateDefaultConfig(std::string configFileName)
     ofs << "#" << MediaDbgAttr::attrVuiParams << ":0" << std::endl;
     ofs << "#" << MediaDbgAttr::attrDumpEncodePar << ":0" << std::endl;
     ofs << "#" << MediaDbgAttr::attrVdencOutput << ":0" << std::endl;
-    ofs << std::endl;
-
-    ofs << "###############################################################" << std::endl;
-    ofs << "## key words defined for kernel" << std::endl;
-    ofs << "###############################################################" << std::endl;
-    // generate kernel related config
-    MediaDbgKernel::KernelStateMap::kernelMapType &kernelMap = MediaDbgKernel::KernelStateMap::GetKernelStateMap();
-    for (auto &it : kernelMap)
-    {
-        ofs << "#@" << it.second << " ALL" << std::endl;
-    }
     ofs << std::endl;
 
     ofs << "### Encode plug-in ###" << std::endl;

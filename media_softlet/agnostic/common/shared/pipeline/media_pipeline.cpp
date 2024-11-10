@@ -30,7 +30,7 @@
 #include "media_pipeline.h"
 #include "media_cmd_task.h"
 #include "media_packet.h"
-#include "media_interfaces_mcpy.h"
+#include "media_interfaces_mcpy_next.h"
 #include "media_debug_interface.h"
 
 MediaPipeline::MediaPipeline(PMOS_INTERFACE osInterface) : m_osInterface(osInterface)
@@ -50,19 +50,12 @@ MediaPipeline::MediaPipeline(PMOS_INTERFACE osInterface) : m_osInterface(osInter
     }
     else
     {
-        perfProfiler->Initialize((void *)this, m_osInterface);
+        MOS_STATUS status = perfProfiler->Initialize((void *)this, m_osInterface);
+        if (status != MOS_STATUS_SUCCESS)
+        {
+            MOS_OS_ASSERTMESSAGE("Initialize perfProfiler failed!");
+        }
     }
-    //Create both Legacy/APO perf profiler to keep compatability of components/codecs not switching to APO path
-    MediaPerfProfilerNext *perfProfilerNext = MediaPerfProfilerNext::Instance();
-    if (!perfProfilerNext)
-    {
-        MOS_OS_ASSERTMESSAGE("Initialize MediaPerfProfilerNext failed!");
-    }
-    else
-    {
-        perfProfilerNext->Initialize((void *)this, m_osInterface);
-    }
-
 }
 
 MediaPipeline::~MediaPipeline()
@@ -70,10 +63,10 @@ MediaPipeline::~MediaPipeline()
     DeletePackets();
     DeleteTasks();
 
-    MOS_Delete(m_mediaCopy);
-
+    MOS_Delete(m_mediaCopyWrapper);
+#if !EMUL
     MEDIA_DEBUG_TOOL(MOS_Delete(m_debugInterface));
-
+#endif
     MediaPerfProfiler *perfProfiler = MediaPerfProfiler::Instance();
 
     if (!perfProfiler)
@@ -82,7 +75,6 @@ MediaPipeline::~MediaPipeline()
     }
     else
     {
-        //Destruction of APO perfProfile will be done inside legacy one.
         MediaPerfProfiler::Destroy(perfProfiler, (void *)this, m_osInterface);
     }
 
@@ -126,7 +118,10 @@ MOS_STATUS MediaPipeline::InitPlatform()
 MOS_STATUS MediaPipeline::UserFeatureReport()
 {
 #if (_DEBUG || _RELEASE_INTERNAL)
-    WriteUserFeature(__MEDIA_USER_FEATURE_VALUE_APOGEIOS_ENABLE_ID, 1, m_osInterface->pOsContext);
+    ReportUserSetting(m_userSettingPtr,
+                      __MEDIA_USER_FEATURE_VALUE_APOGEIOS_ENABLE,
+                      uint32_t(1),
+                      MediaUserSetting::Group::Device);
 #endif
     return MOS_STATUS_SUCCESS;
 }
@@ -159,12 +154,20 @@ MediaPacket *MediaPipeline::GetOrCreate(uint32_t packetId)
     auto iterCreator = m_packetCreators.find(packetId);
     if (iterCreator != m_packetCreators.end())
     {
-        RegisterPacket(packetId, iterCreator->second());
+        MOS_STATUS registStatus = RegisterPacket(packetId, iterCreator->second());
+        if (MOS_FAILED(registStatus))
+        {
+            MOS_OS_ASSERTMESSAGE("Media register packets into packet pool failed!");
+        }
 
         iter = m_packetList.find(packetId);
         if (iter != m_packetList.end())
         {
-            iter->second->Init();
+            MOS_STATUS status = iter->second->Init();
+            if (MOS_FAILED(status))
+            {
+                MOS_OS_ASSERTMESSAGE("Media packet init failed!");
+            }
             return iter->second;
         }
     }
@@ -286,15 +289,20 @@ MOS_STATUS MediaPipeline::CreateFeatureManager()
     }
 }
 
-MOS_STATUS MediaPipeline::CreateMediaCopy()
+MOS_STATUS MediaPipeline::CreateMediaCopyWrapper()
 {
-    PMOS_CONTEXT mos_context = nullptr;
-    if (m_osInterface && m_osInterface->pfnGetMosContext)
+    if (nullptr == m_mediaCopyWrapper)
     {
-        m_osInterface->pfnGetMosContext(m_osInterface, &mos_context);
+        m_mediaCopyWrapper = MOS_New(MediaCopyWrapper, m_osInterface);
     }
-    m_mediaCopy = static_cast<MediaCopyBaseState*>(McpyDevice::CreateFactory(mos_context));
-    return MOS_STATUS_SUCCESS;
+    if (nullptr != m_mediaCopyWrapper)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+    else
+    {
+        return MOS_STATUS_NO_SPACE;
+    }
 }
 
 bool MediaPipeline::IsFrameTrackingEnabled()

@@ -190,7 +190,8 @@ public:
     //!
     virtual DecodeCpInterface *Create_DecodeCpInterface(
         CodechalSetting *    codechalSettings,
-        CodechalHwInterface *hwInterfaceInput) = 0;
+        MhwCpInterface  *cpInterface,
+        PMOS_INTERFACE   osInterface) = 0;
 
     //!
     //! \brief   Delete the DecodeCpInterface Object
@@ -200,6 +201,7 @@ public:
     //!
     virtual void Delete_DecodeCpInterface(DecodeCpInterface *pInterface) = 0;
 
+    MEDIA_CLASS_DEFINE_END(CpInterfaces)
 };
 
 typedef CpFactoryWithoutArgs<CpInterfaces> CpInterfacesFactory;

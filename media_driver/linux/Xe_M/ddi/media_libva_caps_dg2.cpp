@@ -49,8 +49,7 @@ VAStatus MediaLibvaCapsDG2::LoadAv1EncProfileEntrypoints()
         (*attributeList)[VAConfigAttribEncDynamicScaling] = 0;
         (*attributeList)[VAConfigAttribEncTileSupport]    = 1;
         (*attributeList)[VAConfigAttribEncDirtyRect]      = 0;
-        (*attributeList)[VAConfigAttribEncMaxRefFrames]   = CODEC_AV1_NUM_REFL0P_FRAMES |
-            CODEC_AV1_NUM_REFL0B_FRAMES<<8 | CODEC_AV1_NUM_REFL1B_FRAMES<<16;
+        (*attributeList)[VAConfigAttribEncMaxRefFrames]   = CODEC_AV1_NUM_REFL0P_FRAMES | CODEC_AV1_NUM_REFL1B_FRAMES<<16;
 
         VAConfigAttrib attrib;
         attrib.type = (VAConfigAttribType) VAConfigAttribEncAV1;
@@ -76,7 +75,7 @@ VAStatus MediaLibvaCapsDG2::LoadAv1EncProfileEntrypoints()
         attribValAV1ToolsExt2.bits.tile_size_bytes_minus1 = 3;
         attribValAV1ToolsExt2.bits.obu_size_bytes_minus1  = 3;
         attribValAV1ToolsExt2.bits.max_tile_num_minus1    = 511;
-        attribValAV1ToolsExt2.bits.tx_mode_support        = 2;
+        attribValAV1ToolsExt2.bits.tx_mode_support        = 4;
 
         attrib.value = attribValAV1ToolsExt2.value;
         (*attributeList)[attrib.type] = attrib.value;
@@ -89,6 +88,8 @@ VAStatus MediaLibvaCapsDG2::LoadAv1EncProfileEntrypoints()
         AddEncConfig(VA_RC_CQP);
         AddEncConfig(VA_RC_CBR);
         AddEncConfig(VA_RC_VBR);
+        AddEncConfig(VA_RC_ICQ);
+        AddEncConfig(VA_RC_TCBRC);
         AddProfileEntry(VAProfileAV1Profile0, VAEntrypointEncSliceLP, attributeList,
                 configStartIdx, m_encConfigs.size() - configStartIdx);
     }
@@ -178,6 +179,7 @@ std::string MediaLibvaCapsDG2::GetEncodeCodecKey(VAProfile profile, VAEntrypoint
         case VAProfileHEVCMain:
         case VAProfileHEVCMain10:
         case VAProfileHEVCMain12:
+        case VAProfileHEVCMain422_10:
         case VAProfileHEVCMain444:
         case VAProfileHEVCMain444_10:
         case VAProfileHEVCSccMain:
@@ -226,6 +228,7 @@ CODECHAL_MODE MediaLibvaCapsDG2::GetEncodeCodecMode(VAProfile profile, VAEntrypo
         case VAProfileHEVCMain:
         case VAProfileHEVCMain10:
         case VAProfileHEVCMain12:
+        case VAProfileHEVCMain422_10:
         case VAProfileHEVCMain444:
         case VAProfileHEVCMain444_10:
         case VAProfileHEVCSccMain:
@@ -271,6 +274,7 @@ VAStatus MediaLibvaCapsDG2::CheckEncodeResolution(
         case VAProfileHEVCMain:
         case VAProfileHEVCMain10:
         case VAProfileHEVCMain12:
+        case VAProfileHEVCMain422_10:
         case VAProfileHEVCMain444:
         case VAProfileHEVCMain444_10:
         case VAProfileHEVCSccMain:
@@ -338,6 +342,10 @@ VAStatus MediaLibvaCapsDG2::CheckEncRTFormat(
     else if(profile == VAProfileHEVCMain12)
     {
         attrib->value = VA_RT_FORMAT_YUV420_12;
+    }
+    else if(profile == VAProfileHEVCMain422_10)
+    {
+        attrib->value = VA_RT_FORMAT_YUV422 | VA_RT_FORMAT_YUV422_10;
     }
     else if(profile == VAProfileHEVCMain444 || profile == VAProfileHEVCSccMain444)
     {
@@ -693,26 +701,17 @@ VAStatus MediaLibvaCapsDG2::CreateEncAttributes(
 
     attrib.type = VAConfigAttribRateControl;
     attrib.value = VA_RC_CQP;
-    if (entrypoint != VAEntrypointEncSliceLP ||
-            (entrypoint == VAEntrypointEncSliceLP &&
-             MEDIA_IS_SKU(&(m_mediaCtx->SkuTable), FtrEnableMediaKernels) &&
-             !IsHevcSccProfile(profile))) // Currently, SCC doesn't support BRC
+    if (entrypoint == VAEntrypointEncSliceLP &&
+        MEDIA_IS_SKU(&(m_mediaCtx->SkuTable), FtrEnableMediaKernels) &&
+        !IsHevcSccProfile(profile)) // Currently, SCC doesn't support BRC
     {
         attrib.value |= VA_RC_CBR | VA_RC_VBR | VA_RC_MB;
         if (IsHevcProfile(profile))
         {
-            if (entrypoint != VAEntrypointEncSliceLP)
-            {
-                attrib.value |= VA_RC_ICQ;
-            }
+            attrib.value |= VA_RC_ICQ | VA_RC_VCM | VA_RC_QVBR;
 #if VA_CHECK_VERSION(1, 10, 0)
-            else
-            {
-                attrib.value |= VA_RC_TCBRC;
-            }
+            attrib.value |= VA_RC_TCBRC;
 #endif
-
-            attrib.value |= VA_RC_VCM | VA_RC_QVBR;
         }
         if (IsVp9Profile(profile))
         {
@@ -721,7 +720,10 @@ VAStatus MediaLibvaCapsDG2::CreateEncAttributes(
     }
     if (IsAV1Profile(profile))
     {
-        attrib.value = VA_RC_CQP | VA_RC_CBR | VA_RC_VBR;
+        attrib.value = VA_RC_CQP | VA_RC_CBR | VA_RC_VBR | VA_RC_ICQ;
+#if VA_CHECK_VERSION(1, 10, 0)
+        attrib.value |= VA_RC_TCBRC;
+#endif
     }
     if (IsAvcProfile(profile) &&
             ((entrypoint == VAEntrypointEncSliceLP) && MEDIA_IS_SKU(&(m_mediaCtx->SkuTable), FtrEnableMediaKernels)))
@@ -759,6 +761,10 @@ VAStatus MediaLibvaCapsDG2::CreateEncAttributes(
     if (entrypoint == VAEntrypointEncSliceLP)
     {
         attrib.value = DDI_CODEC_VDENC_MAX_L0_REF_FRAMES | (DDI_CODEC_VDENC_MAX_L1_REF_FRAMES << DDI_CODEC_LEFT_SHIFT_FOR_REFLIST1);
+        if (IsAvcProfile(profile))
+        {
+            attrib.value = DDI_CODEC_VDENC_MAX_L0_REF_FRAMES | (DDI_CODEC_VDENC_MAX_L1_REF_FRAMES_RAB_AVC << DDI_CODEC_LEFT_SHIFT_FOR_REFLIST1);
+        }
         if (IsHevcProfile(profile))
         {
             attrib.value = DDI_CODEC_VDENC_MAX_L0_REF_FRAMES_LDB | (DDI_CODEC_VDENC_MAX_L1_REF_FRAMES_LDB << DDI_CODEC_LEFT_SHIFT_FOR_REFLIST1);
@@ -1039,6 +1045,13 @@ VAStatus MediaLibvaCapsDG2::AddEncSurfaceAttributes(
         attribList[numAttribs].value.type = VAGenericValueTypeInteger;
         attribList[numAttribs].flags = VA_SURFACE_ATTRIB_GETTABLE;
         attribList[numAttribs].value.value.i = m_encMinHeight;
+        numAttribs++;
+
+        attribList[numAttribs].type = VASurfaceAttribMemoryType;
+        attribList[numAttribs].value.type = VAGenericValueTypeInteger;
+        attribList[numAttribs].flags = VA_SURFACE_ATTRIB_GETTABLE | VA_SURFACE_ATTRIB_SETTABLE;
+        attribList[numAttribs].value.value.i = VA_SURFACE_ATTRIB_MEM_TYPE_VA |
+            VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2;
         numAttribs++;
     }
     else

@@ -34,10 +34,10 @@
 #include "media_interfaces_mhw.h"
 #include "media_interfaces_mhw_next.h"
 #include "media_interfaces_codechal.h"
+#include "media_interfaces_codechal_next.h"
 #include "media_interfaces_mmd.h"
 #include "media_interfaces_mcpy.h"
 #include "media_interfaces_cmhal.h"
-#include "media_interfaces_mosutil.h"
 #include "media_interfaces_vphal.h"
 #include "media_interfaces_renderhal.h"
 #include "media_interfaces_nv12top010.h"
@@ -51,7 +51,7 @@
 #include "mhw_state_heap_xe_xpm.h"
 #include "mhw_vebox_xe_hpm.h"
 #include "mhw_vdbox_mfx_xe_xpm.h"
-#include "mhw_vdbox_hcp_impl_legacy_xe_hpm.h"
+#include "mhw_vdbox_hcp_xe_hpm.h"
 #include "mhw_vdbox_avp_xe_hpm.h"
 #include "mhw_vdbox_huc_xe_hpm.h"
 #include "mhw_vdbox_avp_g12_X.h"
@@ -65,7 +65,7 @@
 #include "mhw_blt_xe_hp_base.h"
 
 #include "codechal_hw_xe_hpm.h"
-
+#include "codechal_hw_next_xe_hpm.h"
 
 #ifdef _AVC_DECODE_SUPPORTED
 #include "decode_avc_pipeline_adapter_m12.h"
@@ -131,7 +131,6 @@
 #endif
 #endif
 
-#include "codechal_memdecomp_g11_icl.h"
 
 #include "cm_hal_xe_xpm.h"
 
@@ -140,10 +139,11 @@
 #include "vphal_xe_xpm.h"
 #include "vphal_xe_hpm.h"
 #include "renderhal_xe_hpg.h"
-#include "media_user_settings_mgr_g12_plus.h"
 
 #include "codechal_decode_histogram.h"
 #include "codechal_decode_histogram_g12.h"
+#include "decode_scalability_singlepipe.h"
+#include "decode_scalability_multipipe.h"
 
 class MhwInterfacesDg2_Next : public MhwInterfacesNext
 {
@@ -174,6 +174,10 @@ public:
     //! \details  If the HAL creation fails, this is used for cleanup
     //!
     virtual void Destroy();
+
+    std::shared_ptr<MhwMiInterface> m_miInterface = nullptr;
+
+    MhwRenderInterface *m_renderInterface = nullptr;
 };
 
 class MhwInterfacesDg2 : public MhwInterfaces
@@ -311,20 +315,33 @@ public:
         PMOS_INTERFACE osInterface) override;
 
 protected:
-    virtual MOS_STATUS CreateCodecHalInterface(MhwInterfaces          *mhwInterfaces,
+    virtual MOS_STATUS CreateCodecHalInterface(MhwInterfaces  *mhwInterfaces,
                                        CodechalHwInterface    *&pHwInterface,
                                        CodechalDebugInterface *&pDebugInterface,
                                        PMOS_INTERFACE         osInterface,
                                        CODECHAL_FUNCTION      CodecFunction,
                                        bool                   disableScalability);
 
-    virtual MOS_STATUS CreateCodecHalInterface(MhwInterfaces          *mhwInterfaces,
-                                       MhwInterfacesNext      *&pMhwInterfacesNext,
-                                       CodechalHwInterface    *&pHwInterface,
-                                       CodechalDebugInterface *&pDebugInterface,
-                                       PMOS_INTERFACE         osInterface,
-                                       CODECHAL_FUNCTION      CodecFunction,
-                                       bool                   disableScalability);
+    virtual MOS_STATUS CreateCodecHalInterface(MhwInterfaces *mhwInterfaces,
+        MhwInterfacesNext                                   *&pMhwInterfacesNext,
+        CodechalHwInterfaceNext                                 *&pHwInterface,
+        CodechalDebugInterface                              *&pDebugInterface,
+        PMOS_INTERFACE                                        osInterface,
+        CODECHAL_FUNCTION                                     CodecFunction,
+        bool                                                  disableScalability);
+};
+class CodechalInterfacesNextXe_Hpm : public CodechalDeviceNext
+{
+public:
+    using Decode = CodechalDecodeInterfacesXe_Hpm;
+    using Encode = CodechalEncodeInterfacesXe_Hpm;
+    using Hw     = CodechalHwInterfaceNextXe_Hpm;
+
+    virtual MOS_STATUS Initialize(
+        void          *standardInfo,
+        void          *settings,
+        MhwInterfacesNext *mhwInterfaces,
+        PMOS_INTERFACE osInterface) override;
 };
 
 #define DG2_L3_CONFIG_COUNT     6
@@ -349,14 +366,6 @@ protected:
 };
 #endif
 
-class MosUtilDeviceXe_Hpm : public MosUtilDevice
-{
-public:
-    using MosUtil = MediaUserSettingsMgr_g12;
-
-    MOS_STATUS Initialize();
-};
-
 class VphalInterfacesXe_Hpm : public VphalDevice
 {
 public:
@@ -364,9 +373,9 @@ public:
 
     MOS_STATUS Initialize(
         PMOS_INTERFACE  osInterface,
-        PMOS_CONTEXT    osDriverContext,
         bool            bInitVphalState,
-        MOS_STATUS      *eStatus);
+        MOS_STATUS      *eStatus,
+        bool            clearViewMode = false);
         
     MOS_STATUS CreateVpPlatformInterface(
         PMOS_INTERFACE           osInterface,

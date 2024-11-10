@@ -187,10 +187,8 @@ public:
         return false;
     }
 
-    MOS_STATUS SetWatchdogTimerThreshold(uint32_t frameWidth, uint32_t frameHeight, bool isEncoder) override
+    MOS_STATUS SetWatchdogTimerThreshold(uint32_t frameWidth, uint32_t frameHeight, bool isEncoder, uint32_t codecMode) override
     {
-        MEDIA_WA_TABLE *waTable = nullptr;
-
         MHW_FUNCTION_ENTER;
         MHW_MI_CHK_NULL(this->m_osItf);
         if (this->m_osItf->bMediaReset == false ||
@@ -198,9 +196,6 @@ public:
         {
             return MOS_STATUS_SUCCESS;
         }
-
-        waTable = this->m_osItf->pfnGetWaTable(this->m_osItf);
-        MHW_CHK_NULL_RETURN(waTable);
 
         if (isEncoder)
         {
@@ -223,22 +218,24 @@ public:
         }
         else
         {
-            if ((frameWidth * frameHeight) >= (16000 * 16000))
+            if ((frameWidth * frameHeight) >= (7680 * 4320))
             {
-                MediaResetParam.watchdogCountThreshold = MHW_MI_DECODER_16Kx16K_WATCHDOG_THRESHOLD_IN_MS;
+                MediaResetParam.watchdogCountThreshold = MHW_MI_DECODER_8K_WATCHDOG_THRESHOLD_IN_MS;
             }
-            else if ((frameWidth * frameHeight) >= (7680 * 4320))
+            else if ((frameWidth * frameHeight) >= (3840 * 2160))
             {
-                MediaResetParam.watchdogCountThreshold = MHW_MI_DECODER_16K_WATCHDOG_THRESHOLD_IN_MS;
-            }
-            else if (((frameWidth * frameHeight) < (1280 * 720)) && MEDIA_IS_WA(waTable, WaSliceMissingMB))
-            {
-                MediaResetParam.watchdogCountThreshold = MHW_MI_DECODER_720P_WATCHDOG_THRESHOLD_IN_MS;
+                MediaResetParam.watchdogCountThreshold = MHW_MI_DECODER_4K_WATCHDOG_THRESHOLD_IN_MS;
             }
             else
             {
-                // 60ms should be enough for decoder with resolution smaller than 8k
-                MediaResetParam.watchdogCountThreshold = MHW_MI_DEFAULT_WATCHDOG_THRESHOLD_IN_MS;
+                MediaResetParam.watchdogCountThreshold = MHW_MI_DECODER_720P_WATCHDOG_THRESHOLD_IN_MS;
+            }
+
+            if ((CODECHAL_STANDARD)codecMode == CODECHAL_AV1)
+            {
+                // This is temporary solution to address the inappropriate threshold setting for high bit-rate AV1 decode.
+                // The final solution will incorporate bitstream size, increasing the setting when the bit-rate is high.
+                MediaResetParam.watchdogCountThreshold = MHW_MI_DECODER_AV1_WATCHDOG_THRESHOLD_IN_MS;
             }
         }
 
@@ -698,7 +695,7 @@ public:
             &resourceParams));
 
         // Set BB start
-        cmd.DW0.Obj3.SecondLevelBatchBuffer = true;
+        cmd.DW0.Obj3.SecondLevelBatchBuffer = params.secondLevelBatchBuffer;
         cmd.DW0.Obj0.AddressSpaceIndicator  = !IsGlobalGttInUse();
 
         return MOS_STATUS_SUCCESS;
@@ -997,7 +994,7 @@ public:
 
         base_t::MHW_ADDCMD_F(MI_MATH)(cmdBuf, batchBuf);
 
-        return Mhw_AddCommandCmdOrBB(cmdBuf, nullptr, &params.pAluPayload[0],
+        return Mhw_AddCommandCmdOrBB(m_osItf, cmdBuf, nullptr, &params.pAluPayload[0],
             sizeof(MHW_MI_ALU_PARAMS)* params.dwNumAluParams);
     }
 

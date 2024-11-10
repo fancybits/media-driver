@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2022, Intel Corporation
+* Copyright (c) 2009-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -31,34 +31,223 @@
 
 #include "mos_os.h"
 #include "mos_util_debug.h"
-#include "mos_util_user_interface.h"
 #include "mos_interface.h"
 #include "media_user_setting.h"
-
-PerfUtility* g_perfutility = PerfUtility::getInstance();
-
-AutoPerfUtility::AutoPerfUtility(std::string tag, std::string comp, std::string level)
-{
-    if (PERFUTILITY_IS_ENABLED(comp, level))
-    {
-        g_perfutility->startTick(tag);
-        autotag = tag;
-        bEnable = true;
-    }
-}
-
-AutoPerfUtility::~AutoPerfUtility()
-{
-    if (bEnable)
-    {
-        g_perfutility->stopTick(autotag);
-    }
-}
 
 #if MOS_MEDIASOLO_SUPPORTED
 void *   _MOS_INTERFACE::pvSoloContext = nullptr; 
 uint32_t _MOS_INTERFACE::soloRefCnt = 0;
 #endif  // MOS_MEDIASOLO_SUPPORTED
+
+extern MhwCpInterface* Create_MhwCpInterface(PMOS_INTERFACE osInterface);
+extern void Delete_MhwCpInterface(MhwCpInterface* mhwInterface);
+
+#if !EMUL
+extern CodechalSecureDecodeInterface* Create_SecureDecodeInterface(CodechalSetting* codechalSettings, CodechalHwInterface* hwInterfaceInput);
+extern void Delete_SecureDecodeInterface(CodechalSecureDecodeInterface* codechalSecureDecodeInterface);
+#endif
+
+static constexpr GMM_RESOURCE_USAGE_TYPE GmmResourceUsage[MOS_HW_RESOURCE_DEF_MAX] =
+    {
+        //
+        // CODEC USAGES
+        //
+        GMM_RESOURCE_USAGE_BEGIN_CODEC,
+        GMM_RESOURCE_USAGE_PRE_DEBLOCKING_CODEC,
+        GMM_RESOURCE_USAGE_PRE_DEBLOCKING_CODEC_PARTIALENCSURFACE,
+        GMM_RESOURCE_USAGE_POST_DEBLOCKING_CODEC,
+        GMM_RESOURCE_USAGE_ORIGINAL_UNCOMPRESSED_PICTURE_ENCODE,
+        GMM_RESOURCE_USAGE_ORIGINAL_UNCOMPRESSED_PICTURE_DECODE,
+        GMM_RESOURCE_USAGE_STREAMOUT_DATA_CODEC,
+        GMM_RESOURCE_USAGE_INTRA_ROWSTORE_SCRATCH_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC,
+        GMM_RESOURCE_USAGE_MACROBLOCK_STATUS_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_MFX_INDIRECT_BITSTREAM_OBJECT_DECODE,
+        GMM_RESOURCE_USAGE_MFX_INDIRECT_MV_OBJECT_CODEC,
+        GMM_RESOURCE_USAGE_MFD_INDIRECT_IT_COEF_OBJECT_DECODE,
+        GMM_RESOURCE_USAGE_MFC_INDIRECT_PAKBASE_OBJECT_CODEC,
+        GMM_RESOURCE_USAGE_BSDMPC_ROWSTORE_SCRATCH_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_MPR_ROWSTORE_SCRATCH_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_BITPLANE_READ_CODEC,
+        GMM_RESOURCE_USAGE_DIRECTMV_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_SURFACE_CURR_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_REF_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_MV_DATA_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_HME_DOWNSAMPLED_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_HME_DOWNSAMPLED_ENCODE_FF,
+        GMM_RESOURCE_USAGE_SURFACE_HME_DOWNSAMPLED_ENCODE_DST,
+        GMM_RESOURCE_USAGE_SURFACE_ME_DISTORTION_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_BRC_ME_DISTORTION_ENCODE,
+        GMM_RESOURCE_USAGE_PAK_OBJECT_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_FLATNESS_CHECK_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_MBENC_CURBE_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_MAD_ENCODE,
+        GMM_RESOURCE_USAGE_VP8_BLOCK_MODE_COST_ENCODE,
+        GMM_RESOURCE_USAGE_VP8_MB_MODE_COST_ENCODE,
+        GMM_RESOURCE_USAGE_VP8_MBENC_OUTPUT_ENCODE,
+        GMM_RESOURCE_USAGE_VP8_HISTOGRAM_ENCODE,
+        GMM_RESOURCE_USAGE_VP8_L3_LLC_ENCODE,
+        GMM_RESOURCE_USAGE_MFX_STANDALONE_DEBLOCKING_CODEC,
+        GMM_RESOURCE_USAGE_HCP_MD_CODEC,
+        GMM_RESOURCE_USAGE_HCP_SAO_CODEC,
+        GMM_RESOURCE_USAGE_HCP_MV_CODEC,
+        GMM_RESOURCE_USAGE_HCP_STATUS_ERROR_CODEC,
+        GMM_RESOURCE_USAGE_HCP_LCU_ILDB_STREAMOUT_CODEC,
+        GMM_RESOURCE_USAGE_VP9_PROBABILITY_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_VP9_SEGMENT_ID_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_VP9_HVD_ROWSTORE_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_MBDISABLE_SKIPMAP_CODEC,
+        GMM_RESOURCE_USAGE_VDENC_ROW_STORE_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_VDENC_STREAMIN_CODEC,
+        GMM_RESOURCE_USAGE_SURFACE_MB_QP_CODEC,
+        GMM_RESOURCE_USAGE_MACROBLOCK_ILDB_STREAM_OUT_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_SSE_SRC_PIXEL_ROW_STORE_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_SLICE_STATE_STREAM_OUT_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_CABAC_SYNTAX_STREAM_OUT_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_PRED_COL_STORE_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_SURFACE_PAK_IMAGESTATE_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_MBENC_BRC_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_MB_BRC_CONST_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_BRC_MB_QP_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_BRC_ROI_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_SLICE_MAP_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_WP_DOWNSAMPLED_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_VDENC_IMAGESTATE_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_UNCACHED,
+        GMM_RESOURCE_USAGE_SURFACE_ELLC_ONLY,
+        GMM_RESOURCE_USAGE_SURFACE_ELLC_LLC_ONLY,
+        GMM_RESOURCE_USAGE_SURFACE_ELLC_LLC_L3,
+        GMM_RESOURCE_USAGE_SURFACE_BRC_HISTORY_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_SOFTWARE_SCOREBOARD_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_ME_MV_DATA_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_MV_DISTORTION_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_4XME_DISTORTION_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_INTRA_DISTORTION_ENCODE,
+        GMM_RESOURCE_USAGE_MB_STATS_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_PAK_STATS_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_PIC_STATE_READ_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_PIC_STATE_WRITE_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_COMBINED_ENC_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_BRC_CONSTANT_DATA_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_INTERMEDIATE_CU_RECORD_SURFACE_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_SCRATCH_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_LCU_LEVEL_DATA_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_ENC_HISTORY_INPUT_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_ENC_HISTORY_OUTPUT_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_DEBUG_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_ENC_CONSTANT_TABLE_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_ENC_CU_RECORD_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_ENC_MV_TEMPORAL_BUFFER_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_ENC_CU_PACKET_FOR_PAK_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_ENC_BCOMBINED1_ENCODE,
+        GMM_RESOURCE_USAGE_SURFACE_ENC_BCOMBINED2_ENCODE,
+        GMM_RESOURCE_USAGE_FRAME_STATS_STREAMOUT_DATA_CODEC,
+        GMM_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_TILE_LINE_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_TILE_COLUMN_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_HCP_MD_TILE_LINE_CODEC,
+        GMM_RESOURCE_USAGE_HCP_MD_TILE_COLUMN_CODEC,
+        GMM_RESOURCE_USAGE_HCP_SAO_TILE_LINE_CODEC,
+        GMM_RESOURCE_USAGE_HCP_SAO_TILE_COLUMN_CODEC,
+        GMM_RESOURCE_USAGE_VP9_PROBABILITY_COUNTER_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_HUC_VIRTUAL_ADDR_REGION_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_SIZE_STREAMOUT_CODEC,
+        GMM_RESOURCE_USAGE_COMPRESSED_HEADER_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_PROBABILITY_DELTA_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_TILE_RECORD_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_TILE_SIZE_STAS_BUFFER_CODEC,
+        GMM_RESOURCE_USAGE_END_CODEC,
+
+        //
+        // CM USAGES
+        //
+        CM_RESOURCE_USAGE_SurfaceState,
+        CM_RESOURCE_USAGE_StateHeap,
+        CM_RESOURCE_USAGE_NO_L3_SurfaceState,
+        CM_RESOURCE_USAGE_NO_LLC_ELLC_SurfaceState,
+        CM_RESOURCE_USAGE_NO_LLC_SurfaceState,
+        CM_RESOURCE_USAGE_NO_ELLC_SurfaceState,
+        CM_RESOURCE_USAGE_NO_LLC_L3_SurfaceState,
+        CM_RESOURCE_USAGE_NO_ELLC_L3_SurfaceState,
+        CM_RESOURCE_USAGE_NO_CACHE_SurfaceState,
+        CM_RESOURCE_USAGE_L1_Enabled_SurfaceState,
+
+        //
+        // MP USAGES
+        //
+        MP_RESOURCE_USAGE_BEGIN,
+        MP_RESOURCE_USAGE_DEFAULT,
+        MP_RESOURCE_USAGE_DEFAULT_FF,
+        MP_RESOURCE_USAGE_DEFAULT_RCS,
+        MP_RESOURCE_USAGE_SurfaceState,
+        MP_RESOURCE_USAGE_SurfaceState_FF,
+        MP_RESOURCE_USAGE_SurfaceState_RCS,
+        MP_RESOURCE_USAGE_AGE3_SurfaceState,
+        MP_RESOURCE_USAGE_EDRAM_SurfaceState,
+        MP_RESOURCE_USAGE_EDRAM_AGE3_SurfaceState,
+        MP_RESOURCE_USAGE_No_L3_SurfaceState,
+        MP_RESOURCE_USAGE_No_LLC_L3_SurfaceState,
+        MP_RESOURCE_USAGE_No_LLC_L3_AGE_SurfaceState,
+        MP_RESOURCE_USAGE_No_LLC_eLLC_L3_AGE_SurfaceState,
+        MP_RESOURCE_USAGE_PartialEnc_No_LLC_L3_AGE_SurfaceState,
+        MP_RESOURCE_USAGE_END,
+
+        // MHW - SFC
+        MHW_RESOURCE_USAGE_Sfc_CurrentOutputSurface,                    //!< SFC output surface
+        MHW_RESOURCE_USAGE_Sfc_CurrentOutputSurface_PartialEncSurface,  //!< SFC output surface for partial secure surfaces
+        MHW_RESOURCE_USAGE_Sfc_AvsLineBufferSurface,                    //!< SFC AVS Line buffer Surface
+        MHW_RESOURCE_USAGE_Sfc_IefLineBufferSurface,                    //!< SFC IEF Line buffer Surface
+
+        // Camera  caputure.
+        GMM_RESOURCE_USAGE_CAMERA_CAPTURE,
+        // Media GMM Resource USAGES
+        GMM_RESOURCE_USAGE_CCS_MEDIA_WRITABLE,
+
+        // Media BLT copy USAGES
+        GMM_RESOURCE_USAGE_BLT_SOURCE,
+        GMM_RESOURCE_USAGE_BLT_DESTINATION,
+
+        // PAT Media Usages
+        GMM_RESOURCE_USAGE_MEDIA_BATCH_BUFFERS,
+        // DECODE
+        GMM_RESOURCE_USAGE_DECODE_INPUT_BITSTREAM,
+        GMM_RESOURCE_USAGE_DECODE_INPUT_REFERENCE,
+        GMM_RESOURCE_USAGE_DECODE_INTERNAL_READ,
+        GMM_RESOURCE_USAGE_DECODE_INTERNAL_WRITE,
+        GMM_RESOURCE_USAGE_DECODE_INTERNAL_READ_WRITE_CACHE,
+        GMM_RESOURCE_USAGE_DECODE_INTERNAL_READ_WRITE_NOCACHE,
+        GMM_RESOURCE_USAGE_DECODE_OUTPUT_PICTURE,
+        GMM_RESOURCE_USAGE_DECODE_OUTPUT_STATISTICS_WRITE,
+        GMM_RESOURCE_USAGE_DECODE_OUTPUT_STATISTICS_READ_WRITE,
+        // ENCODE
+        GMM_RESOURCE_USAGE_ENCODE_INPUT_RAW,
+        GMM_RESOURCE_USAGE_ENCODE_INPUT_RECON,
+        GMM_RESOURCE_USAGE_ENCODE_INTERNAL_READ,
+        GMM_RESOURCE_USAGE_ENCODE_INTERNAL_WRITE,
+        GMM_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE,
+        GMM_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE,
+        GMM_RESOURCE_USAGE_ENCODE_EXTERNAL_READ,
+        GMM_RESOURCE_USAGE_ENCODE_OUTPUT_PICTURE,
+        GMM_RESOURCE_USAGE_ENCODE_OUTPUT_BITSTREAM,
+        GMM_RESOURCE_USAGE_ENCODE_OUTPUT_STATISTICS_WRITE,
+        GMM_RESOURCE_USAGE_ENCODE_OUTPUT_STATISTICS_READ_WRITE,
+        // VP
+        GMM_RESOURCE_USAGE_VP_INPUT_PICTURE_FF,
+        GMM_RESOURCE_USAGE_VP_INPUT_REFERENCE_FF,
+        GMM_RESOURCE_USAGE_VP_INTERNAL_READ_FF,
+        GMM_RESOURCE_USAGE_VP_INTERNAL_WRITE_FF,
+        GMM_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_FF,
+        GMM_RESOURCE_USAGE_VP_OUTPUT_PICTURE_FF,
+        GMM_RESOURCE_USAGE_VP_INPUT_PICTURE_RENDER,
+        GMM_RESOURCE_USAGE_VP_INPUT_REFERENCE_RENDER,
+        GMM_RESOURCE_USAGE_VP_INTERNAL_READ_RENDER,
+        GMM_RESOURCE_USAGE_VP_INTERNAL_WRITE_RENDER,
+        GMM_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER,
+        GMM_RESOURCE_USAGE_VP_OUTPUT_PICTURE_RENDER,
+        // CP
+        GMM_RESOURCE_USAGE_CP_EXTERNAL_READ,
+        GMM_RESOURCE_USAGE_CP_INTERNAL_WRITE,
+};
 
 //! \brief    Unified OS add command to command buffer
 //! \details  Offset returned is dword aligned but size requested can be byte aligned
@@ -180,6 +369,7 @@ MOS_STATUS Mos_OsGetBitsPerPixel(
     case Format_A8L8:
     case Format_R16U:
     case Format_V8U8:
+    case Format_R16F:
         *piBpp = 16;
         break;
 
@@ -269,6 +459,29 @@ MOS_STATUS Mos_GetPlatformName(
     MOS_SecureStrcpy(buffer, MOS_COMMAND_BUFFER_PLATFORM_LEN, "N/A");
 
     return MOS_STATUS_SUCCESS;
+}
+
+void Mos_AddIndirectState(
+    PMOS_INTERFACE      pOsInterface,
+    uint32_t            stateSize,
+    uint32_t            *pIndirectState,
+    uint32_t            *gfxAddressBottom,
+    uint32_t            *gfxAddressTop,
+    const char          *stateName)
+{
+    MOS_OS_CHK_NULL_NO_STATUS_RETURN(pOsInterface);
+    if (pOsInterface->apoMosEnabled)
+    {
+        MOS_OS_CHK_NULL_NO_STATUS_RETURN(pOsInterface->osStreamState);
+        INDIRECT_STATE_INFO stateinfoarray = {};
+        stateinfoarray.stateSize           = stateSize;
+        stateinfoarray.indirectState       = pIndirectState;
+        stateinfoarray.gfxAddressBottom    = gfxAddressBottom;
+        stateinfoarray.gfxAddressTop       = gfxAddressTop;
+        stateinfoarray.stateName           = stateName;
+        pOsInterface->osStreamState->indirectStateInfo.push_back(stateinfoarray);
+    }
+    return;
 }
 
 //!
@@ -458,6 +671,7 @@ MOS_STATUS Mos_DumpCommandBufferInit(
 
     // Setup member function and variable.
     pOsInterface->pfnDumpCommandBuffer  = Mos_DumpCommandBuffer;
+    pOsInterface->pfnAddIndirectState   = Mos_AddIndirectState;
 
     // Check if command buffer dump was enabled in user feature.
     ReadUserSetting(
@@ -623,30 +837,69 @@ const char *GpuCmdResInfoDump::GetTileType(MOS_TILE_TYPE tileType) const
 //! \details  OS Interface initilization
 //! \param    PMOS_INTERFACE pOsInterface
 //!           [in/out] Pointer to OS Interface
-//! \param    PMOS_CONTEXT pOsDriverContext
+//! \param    MOS_CONTEXT_HANDLE osDriverContext
 //!           [in] Pointer to Driver context
+//! \param    MOS_COMPONENT component
+//!           [in] OS component
 //! \return   MOS_STATUS
 //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
 //!
-MOS_STATUS Mos_InitInterface(
-    PMOS_INTERFACE pOsInterface,
-    PMOS_CONTEXT   pOsDriverContext,
-    MOS_COMPONENT  component)
+MOS_STATUS Mos_InitOsInterface(
+    PMOS_INTERFACE     pOsInterface,
+    MOS_CONTEXT_HANDLE osDriverContext,
+    MOS_COMPONENT      component)
 {
     MOS_OS_CHK_NULL_RETURN(pOsInterface);
 #if !EMUL
-    MOS_OS_CHK_NULL_RETURN(pOsDriverContext);
+    MOS_OS_CHK_NULL_RETURN(osDriverContext);
 #endif
     MOS_STATUS                  eStatus = MOS_STATUS_UNKNOWN;
     MediaUserSettingSharedPtr   userSettingPtr = nullptr;
-
+    PMOS_CONTEXT                pOsDriverContext = (PMOS_CONTEXT)osDriverContext;
     // Setup Member functions
-    pOsInterface->pfnFillResource       = Mos_OsFillResource;
-    pOsInterface->pfnGetBitsPerPixel    = Mos_OsGetBitsPerPixel;
-    pOsInterface->Component             = component;
-    pOsInterface->modulizedMosEnabled   = true;
-    pOsInterface->osContextPtr          = nullptr;
-    pOsInterface->veDefaultEnable       = true;
+    pOsInterface->pfnFillResource                       = Mos_OsFillResource;
+    pOsInterface->pfnGetBitsPerPixel                    = Mos_OsGetBitsPerPixel;
+    pOsInterface->pfnAddCommand                         = Mos_AddCommand;
+    pOsInterface->pfnVirtualEngineSupported             = Mos_CheckVirtualEngineSupported;
+    pOsInterface->pfnGetResourceCachePolicyMemoryObject = Mos_GetResourceCachePolicyMemoryObject;
+
+    pOsInterface->pfnIsAsyncDevice                      = Mos_IsAsyncDevice;
+    pOsInterface->pfnMosFmtToOsFmt                      = Mos_MosFmtToOsFmt;
+    pOsInterface->pfnOsFmtToMosFmt                      = Mos_OsFmtToMosFmt;
+    pOsInterface->pfnMosFmtToGmmFmt                     = Mos_MosFmtToGmmFmt;
+    pOsInterface->pfnGmmFmtToMosFmt                     = Mos_GmmFmtToMosFmt;
+    pOsInterface->pfnWaitForCmdCompletion               = Mos_WaitForCmdCompletion;
+    pOsInterface->pfnGetResourceArrayIndex              = Mos_GetResourceArrayIndex;
+    pOsInterface->pfnSetupAttributeVeBuffer             = Mos_SetupAttributeVeBuffer;
+    pOsInterface->pfnGetAttributeVeBuffer               = Mos_GetAttributeVeBuffer;
+    pOsInterface->pfnSetupCurrentCmdListAndPool         = Mos_SetupCurrentCmdListAndPool;
+    pOsInterface->pfnGmmToMosResourceUsageType          = Mos_GmmToMosResourceUsageType;
+    pOsInterface->pfnGetAdapterInfo                     = Mos_GetAdapterInfo;
+    pOsInterface->pfnIsCompressibelSurfaceSupported     = Mos_IsCompressibelSurfaceSupported;
+    pOsInterface->pfnDestroyVirtualEngineState          = Mos_DestroyVirtualEngineState;
+    pOsInterface->pfnGetResourceHandle                  = Mos_GetResourceHandle;
+    pOsInterface->pfnGetRtLogResourceInfo               = Mos_GetRtLogResourceInfo;
+    pOsInterface->pfnResetResource                      = Mos_ResetMosResource;
+    pOsInterface->pfnVerifyMosSurface                   = Mos_VerifyMosSurface;
+
+    pOsInterface->pfnCreateMhwCpInterface               = Create_MhwCpInterface;
+    pOsInterface->pfnDeleteMhwCpInterface               = Delete_MhwCpInterface;
+    pOsInterface->pfnInsertCacheSetting                 = Mos_InsertCacheSetting;
+    pOsInterface->pfnGetCacheSetting                    = Mos_GetCacheSetting;
+#if !EMUL
+    pOsInterface->pfnCreateSecureDecodeInterface        = Create_SecureDecodeInterface;
+    pOsInterface->pfnDeleteSecureDecodeInterface        = Delete_SecureDecodeInterface;
+#endif
+#if (_DEBUG || _RELEASE_INTERNAL)
+    pOsInterface->pfnGetVeEngineCount                   = Mos_GetVeEngineCount;
+    pOsInterface->pfnGetEngineLogicIdByIdx              = Mos_GetEngineLogicId;
+    pOsInterface->pfnSetGpuVirtualAddress               = MOS_SetGpuVirtualAddress;
+#endif
+
+    pOsInterface->Component                 = component;
+    pOsInterface->modulizedMosEnabled       = true;
+    pOsInterface->osContextPtr              = nullptr;
+    pOsInterface->veDefaultEnable           = true;
 
     pOsInterface->streamIndex = 0;
     pOsInterface->bSimIsActive = 0;
@@ -686,162 +939,6 @@ MEMORY_OBJECT_CONTROL_STATE Mos_CachePolicyGetMemoryObject(
     MOS_HW_RESOURCE_DEF MosUsage,
     GMM_CLIENT_CONTEXT  *pGmmClientContext)
 {
-    GMM_RESOURCE_USAGE_TYPE GmmResourceUsage[MOS_HW_RESOURCE_DEF_MAX] =
-    {
-        //
-        // CODEC USAGES
-        //
-        GMM_RESOURCE_USAGE_BEGIN_CODEC,
-        GMM_RESOURCE_USAGE_PRE_DEBLOCKING_CODEC,
-        GMM_RESOURCE_USAGE_PRE_DEBLOCKING_CODEC_PARTIALENCSURFACE,
-        GMM_RESOURCE_USAGE_POST_DEBLOCKING_CODEC,
-        GMM_RESOURCE_USAGE_ORIGINAL_UNCOMPRESSED_PICTURE_ENCODE,
-        GMM_RESOURCE_USAGE_ORIGINAL_UNCOMPRESSED_PICTURE_DECODE,
-        GMM_RESOURCE_USAGE_STREAMOUT_DATA_CODEC,
-        GMM_RESOURCE_USAGE_INTRA_ROWSTORE_SCRATCH_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_SCRATCH_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_REFERENCE_PICTURE_CODEC,
-        GMM_RESOURCE_USAGE_MACROBLOCK_STATUS_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_MFX_INDIRECT_BITSTREAM_OBJECT_DECODE,
-        GMM_RESOURCE_USAGE_MFX_INDIRECT_MV_OBJECT_CODEC,
-        GMM_RESOURCE_USAGE_MFD_INDIRECT_IT_COEF_OBJECT_DECODE,
-        GMM_RESOURCE_USAGE_MFC_INDIRECT_PAKBASE_OBJECT_CODEC,
-        GMM_RESOURCE_USAGE_BSDMPC_ROWSTORE_SCRATCH_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_MPR_ROWSTORE_SCRATCH_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_BITPLANE_READ_CODEC,
-        GMM_RESOURCE_USAGE_DIRECTMV_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_SURFACE_CURR_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_REF_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_MV_DATA_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_HME_DOWNSAMPLED_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_HME_DOWNSAMPLED_ENCODE_FF,
-        GMM_RESOURCE_USAGE_SURFACE_HME_DOWNSAMPLED_ENCODE_DST,
-        GMM_RESOURCE_USAGE_SURFACE_ME_DISTORTION_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_BRC_ME_DISTORTION_ENCODE,
-        GMM_RESOURCE_USAGE_PAK_OBJECT_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_FLATNESS_CHECK_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_MBENC_CURBE_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_MAD_ENCODE,
-        GMM_RESOURCE_USAGE_VP8_BLOCK_MODE_COST_ENCODE,
-        GMM_RESOURCE_USAGE_VP8_MB_MODE_COST_ENCODE,
-        GMM_RESOURCE_USAGE_VP8_MBENC_OUTPUT_ENCODE,
-        GMM_RESOURCE_USAGE_VP8_HISTOGRAM_ENCODE,
-        GMM_RESOURCE_USAGE_VP8_L3_LLC_ENCODE,
-        GMM_RESOURCE_USAGE_MFX_STANDALONE_DEBLOCKING_CODEC,
-        GMM_RESOURCE_USAGE_HCP_MD_CODEC,
-        GMM_RESOURCE_USAGE_HCP_SAO_CODEC,
-        GMM_RESOURCE_USAGE_HCP_MV_CODEC,
-        GMM_RESOURCE_USAGE_HCP_STATUS_ERROR_CODEC,
-        GMM_RESOURCE_USAGE_HCP_LCU_ILDB_STREAMOUT_CODEC,
-        GMM_RESOURCE_USAGE_VP9_PROBABILITY_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_VP9_SEGMENT_ID_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_VP9_HVD_ROWSTORE_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_MBDISABLE_SKIPMAP_CODEC,
-        GMM_RESOURCE_USAGE_VDENC_ROW_STORE_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_VDENC_STREAMIN_CODEC,
-        GMM_RESOURCE_USAGE_SURFACE_MB_QP_CODEC,
-        GMM_RESOURCE_USAGE_MACROBLOCK_ILDB_STREAM_OUT_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_SSE_SRC_PIXEL_ROW_STORE_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_SLICE_STATE_STREAM_OUT_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_CABAC_SYNTAX_STREAM_OUT_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_PRED_COL_STORE_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_SURFACE_PAK_IMAGESTATE_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_MBENC_BRC_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_MB_BRC_CONST_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_BRC_MB_QP_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_BRC_ROI_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_SLICE_MAP_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_WP_DOWNSAMPLED_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_VDENC_IMAGESTATE_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_UNCACHED,
-        GMM_RESOURCE_USAGE_SURFACE_ELLC_ONLY,
-        GMM_RESOURCE_USAGE_SURFACE_ELLC_LLC_ONLY,
-        GMM_RESOURCE_USAGE_SURFACE_ELLC_LLC_L3,
-        GMM_RESOURCE_USAGE_SURFACE_BRC_HISTORY_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_SOFTWARE_SCOREBOARD_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_ME_MV_DATA_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_MV_DISTORTION_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_4XME_DISTORTION_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_INTRA_DISTORTION_ENCODE,
-        GMM_RESOURCE_USAGE_MB_STATS_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_PAK_STATS_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_PIC_STATE_READ_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_PIC_STATE_WRITE_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_COMBINED_ENC_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_BRC_CONSTANT_DATA_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_INTERMEDIATE_CU_RECORD_SURFACE_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_SCRATCH_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_LCU_LEVEL_DATA_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_ENC_HISTORY_INPUT_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_ENC_HISTORY_OUTPUT_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_DEBUG_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_ENC_CONSTANT_TABLE_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_ENC_CU_RECORD_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_ENC_MV_TEMPORAL_BUFFER_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_ENC_CU_PACKET_FOR_PAK_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_ENC_BCOMBINED1_ENCODE,
-        GMM_RESOURCE_USAGE_SURFACE_ENC_BCOMBINED2_ENCODE,
-        GMM_RESOURCE_USAGE_FRAME_STATS_STREAMOUT_DATA_CODEC,
-        GMM_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_TILE_LINE_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_DEBLOCKINGFILTER_ROWSTORE_TILE_COLUMN_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_HCP_MD_TILE_LINE_CODEC,
-        GMM_RESOURCE_USAGE_HCP_MD_TILE_COLUMN_CODEC,
-        GMM_RESOURCE_USAGE_HCP_SAO_TILE_LINE_CODEC,
-        GMM_RESOURCE_USAGE_HCP_SAO_TILE_COLUMN_CODEC,
-        GMM_RESOURCE_USAGE_VP9_PROBABILITY_COUNTER_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_HUC_VIRTUAL_ADDR_REGION_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_SIZE_STREAMOUT_CODEC,
-        GMM_RESOURCE_USAGE_COMPRESSED_HEADER_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_PROBABILITY_DELTA_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_TILE_RECORD_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_TILE_SIZE_STAS_BUFFER_CODEC,
-        GMM_RESOURCE_USAGE_END_CODEC,
-
-        //
-        // CM USAGES
-        //
-        CM_RESOURCE_USAGE_SurfaceState,
-        CM_RESOURCE_USAGE_StateHeap,
-        CM_RESOURCE_USAGE_NO_L3_SurfaceState,
-        CM_RESOURCE_USAGE_NO_LLC_ELLC_SurfaceState,
-        CM_RESOURCE_USAGE_NO_LLC_SurfaceState,
-        CM_RESOURCE_USAGE_NO_ELLC_SurfaceState,
-        CM_RESOURCE_USAGE_NO_LLC_L3_SurfaceState,
-        CM_RESOURCE_USAGE_NO_ELLC_L3_SurfaceState,
-        CM_RESOURCE_USAGE_NO_CACHE_SurfaceState,
-        CM_RESOURCE_USAGE_L1_Enabled_SurfaceState,
-
-        //
-        // MP USAGES
-        //
-        MP_RESOURCE_USAGE_BEGIN,
-        MP_RESOURCE_USAGE_DEFAULT,
-        MP_RESOURCE_USAGE_DEFAULT_FF,
-        MP_RESOURCE_USAGE_DEFAULT_RCS,
-        MP_RESOURCE_USAGE_SurfaceState,
-        MP_RESOURCE_USAGE_SurfaceState_FF,
-        MP_RESOURCE_USAGE_SurfaceState_RCS,
-        MP_RESOURCE_USAGE_AGE3_SurfaceState,
-        MP_RESOURCE_USAGE_EDRAM_SurfaceState,
-        MP_RESOURCE_USAGE_EDRAM_AGE3_SurfaceState,
-        MP_RESOURCE_USAGE_No_L3_SurfaceState,
-        MP_RESOURCE_USAGE_No_LLC_L3_SurfaceState,
-        MP_RESOURCE_USAGE_No_LLC_L3_AGE_SurfaceState,
-        MP_RESOURCE_USAGE_No_LLC_eLLC_L3_AGE_SurfaceState,
-        MP_RESOURCE_USAGE_PartialEnc_No_LLC_L3_AGE_SurfaceState,
-        MP_RESOURCE_USAGE_END,
-
-        // MHW - SFC
-        MHW_RESOURCE_USAGE_Sfc_CurrentOutputSurface,                                //!< SFC output surface
-        MHW_RESOURCE_USAGE_Sfc_CurrentOutputSurface_PartialEncSurface,              //!< SFC output surface for partial secure surfaces
-        MHW_RESOURCE_USAGE_Sfc_AvsLineBufferSurface,                                //!< SFC AVS Line buffer Surface
-        MHW_RESOURCE_USAGE_Sfc_IefLineBufferSurface,                                //!< SFC IEF Line buffer Surface
-
-        // Camera capture
-        GMM_RESOURCE_USAGE_CAMERA_CAPTURE,
-
-    };
-
     MOS_OS_ASSERT(pGmmClientContext);
 
     GMM_RESOURCE_USAGE_TYPE usage = GmmResourceUsage[MosUsage];
@@ -883,12 +980,6 @@ MOS_STATUS Mos_CheckVirtualEngineSupported(
             MediaUserSetting::Group::Device);
         osInterface->bSupportVirtualEngine = value ? true : false;
 #endif
-        // force bSupportVirtualEngine to false when virtual engine not enabled by default
-        if ((!veDefaultEnable || !osInterface->veDefaultEnable) &&
-            (eStatus == MOS_STATUS_USER_FEATURE_KEY_OPEN_FAILED))
-        {
-            osInterface->bSupportVirtualEngine = false;
-        }
 
         auto skuTable = osInterface->pfnGetSkuTable(osInterface);
         MOS_OS_CHK_NULL_RETURN(skuTable);
@@ -929,11 +1020,6 @@ MOS_STATUS Mos_CheckVirtualEngineSupported(
             MediaUserSetting::Group::Device);
         osInterface->bSupportVirtualEngine = value ? true : false;
 #endif
-        // force bSupportVirtualEngine to false when virtual engine not enabled by default
-        if (!osInterface->veDefaultEnable && (eStatus == MOS_STATUS_USER_FEATURE_KEY_READ_FAILED || eStatus == MOS_STATUS_USER_FEATURE_KEY_OPEN_FAILED))
-        {
-            osInterface->bSupportVirtualEngine = false;
-        }
 
         auto skuTable = osInterface->pfnGetSkuTable(osInterface);
         MOS_OS_CHK_NULL_RETURN(skuTable);
@@ -989,13 +1075,170 @@ MEMORY_OBJECT_CONTROL_STATE Mos_GetResourceCachePolicyMemoryObject(
         memObjCtrlState = MosInterface::GetCachePolicyMemoryObject(gmmClientContext, resource->mocsMosResUsageType);
     }
 
-    if (memObjCtrlState.DwordValue == 0)
+    if (resource->mocsMosResUsageType >= (sizeof(GmmResourceUsage) / sizeof(GmmResourceUsage[0])))
     {
-        MOS_OS_NORMALMESSAGE("Invalid resource->mocsMosResUsageType = %d, use default cache MOS_MP_RESOURCE_USAGE_DEFAULT", resource->mocsMosResUsageType);
-        memObjCtrlState = MosInterface::GetCachePolicyMemoryObject(gmmClientContext, MOS_MP_RESOURCE_USAGE_DEFAULT);
+        MOS_OS_ASSERTMESSAGE("mocsMosResUsageType out of bound");
+        resource->mocsMosResUsageType = MOS_CODEC_RESOURCE_USAGE_BEGIN_CODEC;
+    }
+    GMM_RESOURCE_USAGE_TYPE usage = GmmResourceUsage[resource->mocsMosResUsageType];
+    if ((memObjCtrlState.DwordValue == 0)
+#if !EMUL
+        && !gmmClientContext->GetCachePolicyElement(usage).Initialized
+#endif
+    )
+    {
+        memObjCtrlState = MosInterface::GetDefaultCachePolicyMemoryObject(gmmClientContext);
     }
     return memObjCtrlState;
 }
+
+bool Mos_IsAsyncDevice(
+    MOS_STREAM_HANDLE   streamState)
+{
+    return MosInterface::IsAsyncDevice(streamState);
+}
+
+uint32_t Mos_MosFmtToOsFmt(
+    MOS_FORMAT          format)
+{
+    return MosInterface::MosFmtToOsFmt(format);
+}
+
+MOS_FORMAT Mos_OsFmtToMosFmt(
+    uint32_t            format)
+{
+    return MosInterface::OsFmtToMosFmt(format);
+}
+
+GMM_RESOURCE_FORMAT Mos_MosFmtToGmmFmt(
+    MOS_FORMAT          format)
+{
+    return MosInterface::MosFmtToGmmFmt(format);
+}
+
+MOS_FORMAT Mos_GmmFmtToMosFmt(
+    GMM_RESOURCE_FORMAT format)
+{
+    return MosInterface::GmmFmtToMosFmt(format);
+}
+
+MOS_STATUS Mos_WaitForCmdCompletion(
+    MOS_STREAM_HANDLE   streamState,
+    GPU_CONTEXT_HANDLE  gpuCtx)
+{
+    return MosInterface::WaitForCmdCompletion(streamState, gpuCtx);
+}
+
+uint32_t Mos_GetResourceArrayIndex(
+    PMOS_RESOURCE       resource)
+{
+    return MosInterface::GetResourceArrayIndex(resource);
+}
+
+MOS_STATUS Mos_SetupAttributeVeBuffer(
+    MOS_STREAM_HANDLE       streamState,
+    COMMAND_BUFFER_HANDLE   cmdBuffer)
+{
+    return MosInterface::SetupAttributeVeBuffer(streamState, cmdBuffer);
+}
+
+MOS_CMD_BUF_ATTRI_VE *Mos_GetAttributeVeBuffer(
+    COMMAND_BUFFER_HANDLE   cmdBuffer)
+{
+    return MosInterface::GetAttributeVeBuffer(cmdBuffer);
+}
+
+MOS_STATUS Mos_SetupCurrentCmdListAndPool(
+    PMOS_INTERFACE          osInterface,
+    MOS_STREAM_HANDLE       streamState)
+{
+    return MosInterface::SetupCurrentCmdListAndPoolFromOsInterface(osInterface, streamState);
+}
+
+MOS_HW_RESOURCE_DEF Mos_GmmToMosResourceUsageType(
+    GMM_RESOURCE_USAGE_TYPE gmmResUsage)
+{
+    return MosInterface::GmmToMosResourceUsageType(gmmResUsage);
+}
+
+ADAPTER_INFO *Mos_GetAdapterInfo(
+    MOS_STREAM_HANDLE       streamState)
+{
+    return MosInterface::GetAdapterInfo(streamState);
+}
+
+bool Mos_IsCompressibelSurfaceSupported(
+    MEDIA_FEATURE_TABLE     *skuTable)
+{
+    return MosInterface::IsCompressibelSurfaceSupported(skuTable);
+}
+
+MOS_STATUS Mos_DestroyVirtualEngineState(
+    MOS_STREAM_HANDLE       streamState)
+{
+    return MosInterface::DestroyVirtualEngineState(streamState);
+}
+
+uint64_t Mos_GetResourceHandle(
+    MOS_STREAM_HANDLE       streamState,
+    PMOS_RESOURCE           osResource)
+{
+    return MosInterface::GetResourceHandle(streamState, osResource);
+}
+
+MOS_STATUS Mos_VerifyMosSurface(
+    PMOS_SURFACE            mosSurface,
+    bool&                   bIsValid)
+{
+    return MosInterface::VerifyMosSurface(mosSurface, bIsValid);
+}
+
+void Mos_GetRtLogResourceInfo(
+    PMOS_INTERFACE          osInterface,
+    PMOS_RESOURCE           &osResource,
+    uint32_t                &size)
+{
+    return MosInterface::GetRtLogResourceInfo(osInterface, osResource, size);
+}
+
+void Mos_ResetMosResource(
+    PMOS_RESOURCE           resource)
+{
+    return MosInterface::MosResetResource(resource);
+}
+
+bool Mos_InsertCacheSetting(CACHE_COMPONENTS id, std::map<uint64_t, MOS_CACHE_ELEMENT> *cacheTablesPtr)
+{
+    return RegisterCacheSettings(id, cacheTablesPtr);
+}
+
+bool Mos_GetCacheSetting(MOS_COMPONENT id, uint32_t feature, bool bOut, ENGINE_TYPE engineType, MOS_CACHE_ELEMENT &element, bool isHeapSurf)
+{
+    return LoadCacheSettings(id, feature, bOut, engineType, element, isHeapSurf);
+}
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+uint8_t Mos_GetVeEngineCount(
+    MOS_STREAM_HANDLE       streamState)
+{
+    return MosInterface::GetVeEngineCount(streamState);
+}
+
+uint8_t Mos_GetEngineLogicId(
+    MOS_STREAM_HANDLE       streamState,
+    uint32_t                instanceIdx)
+{
+    return MosInterface::GetEngineLogicId(streamState, instanceIdx);
+}
+
+MOS_STATUS MOS_SetGpuVirtualAddress(
+    PMOS_RESOURCE          pResource,
+    uint64_t               address)
+{
+    return MosInterface::SetGpuVirtualAddress(pResource, address);
+}
+
+#endif
 
 void *MosStreamState::pvSoloContext = nullptr; 
 

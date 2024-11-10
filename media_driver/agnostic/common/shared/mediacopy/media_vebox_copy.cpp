@@ -36,29 +36,13 @@
 #include "mos_resource_defs.h"
 #include "mos_utilities.h"
 #include "renderhal.h"
+#include "hal_oca_interface.h"
 
 #define SURFACE_DW_UY_OFFSET(pSurface) \
     ((pSurface) != nullptr ? ((pSurface)->UPlaneOffset.iSurfaceOffset - (pSurface)->dwOffset) / (pSurface)->dwPitch + (pSurface)->UPlaneOffset.iYOffset : 0)
 
 #define SURFACE_DW_VY_OFFSET(pSurface) \
     ((pSurface) != nullptr ? ((pSurface)->VPlaneOffset.iSurfaceOffset - (pSurface)->dwOffset) / (pSurface)->dwPitch + (pSurface)->VPlaneOffset.iYOffset : 0)
-
-VeboxCopyState::VeboxCopyState(PMOS_INTERFACE osInterface) :
-    m_osInterface(osInterface),
-    m_mhwInterfaces(nullptr),
-    m_miInterface(nullptr),
-    m_veboxInterface(nullptr),
-    m_cpInterface(nullptr)
-{
-    MOS_ZeroMemory(&params, sizeof(params));
-    params.Flags.m_vebox = 1;
-    m_mhwInterfaces = MhwInterfaces::CreateFactory(params, osInterface);
-    if (m_mhwInterfaces != nullptr)
-    {
-        m_veboxInterface = m_mhwInterfaces->m_veboxInterface;
-        m_miInterface = m_mhwInterfaces->m_miInterface;
-    }
-}
 
 VeboxCopyState::VeboxCopyState(PMOS_INTERFACE osInterface, MhwInterfaces* mhwInterfaces) :
     m_osInterface(osInterface),
@@ -70,26 +54,14 @@ VeboxCopyState::VeboxCopyState(PMOS_INTERFACE osInterface, MhwInterfaces* mhwInt
     m_veboxInterface = mhwInterfaces->m_veboxInterface;
     m_miInterface = mhwInterfaces->m_miInterface;
     m_cpInterface = mhwInterfaces->m_cpInterface;
-
-    if (m_veboxInterface)
-    {
-        m_veboxItf = std::static_pointer_cast<mhw::vebox::Itf>(m_veboxInterface->GetNewVeboxInterface());
-    }
 }
 
 VeboxCopyState::~VeboxCopyState()
 {
     if (m_veboxInterface)
     {
-        if (m_veboxItf)
-        {
-            m_veboxItf->DestroyHeap();
-        }
-        else
-        {
             m_veboxInterface->DestroyHeap();
             m_veboxInterface = nullptr;
-        }
     }
 }
 
@@ -101,57 +73,9 @@ MOS_STATUS VeboxCopyState::Initialize()
 
     if (m_veboxInterface)
     {
-        GpuNodeLimit.bCpEnabled = (m_osInterface->osCpInterface->IsCpEnabled())? true : false;
-
-        if (m_veboxItf)
+        if (m_veboxInterface->m_veboxHeap == nullptr)
         {
-            VEBOX_COPY_CHK_STATUS_RETURN(m_veboxItf->FindVeboxGpuNodeToUse(&GpuNodeLimit));
-
-            VeboxGpuNode = (MOS_GPU_NODE)(GpuNodeLimit.dwGpuNodeToUse);
-            VeboxGpuContext = (VeboxGpuNode == MOS_GPU_NODE_VE) ? MOS_GPU_CONTEXT_VEBOX : MOS_GPU_CONTEXT_VEBOX2;
-
-            // Create VEBOX/VEBOX2 Context
-            VEBOX_COPY_CHK_STATUS_RETURN(m_veboxItf->CreateGpuContext(
-                m_osInterface,
-                VeboxGpuContext,
-                VeboxGpuNode));
-
-            // Register Vebox GPU context with the Batch Buffer completion event
-            VEBOX_COPY_CHK_STATUS_RETURN(m_osInterface->pfnRegisterBBCompleteNotifyEvent(
-                m_osInterface,
-                MOS_GPU_CONTEXT_VEBOX));
-
-            const MHW_VEBOX_HEAP* veboxHeap = nullptr;
-            m_veboxItf->GetVeboxHeapInfo(&veboxHeap);
-
-            if (veboxHeap == nullptr)
-            {
-                m_veboxItf->CreateHeap();
-            }
-        }
-        else
-        {
-            // Check GPU Node decide logic together in this function
-            VEBOX_COPY_CHK_STATUS_RETURN(m_veboxInterface->FindVeboxGpuNodeToUse(&GpuNodeLimit));
-
-            VeboxGpuNode = (MOS_GPU_NODE)(GpuNodeLimit.dwGpuNodeToUse);
-            VeboxGpuContext = (VeboxGpuNode == MOS_GPU_NODE_VE) ? MOS_GPU_CONTEXT_VEBOX : MOS_GPU_CONTEXT_VEBOX2;
-
-            // Create VEBOX/VEBOX2 Context
-            VEBOX_COPY_CHK_STATUS_RETURN(m_veboxInterface->CreateGpuContext(
-                m_osInterface,
-                VeboxGpuContext,
-                VeboxGpuNode));
-
-            // Register Vebox GPU context with the Batch Buffer completion event
-            VEBOX_COPY_CHK_STATUS_RETURN(m_osInterface->pfnRegisterBBCompleteNotifyEvent(
-                m_osInterface,
-                MOS_GPU_CONTEXT_VEBOX));
-
-            if (m_veboxInterface->m_veboxHeap == nullptr)
-            {
-                m_veboxInterface->CreateHeap();
-            }
+            VEBOX_COPY_CHK_STATUS_RETURN(m_veboxInterface->CreateHeap());
         }
     }
     return MOS_STATUS_SUCCESS;
@@ -182,40 +106,32 @@ MOS_STATUS VeboxCopyState::CopyMainSurface(PMOS_RESOURCE src, PMOS_RESOURCE dst)
     // Get input resource info
     MOS_ZeroMemory(&inputSurface, sizeof(MOS_SURFACE));
     inputSurface.OsResource = *src;
-    GetResourceInfo(&inputSurface);
+    VEBOX_COPY_CHK_STATUS_RETURN(GetResourceInfo(&inputSurface));
 
     // Get output resource info
     MOS_ZeroMemory(&outputSurface, sizeof(MOS_SURFACE));
     outputSurface.OsResource = *dst;
-    GetResourceInfo(&outputSurface);
+    VEBOX_COPY_CHK_STATUS_RETURN(GetResourceInfo(&outputSurface));
 
-    if (!IsFormatSupported(&inputSurface))
-    {
-        VEBOX_COPY_ASSERTMESSAGE("UnSupported Format.");
-        return MOS_STATUS_UNIMPLEMENTED;
-    }
+    // For RGB10/BGR10/Y210/Y410/A8, use other format instead. No need to check format again.
+    AdjustSurfaceFormat(inputSurface);
 
     veboxInterface = m_veboxInterface;
 
-    MOS_GPUCTX_CREATOPTIONS      createOption;
-
+    MOS_GPUCTX_CREATOPTIONS_ENHANCED      createOption = {};
     // no gpucontext will be created if the gpu context has been created before.
     VEBOX_COPY_CHK_STATUS_RETURN(m_osInterface->pfnCreateGpuContext(
         m_osInterface,
         MOS_GPU_CONTEXT_VEBOX,
         MOS_GPU_NODE_VE,
         &createOption));
-    VEBOX_COPY_CHK_STATUS_RETURN(m_osInterface->pfnSetGpuContext(m_osInterface, MOS_GPU_CONTEXT_VEBOX));
 
-    // Sync on Vebox Input Resource, Ensure the input is ready to be read
-    // Currently, MOS RegisterResourcere cannot sync the 3d resource.
-    // Temporaly, call sync resource to do the sync explicitly.
-    // Sync need be done after switching context.
-    m_osInterface->pfnSyncOnResource(
+    VEBOX_COPY_CHK_STATUS_RETURN(m_osInterface->pfnSetGpuContext(m_osInterface, MOS_GPU_CONTEXT_VEBOX));
+ 
+    // Register Vebox GPU context with the Batch Buffer completion event
+    VEBOX_COPY_CHK_STATUS_RETURN(m_osInterface->pfnRegisterBBCompleteNotifyEvent(
         m_osInterface,
-        src,
-        MOS_GPU_CONTEXT_VEBOX,
-        false);
+        MOS_GPU_CONTEXT_VEBOX));
 
     // Reset allocation list and house keeping
     m_osInterface->pfnResetOsStates(m_osInterface);
@@ -232,12 +148,21 @@ MOS_STATUS VeboxCopyState::CopyMainSurface(PMOS_RESOURCE src, PMOS_RESOURCE dst)
 
     // preprocess in cp first
     m_osInterface->osCpInterface->PrepareResources((void **)&surfaceArray, sizeof(surfaceArray) / sizeof(PMOS_RESOURCE), nullptr, 0);
-
+    m_osInterface->pfnSetPerfTag(m_osInterface,VEBOX_COPY);
     // initialize the command buffer struct
     MOS_ZeroMemory(&cmdBuffer, sizeof(MOS_COMMAND_BUFFER));
 
     VEBOX_COPY_CHK_STATUS_RETURN(m_osInterface->pfnGetCommandBuffer(m_osInterface, &cmdBuffer, 0));
     VEBOX_COPY_CHK_STATUS_RETURN(InitCommandBuffer(&cmdBuffer));
+
+    HalOcaInterface::On1stLevelBBStart(cmdBuffer, *m_osInterface->pOsContext, m_osInterface->CurrentGpuContextHandle, *m_miInterface, 
+        *m_miInterface->GetMmioRegisters());
+
+    MediaPerfProfiler* perfProfiler = MediaPerfProfiler::Instance();
+    VEBOX_COPY_CHK_NULL_RETURN(perfProfiler);
+    VEBOX_COPY_CHK_STATUS_RETURN(perfProfiler->AddPerfCollectStartCmd((void*)this, m_osInterface, m_miInterface, &cmdBuffer));
+    // Set Vebox Aux MMIO
+    VEBOX_COPY_CHK_STATUS_RETURN(m_veboxInterface->setVeboxPrologCmd(m_miInterface, &cmdBuffer));
 
     // Prepare Vebox_Surface_State, surface input/and output are the same but the compressed status.
     VEBOX_COPY_CHK_STATUS_RETURN(SetupVeboxSurfaceState(&mhwVeboxSurfaceStateCmdParams, &inputSurface, &outputSurface));
@@ -249,10 +174,13 @@ MOS_STATUS VeboxCopyState::CopyMainSurface(PMOS_RESOURCE src, PMOS_RESOURCE dst)
         &cmdBuffer,
         &mhwVeboxSurfaceStateCmdParams));
 
+    HalOcaInterface::OnDispatch(cmdBuffer, *m_osInterface, *m_miInterface, *m_miInterface->GetMmioRegisters());
+
     //---------------------------------
     // Send CMD: Vebox_Tiling_Convert
     //---------------------------------
     VEBOX_COPY_CHK_STATUS_RETURN(m_veboxInterface->AddVeboxTilingConvert(&cmdBuffer, &mhwVeboxSurfaceStateCmdParams.SurfInput, &mhwVeboxSurfaceStateCmdParams.SurfOutput));
+    VEBOX_COPY_CHK_STATUS_RETURN(perfProfiler->AddPerfCollectEndCmd((void*)this, m_osInterface, m_miInterface, &cmdBuffer));
 
     MOS_ZeroMemory(&flushDwParams, sizeof(flushDwParams));
 
@@ -275,6 +203,8 @@ MOS_STATUS VeboxCopyState::CopyMainSurface(PMOS_RESOURCE src, PMOS_RESOURCE dst)
         &cmdBuffer,
         nullptr));
 
+    HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
+
     // Return unused command buffer space to OS
     m_osInterface->pfnReturnCommandBuffer(
         m_osInterface,
@@ -292,7 +222,7 @@ MOS_STATUS VeboxCopyState::CopyMainSurface(PMOS_RESOURCE src, PMOS_RESOURCE dst)
     return eStatus;
 }
 
-bool VeboxCopyState::IsFormatSupported(PMOS_RESOURCE surface)
+bool VeboxCopyState::IsSurfaceSupported(PMOS_RESOURCE surface)
 {
     bool supported = false;
     MOS_SURFACE inputSurface;
@@ -307,7 +237,7 @@ bool VeboxCopyState::IsFormatSupported(PMOS_RESOURCE surface)
     inputSurface.OsResource = *surface;
     GetResourceInfo(&inputSurface);
 
-    supported = IsFormatSupported(&inputSurface);
+    supported = IsVeCopySupportedFormat(inputSurface.Format);
 
     if (inputSurface.TileType == MOS_TILE_LINEAR &&
         (inputSurface.dwPitch % 64))
@@ -589,68 +519,54 @@ MOS_STATUS VeboxCopyState::InitCommandBuffer(PMOS_COMMAND_BUFFER cmdBuffer)
     return eStatus;
 }
 
-bool VeboxCopyState::IsFormatSupported(PMOS_SURFACE surface)
+bool VeboxCopyState::IsVeCopySupportedFormat(MOS_FORMAT format)
 {
-    bool    bRet = false;
+    if (format == Format_R10G10B10A2 ||
+        format == Format_B10G10R10A2 ||
+        format == Format_A8R8G8B8 ||
+        format == Format_A8B8G8R8 ||
+        format == Format_X8R8G8B8 ||
+        format == Format_X8B8G8R8 ||
+        IS_RGB64_FLOAT_FORMAT(format) ||
 
-    if (surface->Format == Format_R10G10B10A2 ||
-        surface->Format == Format_B10G10R10A2 ||
-        surface->Format == Format_Y410 ||
-        surface->Format == Format_Y210)
+        format == Format_AYUV ||
+        format == Format_Y410 ||
+        format == Format_Y416 ||
+        format == Format_Y210 ||
+        format == Format_Y216 ||
+        format == Format_YUY2 ||
+        format == Format_NV12 ||
+        format == Format_P010 ||
+        format == Format_P016 ||
+
+        format == Format_A8 ||
+        format == Format_Y8 ||
+        format == Format_L8 ||
+        format == Format_P8 ||
+        format == Format_Y16U)
     {
-        // Re-map RGB10/RGB10/Y410/Y210 as AYUV
-        surface->Format = Format_AYUV;
+        return true;
     }
-
-    if (surface->Format == Format_A8 ||
-        surface->Format == Format_Y8 ||
-        surface->Format == Format_L8 ||
-        surface->Format == Format_P8 ||
-        surface->Format == Format_STMM)
+    else
     {
-        surface->Format = Format_P8;
+        VEBOX_COPY_NORMALMESSAGE("Unsupported format '0x%08x' for VEBOX copy.", format);
+        return false;
     }
+}
 
-    if (surface->Format == Format_IMC3 ||
-        surface->Format == Format_444P ||
-        surface->Format == Format_422H ||
-        surface->Format == Format_422V ||
-        surface->Format == Format_411P ||
-        surface->Format == Format_411R ||
-        surface->Format == Format_444P ||
-        surface->Format == Format_RGBP ||
-        surface->Format == Format_BGRP ||
-        surface->Format == Format_400P ||
-        surface->Format == Format_420O ||
-        surface->Format == Format_Buffer)
+void VeboxCopyState::AdjustSurfaceFormat(MOS_SURFACE &surface)
+{
+    if (surface.Format == Format_R10G10B10A2 ||
+        surface.Format == Format_B10G10R10A2 ||
+        surface.Format == Format_Y410        ||
+        surface.Format == Format_Y210)
     {
-        surface->Format   = Format_P8;
-        surface->dwHeight = surface->dwSize / surface->dwPitch;
+        // RGB10 not supported without IECP. Re-map RGB10/RGB10 as AYUV
+        // Y410/Y210 has HW issue. Remap to AYUV.
+        surface.Format = Format_AYUV;
     }
-
-    if (IS_RGB64_FLOAT_FORMAT(surface->Format))
+    else if (surface.Format == Format_A8)
     {
-        surface->Format = Format_Y416;
+        surface.Format = Format_P8;
     }
-
-    // Check if Sample Format is supported for decompression
-    if (surface->Format != Format_NV12        &&
-        surface->Format != Format_AYUV        &&
-        surface->Format != Format_Y416        &&
-        surface->Format != Format_P010        &&
-        surface->Format != Format_P016        &&
-        !IS_PA_FORMAT(surface->Format)        &&
-        surface->Format != Format_A8R8G8B8    &&
-        surface->Format != Format_A8B8G8R8    &&
-        surface->Format != Format_X8R8G8B8    &&
-        surface->Format != Format_X8B8G8R8    &&
-        surface->Format != Format_P8)
-    {
-        VEBOX_COPY_NORMALMESSAGE("Unsupported Source Format '0x%08x' for VEBOX Decompression.", surface->Format);
-        return bRet;
-    }
-
-    bRet = true;
-
-    return bRet;
 }

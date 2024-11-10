@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2022, Intel Corporation
+* Copyright (c) 2017-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -68,6 +68,7 @@
 #define CODECHAL_ENCODE_AVC_MIN_STREAM_BUFFER_ALIGNMENT     4096
 #define CODECHAL_DEBUG_ENCODE_AVC_NAL_START_CODE_SEI        0x00000106
 #define CODECHAL_DEBUG_ENCODE_AVC_NAL_START_CODE_PPS        0x00000128
+#define CODECHAL_ENCODE_AVC_MI_COPY_MEM_MEM_CMD_ALIGNMENT   4
 
 typedef struct _CODECHAL_ENCODE_AVC_ROUNDING_PARAMS
 {
@@ -725,6 +726,18 @@ typedef struct _CODEC_AVC_ENCODE_PIC_PARAMS
     *   RefFrameList[] should include all the reference pictures in DPB, which means either the picture is referred by current picture or future pictures, it should have a valid entry in it.
     */
     CODEC_PICTURE   RefFrameList[CODEC_AVC_MAX_NUM_REF_FRAME];
+
+
+    /*! \brief Defines each entry in the list that specifies the frame resource for reference pictures.
+     *
+     *  the index of RefFrameListSurface[] corresponds to a FrameIdx, and the stored content is the surface resource associated with that FrameIdx.
+     *  Valid FrameIdx values range from [0..14, 0x7F]. 
+     *  RefFrameList[] must include all reference pictures in the Decoded Picture Buffer (DPB), ensuring that any picture referenced by the current or future pictures has a valid entry.
+     *  
+     *  Note: This structure is currently applicable only for Vulkan encoding.
+     */
+    MOS_SURFACE     RefFrameListSurface[CODEC_AVC_MAX_NUM_REF_FRAME]; 
+
     /*! \brief Denotes "used for reference" frames as defined in the AVC specification.
     *
     *   The flag is accessed by:
@@ -1049,6 +1062,8 @@ typedef struct _CODEC_AVC_ENCODE_PIC_PARAMS
     */
     uint8_t         QpModulationStrength;
 
+    uint8_t         AdaptiveTUEnabled;
+
     /*! \brief StatusReportEnable
     *
     *  Request features to be enabled at status report.
@@ -1066,6 +1081,17 @@ typedef struct _CODEC_AVC_ENCODE_PIC_PARAMS
         uint16_t value;
     } StatusReportEnable;
 
+    /*! \brief quality information report enable flags.
+    */
+    union
+    {
+        struct
+        {
+            uint8_t enable_frame : 1;
+            uint8_t reserved : 7;
+        } fields;
+        uint8_t value;
+    } QualityInfoSupportFlags;
 } CODEC_AVC_ENCODE_PIC_PARAMS, *PCODEC_AVC_ENCODE_PIC_PARAMS;
 
 /*! \brief Slice-level parameters of a compressed picture for AVC encoding.

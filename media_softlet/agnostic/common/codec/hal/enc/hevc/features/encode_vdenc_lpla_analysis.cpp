@@ -32,7 +32,7 @@ namespace encode
     VdencLplaAnalysis::VdencLplaAnalysis(
         MediaFeatureManager *featureManager,
         EncodeAllocator     *allocator,
-        CodechalHwInterface *hwInterface,
+        CodechalHwInterfaceNext *hwInterface,
         void                *constSettings) :
         MediaFeature(constSettings, hwInterface ? hwInterface->GetOsInterface() : nullptr),
         m_hwInterface(hwInterface),
@@ -141,7 +141,7 @@ namespace encode
             }
             else
             {
-                CODECHAL_ENCODE_ASSERTMESSAGE("Invalid GopPicSize in LPLA!");
+                ENCODE_ASSERTMESSAGE("Invalid GopPicSize in LPLA!");
                 return MOS_STATUS_INVALID_PARAMETER;
             }
         }
@@ -232,7 +232,7 @@ namespace encode
         uint8_t *data = (uint8_t *)m_osInterface->pfnLockResource(m_osInterface, m_forceIntraStreamInBuf, &lockFlags);
         ENCODE_CHK_NULL_RETURN(data);
 
-        MHW_VDBOX_VDENC_STREAMIN_STATE_PARAMS streaminDataParams;
+        mhw::vdbox::vdenc::VDENC_STREAMIN_STATE_PAR streaminDataParams;
         uint32_t streamInWidth  = (MOS_ALIGN_CEIL(m_basicFeature->m_frameWidth, 64) / 32);
         uint32_t streamInHeight = (MOS_ALIGN_CEIL(m_basicFeature->m_frameHeight, 64) / 32);
 
@@ -270,7 +270,7 @@ namespace encode
 
     MOS_STATUS VdencLplaAnalysis::SetStreaminDataPerRegion(
         uint32_t streamInWidth, uint32_t top, uint32_t bottom, uint32_t left, uint32_t right,
-        PMHW_VDBOX_VDENC_STREAMIN_STATE_PARAMS streaminParams, void *streaminData)
+        mhw::vdbox::vdenc::VDENC_STREAMIN_STATE_PAR *streaminParams, void *streaminData)
     {
         ENCODE_FUNC_CALL();
 
@@ -320,7 +320,7 @@ namespace encode
     }
 
     MOS_STATUS VdencLplaAnalysis::SetStreaminDataPerLcu(
-        PMHW_VDBOX_VDENC_STREAMIN_STATE_PARAMS streaminParams,
+        mhw::vdbox::vdenc::VDENC_STREAMIN_STATE_PAR *streaminParams,
         void * streaminData)
     {
         ENCODE_FUNC_CALL();
@@ -366,6 +366,7 @@ namespace encode
         allocParamsForBufferLinear.Type     = MOS_GFXRES_BUFFER;
         allocParamsForBufferLinear.TileType = MOS_TILE_LINEAR;
         allocParamsForBufferLinear.Format   = Format_Buffer;
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
 
         // Buffer to store VDEnc frame statistics for lookahead BRC
         m_brcLooaheadStatsBufferSize        = m_numLaDataEntry * sizeof(VdencHevcLaStats);
@@ -453,7 +454,16 @@ namespace encode
         m_hevcSliceParams = static_cast<PCODEC_HEVC_ENCODE_SLICE_PARAMS>(encodeParams->pSliceParams);
         ENCODE_CHK_STATUS_RETURN(SetupForceIntraStreamIn());
 
-        m_numValidLaRecords++;
+        if (!m_lastPicInStream)
+        {
+            m_numValidLaRecords++;
+        }
+
+        if (m_lastPicInStream && m_bLastPicFlagFirstIn)
+        {
+            m_currLaDataIdx -= 1;
+            m_bLastPicFlagFirstIn = false;
+        }
 
         return eStatus;
     }
@@ -470,20 +480,6 @@ namespace encode
             return eStatus;
         }
 
-#if (_SW_BRC)
-        CodechalVdencHevcLaData *data = (CodechalVdencHevcLaData *)m_allocator->LockResourceForRead(m_vdencLaDataBuffer);
-        ENCODE_CHK_NULL_RETURN(data);
-
-        LookaheadReport *lookaheadStatus     = &encodeStatusMfx->lookaheadStatus;
-        lookaheadStatus->targetFrameSize     = data[m_offset].targetFrameSize;
-        lookaheadStatus->targetBufferFulness = data[m_offset].targetBufferFulness;
-        lookaheadStatus->encodeHints         = data[m_offset].encodeHints;
-        lookaheadStatus->pyramidDeltaQP      = data[m_offset].pyramidDeltaQP;
-        lookaheadStatus->miniGopSize         = data[m_offset].miniGopSize;
-
-        m_allocator->UnLock(m_vdencLaDataBuffer);
-#endif
-
         if (m_lookaheadReport && (encodeStatusMfx->lookaheadStatus.targetFrameSize > 0))
         {
             statusReportData->pLookaheadStatus = &encodeStatusMfx->lookaheadStatus;
@@ -492,32 +488,6 @@ namespace encode
             encodeStatusMfx->lookaheadStatus.targetFrameSize = (uint32_t)((targetFrameSize + (32 * 8)) / (64 * 8));  // Convert bits to bytes. 64 is normalized average frame size used in lookahead analysis kernel
             uint64_t targetBufferFulness = (uint64_t)encodeStatusMfx->lookaheadStatus.targetBufferFulness * m_averageFrameSize;
             encodeStatusMfx->lookaheadStatus.targetBufferFulness = (uint32_t)((targetBufferFulness + 32) / 64);  // 64 is normalized average frame size used in lookahead analysis kernel
-            // Apply rounding error to targetFrameSize to align target buffer fullness between lookahead pass and encode pass
-            if (m_prevTargetFrameSize > 0)
-            {
-                int64_t encTargetBufferFulness = (int64_t)m_targetBufferFulness;
-                encTargetBufferFulness += (int64_t)(m_prevTargetFrameSize << 3) - (int64_t)m_averageFrameSize;
-                m_targetBufferFulness = encTargetBufferFulness < 0 ? 0 : (encTargetBufferFulness > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)encTargetBufferFulness);
-                int32_t deltaBits     = (int32_t)((int64_t)(encodeStatusMfx->lookaheadStatus.targetBufferFulness) + m_bufferFulnessError - (int64_t)(m_targetBufferFulness));
-                deltaBits /= 64;
-                if (deltaBits > 8)
-                {
-                    if ((uint32_t)deltaBits > encodeStatusMfx->lookaheadStatus.targetFrameSize)
-                    {
-                        deltaBits = (int32_t)(encodeStatusMfx->lookaheadStatus.targetFrameSize);
-                    }
-                    encodeStatusMfx->lookaheadStatus.targetFrameSize += (uint32_t)(deltaBits >> 3);
-                }
-                else if (deltaBits < -8)
-                {
-                    if ((-deltaBits) > (int32_t)(encodeStatusMfx->lookaheadStatus.targetFrameSize))
-                    {
-                        deltaBits = -(int32_t)(encodeStatusMfx->lookaheadStatus.targetFrameSize);
-                    }
-                    encodeStatusMfx->lookaheadStatus.targetFrameSize -= (uint32_t)((-deltaBits) >> 3);
-                }
-            }
-            m_prevTargetFrameSize = encodeStatusMfx->lookaheadStatus.targetFrameSize;
 
             if (encodeStatusMfx->lookaheadStatus.miniGopSize == 2)
             {
@@ -558,37 +528,41 @@ namespace encode
         ENCODE_CHK_NULL_RETURN(debugInterface);
         int32_t currentPass = pipeline->GetCurrentPass();
 
-        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpBuffer(
+        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucDmem(
             m_vdencLaUpdateDmemBuffer[pipeline->m_currRecycledBufIdx][currentPass],
-            CodechalDbgAttr::attrVdencOutput,
-            "_LookaheadDmem",
             sizeof(VdencHevcHucLaDmem),
-            0,
-            CODECHAL_NUM_MEDIA_STATES));
+            currentPass,
+            hucRegionDumpLAUpdate));
 
-        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpBuffer(
-            m_vdencLaDataBuffer,
-            CodechalDbgAttr::attrVdencOutput,
-            "_LookaheadData",
-            m_brcLooaheadDataBufferSize,
-            0,
-            CODECHAL_NUM_MEDIA_STATES));
-
-        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpBuffer(
+        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
             m_vdencLaHistoryBuffer,
-            CodechalDbgAttr::attrVdencOutput,
-            "_LookaheadHistory",
+            0,
             m_LaHistoryBufSize,
             0,
-            CODECHAL_NUM_MEDIA_STATES));
+            "_History",
+            isInput,
+            currentPass,
+            hucRegionDumpLAUpdate));
 
-        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpBuffer(
+        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
             m_vdencLaStatsBuffer,
-            CodechalDbgAttr::attrVdencOutput,
-            "_LookaheadStats",
-            m_brcLooaheadStatsBufferSize,
             0,
-            CODECHAL_NUM_MEDIA_STATES));
+            m_brcLooaheadStatsBufferSize,
+            1,
+            "_Stats",
+            isInput,
+            currentPass,
+            hucRegionDumpLAUpdate));
+
+        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
+            m_vdencLaDataBuffer,
+            0,
+            m_brcLooaheadDataBufferSize,
+            2,
+            "_Data",
+            isInput,
+            currentPass,
+            hucRegionDumpLAUpdate));
 
         return eStatus;
     }
@@ -640,11 +614,10 @@ namespace encode
             storeIntraCuCount.dwValue          = m_statsBuffer[index][2];
             ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_DATA_IMM)(&cmdBuffer));
 
-            auto &flushDwParams = m_miItf->MHW_GETPAR_F(MI_STORE_DATA_IMM)();
+            auto &flushDwParams = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
             flushDwParams       = {};
-            MOS_ZeroMemory(&flushDwParams, sizeof(flushDwParams));
             // Make Flush DW call to make sure all previous work is done
-            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_DATA_IMM)(&cmdBuffer));
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(&cmdBuffer));
         }
         else
         {
@@ -759,75 +732,38 @@ namespace encode
         return eStatus;
     }
 
-    MOS_STATUS VdencLplaAnalysis::ReadLPLAData(PMOS_COMMAND_BUFFER cmdBuffer, PMOS_RESOURCE resource, uint32_t baseOffset, bool hucStsUpdNeeded)
+    MOS_STATUS VdencLplaAnalysis::ReadLPLAData(PMOS_COMMAND_BUFFER cmdBuffer, PMOS_RESOURCE resource, uint32_t baseOffset)
     {
         ENCODE_FUNC_CALL();
-        if (!hucStsUpdNeeded)
-        {
-            // Write lookahead status to encode status buffer
-            auto &miCpyMemMemParams       = m_miItf->MHW_GETPAR_F(MI_COPY_MEM_MEM)();
-            auto &flushDwParams           = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
 
-            miCpyMemMemParams             = {};
-            miCpyMemMemParams.presSrc     = m_vdencLaDataBuffer;
-            miCpyMemMemParams.dwSrcOffset = m_offset * sizeof(CodechalVdencHevcLaData) + CODECHAL_OFFSETOF(CodechalVdencHevcLaData, encodeHints);
-            miCpyMemMemParams.presDst     = resource;
-            miCpyMemMemParams.dwDstOffset = baseOffset + CODECHAL_OFFSETOF(LookaheadReport, encodeHints);
-            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuffer));
-            miCpyMemMemParams.dwSrcOffset = m_offset * sizeof(CodechalVdencHevcLaData) + CODECHAL_OFFSETOF(CodechalVdencHevcLaData, targetFrameSize);
-            miCpyMemMemParams.dwDstOffset = baseOffset + CODECHAL_OFFSETOF(LookaheadReport, targetFrameSize);
-            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuffer));
-            miCpyMemMemParams.dwSrcOffset = m_offset * sizeof(CodechalVdencHevcLaData) + CODECHAL_OFFSETOF(CodechalVdencHevcLaData, targetBufferFulness);
-            miCpyMemMemParams.dwDstOffset = baseOffset + CODECHAL_OFFSETOF(LookaheadReport, targetBufferFulness);
-            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuffer));
-            miCpyMemMemParams.dwSrcOffset = m_offset * sizeof(CodechalVdencHevcLaData) + CODECHAL_OFFSETOF(CodechalVdencHevcLaData, pyramidDeltaQP);
-            miCpyMemMemParams.dwDstOffset = baseOffset + CODECHAL_OFFSETOF(LookaheadReport, pyramidDeltaQP);
-            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuffer));
-            miCpyMemMemParams.dwSrcOffset = m_offset * sizeof(CodechalVdencHevcLaData) + CODECHAL_OFFSETOF(CodechalVdencHevcLaData, miniGopSize);
-            miCpyMemMemParams.dwDstOffset = baseOffset + CODECHAL_OFFSETOF(LookaheadReport, miniGopSize);
-            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuffer));
+        // Write lookahead status to encode status buffer
+        auto &miCpyMemMemParams = m_miItf->MHW_GETPAR_F(MI_COPY_MEM_MEM)();
+        auto &flushDwParams     = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
 
-            flushDwParams = {};
-            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer));
-        }
+        miCpyMemMemParams             = {};
+        miCpyMemMemParams.presSrc     = m_vdencLaDataBuffer;
+        miCpyMemMemParams.dwSrcOffset = m_offset * sizeof(CodechalVdencHevcLaData) + CODECHAL_OFFSETOF(CodechalVdencHevcLaData, encodeHints);
+        miCpyMemMemParams.presDst     = resource;
+        miCpyMemMemParams.dwDstOffset = baseOffset + CODECHAL_OFFSETOF(LookaheadReport, encodeHints);
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuffer));
+        miCpyMemMemParams.dwSrcOffset = m_offset * sizeof(CodechalVdencHevcLaData) + CODECHAL_OFFSETOF(CodechalVdencHevcLaData, targetFrameSize);
+        miCpyMemMemParams.dwDstOffset = baseOffset + CODECHAL_OFFSETOF(LookaheadReport, targetFrameSize);
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuffer));
+        miCpyMemMemParams.dwSrcOffset = m_offset * sizeof(CodechalVdencHevcLaData) + CODECHAL_OFFSETOF(CodechalVdencHevcLaData, targetBufferFulness);
+        miCpyMemMemParams.dwDstOffset = baseOffset + CODECHAL_OFFSETOF(LookaheadReport, targetBufferFulness);
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuffer));
+        miCpyMemMemParams.dwSrcOffset = m_offset * sizeof(CodechalVdencHevcLaData) + CODECHAL_OFFSETOF(CodechalVdencHevcLaData, pyramidDeltaQP);
+        miCpyMemMemParams.dwDstOffset = baseOffset + CODECHAL_OFFSETOF(LookaheadReport, pyramidDeltaQP);
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuffer));
+        //MI_COPY_MEM_MEM reads a DWord from memory and stores it to memory. This copy will include adaptive_rounding and minigop
+        miCpyMemMemParams.dwSrcOffset = m_offset * sizeof(CodechalVdencHevcLaData) + CODECHAL_OFFSETOF(CodechalVdencHevcLaData, adaptive_rounding);
+        miCpyMemMemParams.dwDstOffset = baseOffset + CODECHAL_OFFSETOF(LookaheadReport, adaptive_rounding);
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_COPY_MEM_MEM)(cmdBuffer));
+
+        flushDwParams = {};
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer));
 
         return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS VdencLplaAnalysis::SetLaInitDmemParameters(MHW_VDBOX_HUC_DMEM_STATE_PARAMS &dmemParams)
-    {
-        ENCODE_FUNC_CALL();
-
-        if (!m_enabled)
-        {
-            return MOS_STATUS_SUCCESS;
-        }
-        ENCODE_CHK_STATUS_RETURN(SetLaInitDmemBuffer());
-
-        dmemParams.presHucDataSource = m_vdencLaInitDmemBuffer;
-        dmemParams.dwDataLength      = MOS_ALIGN_CEIL(m_vdencLaInitDmemBufferSize, CODECHAL_CACHELINE_SIZE);
-        dmemParams.dwDmemOffset      = HUC_DMEM_OFFSET_RTOS_GEMS;
-
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS VdencLplaAnalysis::SetLaUpdateDmemParameters(MHW_VDBOX_HUC_DMEM_STATE_PARAMS &dmemParams, uint8_t currRecycledBufIdx, uint16_t curPass, uint16_t numPasses)
-    {
-        ENCODE_FUNC_CALL();
-        MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
-
-        if (!m_enabled)
-        {
-            return eStatus;
-        }
-
-        ENCODE_CHK_STATUS_RETURN(SetLaUpdateDmemBuffer(currRecycledBufIdx, m_currLaDataIdx, m_numValidLaRecords, curPass, numPasses));
-
-        dmemParams.presHucDataSource = m_vdencLaUpdateDmemBuffer[currRecycledBufIdx][curPass];
-        dmemParams.dwDataLength = MOS_ALIGN_CEIL(m_vdencLaUpdateDmemBufferSize, CODECHAL_CACHELINE_SIZE);
-        dmemParams.dwDmemOffset = HUC_DMEM_OFFSET_RTOS_GEMS;
-
-        return eStatus;
     }
 
     MOS_STATUS VdencLplaAnalysis::SetLaUpdateDmemParameters(HUC_DMEM_STATE_PAR_ALIAS &params, uint8_t currRecycledBufIdx, uint16_t curPass, uint16_t numPasses)
@@ -854,7 +790,10 @@ namespace encode
         ENCODE_FUNC_CALL();
         MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
-        m_currLaDataIdx  = (m_currLaDataIdx + 1) % m_numLaDataEntry;
+        if (!m_lastPicInStream)
+        {
+            m_currLaDataIdx = (m_currLaDataIdx + 1) % m_numLaDataEntry;
+        }
 
         return eStatus;
     }
@@ -867,7 +806,7 @@ namespace encode
         // Setup LAInit DMEM
         auto hucVdencLaInitDmem = (VdencHevcHucLaDmem *)m_allocator->LockResourceForWrite(m_vdencLaInitDmemBuffer);
         ENCODE_CHK_NULL_RETURN(hucVdencLaInitDmem);
-        MOS_ZeroMemory(hucVdencLaInitDmem, sizeof(hucVdencLaInitDmem));
+        MOS_ZeroMemory(hucVdencLaInitDmem, sizeof(VdencHevcHucLaDmem));
 
         uint32_t initVbvFullness = MOS_MIN(m_hevcSeqParams->InitVBVBufferFullnessInBit, m_hevcSeqParams->VBVBufferSizeInBit);
         uint8_t downscaleRatioIndicator = 2;  // 4x downscaling
@@ -924,7 +863,7 @@ namespace encode
         // Setup LAUpdate DMEM
         auto hucVdencLaUpdateDmem = (VdencHevcHucLaDmem *)m_allocator->LockResourceForWrite(m_vdencLaUpdateDmemBuffer[currRecycledBufIdx][curPass]);
         ENCODE_CHK_NULL_RETURN(hucVdencLaUpdateDmem);
-        MOS_ZeroMemory(hucVdencLaUpdateDmem, sizeof(hucVdencLaUpdateDmem));
+        MOS_ZeroMemory(hucVdencLaUpdateDmem, sizeof(VdencHevcHucLaDmem));
 
         hucVdencLaUpdateDmem->lookAheadFunc = 1;
         hucVdencLaUpdateDmem->validStatsRecords = numValidLaRecords;
@@ -933,20 +872,6 @@ namespace encode
         hucVdencLaUpdateDmem->currentPass = (uint8_t)curPass;
 
         m_allocator->UnLock(m_vdencLaUpdateDmemBuffer[currRecycledBufIdx][curPass]);
-
-        return eStatus;
-    }
-
-    MOS_STATUS VdencLplaAnalysis::SetVdencPipeModeSelectParams(MHW_VDBOX_PIPE_MODE_SELECT_PARAMS_G12 &pipeModeSelectParams)
-    {
-        ENCODE_FUNC_CALL();
-        MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
-        
-        if (!m_enabled)
-        {
-            return eStatus;
-        }
-        pipeModeSelectParams.bLookaheadPass = true;
 
         return eStatus;
     }
@@ -988,7 +913,8 @@ namespace encode
     {
         ENCODE_FUNC_CALL();
 
-        if (blastPass && m_numValidLaRecords >= m_lookaheadDepth)
+        if ((blastPass && m_numValidLaRecords >= m_lookaheadDepth) ||
+            (m_lastPicInStream && m_numValidLaRecords))
         {
             m_numValidLaRecords--;
             m_lookaheadReport = true;

@@ -50,8 +50,6 @@ if (ENABLE_NONFREE_KERNELS)
         ${SOURCES}
         ../../../agnostic/gen9_bxt/hw/vdbox/mhw_vdbox_mfx_hwcmd_g9_bxt.cpp
         ../../../agnostic/gen9_skl/hw/vdbox/mhw_vdbox_mfx_hwcmd_g9_skl.cpp
-        ../../../agnostic/gen10/hw/vdbox/mhw_vdbox_mfx_hwcmd_g10_X.cpp
-        ../../../agnostic/gen10/hw/vdbox/mhw_vdbox_hcp_hwcmd_g10_X.cpp
     )
 else ()
     set(SOURCES
@@ -63,11 +61,12 @@ endif ()
 add_executable(devult ${SOURCES})
 target_link_libraries(devult libgtest ${CMAKE_DL_LIBS})
 target_include_directories(devult BEFORE PRIVATE
-    ${MOS_PREPEND_INCLUDE_DIRS_}
+    ${SOFTLET_MOS_PREPEND_INCLUDE_DIRS_}
     ${MOS_PUBLIC_INCLUDE_DIRS_}     ${SOFTLET_MOS_PUBLIC_INCLUDE_DIRS_}
     ${COMMON_PRIVATE_INCLUDE_DIRS_} ${SOFTLET_COMMON_PRIVATE_INCLUDE_DIRS_}
     ${VP_PRIVATE_INCLUDE_DIRS_}     ${SOFTLET_VP_PRIVATE_INCLUDE_DIRS_}
     ${COMMON_CP_DIRECTORIES_}
+    ${SOFTLET_DDI_PUBLIC_INCLUDE_DIRS_} ${SOFTLET_MHW_PRIVATE_INCLUDE_DIRS_}
 )
 if (DEFINED BYPASS_MEDIA_ULT AND "${BYPASS_MEDIA_ULT}" STREQUAL "yes")
     # must explictly pass along BYPASS_MEDIA_ULT as yes then could bypass the running of media ult
@@ -79,7 +78,7 @@ else ()
         add_custom_command(
             TARGET RunULT
             POST_BUILD
-            COMMAND LD_PRELOAD=../libdrm_mock/libdrm_mock.so ./devult ../../../${LIB_NAME}.so
+            COMMAND LD_PRELOAD=${MEDIA_MISC_LIB}:../libdrm_mock/libdrm_mock.so ./devult ../../../${LIB_NAME}.so
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
             COMMENT "Running devult...")
         endif ()

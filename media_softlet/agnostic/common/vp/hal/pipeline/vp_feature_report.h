@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021, Intel Corporation
+* Copyright (c) 2021-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -69,6 +69,16 @@ public:
         bool                          diScdMode           = false;                        //!< Scene change detection
         VPHAL_HDR_MODE                hdrMode             = VPHAL_HDR_MODE_NONE;          //!< HDR mode
         bool                          packetReused        = false;                        //!< true if packet reused.
+        uint8_t                       rtCacheSetting      = 0;                            //!< Render Target cache usage
+#if (_DEBUG || _RELEASE_INTERNAL)
+        uint8_t                       rtOldCacheSetting   = 0;                            //!< Render Target old cache usage
+        bool                          isL03DLut           = false;
+        bool                          isOclFC             = false;
+        uint32_t                      diffLogOclFC        = 0;
+#endif
+        bool                          VeboxScalability    = false;                        //!< Vebox Scalability flag
+        bool                          VPApogeios          = false;                        //!< VP Apogeios flag
+        bool                          sfcLinearOutputByTileConvert = false;               //!< enableSFCLinearOutputByTileConvert
     };
 
     virtual ~VpFeatureReport(){};
@@ -93,7 +103,8 @@ public:
     //! \details  set VphalFeatureReport value
     //!
     virtual void SetConfigValues(
-        PVP_CONFIG configValues);
+        PVP_CONFIG configValues,
+        bool       traceEvent = true);
 
     VP_FEATURES &GetFeatures()
     {

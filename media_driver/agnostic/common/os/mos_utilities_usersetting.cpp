@@ -25,6 +25,7 @@
 //!
 
 #include "mos_os.h"
+#include "mos_util_user_interface.h"
 #include "media_user_settings_mgr.h"
 
 #define __MAX_MULTI_STRING_COUNT         128
@@ -45,7 +46,7 @@ void MosUtilities::MosFreeUserFeatureValueString(PMOS_USER_FEATURE_VALUE_STRING 
             if (pUserString->pStringData)
             {
                 MOS_FreeMemAndSetNull(pUserString->pStringData);
-                m_mosMemAllocFakeCounter--;
+                MosAtomicDecrement(m_mosMemAllocFakeCounter);
             }
             pUserString->uSize = 0;
         }
@@ -181,8 +182,7 @@ MOS_STATUS MosUtilities::MosWriteOneUserFeatureGroupToXML(MOS_USER_FEATURE_VALUE
         sOutBuf,
         sizeof(sOutBuf),
         sizeof(sOutBuf),
-        "  </Group>\n",
-        UserFeatureFilter.pcGroup);
+        "  </Group>\n");
     eStatus = MosAppendFileFromPtr(
         s_xmlFilePath,
         sOutBuf,
@@ -235,6 +235,10 @@ MOS_STATUS MosUtilities::MosGenerateUserFeatureKeyXML(MOS_CONTEXT_HANDLE mosCtx)
     {
         UserFeatureFilter.pcGroup = FilterGroups[uiIndex];
         eStatus = MosWriteOneUserFeatureGroupToXML(UserFeatureFilter);
+        if (eStatus!= MOS_STATUS_SUCCESS)
+        {
+            MOS_OS_ASSERTMESSAGE("Failed to Write One User FeatureGroup To XML");
+        }
     }
 
     // User Feature Key Header End
@@ -465,7 +469,7 @@ MOS_STATUS MosUtilities::MosAssignUserFeatureValueData(
                 MOS_OS_ASSERTMESSAGE("Failed to allocate memory.");
                 return MOS_STATUS_NULL_POINTER;
             }
-            m_mosMemAllocFakeCounter++;
+            MosAtomicIncrement(m_mosMemAllocFakeCounter);
             eStatus = MosSecureStrcpy(
                 pDstData->StringData.pStringData,
                 pDstData->StringData.uSize,
@@ -485,8 +489,13 @@ MOS_STATUS MosUtilities::MosAssignUserFeatureValueData(
             pDstData->MultiStringData.uCount          = 0;
             return MOS_STATUS_NULL_POINTER;
         }
+        MosAtomicIncrement(m_mosMemAllocFakeCounter);
         if ((pData != nullptr) && (strlen(pData) != 0))
         {
+            if (!pDstData->MultiStringData.pMultStringData)
+            {
+                MosAtomicIncrement(m_mosMemAllocFakeCounter);
+            }
             MOS_SafeFreeMemory(pDstData->MultiStringData.pMultStringData);
             pDstData->MultiStringData.pMultStringData = (char *)MOS_AllocAndZeroMemory(strlen(pData) + 1);
             if (pDstData->MultiStringData.pMultStringData == nullptr)
@@ -581,6 +590,7 @@ MOS_STATUS MosUtilities::MosDestroyUserFeatureData(PMOS_USER_FEATURE_VALUE_DATA 
             MosFreeUserFeatureValueString(&pData->MultiStringData.pStrings[ui]);
         }
         MOS_SafeFreeMemory(pData->MultiStringData.pStrings);
+        MosAtomicDecrement(m_mosMemAllocFakeCounter);
         pData->MultiStringData.pStrings = nullptr;
         pData->MultiStringData.pMultStringData = nullptr;
         pData->MultiStringData.uSize = 0;
@@ -932,7 +942,7 @@ MOS_STATUS MosUtilities::MosUserFeatureReadValueString(
     {
         if (!pFeatureValue->Value.StringData.pStringData)
         {
-            m_mosMemAllocFakeCounter++;
+            MosAtomicIncrement(m_mosMemAllocFakeCounter);
         }
 
         if (pFeatureValue->Value.StringData.uSize < strlen(pcTmpStr) + 1)
@@ -1002,9 +1012,12 @@ MOS_STATUS MosUtilities::MosUserFeatureReadValueMultiString(
 
     if (strlen(pcTmpStr) > 0)
     {
+        if (!pFeatureValue->Value.MultiStringData.pMultStringData)
+        {
+            MosAtomicIncrement(m_mosMemAllocFakeCounter);
+        }
         MOS_SafeFreeMemory(pFeatureValue->Value.MultiStringData.pMultStringData);
         pFeatureValue->Value.MultiStringData.pMultStringData = (char *)MOS_AllocAndZeroMemory(strlen(pcTmpStr) + 1);
-        m_mosMemAllocFakeCounter++;
         if (pFeatureValue->Value.MultiStringData.pMultStringData == nullptr)
         {
             MOS_OS_ASSERTMESSAGE("Failed to allocate memory.");

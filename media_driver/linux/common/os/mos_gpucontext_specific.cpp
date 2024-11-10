@@ -24,6 +24,7 @@
 //! \brief   Container class for the Linux specific gpu context
 //!
 
+#include <unistd.h>
 #include "mos_context_specific.h"
 #include "mos_gpucontext_specific.h"
 #include "mos_graphicsresource_specific.h"
@@ -31,7 +32,7 @@
 #include "mos_util_devult_specific.h"
 #include "mos_cmdbufmgr.h"
 #include "mos_os_virtualengine.h"
-#include <unistd.h>
+#include "mos_os_cp_interface_specific.h"
 
 #define MI_BATCHBUFFER_END 0x05000000
 static pthread_mutex_t command_dump_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -161,9 +162,14 @@ MOS_STATUS GpuContextSpecific::Init(OsContext *osContext,
         MOS_TraceEventExt(EVENT_GPU_CONTEXT_CREATE, EVENT_TYPE_START,
                           &GpuNode, sizeof(GpuNode), nullptr, 0);
 
-        m_i915Context[0] = mos_gem_context_create_shared(osInterface->pOsContext->bufmgr,
+        m_i915Context[0] = mos_context_create_shared(osInterface->pOsContext->bufmgr,
                                              osInterface->pOsContext->intel_context,
-                                             I915_CONTEXT_CREATE_FLAGS_SINGLE_TIMELINE);
+                                             I915_CONTEXT_CREATE_FLAGS_SINGLE_TIMELINE,
+                                             false,
+                                             (void *)engine_map,
+                                             1,
+                                             nengine,
+                                             0);
         if (m_i915Context[0] == nullptr)
         {
             MOS_OS_ASSERTMESSAGE("Failed to create context.\n");
@@ -186,7 +192,7 @@ MOS_STATUS GpuContextSpecific::Init(OsContext *osContext,
             __u16 engine_class = I915_ENGINE_CLASS_RENDER;
             __u64 caps = 0;
 
-            if (mos_query_engines(osInterface->pOsContext->bufmgr, engine_class, caps, &nengine, engine_map))
+            if (mos_query_engines(osInterface->pOsContext->bufmgr, engine_class, caps, &nengine, (void *)engine_map))
             {
                 MOS_OS_ASSERTMESSAGE("Failed to query engines.\n");
                 MOS_SafeFreeMemory(engine_map);
@@ -214,10 +220,10 @@ MOS_STATUS GpuContextSpecific::Init(OsContext *osContext,
                     return MOS_STATUS_UNKNOWN;
                 }
 
-                if (mos_hweight8(sseu.subslice_mask) > createOption->packed.SubSliceCount)
+                if (mos_hweight8(m_i915Context[0], sseu.subslice_mask) > createOption->packed.SubSliceCount)
                 {
-                    sseu.subslice_mask = mos_switch_off_n_bits(sseu.subslice_mask,
-                            mos_hweight8(sseu.subslice_mask)-createOption->packed.SubSliceCount);
+                    sseu.subslice_mask = mos_switch_off_n_bits(m_i915Context[0], sseu.subslice_mask,
+                            mos_hweight8(m_i915Context[0], sseu.subslice_mask)-createOption->packed.SubSliceCount);
                 }
 
                 if (mos_set_context_param_sseu(m_i915Context[0], sseu))
@@ -233,7 +239,7 @@ MOS_STATUS GpuContextSpecific::Init(OsContext *osContext,
             __u16 engine_class = 4; //To change later when linux define the name
             __u64 caps = 0;
 
-            if (mos_query_engines(osInterface->pOsContext->bufmgr, engine_class, caps, &nengine, engine_map))
+            if (mos_query_engines(osInterface->pOsContext->bufmgr, engine_class, caps, &nengine, (void *)engine_map))
             {
                 MOS_OS_ASSERTMESSAGE("Failed to query engines.\n");
                 MOS_SafeFreeMemory(engine_map);
@@ -258,7 +264,7 @@ MOS_STATUS GpuContextSpecific::Init(OsContext *osContext,
 
             SetEngineQueryFlags(createOption, caps);
 
-            if (mos_query_engines(osInterface->pOsContext->bufmgr, engine_class, caps, &nengine, engine_map))
+            if (mos_query_engines(osInterface->pOsContext->bufmgr, engine_class, caps, &nengine, (void *)engine_map))
             {
                 MOS_OS_ASSERTMESSAGE("Failed to query engines.\n");
                 MOS_SafeFreeMemory(engine_map);
@@ -279,9 +285,14 @@ MOS_STATUS GpuContextSpecific::Init(OsContext *osContext,
             {
                 int i;
                 //master queue
-                m_i915Context[1] = mos_gem_context_create_shared(osInterface->pOsContext->bufmgr,
+                m_i915Context[1] = mos_context_create_shared(osInterface->pOsContext->bufmgr,
                                                                     osInterface->pOsContext->intel_context,
-                                                                    I915_CONTEXT_CREATE_FLAGS_SINGLE_TIMELINE);
+                                                                    I915_CONTEXT_CREATE_FLAGS_SINGLE_TIMELINE,
+                                                                    false,
+                                                                    (void *)engine_map,
+                                                                    1,
+                                                                    1,
+                                                                    0);
                 if (m_i915Context[1] == nullptr)
                 {
                     MOS_OS_ASSERTMESSAGE("Failed to create master context.\n");
@@ -300,9 +311,14 @@ MOS_STATUS GpuContextSpecific::Init(OsContext *osContext,
                 //slave queue
                 for (i=1; i<nengine; i++)
                 {
-                    m_i915Context[i+1] = mos_gem_context_create_shared(osInterface->pOsContext->bufmgr,
+                    m_i915Context[i+1] = mos_context_create_shared(osInterface->pOsContext->bufmgr,
                                                                         osInterface->pOsContext->intel_context,
-                                                                        I915_CONTEXT_CREATE_FLAGS_SINGLE_TIMELINE);
+                                                                        I915_CONTEXT_CREATE_FLAGS_SINGLE_TIMELINE,
+                                                                        false,
+                                                                        (void *)engine_map,
+                                                                        1,
+                                                                        1,
+                                                                        0);
                     if (m_i915Context[i+1] == nullptr)
                     {
                         MOS_OS_ASSERTMESSAGE("Failed to create slave context.\n");
@@ -316,8 +332,8 @@ MOS_STATUS GpuContextSpecific::Init(OsContext *osContext,
                         int err = errno;
                         if (err == ENODEV)
                         {
-                            mos_gem_context_destroy(m_i915Context[1]);
-                            mos_gem_context_destroy(m_i915Context[i+1]);
+                            mos_context_destroy(m_i915Context[1]);
+                            mos_context_destroy(m_i915Context[i+1]);
                             m_i915Context[i+1] = nullptr;
                             break;
                         }
@@ -331,22 +347,27 @@ MOS_STATUS GpuContextSpecific::Init(OsContext *osContext,
                 }
                 if (i == nengine)
                 {
-                    osInterface->bGucSubmission = false;
+                    osInterface->bParallelSubmission = false;
                 }
                 else
                 {
-                    osInterface->bGucSubmission = true;
+                    osInterface->bParallelSubmission = true;
                     //create context with different width
                     for(i = 1; i < nengine; i++)
                     {
                         unsigned int ctxWidth = i + 1;
-                        m_i915Context[i] = mos_gem_context_create_shared(osInterface->pOsContext->bufmgr,
+                        m_i915Context[i] = mos_context_create_shared(osInterface->pOsContext->bufmgr,
                                                                      osInterface->pOsContext->intel_context,
-                                                                     0); // I915_CONTEXT_CREATE_FLAGS_SINGLE_TIMELINE not allowed for parallel submission
+                                                                     0, // I915_CONTEXT_CREATE_FLAGS_SINGLE_TIMELINE not allowed for parallel submission
+                                                                     false,
+                                                                     (void *)engine_map,
+                                                                     ctxWidth,
+                                                                     1,
+                                                                     0);
                         if (mos_set_context_param_parallel(m_i915Context[i], engine_map, ctxWidth) != S_SUCCESS)
                         {
                             MOS_OS_ASSERTMESSAGE("Failed to set parallel extension since discontinuous logical engine.\n");
-                            mos_gem_context_destroy(m_i915Context[i]);
+                            mos_context_destroy(m_i915Context[i]);
                             m_i915Context[i] = nullptr;
                             break;
                         }
@@ -359,7 +380,7 @@ MOS_STATUS GpuContextSpecific::Init(OsContext *osContext,
             __u16 engine_class = I915_ENGINE_CLASS_COPY;
             __u64 caps = 0;
 
-            if (mos_query_engines(osInterface->pOsContext->bufmgr, engine_class, caps, &nengine, engine_map))
+            if (mos_query_engines(osInterface->pOsContext->bufmgr, engine_class, caps, &nengine, (void *)engine_map))
             {
                 MOS_OS_ASSERTMESSAGE("Failed to query engines.\n");
                 MOS_SafeFreeMemory(engine_map);
@@ -435,7 +456,7 @@ void GpuContextSpecific::Clear()
     {
         if (m_i915Context[i])
         {
-            mos_gem_context_destroy(m_i915Context[i]);
+            mos_context_destroy(m_i915Context[i]);
             m_i915Context[i] = nullptr;
         }
     }
@@ -988,7 +1009,7 @@ MOS_STATUS GpuContextSpecific::SubmitCommandBuffer(
             {
                 if (it->second->OsResource.bo == tempCmdBo &&
                     it->second->iSubmissionType & SUBMISSION_TYPE_MULTI_PIPE_SLAVE &&
-                    !mos_gem_bo_is_exec_object_async(alloc_bo))
+                    !mos_bo_is_exec_object_async(alloc_bo))
                 {
                     skipSyncBoList.push_back(alloc_bo);
                     break;
@@ -997,7 +1018,7 @@ MOS_STATUS GpuContextSpecific::SubmitCommandBuffer(
             }
         }
         else if (cmdBuffer->iSubmissionType & SUBMISSION_TYPE_MULTI_PIPE_SLAVE &&
-                !mos_gem_bo_is_exec_object_async(alloc_bo))
+                !mos_bo_is_exec_object_async(alloc_bo))
         {
             skipSyncBoList.push_back(alloc_bo);
         }
@@ -1010,7 +1031,7 @@ MOS_STATUS GpuContextSpecific::SubmitCommandBuffer(
                               &boOffset, sizeof(boOffset));
         }
 #endif
-        if(mos_gem_bo_is_softpin(alloc_bo))
+        if(mos_bo_is_softpin(alloc_bo))
         {
             if (alloc_bo != tempCmdBo)
             {
@@ -1020,7 +1041,7 @@ MOS_STATUS GpuContextSpecific::SubmitCommandBuffer(
         else
         {
             // This call will patch the command buffer with the offsets of the indirect state region of the command buffer
-            ret = mos_bo_emit_reloc2(
+            ret = mos_bo_emit_reloc(
                 tempCmdBo,                                                         // Command buffer
                 currentPatch->PatchOffset,                                         // Offset in the command buffer
                 alloc_bo,                                                          // Allocation object for which the patch will be made.
@@ -1076,6 +1097,8 @@ MOS_STATUS GpuContextSpecific::SubmitCommandBuffer(
             return MOS_STATUS_UNKNOWN;
         }
     }
+    // dump before cmd buffer unmap
+    MOS_TraceDumpExt("CmdBuffer", m_gpuContext, cmdBuffer->pCmdBase, cmdBuffer->iOffset);
 
     // Now, we can unmap the video command buffer, since we don't need CPU access anymore.
     MOS_OS_CHK_NULL_RETURN(cmdBuffer->OsResource.pGfxResource);
@@ -1121,10 +1144,6 @@ MOS_STATUS GpuContextSpecific::SubmitCommandBuffer(
             else if (gpuNode == MOS_GPU_NODE_VIDEO2)
             {
                 execFlag = I915_EXEC_BSD | I915_EXEC_BSD_RING2;
-            }
-            else if ((gpuNode == MOS_GPU_NODE_BLT))
-            {
-                execFlag = I915_EXEC_BLT;
             }
             else
             {
@@ -1222,11 +1241,12 @@ MOS_STATUS GpuContextSpecific::SubmitCommandBuffer(
     }
     else if (nullRendering == false)
     {
+        UnlockPendingOcaBuffers(cmdBuffer, osContext);
         if (osInterface->ctxBasedScheduling && m_i915Context[0] != nullptr)
         {
             if (cmdBuffer->iSubmissionType & SUBMISSION_TYPE_MULTI_PIPE_MASK)
             {
-                if (scalaEnabled && !osInterface->bGucSubmission)
+                if (scalaEnabled && !osInterface->bParallelSubmission)
                 {
                     uint32_t secondaryIndex = 0;
                     it = m_secondaryCmdBufs.begin();
@@ -1251,7 +1271,7 @@ MOS_STATUS GpuContextSpecific::SubmitCommandBuffer(
                         it++;
                     }
                 }
-                else if(scalaEnabled && osInterface->bGucSubmission)
+                else if(scalaEnabled && osInterface->bParallelSubmission)
                 {
                     ret = ParallelSubmitCommands(m_secondaryCmdBufs,
                                          osContext,
@@ -1270,7 +1290,7 @@ MOS_STATUS GpuContextSpecific::SubmitCommandBuffer(
             }
             else
             {
-                ret = mos_gem_bo_context_exec2(cmd_bo,
+                ret = mos_bo_context_exec2(cmd_bo,
                     m_commandBufferSize,
                     m_i915Context[0],
                     cliprects,
@@ -1282,7 +1302,7 @@ MOS_STATUS GpuContextSpecific::SubmitCommandBuffer(
         }
         else
         {
-            ret = mos_gem_bo_context_exec2(cmd_bo,
+            ret = mos_bo_context_exec2(cmd_bo,
                 m_commandBufferSize,
                 osContext->intel_context,
                 cliprects,
@@ -1342,11 +1362,11 @@ if (osInterface->bDumpCommandBuffer)
 #endif  //(_DEBUG || _RELEASE_INTERNAL)
 
     //clear command buffer relocations to fix memory leak issue
-    mos_gem_bo_clear_relocs(cmd_bo, 0);
+    mos_bo_clear_relocs(cmd_bo, 0);
     it = m_secondaryCmdBufs.begin();
     while(it != m_secondaryCmdBufs.end())
     {
-        mos_gem_bo_clear_relocs(it->second->OsResource.bo, 0);
+        mos_bo_clear_relocs(it->second->OsResource.bo, 0);
         MOS_FreeMemory(it->second);
         it++;
     }
@@ -1364,6 +1384,32 @@ if (osInterface->bDumpCommandBuffer)
 finish:
     MOS_TraceEventExt(EVENT_MOS_BATCH_SUBMIT, EVENT_TYPE_END, &eStatus, sizeof(eStatus), nullptr, 0);
     return eStatus;
+}
+
+void GpuContextSpecific::UnlockPendingOcaBuffers(PMOS_COMMAND_BUFFER cmdBuffer, PMOS_CONTEXT mosContext)
+{
+    MOS_OS_CHK_NULL_NO_STATUS_RETURN(cmdBuffer);
+    MOS_OS_CHK_NULL_NO_STATUS_RETURN(mosContext);
+    MosOcaInterface *pOcaInterface         = &MosOcaInterfaceSpecific::GetInstance();
+    if (nullptr == pOcaInterface || !((MosOcaInterfaceSpecific*)pOcaInterface)->IsOcaEnabled())
+    {
+        // Will come here for UMD_OCA not being enabled case.
+        return;
+    }
+
+    int count = 0;
+    struct MOS_OCA_EXEC_LIST_INFO *info = nullptr;
+    if ((cmdBuffer->iSubmissionType & SUBMISSION_TYPE_SINGLE_PIPE_MASK) && ((MosOcaInterfaceSpecific*)pOcaInterface)->IsOcaDumpExecListInfoEnabled())
+    {
+        info = mos_bo_get_softpin_targets_info(cmdBuffer->OsResource.bo, &count);
+    }
+
+    pOcaInterface->UnlockPendingOcaBuffers(mosContext, info, count);
+
+    if(info)
+    {
+        free(info);
+    }
 }
 
 int32_t GpuContextSpecific::SubmitPipeCommands(
@@ -1417,19 +1463,14 @@ int32_t GpuContextSpecific::SubmitPipeCommands(
         }
     }
 
-    //Keep FE and BE0 running on same engine for VT decode
-    if((cmdBuffer->iSubmissionType & SUBMISSION_TYPE_MULTI_PIPE_ALONE)
-        || (cmdBuffer->iSubmissionType & SUBMISSION_TYPE_MULTI_PIPE_MASTER))
+    if(cmdBuffer->iSubmissionType & SUBMISSION_TYPE_MULTI_PIPE_MASTER)
     {
-        if(cmdBuffer->iSubmissionType & SUBMISSION_TYPE_MULTI_PIPE_MASTER)
-        {
-            //Only master pipe needs fence out flag
-            fenceFlag = I915_EXEC_FENCE_OUT;
-        }
+        //Only master pipe needs fence out flag
+        fenceFlag = I915_EXEC_FENCE_OUT;
         queue = m_i915Context[1];
     }
 
-    ret = mos_gem_bo_context_exec2(cmdBo,
+    ret = mos_bo_context_exec2(cmdBo,
                                   cmdBo->size,
                                   queue,
                                   nullptr,
@@ -1484,7 +1525,7 @@ int32_t GpuContextSpecific::ParallelSubmitCommands(
             fenceFlag = I915_EXEC_FENCE_OUT;
             queue = m_i915Context[0];
 
-            ret = mos_gem_bo_context_exec2(it->second->OsResource.bo,
+            ret = mos_bo_context_exec2(it->second->OsResource.bo,
                                   it->second->OsResource.bo->size,
                                   queue,
                                   nullptr,
@@ -1510,7 +1551,7 @@ int32_t GpuContextSpecific::ParallelSubmitCommands(
                     fenceFlag = I915_EXEC_FENCE_IN;
                 }
 
-                ret = mos_gem_bo_context_exec3(cmdBos,
+                ret = mos_bo_context_exec3(cmdBos,
                                               numBos,
                                               queue,
                                               nullptr,

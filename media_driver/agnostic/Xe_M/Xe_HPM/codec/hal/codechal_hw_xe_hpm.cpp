@@ -32,7 +32,6 @@
 #include "codechal_hw_g12_X.h"
 #include "mhw_render_g12_X.h"
 #include "mhw_vdbox_hcp_hwcmd_xe_hpm.h"  // temporary include for calculating size of various hardware commands
-#include "mhw_vdbox_mfx_hwcmd_g11_X.h"
 #include "mhw_vdbox_vdenc_g12_X.h"
 #include "mhw_vdbox_hcp_g12_X.h"
 #include "media_interfaces_xehp_sdv.h"// temporary include for getting avp interface
@@ -137,18 +136,6 @@ CodechalHwInterfaceXe_Hpm::CodechalHwInterfaceXe_Hpm(
 {
     CODECHAL_HW_FUNCTION_ENTER;
     m_avpInterface = static_cast<MhwInterfacesXehp_Sdv*>(mhwInterfaces)->m_avpInterface;
-    PrepareCmdSize(codecFunction);
-}
-
-CodechalHwInterfaceXe_Hpm::CodechalHwInterfaceXe_Hpm(
-    PMOS_INTERFACE    osInterface,
-    CODECHAL_FUNCTION codecFunction,
-    MhwInterfacesNext *mhwInterfacesNext,
-    bool              disableScalability)
-    : CodechalHwInterfaceG12(osInterface, codecFunction, mhwInterfacesNext, disableScalability)
-{
-    CODECHAL_HW_FUNCTION_ENTER;
-    m_hwInterfaceNext = MOS_New(CodechalHwInterfaceNext, osInterface, codecFunction, mhwInterfacesNext);
     PrepareCmdSize(codecFunction);
 }
 
@@ -339,4 +326,20 @@ MOS_STATUS CodechalHwInterfaceXe_Hpm::GetAvpPrimitiveCommandSize(
     *patchListSize = avpPatchListSize + cpPatchListSize;
 
     return MOS_STATUS_SUCCESS;
+}
+
+MediaCopyBaseState* CodechalHwInterfaceXe_Hpm::CreateMediaCopy(PMOS_INTERFACE mosInterface)
+{
+    VP_FUNC_CALL();
+
+    MediaCopyBaseState* mediaCopy = nullptr;
+    PMOS_CONTEXT       mos_context = nullptr;
+
+    if (mosInterface && mosInterface->pfnGetMosContext)
+    {
+        mosInterface->pfnGetMosContext(mosInterface, &mos_context);
+    }
+    mediaCopy = static_cast<MediaCopyBaseState*>(McpyDevice::CreateFactory(mos_context));
+
+    return mediaCopy;
 }

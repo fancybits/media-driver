@@ -119,7 +119,8 @@ static struct LinuxCodecInfo glkCodecInfo =
 
 static bool InitSklMediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
     if ((devInfo == nullptr) || (skuTable == nullptr) || (drvInfo == nullptr))
     {
@@ -205,6 +206,8 @@ static bool InitSklMediaSku(struct GfxDeviceInfo *devInfo,
 
     MEDIA_WR_SKU(skuTable, FtrTileY, 1);
 
+    MEDIA_WR_SKU(skuTable, FtrUseSwSwizzling, 1);
+
     return true;
 }
 
@@ -233,12 +236,16 @@ static bool InitSklMediaWa(struct GfxDeviceInfo *devInfo,
 
     MEDIA_WR_WA(waTable, Wa16KInputHeightNV12Planar420, 1);
     MEDIA_WR_WA(waTable, WaDisableCodecMmc, 1);
+    MEDIA_WR_WA(waTable, WaDisableSetObjectCapture, 0);
+
+    MEDIA_WR_WA(waTable, WaDisableGmmLibOffsetInDeriveImage, 1);
     return true;
 }
 
 static bool InitBxtMediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
     if ((devInfo == nullptr) || (skuTable == nullptr) || (drvInfo == nullptr))
     {
@@ -298,6 +305,8 @@ static bool InitBxtMediaSku(struct GfxDeviceInfo *devInfo,
 
     MEDIA_WR_SKU(skuTable, FtrVpP010Output, 1);
 
+    MEDIA_WR_SKU(skuTable, FtrUseSwSwizzling, 1);
+
     return true;
 }
 
@@ -332,12 +341,14 @@ static bool InitBxtMediaWa(struct GfxDeviceInfo *devInfo,
 
     MEDIA_WR_WA(waTable, Wa16KInputHeightNV12Planar420, 1);
     MEDIA_WR_WA(waTable, WaDisableCodecMmc, 1);
+
     return true;
 }
 
 static bool InitKblMediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
     if ((devInfo == nullptr) || (skuTable == nullptr) || (drvInfo == nullptr))
     {
@@ -429,6 +440,8 @@ static bool InitKblMediaSku(struct GfxDeviceInfo *devInfo,
 
     MEDIA_WR_SKU(skuTable, FtrPerCtxtPreemptionGranularityControl, 1);
 
+    MEDIA_WR_SKU(skuTable, FtrUseSwSwizzling, 1);
+
     return true;
 }
 
@@ -463,12 +476,15 @@ static bool InitKblMediaWa(struct GfxDeviceInfo *devInfo,
 
     MEDIA_WR_WA(waTable, Wa16KInputHeightNV12Planar420, 1);
     MEDIA_WR_WA(waTable, WaDisableCodecMmc, 1);
+
+    MEDIA_WR_WA(waTable, WaDisableGmmLibOffsetInDeriveImage, 1);
     return true;
 }
 
 static bool InitGlkMediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
     if ((devInfo == nullptr) || (skuTable == nullptr) || (drvInfo == nullptr))
     {
@@ -569,6 +585,7 @@ static bool InitGlkMediaWa(struct GfxDeviceInfo *devInfo,
 
     MEDIA_WR_WA(waTable, Wa16KInputHeightNV12Planar420, 1);
     MEDIA_WR_WA(waTable, WaDisableCodecMmc, 1);
+
     return true;
 }
 

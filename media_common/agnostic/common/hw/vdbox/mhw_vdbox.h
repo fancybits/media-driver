@@ -265,6 +265,7 @@ struct MHW_VDBOX_PIPE_MODE_SELECT_PARAMS
     bool                        bStreamObjectUsed = false;
     // No need to set protection settings
     bool                        disableProtectionSetting = false;
+    bool                        bFrameStatisticsStreamOutEnable = false;
 
     MHW_VDBOX_HCP_PIPE_WORK_MODE      PipeWorkMode    = MHW_VDBOX_HCP_PIPE_WORK_MODE_LEGACY;
     MHW_VDBOX_HCP_MULTI_ENGINE_MODE   MultiEngineMode = MHW_VDBOX_HCP_MULTI_ENGINE_MODE_FE_LEGACY;
@@ -293,6 +294,8 @@ typedef struct _MHW_VDBOX_SURFACE_PARAMS
     MOS_MEMCOMP_STATE           mmcState;
     uint8_t                     mmcSkipMask;
     uint32_t                    dwCompressionFormat;
+    uint8_t                     refsMmcEnable;
+    uint8_t                     refsMmcType;
 } MHW_VDBOX_SURFACE_PARAMS, *PMHW_VDBOX_SURFACE_PARAMS;
 
 struct MHW_VDBOX_PIPE_BUF_ADDR_PARAMS
@@ -626,5 +629,11 @@ typedef struct _MHW_VDBOX_GPUNODE_LIMIT
     bool     bSfcInUse;
     uint32_t dwGpuNodeToUse;
 } MHW_VDBOX_GPUNODE_LIMIT, *PMHW_VDBOX_GPUNODE_LIMIT;
+
+typedef enum _MHW_VDBOX_AVC_DMV_OFFSET
+{
+    MHW_VDBOX_AVC_DMV_DEST_TOP    = 32,
+    MHW_VDBOX_AVC_DMV_DEST_BOTTOM = 33
+} MHW_VDBOX_AVC_DMV_OFFSET;
 
 #endif

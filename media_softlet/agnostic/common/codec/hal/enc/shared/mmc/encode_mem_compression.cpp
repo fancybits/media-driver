@@ -30,12 +30,12 @@
 #include "mos_defs.h"
 #include "encode_mem_compression.h"
 
-EncodeMemComp::EncodeMemComp(CodechalHwInterface *hwInterface) :
+EncodeMemComp::EncodeMemComp(CodechalHwInterfaceNext *hwInterface) :
     MediaMemComp(hwInterface->GetOsInterface()),
-    m_miItf(std::static_pointer_cast<mhw::mi::Itf>(hwInterface->GetMiInterface()->GetNewMiInterface()))
+    m_miItf(std::static_pointer_cast<mhw::mi::Itf>(hwInterface->GetMiInterfaceNext()))
 {
-    m_mmcFeatureId      = __MEDIA_USER_FEATURE_VALUE_CODEC_MMC_ENABLE_ID;
-    m_mmcInuseFeatureId = __MEDIA_USER_FEATURE_VALUE_CODEC_MMC_IN_USE_ID;
+    m_mmcEnabledKey     = __MEDIA_USER_FEATURE_VALUE_CODEC_MMC_ENABLE;
+    m_mmcInUseKey       = __MEDIA_USER_FEATURE_VALUE_CODEC_MMC_IN_USE;
 
     m_bComponentMmcEnabled = hwInterface->m_enableCodecMmc;
 
@@ -75,7 +75,7 @@ MOS_STATUS EncodeMemComp::UpdateUserFeatureKey(PMOS_SURFACE surface)
 }
 #endif
 
-void EncodeMemComp::InitEncodeMmc(CodechalHwInterface *hwInterface)
+void EncodeMemComp::InitEncodeMmc(CodechalHwInterfaceNext *hwInterface)
 {
     CODEC_HW_ASSERT(hwInterface);
     CODEC_HW_ASSERT(hwInterface->GetSkuTable());

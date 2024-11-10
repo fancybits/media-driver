@@ -250,7 +250,10 @@ MOS_STATUS MhwSfcInterfaceG12::AddSfcState(
         cmd.DW19.OutputFrameSurfaceBaseAddressMemoryCompressionEnable = pSfcStateParamsG12->bMMCEnable;
     }
     cmd.DW19.OutputFrameSurfaceBaseAddressIndexToMemoryObjectControlStateMocsTables = m_outputSurfCtrl.Gen12.Index;
-
+    if (pOutSurface->pOsResource)
+    {
+        pOutSurface->pOsResource->memObjCtrlState.DwordValue = m_outputSurfCtrl.Value;
+    }
     cmd.DW19.OutputFrameSurfaceBaseAddressMemoryCompressionMode = (pSfcStateParamsG12->MMCMode == MOS_MMC_RC) ? 1 : 0;
 
     switch (pSfcStateParamsG12->tileType)
@@ -466,7 +469,7 @@ MOS_STATUS MhwSfcInterfaceG12::AddSfcState(
         }
     }
 
-    MHW_CHK_STATUS_RETURN(Mos_AddCommand(pCmdBuffer, &cmd, cmd.byteSize));
+    MHW_CHK_STATUS_RETURN(pOsInterface->pfnAddCommand(pCmdBuffer, &cmd, cmd.byteSize));
 
     return MOS_STATUS_SUCCESS;
 }

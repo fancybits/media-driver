@@ -25,6 +25,7 @@
 
 #include "codechal_memdecomp.h"
 #include "codeckrnheader.h"
+#include "mos_os_cp_interface_specific.h"
 
 //!
 //! \class MediaObjectCopyCurbe
@@ -147,14 +148,31 @@ MediaMemDecompState::~MediaMemDecompState()
 {
     MHW_FUNCTION_ENTER;
 
-    Delete_MhwCpInterface(m_cpInterface); 
-    m_cpInterface = nullptr;
+    if (m_cpInterface)
+    {
+        if (m_osInterface)
+        {
+            m_osInterface->pfnDeleteMhwCpInterface(m_cpInterface);
+            m_cpInterface = nullptr;
+        }
+        else
+        {
+            MHW_ASSERTMESSAGE("Failed to destroy cpInterface.");
+        }
+    }
 
     if (m_cmdBufIdGlobal)
     {
-        m_osInterface->pfnUnlockResource(m_osInterface, &m_resCmdBufIdGlobal);
-        m_osInterface->pfnFreeResource(m_osInterface, &m_resCmdBufIdGlobal);
-        m_cmdBufIdGlobal = nullptr;
+        if (m_osInterface)
+        {
+            m_osInterface->pfnUnlockResource(m_osInterface, &m_resCmdBufIdGlobal);
+            m_osInterface->pfnFreeResource(m_osInterface, &m_resCmdBufIdGlobal);
+            m_cmdBufIdGlobal = nullptr;
+        }
+        else
+        {
+            MHW_ASSERTMESSAGE("Failed to destroy command buffer global Id.");
+        }
     }
 
     if (m_miInterface)
@@ -313,10 +331,10 @@ MOS_STATUS MediaMemDecompState::MemoryDecompress(
         {
             uint32_t *kernelBase = nullptr;
             uint32_t  kernelSize = 0;
-            m_osInterface->osCpInterface->GetTK(
+            MHW_CHK_STATUS_RETURN(m_osInterface->osCpInterface->GetTK(
                 &kernelBase,
                 &kernelSize,
-                nullptr);
+                nullptr));
             if (nullptr == kernelBase || 0 == kernelSize)
             {
                 MHW_ASSERT("Could not get TK kernels for MMC!");
@@ -435,7 +453,7 @@ MOS_STATUS MediaMemDecompState::MemoryDecompress(
     }
 
     uint32_t widthInBytes = GetSurfaceWidthInBytes(surfaceParams.psSurface);
-    surfaceParams.dwWidthToUse[MHW_Y_PLANE] = WIDTH_IN_DW(widthInBytes);
+    surfaceParams.dwWidthToUse[MHW_Y_PLANE] = MHW_WIDTH_IN_DW(widthInBytes);
 
     // UV Plane
     if (useUVPlane)
@@ -452,7 +470,7 @@ MOS_STATUS MediaMemDecompState::MemoryDecompress(
         surfaceParams.dwBaseAddrOffset[MHW_U_PLANE] =
             targetSurface.dwPitch *
             MOS_ALIGN_FLOOR(targetSurface.UPlaneOffset.iYOffset, MOS_YTILE_H_ALIGNMENT);
-        surfaceParams.dwWidthToUse[MHW_U_PLANE]  = WIDTH_IN_DW(widthInBytes);
+        surfaceParams.dwWidthToUse[MHW_U_PLANE]  = MHW_WIDTH_IN_DW(widthInBytes);
         surfaceParams.dwHeightToUse[MHW_U_PLANE] = surfaceParams.psSurface->dwHeight / 2;
         surfaceParams.dwYOffset[MHW_U_PLANE] =
             (targetSurface.UPlaneOffset.iYOffset % MOS_YTILE_H_ALIGNMENT);

@@ -1,5 +1,5 @@
 ﻿/*
-* Copyright (c) 2016-2022, Intel Corporation
+* Copyright (c) 2016-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -29,6 +29,7 @@
 #include "vphal_renderer.h"         // for VpHal_RenderAllocateBB
 #include "vphal_render_common.h"    // for VPHAL_RENDER_CACHE_CNTL
 #include "vphal_render_ief.h"
+#include "vp_hal_ddi_utils.h"
 #include "renderhal_platform_interface.h"
 
 // Compositing surface binding table index
@@ -1447,10 +1448,10 @@ MOS_STATUS CompositeState::IntermediateAllocation(PVPHAL_SURFACE &pIntermediate,
             // Get resource info (width, height, pitch, tiling, etc)
             MOS_ZeroMemory(&Info, sizeof(VPHAL_GET_SURFACE_INFO));
 
-            VpHal_GetSurfaceInfo(
+            VPHAL_RENDER_CHK_STATUS_RETURN(VpHal_GetSurfaceInfo(
                 pOsInterface,
                 &Info,
-                pIntermediate);
+                pIntermediate));
         }
     }
 
@@ -1494,6 +1495,7 @@ bool CompositeState::PreparePhases(
     bool                    bMultiplePhases;
     MOS_ALLOC_GFXRES_PARAMS AllocParams = {};
     VPHAL_GET_SURFACE_INFO  Info = {};
+    MOS_STATUS  eStatus = MOS_STATUS_SUCCESS;
 
     pTarget = pcRenderParams->pTarget[0];
 
@@ -1514,24 +1516,14 @@ bool CompositeState::PreparePhases(
         bMultiplePhases = false;
         bool                    disableAvsSampler = false;
 
-        if (m_pOsInterface == nullptr)
-        {
-            return false;
-        }
-        MEDIA_WA_TABLE          *waTable          = m_pOsInterface->pfnGetWaTable(m_pOsInterface);
-        if (waTable == nullptr)
-        {
-            return false;
-        }
-
         // Temporary surface has the same size as render target
         dwTempWidth  = pTarget->dwWidth;
         dwTempHeight = pTarget->dwHeight;
 
         // Check if multiple phases by building filter for first phase
         ResetCompParams(&Composite);
-        if (MEDIA_IS_WA(waTable, WaTargetTopYOffset) && iSources > 1 &&
-            0 < pTarget->rcDst.top)
+
+        if (IsDisableAVSSampler(iSources, 0 < pTarget->rcDst.top))
         {
             VPHAL_RENDER_ASSERTMESSAGE("Disable AVS sampler for TargetTopY!");
             Composite.nAVS    = 0;
@@ -1540,11 +1532,67 @@ bool CompositeState::PreparePhases(
 
         for (i = 0; i < iSources; i++)
         {
+
             if (disableAvsSampler && VPHAL_SCALING_AVS == ppSources[i]->ScalingMode)
             {
                 VPHAL_RENDER_ASSERTMESSAGE("Force to 3D sampler for layer %d.", i);
                 ppSources[i]->ScalingMode = VPHAL_SCALING_BILINEAR;
             }
+
+            // Decompression RGB10 RC input for multi input cases cases
+            if ((ppSources[i]->CompressionMode == MOS_MMC_RC) &&
+                (MEDIA_IS_SKU(m_pSkuTable, FtrLocalMemory)    &&
+                !MEDIA_IS_SKU(m_pSkuTable, FtrFlatPhysCCS)))
+            {
+                bool bAllocated = false;
+                //Use auxiliary surface to sync with decompression
+                eStatus = VpHal_ReAllocateSurface(
+                    m_pOsInterface,
+                    &m_AuxiliarySyncSurface,
+                    "AuxiliarySyncSurface",
+                    Format_Buffer,
+                    MOS_GFXRES_BUFFER,
+                    MOS_TILE_LINEAR,
+                    32,
+                    1,
+                    false,
+                    MOS_MMC_DISABLED,
+                    &bAllocated);
+
+                if (eStatus != MOS_STATUS_SUCCESS)
+                {
+                    VPHAL_RENDER_ASSERTMESSAGE("Additional AuxiliarySyncSurface  for sync create fail");
+                }
+
+                eStatus = m_pOsInterface->pfnSetDecompSyncRes(m_pOsInterface, &m_AuxiliarySyncSurface.OsResource);
+
+                if (eStatus != MOS_STATUS_SUCCESS)
+                {
+                    VPHAL_RENDER_ASSERTMESSAGE("Set Decomp sync resource fail");
+                }
+
+                eStatus = m_pOsInterface->pfnDecompResource(m_pOsInterface, &ppSources[i]->OsResource);
+
+                if (eStatus != MOS_STATUS_SUCCESS)
+                {
+                    VPHAL_RENDER_ASSERTMESSAGE("Additional decompression for RC failed.");
+                }
+
+                eStatus = m_pOsInterface->pfnSetDecompSyncRes(m_pOsInterface, nullptr);
+
+                if (eStatus != MOS_STATUS_SUCCESS)
+                {
+                    VPHAL_RENDER_ASSERTMESSAGE("Set Decomp sync resource fail");
+                }
+
+                eStatus = m_pOsInterface->pfnRegisterResource(m_pOsInterface, &m_AuxiliarySyncSurface.OsResource, true, true);
+
+                if (eStatus != MOS_STATUS_SUCCESS)
+                {
+                    VPHAL_RENDER_ASSERTMESSAGE("register resources for sync failed.");
+                }
+            }
+
             if (!AddCompLayer(&Composite, ppSources[i], disableAvsSampler))
             {
                 bMultiplePhases = true;
@@ -1563,7 +1611,7 @@ bool CompositeState::PreparePhases(
     if (bMultiplePhases)
     {
         pOsInterface  = m_pOsInterface;
-        pIntermediate = &m_Intermediate;
+        pIntermediate = m_Intermediate;
         PVPHAL_SURFACE &p = pIntermediate;
         // Allocate/Reallocate temporary output
         IntermediateAllocation(p,
@@ -1572,7 +1620,7 @@ bool CompositeState::PreparePhases(
             dwTempHeight,
             pTarget);
 
-        pIntermediate = &m_Intermediate1;
+        pIntermediate = m_Intermediate1;
         // Allocate/Reallocate temporary output
         IntermediateAllocation(p,
             pOsInterface,
@@ -1580,7 +1628,7 @@ bool CompositeState::PreparePhases(
             dwTempHeight,
             pTarget);
 
-        pIntermediate = &m_Intermediate2;
+        pIntermediate = m_Intermediate2;
 
         // Allocate/Reallocate temporary output
         if (dwTempWidth  > pIntermediate->dwWidth ||
@@ -1620,10 +1668,10 @@ bool CompositeState::PreparePhases(
                 // Get resource info (width, height, pitch, tiling, etc)
                 MOS_ZeroMemory(&Info, sizeof(VPHAL_GET_SURFACE_INFO));
 
-                VpHal_GetSurfaceInfo(
+                VPHAL_RENDER_CHK_STATUS(VpHal_GetSurfaceInfo(
                     pOsInterface,
                     &Info,
-                    pIntermediate);
+                    pIntermediate));
             }
         }
 
@@ -1638,6 +1686,7 @@ bool CompositeState::PreparePhases(
         pIntermediate->bIEF              = false;
     }
 
+finish:
     return bMultiplePhases;
 }
 
@@ -1674,8 +1723,23 @@ void CompositeState::ResetCompParams(
 //!
 MOS_STATUS CompositeState::GetIntermediateOutput(PVPHAL_SURFACE &output)
 {
-    output = &m_Intermediate;
+    output = m_Intermediate;
     return MOS_STATUS_SUCCESS;
+}
+
+PVPHAL_SURFACE CompositeState::GetIntermediateSurface()
+{
+    return &m_IntermediateSurface;
+}
+
+PVPHAL_SURFACE CompositeState::GetIntermediate1Surface()
+{
+    return &m_IntermediateSurface1;
+}
+
+PVPHAL_SURFACE CompositeState::GetIntermediate2Surface()
+{
+    return &m_IntermediateSurface2;
 }
 
 //!
@@ -1880,8 +1944,11 @@ bool CompositeState::AddCompTarget(
     PVPHAL_COMPOSITE_PARAMS     pComposite,
     PVPHAL_SURFACE              pTarget)
 {
-    bool    bResult;
-
+    bool    bResult = false;
+    if (nullptr == pTarget)
+    {
+        return bResult;
+    }
     // Set render target
     pComposite->Target[0] = *pTarget;
 
@@ -1942,22 +2009,19 @@ MOS_STATUS CompositeState::RenderMultiPhase(
     bool                 bPrimary, bRotation;
     VPHAL_PERFTAG        PerfTag;
 
-    VPHAL_RENDER_CHK_NULL_RETURN(m_pOsInterface);
-    MEDIA_WA_TABLE       *waTable = pOsInterface->pfnGetWaTable(pOsInterface);
-    VPHAL_RENDER_CHK_NULL_RETURN(waTable);
-
     for (index = 0, phase = 0; (!bLastPhase); phase++)
     {
         bool                   disableAvsSampler = false;
+        // AdjustParamsBasedOnFcLimit must be called before IsDisableAVSSampler in legacy path, or it will miss the AVS WA
+        bool                   adjustParamBasedOnFcLimit = AdjustParamsBasedOnFcLimit(pcRenderParams);
         VPHAL_COMPOSITE_PARAMS  CompositeParams;
         // Prepare compositing structure
         ResetCompParams(&CompositeParams);
 
-        if (MEDIA_IS_WA(waTable, WaTargetTopYOffset) && iSources > 1 &&
-            0 < pOutput-> rcDst.top)
+        if (IsDisableAVSSampler(iSources, 0 < pOutput->rcDst.top))
         {
             VPHAL_RENDER_ASSERTMESSAGE("Disable AVS sampler for TargetTopY!");
-            disableAvsSampler    = true;
+            disableAvsSampler = true;
         }
 
 //        VPHAL_DBG_STATE_DUMPPER_SET_CURRENT_PHASE(phase);
@@ -2007,7 +2071,7 @@ MOS_STATUS CompositeState::RenderMultiPhase(
                 // bExtraRotationPhase == true means that Intermediate2 was used as a
                 // temp output resource in the previous phase and now is to be
                 // used as an input
-                pSrc = &m_Intermediate2;
+                pSrc = m_Intermediate2;
                 pSrc->SurfType = SURF_IN_SUBSTREAM; // set the surface type to substream
                 bExtraRotationPhase = false;        // reset rotation phase
             }
@@ -2032,6 +2096,19 @@ MOS_STATUS CompositeState::RenderMultiPhase(
                 pSrc->ScalingMode = VPHAL_SCALING_BILINEAR;
             }
 
+            //Skip Blend PARTIAL for alpha input non alpha output
+            if (pSrc->pBlendingParams && pSrc->pBlendingParams->BlendType == BLEND_PARTIAL)
+            {
+                if (pOutput)
+                {
+                    if (IS_ALPHA_FORMAT(pSrc->Format) &&
+                        !IS_ALPHA_FORMAT(pOutput->Format))
+                    {
+                        VP_PUBLIC_NORMALMESSAGE("Force to use Blend Source instead of Blend Partial");
+                        pSrc->pBlendingParams->BlendType = BLEND_SOURCE;
+                    }
+                }
+            }
             if (!AddCompLayer(&CompositeParams, pSrc, disableAvsSampler))
             {
                 bLastPhase = false;
@@ -2158,31 +2235,34 @@ MOS_STATUS CompositeState::RenderMultiPhase(
                 // using pTarget as a temp resource
                 if (pSrc->pBlendingParams)
                 {
-                    if (m_Intermediate2.pBlendingParams == nullptr)
+                    if (m_Intermediate2 && m_Intermediate2->pBlendingParams == nullptr)
                     {
-                        m_Intermediate2.pBlendingParams = (PVPHAL_BLENDING_PARAMS)
+                        m_Intermediate2->pBlendingParams = (PVPHAL_BLENDING_PARAMS)
                             MOS_AllocAndZeroMemory(sizeof(VPHAL_BLENDING_PARAMS));
                     }
-                    if (m_Intermediate2.pBlendingParams)
+                    if (m_Intermediate2 && m_Intermediate2->pBlendingParams)
                     {
-                        m_Intermediate2.pBlendingParams->BlendType = pSrc->pBlendingParams->BlendType;
-                        m_Intermediate2.pBlendingParams->fAlpha = pSrc->pBlendingParams->fAlpha;
+                        m_Intermediate2->pBlendingParams->BlendType = pSrc->pBlendingParams->BlendType;
+                        m_Intermediate2->pBlendingParams->fAlpha    = pSrc->pBlendingParams->fAlpha;
                     }
                 }
                 else
                 {
                     // clear the blending params if it was set from the previous phase
-                    if (m_Intermediate2.pBlendingParams)
+                    if (m_Intermediate2 && m_Intermediate2->pBlendingParams)
                     {
-                        MOS_FreeMemory(m_Intermediate2.pBlendingParams);
-                        m_Intermediate2.pBlendingParams = nullptr;
+                        MOS_FreeMemory(m_Intermediate2->pBlendingParams);
+                        m_Intermediate2->pBlendingParams = nullptr;
                     }
                 }
 
                 // update the output rectangles with the input rectangles
-                m_Intermediate2.rcDst = m_Intermediate2.rcSrc = pSrc->rcDst;
+                if (m_Intermediate2)
+                {
+                    m_Intermediate2->rcDst = m_Intermediate2->rcSrc = pSrc->rcDst;
+                }
 
-                AddCompTarget(&CompositeParams, &m_Intermediate2);
+                AddCompTarget(&CompositeParams, m_Intermediate2);
                 // Force output as "render target" surface type
                 CompositeParams.Target[0].SurfType = SURF_OUT_RENDERTARGET;
 
@@ -2256,7 +2336,12 @@ MOS_STATUS CompositeState::Render(
     pOsInterface = m_pOsInterface;
     pRenderHal   = m_pRenderHal;
     pPerfData    = GetPerfData();
-
+    m_Intermediate  = GetIntermediateSurface();
+    VPHAL_RENDER_CHK_NULL(m_Intermediate);
+    m_Intermediate1 = GetIntermediate1Surface();
+    VPHAL_RENDER_CHK_NULL(m_Intermediate1);
+    m_Intermediate2 = GetIntermediate2Surface();
+    VPHAL_RENDER_CHK_NULL(m_Intermediate2);
     // Reset compositing sources
     iSources  = 0;
     iProcamp  = 0;
@@ -2333,7 +2418,7 @@ MOS_STATUS CompositeState::Render(
             pSrc));
 
         //Need to decompress input surface, only if input surface is interlaced and in the RC compression Mode
-        VPHAL_RENDER_CHK_STATUS(DecompressInterlacedSurfInRCMode(pSrc));
+        VPHAL_RENDER_CHK_STATUS(DecompressInterlacedSurf(pSrc));
 
         // Ensure the input is ready to be read
         pOsInterface->pfnSyncOnResource(
@@ -2438,22 +2523,22 @@ MOS_STATUS CompositeState::Render(
     }
     else
     {
-        pOutput = &m_Intermediate;
+        pOutput = m_Intermediate;
         pOutput->ColorSpace = ColorSpace;
-        m_Intermediate2.ColorSpace = ColorSpace;
+        m_Intermediate2->ColorSpace = ColorSpace;
 
         // Set AYUV or ARGB output depending on intermediate cspace
         if (KernelDll_IsCspace(ColorSpace, CSpace_RGB))
         {
             pOutput->Format = Format_A8R8G8B8;
-            m_Intermediate1.Format = Format_A8R8G8B8;
-            m_Intermediate2.Format = Format_A8R8G8B8;
+            m_Intermediate1->Format = Format_A8R8G8B8;
+            m_Intermediate2->Format = Format_A8R8G8B8;
         }
         else
         {
             pOutput->Format = Format_AYUV;
-            m_Intermediate1.Format = Format_AYUV;
-            m_Intermediate2.Format = Format_AYUV;
+            m_Intermediate1->Format = Format_AYUV;
+            m_Intermediate2->Format = Format_AYUV;
         }
     }
 
@@ -2782,6 +2867,44 @@ static MOS_STATUS GetBindingIndex(
 }
 
 //!
+//! \brief    Update SamplerStateParams associated with a surface state for composite
+//! \param    [in] pSamplerStateParams
+//!           Pointer to SamplerStateParams
+//! \param    [in] pEntry
+//!           Pointer to Surface state
+//! \param    [in] pRenderData
+//!           Pointer to RenderData
+//! \param    [in] uLayerNum
+//!           Layer total number
+//! \param    [in] SamplerFilterMode
+//!           SamplerFilterMode to be set
+//! \param    [out] pSamplerIndex
+//!           Pointer to Sampler Index
+//! \param    [out] pSurface
+//!           point to Surface
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS_SUCCESS if successful, otherwise MOS_STATUS_UNKNOWN
+//!
+MOS_STATUS CompositeState::SetSamplerFilterMode(
+    PMHW_SAMPLER_STATE_PARAM&       pSamplerStateParams,
+    PRENDERHAL_SURFACE_STATE_ENTRY  pEntry,
+    PVPHAL_RENDERING_DATA_COMPOSITE pRenderData,
+    uint32_t                        uLayerNum,
+    MHW_SAMPLER_FILTER_MODE         SamplerFilterMode,
+    int32_t*                        pSamplerIndex,
+    PVPHAL_SURFACE                  pSource)
+{
+    VPHAL_RENDER_CHK_NULL_RETURN(pSamplerStateParams);
+    MOS_UNUSED(pEntry);
+    MOS_UNUSED(pRenderData);
+    MOS_UNUSED(pSamplerIndex);
+    MOS_UNUSED(pSource);
+
+    pSamplerStateParams->Unorm.SamplerFilterMode = SamplerFilterMode;
+    return MOS_STATUS_SUCCESS;
+}
+
+//!
 //! \brief    Get Sampler Index associated with a surface state for composite
 //! \param    [in] pSurface
 //!           point to input Surface
@@ -2934,12 +3057,12 @@ void CompositeState::SetSurfaceParams(
 //! \return   MOS_STATUS
 //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
 //!
-MOS_STATUS CompositeState::DecompressInterlacedSurfInRCMode(PVPHAL_SURFACE pSource)
+MOS_STATUS CompositeState::DecompressInterlacedSurf(PVPHAL_SURFACE pSource)
 {
     VPHAL_RENDER_CHK_NULL_RETURN(pSource);
 
-    // Interlaced surface in the RC compression mode needs to decompress
-    if (pSource->CompressionMode == MOS_MMC_RC &&
+    // Interlaced surface in the compression mode needs to decompress
+    if (pSource->CompressionMode == MOS_MMC_RC                             &&
         (pSource->SampleType == SAMPLE_INTERLEAVED_EVEN_FIRST_TOP_FIELD    ||
          pSource->SampleType == SAMPLE_INTERLEAVED_EVEN_FIRST_BOTTOM_FIELD ||
          pSource->SampleType == SAMPLE_INTERLEAVED_ODD_FIRST_TOP_FIELD     ||
@@ -2966,7 +3089,7 @@ MOS_STATUS CompositeState::DecompressInterlacedSurfInRCMode(PVPHAL_SURFACE pSour
         VPHAL_RENDER_CHK_STATUS_RETURN(m_pOsInterface->pfnDecompResource(m_pOsInterface, &pSource->OsResource));
         VPHAL_RENDER_CHK_STATUS_RETURN(m_pOsInterface->pfnSetDecompSyncRes(m_pOsInterface, nullptr));
         VPHAL_RENDER_CHK_STATUS_RETURN(m_pOsInterface->pfnRegisterResource(m_pOsInterface, &m_AuxiliarySyncSurface.OsResource, true, true));
-        
+
         pSource->bIsCompressed     = false;
         pSource->CompressionMode   = MOS_MMC_DISABLED;
         pSource->CompressionFormat = 0;
@@ -3604,7 +3727,17 @@ int32_t CompositeState::SetLayer(
             {
                 fShiftX  = 0.0f;
                 fShiftY  = 0.0f;
-                pSamplerStateParams->Unorm.SamplerFilterMode = MHW_SAMPLER_FILTER_NEAREST;
+                eStatus  = SetSamplerFilterMode(pSamplerStateParams,
+                                                pSurfaceEntries[i],
+                                                pRenderingData,
+                                                pCompParams->uSourceCount,
+                                                MHW_SAMPLER_FILTER_NEAREST,
+                                                &iSamplerID,
+                                                pSource);
+                if (MOS_FAILED(eStatus))
+                {
+                    continue;
+                }
             }
             else
             {
@@ -3622,7 +3755,17 @@ int32_t CompositeState::SetLayer(
                     fShiftY = VPHAL_HW_LINEAR_SHIFT;
                 }
 
-                pSamplerStateParams->Unorm.SamplerFilterMode = MHW_SAMPLER_FILTER_BILINEAR;
+                eStatus     = SetSamplerFilterMode(pSamplerStateParams,
+                                                   pSurfaceEntries[i],
+                                                   pRenderingData,
+                                                   pCompParams->uSourceCount,
+                                                   MHW_SAMPLER_FILTER_BILINEAR,
+                                                   &iSamplerID,
+                                                   pSource);
+                if (MOS_FAILED(eStatus))
+                {
+                    continue;
+                }
             }
 
             if (MHW_SAMPLER_FILTER_BILINEAR == pSamplerStateParams->Unorm.SamplerFilterMode &&
@@ -4583,6 +4726,7 @@ bool CompositeState::SubmitStates(
         pStatic    = &pRenderingData->Static;
     }
 
+    VPHAL_RENDER_CHK_NULL(pStatic);
     // Get Pointer to Render Target Surface
     pTarget        = pRenderingData->pTarget[0];
 
@@ -4702,7 +4846,7 @@ bool CompositeState::SubmitStates(
                 }
             }
 
-            if (dst_cspace == CSpace_None) // if color space is invlaid return false
+            if (dst_cspace == CSpace_None) // if color space is invalid return false
             {
                 VPHAL_RENDER_ASSERTMESSAGE("Failed to assign dst color spcae for iScale case.");
                 goto finish;
@@ -4725,7 +4869,7 @@ bool CompositeState::SubmitStates(
             (m_CSpaceSrc     != src_cspace)  ||
             (m_CSpaceDst     != dst_cspace))
         {
-            VpHal_CSC_8(&m_csDst, &Src, src_cspace, dst_cspace);
+            VpUtils::GetCscMatrixForRender8Bit(&m_csDst, &Src, src_cspace, dst_cspace);
 
             // store the values for next iteration
             m_csSrc     = Src;
@@ -5755,39 +5899,20 @@ bool CompositeState::RenderBufferMediaWalker(
 
     if (pRenderingData->pTarget[1] == nullptr)
     {
-        if (pRenderingData->bCmFcEnable && pRenderingData->iLayers > 0)
-        {
-            pWalkerStatic->DW69.DestHorizontalBlockOrigin               =
-                (uint16_t)pRenderingData->pTarget[0]->rcDst.left;
-            pWalkerStatic->DW69.DestVerticalBlockOrigin                 =
-                (uint16_t)pRenderingData->pTarget[0]->rcDst.top;
-        }
-        else
-        {
-            pWalkerStatic->DW69.DestHorizontalBlockOrigin               =
-                 (uint16_t)pRenderingData->pTarget[0]->rcDst.left;
-            pWalkerStatic->DW69.DestVerticalBlockOrigin                 =
-                 (uint16_t)pRenderingData->pTarget[0]->rcDst.top;
-        }
+        pWalkerStatic->DW69.DestHorizontalBlockOrigin               =
+            (uint16_t)pRenderingData->pTarget[0]->rcDst.left;
+        pWalkerStatic->DW69.DestVerticalBlockOrigin                 =
+            (uint16_t)pRenderingData->pTarget[0]->rcDst.top;
         AlignedRect   = pRenderingData->pTarget[0]->rcDst;
     }
     else
     {
         // Horizontal and Vertical base on non-rotated in case of dual output
-        if (pRenderingData->bCmFcEnable && pRenderingData->iLayers > 0)
-        {
-            pWalkerStatic->DW69.DestHorizontalBlockOrigin               =
-                (uint16_t)pRenderingData->pTarget[1]->rcDst.left;
-            pWalkerStatic->DW69.DestVerticalBlockOrigin                 =
-                (uint16_t)pRenderingData->pTarget[1]->rcDst.top;
-        }
-        else
-        {
-            pWalkerStatic->DW69.DestHorizontalBlockOrigin               =
-                (uint16_t)pRenderingData->pTarget[1]->rcDst.left;
-            pWalkerStatic->DW69.DestVerticalBlockOrigin                 =
-                 (uint16_t)pRenderingData->pTarget[1]->rcDst.top;
-        }
+        pWalkerStatic->DW69.DestHorizontalBlockOrigin               =
+            (uint16_t)pRenderingData->pTarget[1]->rcDst.left;
+        pWalkerStatic->DW69.DestVerticalBlockOrigin                 =
+            (uint16_t)pRenderingData->pTarget[1]->rcDst.top;
+        
         AlignedRect   = pRenderingData->pTarget[1]->rcDst;
     }
 
@@ -6000,6 +6125,44 @@ bool CompositeState::RenderBufferComputeWalker(
 
     PrintWalkerParas(pWalkerParams);
     return bResult;
+}
+
+//!
+//! \brief    Adjust Params Based On Fc Limit
+//! \param    [in,out] pCompParams
+//!           Pointer to Composite parameters.
+//! \return   bool
+//!
+bool CompositeState::AdjustParamsBasedOnFcLimit(
+    PCVPHAL_RENDER_PARAMS pcRenderParam)
+{
+    //The kernel is using the rectangle data to calculate mask. If the rectangle configuration does not comply to kernel requirement, the mask calculation will be incorrect and will see corruption.
+    if (pcRenderParam->pColorFillParams == nullptr &&
+        pcRenderParam->uSrcCount == 1 &&
+        pcRenderParam->uDstCount == 1 &&
+        pcRenderParam->pSrc[0] != nullptr &&
+        pcRenderParam->pTarget[0] != nullptr)
+    {
+         if (pcRenderParam->pSrc[0]->rcDst.top >= pcRenderParam->pTarget[0]->rcDst.top &&
+             pcRenderParam->pSrc[0]->rcDst.left >= pcRenderParam->pTarget[0]->rcDst.left &&
+             pcRenderParam->pSrc[0]->rcDst.right <= pcRenderParam->pTarget[0]->rcDst.right &&
+             pcRenderParam->pSrc[0]->rcDst.bottom <= pcRenderParam->pTarget[0]->rcDst.bottom)
+         {
+            VPHAL_RENDER_NORMALMESSAGE("Render Path : 1 Surface to 1 Surface FC Composition. ColorFill is Disabled. Output Dst is bigger than Input Dst. Will make Output Dst become Input Dst to Avoid FC Corruption. (%d %d %d %d) -> (%d %d %d %d)",
+                pcRenderParam->pTarget[0]->rcDst.left,
+                pcRenderParam->pTarget[0]->rcDst.top,
+                pcRenderParam->pTarget[0]->rcDst.right,
+                pcRenderParam->pTarget[0]->rcDst.bottom,
+                pcRenderParam->pSrc[0]->rcDst.left,
+                pcRenderParam->pSrc[0]->rcDst.top,
+                pcRenderParam->pSrc[0]->rcDst.right,
+                pcRenderParam->pSrc[0]->rcDst.bottom);
+            pcRenderParam->pTarget[0]->rcSrc = pcRenderParam->pSrc[0]->rcDst;
+            pcRenderParam->pTarget[0]->rcDst = pcRenderParam->pSrc[0]->rcDst;
+            return true;
+         }
+    }
+    return false;
 }
 
 //!
@@ -6422,15 +6585,19 @@ MOS_STATUS CompositeState::RenderPhase(
             case CSpace_BT2020:
                 pSource->ExtendedGamut = false;
                 pSource->ColorSpace    = CSpace_BT2020;
+                break;
             case CSpace_BT2020_FullRange:
                 pSource->ExtendedGamut = false;
                 pSource->ColorSpace    = CSpace_BT2020_FullRange;
+                break;
             case CSpace_BT2020_RGB:
                 pSource->ExtendedGamut = false;
                 pSource->ColorSpace    = CSpace_BT2020_RGB;
+                break;
             case CSpace_BT2020_stRGB:
                 pSource->ExtendedGamut = false;
                 pSource->ColorSpace    = CSpace_BT2020_stRGB;
+                break;
             default:
                 pSource->ExtendedGamut = false;
                 pSource->ColorSpace    = CSpace_sRGB;
@@ -6701,17 +6868,23 @@ bool CompositeState::BuildFilter(
         // Y_Uoffset(Height*2 + Height/2) of RENDERHAL_PLANES_YV12 define Bitfield_Range(0, 13) on gen9+.
         // The max value is 16383. So use PL3 kernel to avoid out of range when Y_Uoffset is larger than 16383.
         // Use PL3 plane to avoid YV12 blending issue with DI enabled and U channel shift issue with not 4-aligned height
-        if ((pFilter->format   == Format_YV12)           &&
-            (pSrc->ScalingMode != VPHAL_SCALING_AVS)     &&
-            (pSrc->bIEF        != true)                  &&
-            (pSrc->SurfType    != SURF_OUT_RENDERTARGET) &&
-            m_pRenderHal->bEnableYV12SinglePass          &&
-            !pSrc->pDeinterlaceParams                    &&
-            !pSrc->bInterlacedScaling                    &&
-            MOS_IS_ALIGNED(pSrc->dwHeight, 4)            &&
-            ((pSrc->dwHeight * 2 + pSrc->dwHeight / 2) < RENDERHAL_MAX_YV12_PLANE_Y_U_OFFSET_G9))
+        if (pFilter->format == Format_YV12)
         {
-            pFilter->format = Format_YV12_Planar;
+            if (m_pOsInterface->trinityPath == TRINITY9_ENABLED)
+            {
+                pFilter->format = Format_PL3;
+            }
+            else if ((pSrc->ScalingMode != VPHAL_SCALING_AVS) &&
+                     (pSrc->bIEF != true) &&
+                     (pSrc->SurfType != SURF_OUT_RENDERTARGET) &&
+                     m_pRenderHal->bEnableYV12SinglePass &&
+                     !pSrc->pDeinterlaceParams &&
+                     !pSrc->bInterlacedScaling &&
+                     MOS_IS_ALIGNED(pSrc->dwHeight, 4) &&
+                     ((pSrc->dwHeight * 2 + pSrc->dwHeight / 2) < RENDERHAL_MAX_YV12_PLANE_Y_U_OFFSET_G9))
+            {
+                pFilter->format = Format_YV12_Planar;
+            }
         }
 
         if (pFilter->format == Format_A8R8G8B8 ||
@@ -7305,25 +7478,32 @@ void CompositeState::Destroy()
 
     // Free intermediate compositing buffer
 
-    if (m_Intermediate2.pBlendingParams)
+    if (m_Intermediate2 && m_Intermediate2->pBlendingParams)
     {
-        MOS_FreeMemory(m_Intermediate2.pBlendingParams);
-        m_Intermediate2.pBlendingParams = nullptr;
+        MOS_FreeMemory(m_Intermediate2->pBlendingParams);
+        m_Intermediate2->pBlendingParams = nullptr;
     }
 
     if (pOsInterface)
     {
-        pOsInterface->pfnFreeResource(
-            pOsInterface,
-            &m_Intermediate.OsResource);
-
-        pOsInterface->pfnFreeResource(
-            pOsInterface,
-            &m_Intermediate1.OsResource);
-
-        pOsInterface->pfnFreeResource(
-            pOsInterface,
-            &m_Intermediate2.OsResource);
+        if (m_Intermediate)
+        {
+            pOsInterface->pfnFreeResource(
+                pOsInterface,
+                &m_Intermediate->OsResource);
+        }
+        if (m_Intermediate1)
+        {
+            pOsInterface->pfnFreeResource(
+                pOsInterface,
+                &m_Intermediate1->OsResource);
+        }
+        if (m_Intermediate2)
+        {
+            pOsInterface->pfnFreeResource(
+                pOsInterface,
+                &m_Intermediate2->OsResource);
+        }
 
         pOsInterface->pfnFreeResource(
             pOsInterface,
@@ -7395,9 +7575,9 @@ CompositeState::CompositeState(
     MOS_ZeroMemory(&m_SearchFilter, sizeof(m_SearchFilter));
     MOS_ZeroMemory(&m_KernelSearch, sizeof(m_KernelSearch));
     MOS_ZeroMemory(&m_KernelParams, sizeof(m_KernelParams));
-    MOS_ZeroMemory(&m_Intermediate, sizeof(m_Intermediate));
-    MOS_ZeroMemory(&m_Intermediate1, sizeof(m_Intermediate1));
-    MOS_ZeroMemory(&m_Intermediate2, sizeof(m_Intermediate2));
+    MOS_ZeroMemory(&m_IntermediateSurface, sizeof(m_IntermediateSurface));
+    MOS_ZeroMemory(&m_IntermediateSurface1, sizeof(m_IntermediateSurface1));
+    MOS_ZeroMemory(&m_IntermediateSurface2, sizeof(m_IntermediateSurface2));
     MOS_ZeroMemory(&m_CmfcCoeff, sizeof(m_CmfcCoeff));
     MOS_ZeroMemory(&m_RenderHalCmfcCoeff, sizeof(m_RenderHalCmfcCoeff));
     MOS_ZeroMemory(&m_AvsParameters, sizeof(m_AvsParameters));
@@ -7433,8 +7613,18 @@ CompositeState::CompositeState(
 
     VPHAL_RENDER_CHK_NULL(pOsInterface);
     // Reset Intermediate output surface (multiple phase)
-    pOsInterface->pfnResetResourceAllocationIndex(pOsInterface, &m_Intermediate.OsResource);
-    pOsInterface->pfnResetResourceAllocationIndex(pOsInterface, &m_Intermediate1.OsResource);
+    if (m_Intermediate)
+    {
+        pOsInterface->pfnResetResourceAllocationIndex(pOsInterface, &m_Intermediate->OsResource);
+    }
+    if (m_Intermediate1)
+    {
+        pOsInterface->pfnResetResourceAllocationIndex(pOsInterface, &m_Intermediate1->OsResource);
+    }
+    if (m_Intermediate2)
+    {
+        pOsInterface->pfnResetResourceAllocationIndex(pOsInterface, &m_Intermediate2->OsResource);
+    }
 
     ReadUserSetting(
         m_userSettingPtr,
@@ -7943,3 +8133,25 @@ bool CompositeState::IsSamplerIDForY(
 {
     return (SamplerID == VPHAL_SAMPLER_Y) ? true : false;
 }
+
+ bool CompositeState::IsDisableAVSSampler(
+    int32_t         iSources,
+    bool            isTargetY)
+{
+     if (m_pOsInterface == nullptr)
+     {
+         return false;
+     }
+
+     MEDIA_WA_TABLE *waTable = m_pOsInterface->pfnGetWaTable(m_pOsInterface);
+     if (waTable == nullptr)
+     {
+         return false;
+     }
+
+     if (MEDIA_IS_WA(waTable, WaTargetTopYOffset) && iSources > 1 && isTargetY)
+     {
+         return true;
+     }
+     return false;
+ }

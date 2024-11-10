@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2021, Intel Corporation
+* Copyright (c) 2019-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -46,6 +46,13 @@
 #define ENCODE_MIM_SEGID_BLOCK_SIZE 32
 #define ENCODE_AV1_MIN_ICQ_QUALITYFACTOR      0
 #define ENCODE_AV1_MAX_ICQ_QUALITYFACTOR      255
+#define ENCODE_AV1_ORDER_HINT_SIZE            256
+// for VAConfigAttribValEncAV1Ext2.tx_mode_support
+#define AV1_TX_MODE_ONLY_4X4_SUPPORTED 0x01
+#define AV1_TX_MODE_LARGEST_SUPPORTED 0x02
+#define AV1_TX_MODE_SELECT_SUPPORTED 0x04
+#define AV1_MAX_NUM_OF_BATCH_BUFFER 5
+#define AV1_MAX_NUM_OF_SEGMENTS 8
 constexpr uint32_t TILE_SIZE_BYTES = 4;
 const uint8_t OBU_LEB128_SIZE  = 4;
 const uint8_t LEB128_BYTE_MASK = 0x7f;
@@ -89,6 +96,132 @@ typedef enum
     AV1_ENCODED_BIT_DEPTH_10 = 1
 } AV1_ENCODED_BIT_DEPTH;
 
+typedef enum  //VDEnc Frame Types
+{
+    AV1_I_FRAME   = 0,  // I (Intra)
+    AV1_P_FRAME   = 1,  // P (Inter/Pred)
+    AV1_B_FRAME   = 2,  // B (BiPred/Random Access)
+    AV1_GPB_FRAME = 3,  // B (GPB/LowDelay)
+} VDEncFrameType;
+
+enum TABLE_A1_COLS_INDEX
+{
+    MAX_PIC_SIZE_INDEX = 0,
+    MAX_H_SIZE_INDEX,
+    MAX_V_SIZE_INDEX,
+    MAX_DISPLAY_RATE_INDEX,
+    MAX_DECODE_RATE_INDEX,
+    TABLE_A1_COLS_NUM,
+};
+
+enum TABLE_A2_COLS_INDEX
+{
+    MAX_HEADER_RATE_INDEX = 0,
+    MAIN_BPS_INDEX,
+    HIGH_BPS_INDEX,
+    MAIN_CR_INDEX,
+    HIGH_CR_INDEX,
+    MAX_TILES_INDEX,
+    MAX_TILE_COLS_INDEX,
+    TABLE_A2_COLS_NUM,
+};
+const uint64_t TableA1[][TABLE_A1_COLS_NUM] =
+    {
+        //  Level   |MaxPicSize | MaxHSize | MaxVSize | MaxDiaplayRate | MaxDecodeRate
+        /*  2.0 */ {147456, 2048, 1152, 4423680, 5529600},
+        /*  2.1 */ {278784, 2816, 1584, 8363520, 10454400},
+        /*  3.0 */ {665856, 4352, 2448, 19975680, 24969600},
+        /*  3.1 */ {1065024, 5504, 3096, 31950720, 39938400},
+        /*  4.0 */ {2359296, 6144, 3456, 70778880, 77856768},
+        /*  4.1 */ {2359296, 6144, 3456, 141557760, 155713536},
+        /*  5.0 */ {8912896, 8192, 4352, 267386880, 273705200},
+        /*  5.1 */ {8912896, 8192, 4352, 534773760, 547430400},
+        /*  5.2 */ {8912896, 8192, 4352, 1069547520, 1094860800},
+        /*  5.3 */ {8912896, 8192, 4352, 1069547520, 1176502272},
+        /*  6.0 */ {35651584, 16384, 8704, 1069547520, 1176502272},
+        /*  6.1 */ {35651584, 16384, 8704, 2139095040, 2189721600},
+        /*  6.2 */ {35651584, 16384, 8704, 4278190080, 4379443200},
+        /*  6.3 */ {35651584, 16384, 8704, 4278190080, 4706009088},
+};
+const uint32_t TableA2[][TABLE_A2_COLS_NUM] =
+    {
+        //  Level   | MaxHeaderRate |    Mainbps    |    Highbps    | MainCR | HighCR | MaxTiles | MaxTileCols
+        /*  2.0  */ {150, 1500000, 0, 2, 0, 8, 4},
+        /*  2.1  */ {150, 3000000, 0, 2, 0, 8, 4},
+        /*  3.0  */ {150, 6000000, 0, 2, 0, 16, 6},
+        /*  3.1  */ {150, 10000000, 0, 2, 0, 16, 6},
+        /*  4.0  */ {300, 12000000, 30000000, 4, 4, 32, 8},
+        /*  4.1  */ {300, 20000000, 50000000, 4, 4, 32, 8},
+        /*  5.0  */ {300, 30000000, 100000000, 6, 4, 64, 8},
+        /*  5.1  */ {300, 40000000, 160000000, 8, 4, 64, 8},
+        /*  5.2  */ {300, 60000000, 240000000, 8, 4, 64, 8},
+        /*  5.3  */ {300, 60000000, 240000000, 8, 4, 64, 8},
+        /*  6.0  */ {300, 60000000, 240000000, 8, 4, 128, 16},
+        /*  6.1  */ {300, 100000000, 480000000, 8, 4, 128, 16},
+        /*  6.2  */ {300, 160000000, 800000000, 8, 4, 128, 16},
+        /*  6.3  */ {300, 160000000, 800000000, 8, 4, 128, 16},
+};
+const uint32_t RdMultLUT[2][256] = 
+    {
+        {58, 234, 234, 297, 366, 443, 528,
+        528, 619, 718, 825, 938, 1059, 1188, 1323, 1323, 1466, 1617, 1774, 
+        1939, 2112, 2291, 2478, 2478, 2673, 2874, 3083, 3300, 3523, 3754, 
+        3754, 3993, 4238, 4491, 4752, 5019, 5294, 5294, 5577, 5866, 6163, 
+        6468, 6779, 6779, 7098, 7425, 7758, 8099, 8448, 8448, 8803, 9166, 
+        9537, 9914, 10299, 10299, 10692, 11091, 11498, 11913, 11913, 12334, 
+        12763, 13200, 13643, 14094, 14094, 14553, 15018, 15491, 15972, 
+        15972, 16459, 16954, 17457, 17966, 17966, 18483, 19008, 19539, 
+        20078, 20078, 20625, 21178, 21739, 22308, 22308, 22883, 23466, 
+        24057, 24057, 24654, 25259, 25872, 26491, 26491, 27753, 28394, 
+        29700, 31034, 31713, 33091, 33792, 35214, 35937, 37403, 38148, 
+        39658, 40425, 41979, 42768, 44366, 45177, 46819, 47652, 49338, 
+        50193, 51054, 52800, 53683, 55473, 57291, 59139, 61017, 62923, 
+        65838, 67818, 69828, 71866, 73934, 76032, 78158, 80314, 82500, 
+        84714, 86958, 89232, 91534, 95043, 98618, 101038, 104723, 108474, 
+        111012, 114873, 118800, 121454, 125491, 128219, 132366, 135168, 
+        139425, 145203, 149614, 154091, 158634, 163243, 167918, 172659, 
+        177466, 182339, 187278, 193966, 199059, 205953, 211200, 216513, 
+        223699, 229166, 234699, 242179, 249777, 257491, 265323, 271274, 
+        279312, 287466, 295738, 304128, 312634, 321258, 330000, 338858, 
+        350097, 359219, 368459, 380174, 389678, 399300, 411491, 423866, 
+        433898, 446603, 459492, 472563, 485818, 499257, 512878, 526683, 
+        540672, 554843, 572091, 586666, 604398, 619377, 637593, 656073, 
+        674817, 693825, 713097, 732633, 755758, 779243, 799659, 827291, 
+        851854, 876777, 905699, 935091, 964953, 999108, 1029966, 1065243, 
+        1105137, 1145763, 1187123, 1229217, 1276366, 1328814, 1382318, 
+        1436878, 1501866, 1568292, 1636154, 1715472, 1796666, 1884993, 
+        1986218, 2090091, 2202291, 2323258, 2459457, 2605713, 2768923, 
+        2943658, 3137291, 3344091, 3579194, 3829774, 4104334, 4420548,
+        4756843, 5140138, 5565354, 6026254, 6544618},
+        {4, 19, 23, 39, 52, 66, 92, 111, 143, 180, 220, 265, 314, 367, 
+        424, 506, 573, 644, 745, 825, 939, 1060, 1155, 1289, 1394, 1541,
+        1695, 1856, 1982, 2156, 2338, 2527, 2723, 2926, 3084, 3300, 3524,
+        3755, 3993, 4239, 4492, 4686, 4952, 5225, 5506, 5794, 6089, 6315,
+        6623, 6938, 7261, 7591, 7843, 8186, 8536, 8894, 9167, 9537, 9915,
+        10300, 10593, 10991, 11396, 11705, 12123, 12441, 12872, 13310, 13644,
+        14095, 14438, 14902, 15373, 15731, 16215, 16583, 17080, 17457, 17967, 
+        18354, 18876, 19273, 19674, 20215, 20625, 21179, 21599, 22023, 22595,
+        23029, 23614, 24057, 24505, 25108, 25565, 26026, 26961, 28073, 29044,
+        30031, 31204, 32227, 33266, 34322, 35575, 36667, 37775, 38900, 40041,
+        41199, 42373, 43564, 44771, 45995, 47235, 48492, 49765, 51055, 52361,
+        53684, 55023, 57063, 58907, 61017, 63164, 65104, 67321, 69323, 71610,
+        73675, 76032, 78159, 80315, 82775, 84994, 87241, 89518, 92115, 95044,
+        98318, 101648, 104724, 108160, 111651, 114873, 118141, 121789, 125153,
+        128563, 132019, 135873, 140141, 144839, 149245, 153716, 158254, 163244,
+        167919, 172660, 177467, 181931, 188108, 193967, 199487, 205519, 211640,
+        217852, 223700, 229625, 236093, 243123, 250256, 257978, 265324, 272273,
+        279818, 287467, 296260, 304656, 313706, 322345, 331101, 339974, 350097,
+        359794, 370205, 380175, 390875, 401117, 412721, 424490, 435793, 447884,
+        459492, 472564, 485819, 499257, 512879, 526684, 541376, 556985, 572092,
+        587400, 604399, 621640, 639123, 656073, 675604, 694623, 714715, 735094,
+        756591, 779244, 802230, 827292, 852739, 878571, 907523, 936018, 966835, 
+        999108, 1032884, 1068210, 1106144, 1145764, 1187124, 1232404, 1279614,
+        1331023, 1384571, 1441473, 1503040, 1568292, 1639831, 1716726, 1799234,
+        1888939, 1986219, 2090092, 2205134, 2329100, 2465467, 2610352, 2772111,
+        2946945, 3140684, 3349346, 3581006, 3831649, 4112097, 4424575, 4763110,
+        5142310, 5567614, 4289813442, 4290334454}
+};
+
 //DDI version 0.20
 typedef struct _CODEC_AV1_ENCODE_SEQUENCE_PARAMS
 {
@@ -119,7 +252,9 @@ typedef struct _CODEC_AV1_ENCODE_SEQUENCE_PARAMS
             uint32_t    DisplayFormatSwizzle    : 1;    //[0]
             uint32_t    bLookAheadPhase         : 1; 
             uint32_t    HierarchicalFlag        : 1; 
-            uint32_t    Reserved0               : 26;
+            uint32_t    RGBInputStudioRange     : 1;    // [0, 1]
+            uint32_t    ConvertedYUVStudioRange : 1;    // [0, 1]
+            uint32_t    Reserved0               : 24;
         } fields;
         uint32_t    value;
     } SeqFlags;
@@ -142,12 +277,19 @@ typedef struct _CODEC_AV1_ENCODE_SEQUENCE_PARAMS
     {
         struct
         {
-            uint32_t    enable_order_hint       : 1;
-            uint32_t    enable_superres         : 1;
-            uint32_t    enable_cdef             : 1;
-            uint32_t    enable_restoration      : 1;
-            uint32_t    enable_warped_motion    : 1;    //[0]
-            uint32_t    Reserved3               : 27;
+            uint32_t    enable_order_hint           : 1;
+            uint32_t    enable_superres             : 1;
+            uint32_t    enable_cdef                 : 1;
+            uint32_t    enable_restoration          : 1;
+            uint32_t    enable_warped_motion        : 1;    //[0]
+            uint32_t    enable_filter_intra         : 1;
+            uint32_t    enable_intra_edge_filter    : 1;
+            uint32_t    enable_interintra_compound  : 1;
+            uint32_t    enable_masked_compound      : 1;
+            uint32_t    enable_dual_filter          : 1;
+            uint32_t    enable_jnt_comp             : 1;
+            uint32_t    enable_ref_frame_mvs        : 1;
+            uint32_t    Reserved3                   : 20;
         } fields;
         uint32_t    value;
     } CodingToolFlags;
@@ -224,7 +366,7 @@ typedef struct _CODEC_AV1_ENCODE_PICTURE_PARAMS
     uint8_t         ref_frame_idx[7];       // [0..6]
     uint8_t         HierarchLevelPlus1;
     uint8_t         primary_ref_frame;      // [0..7]
-    uint8_t         Reserved8b3;
+    uint8_t         AdaptiveTUEnabled;
     uint8_t         Reserved8b4;
     uint8_t         order_hint;
 
@@ -399,7 +541,20 @@ typedef struct _CODEC_AV1_ENCODE_PICTURE_PARAMS
     uint32_t    InputType;
     uint32_t    TargetFrameSize;
     uint8_t     QpModulationStrength;
-    uint8_t     reserved8b[3];
+
+    /*! \brief quality information report enable flags.
+    */
+    union
+    {
+        struct
+        {
+            uint8_t enable_frame : 1;
+            uint8_t enable_block : 1;
+            uint8_t reserved     : 6;
+        } fields;
+        uint8_t value;
+    } QualityInfoSupportFlags;
+    uint8_t     reserved8b[2];
     uint32_t    Reserved10[14];
 } CODEC_AV1_ENCODE_PICTURE_PARAMS, *PCODEC_AV1_ENCODE_PICTURE_PARAMS;
 
@@ -428,6 +583,7 @@ typedef struct _CODEC_AV1_ENCODE_PACKEDHEADER_DATA
 #define MAX_TLEVEL  16
 #define AV1_NUM_OF_REF_LF_DELTAS 8
 #define AV1_NUM_OF_MODE_LF_DELTAS 2
+#define AV1_NUM_OF_DUAL_CTX 2
 struct EncodeAv1Par
 {
 
@@ -569,10 +725,158 @@ struct EncodeAv1Par
 
 };
 
+struct MetadataAV1PostFeature
+{
+    struct
+    {
+        uint64_t RowCount;
+        uint64_t ColCount;
+        uint64_t RowHeights[64];
+        uint64_t ColWidths[64];
+        uint64_t ContextUpdateTileId;
+    } tilePartition;
+
+    struct
+    {
+        uint64_t CompoundPredictionType;
+        struct
+        {
+            uint64_t LoopFilterLevel[2];
+            uint64_t LoopFilterLevelU;
+            uint64_t LoopFilterLevelV;
+            uint64_t LoopFilterSharpnessLevel;
+            uint64_t LoopFilterDeltaEnabled;
+            uint64_t UpdateRefDelta;
+            int64_t  RefDeltas[8];
+            uint64_t UpdateModeDelta;
+            int64_t  ModeDeltas[2];
+        } LoopFilter;
+        struct
+        {
+            uint64_t DeltaLFPresent;
+            uint64_t DeltaLFMulti;
+            uint64_t DeltaLFRes;
+        } LoopFilterDelta;
+        struct
+        {
+            uint64_t BaseQIndex;
+            int64_t  YDCDeltaQ;
+            int64_t  UDCDeltaQ;
+            int64_t  UACDeltaQ;
+            int64_t  VDCDeltaQ;
+            int64_t  VACDeltaQ;
+            uint64_t UsingQMatrix;
+            uint64_t QMY;
+            uint64_t QMU;
+            uint64_t QMV;
+        } Quantization;
+        struct
+        {
+            uint64_t DeltaQPresent;
+            uint64_t DeltaQRes;
+        } QuantizationDelta;
+        struct
+        {
+            uint64_t CdefBits;
+            uint64_t CdefDampingMinus3;
+            uint64_t CdefYPriStrength[8];
+            uint64_t CdefUVPriStrength[8];
+            uint64_t CdefYSecStrength[8];
+            uint64_t CdefUVSecStrength[8];
+        } CDEF;
+        struct
+        {
+            uint64_t UpdateMap;
+            uint64_t TemporalUpdate;
+            uint64_t UpdateData;
+            uint64_t NumSegments;
+            struct
+            {
+                uint64_t EnabledFeatures;
+                int64_t  FeatureValue[8];
+            } SegmentsData[8];
+        } SegmentationConfig;
+        uint64_t PrimaryRefFrame;
+        uint64_t ReferenceIndices[7];
+    } postFeature;
+};
+
+struct AV1MetaDataOffset
+{
+    //tile partition
+    uint32_t dwRowCount            = 0;
+    uint32_t dwColCount            = 0;
+    uint32_t dwRowHeights          = 0;
+    uint32_t dwColWidths           = 0;
+    uint32_t dwContextUpdateTileId = 0;
+    //post feature
+    uint32_t dwCompoundPredictionType = 0;
+    uint32_t dwLoopFilter             = 0;
+    uint32_t dwLoopFilterDelta        = 0;
+    uint32_t dwQuantization           = 0;
+    uint32_t dwQuantizationDelta      = 0;
+    uint32_t dwCDEF                   = 0;
+    uint32_t dwSegmentationConfig     = 0;
+    uint32_t dwPrimaryRefFrame        = 0;
+    uint32_t dwReferenceIndices       = 0;
+    //loop filter
+    uint32_t dwLoopFilterLevel          = 0;
+    uint32_t dwLoopFilterLevelU         = 0;
+    uint32_t dwLoopFilterLevelV         = 0;
+    uint32_t dwLoopFilterSharpnessLevel = 0;
+    uint32_t dwLoopFilterDeltaEnabled   = 0;
+    uint32_t dwUpdateRefDelta           = 0;
+    uint32_t dwRefDeltas                = 0;
+    uint32_t dwUpdateModeDelta          = 0;
+    uint32_t dwModeDeltas               = 0;
+    //loop filter delta
+    uint32_t dwDeltaLFPresent = 0;
+    uint32_t dwDeltaLFMulti   = 0;
+    uint32_t dwDeltaLFRes     = 0;
+    //Quantization
+    uint32_t dwBaseQIndex   = 0;
+    uint32_t dwYDCDeltaQ    = 0;
+    uint32_t dwUDCDeltaQ    = 0;
+    uint32_t dwUACDeltaQ    = 0;
+    uint32_t dwVDCDeltaQ    = 0;
+    uint32_t dwVACDeltaQ    = 0;
+    uint32_t dwUsingQMatrix = 0;
+    uint32_t dwQMY          = 0;
+    uint32_t dwQMU          = 0;
+    uint32_t dwQMV          = 0;
+    //QuantizationDelta
+    uint32_t dwDeltaQPresent = 0;
+    uint32_t dwDeltaQRes     = 0;
+    //CDEF
+    uint32_t dwCdefBits          = 0;
+    uint32_t dwCdefDampingMinus3 = 0;
+    uint32_t dwCdefYPriStrength  = 0;
+    uint32_t dwCdefUVPriStrength = 0;
+    uint32_t dwCdefYSecStrength  = 0;
+    uint32_t dwCdefUVSecStrength = 0;
+    //SegmentationConfig
+    uint32_t dwUpdateMap      = 0;
+    uint32_t dwTemporalUpdate = 0;
+    uint32_t dwUpdateData     = 0;
+    uint32_t dwNumSegments    = 0;
+    uint32_t dwSegmentsData   = 0;
+    //dwSegmentsData
+    uint32_t dwEnabledFeatures  = 0;
+    uint32_t dwFeatureValue     = 0;
+    uint32_t dwSegmentsDataSize = 0;
+};
+
 struct EncoderParamsAV1 : EncoderParams
 {
     uint32_t segmentMapDataSize = 0;     //!< [AV1] size of data in segment map buffer
     uint8_t  *pSegmentMap = nullptr;     //!< [AV1] pointer to segment map buffer from DDI
+    AV1MetaDataOffset AV1metaDataOffset  = {};       //!< [AV1] AV1 Specific metadata offset
 };
 
+enum RoundingMethod
+{
+    fixedRounding = 0,
+    adaptiveRounding,
+    lookUpTableRounding
+};
 #endif  // __CODEC_DEF_ENCODE_AV1_H__

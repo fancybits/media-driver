@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021-2022, Intel Corporation
+* Copyright (c) 2021-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -25,6 +25,8 @@
 //!
 #include "codec_hw_next.h"
 #include "codechal_setting.h"
+#include "mos_os_cp_interface_specific.h"
+#include "mhw_vdbox_vvcp_itf.h"
 
 CodechalHwInterfaceNext::CodechalHwInterfaceNext(
     PMOS_INTERFACE     osInterface,
@@ -40,7 +42,188 @@ CodechalHwInterfaceNext::CodechalHwInterfaceNext(
     m_miItf    = mhwInterfacesNext->m_miItf;
     m_hcpItf   = mhwInterfacesNext->m_hcpItf;
     m_mfxItf   = mhwInterfacesNext->m_mfxItf;
+    m_renderItf = mhwInterfacesNext->m_renderItf;
+    m_vvcpItf  = mhwInterfacesNext->m_vvcpItf;
 
+    CODEC_HW_ASSERT(osInterface);
+    m_osInterface = osInterface;
+
+    MOS_ZeroMemory(&m_platform, sizeof(PLATFORM));
+    m_osInterface->pfnGetPlatform(m_osInterface, &m_platform);
+
+    m_skuTable = m_osInterface->pfnGetSkuTable(m_osInterface);
+    m_waTable  = m_osInterface->pfnGetWaTable(m_osInterface);
+    CODEC_HW_ASSERT(m_skuTable);
+    CODEC_HW_ASSERT(m_waTable);
+
+    MOS_ZeroMemory(&m_hucDmemDummy, sizeof(m_hucDmemDummy));
+    MOS_ZeroMemory(&m_dummyStreamIn, sizeof(m_dummyStreamIn));
+    MOS_ZeroMemory(&m_dummyStreamOut, sizeof(m_dummyStreamOut));
+    MOS_ZeroMemory(&m_conditionalBbEndDummy, sizeof(m_conditionalBbEndDummy));
+
+    // Remove legacy mhw sub interfaces.
+    m_cpInterface     = mhwInterfacesNext->m_cpInterface;
+    m_veboxInterface  = mhwInterfacesNext->m_veboxInterface;
+    m_sfcInterface    = mhwInterfacesNext->m_sfcInterface;
+    //Prevent double free
+    mhwInterfacesNext->m_cpInterface    = nullptr;
+    mhwInterfacesNext->m_veboxInterface = nullptr;
+    mhwInterfacesNext->m_sfcInterface   = nullptr;
+
+    m_disableScalability = disableScalability;
+    m_userSettingPtr     = osInterface->pfnGetUserSettingInstance(osInterface);
+}
+
+CodechalHwInterfaceNext::~CodechalHwInterfaceNext()
+{
+    CODEC_HW_FUNCTION_ENTER;
+    
+    if (m_osInterface != nullptr)
+    {
+        m_osInterface->pfnFreeResource(m_osInterface, &m_hucDmemDummy);
+        m_osInterface->pfnFreeResource(m_osInterface, &m_dummyStreamIn);
+        m_osInterface->pfnFreeResource(m_osInterface, &m_dummyStreamOut);
+
+        m_osInterface->pfnFreeResource(m_osInterface, &m_conditionalBbEndDummy);
+        if (m_cpInterface)
+        {
+            m_osInterface->pfnDeleteMhwCpInterface(m_cpInterface);
+            m_cpInterface = nullptr;
+        }
+    }
+
+    if (m_veboxInterface)
+    {
+        m_veboxInterface->DestroyHeap();
+        MOS_Delete(m_veboxInterface);
+        m_veboxInterface = nullptr;
+    }
+
+    if (m_sfcInterface)
+    {
+        MOS_Delete(m_sfcInterface);
+        m_sfcInterface = nullptr;
+    }
+}
+
+CodechalHwInterfaceNext* CodechalHwInterfaceNext::Create(
+    PMOS_INTERFACE     osInterface,
+    CODECHAL_FUNCTION  codecFunction,
+    MhwInterfacesNext* mhwInterfacesNext,
+    bool               disableScalability)
+{
+    return MOS_New(CodechalHwInterfaceNext,
+        osInterface,
+        codecFunction,
+        mhwInterfacesNext,
+        disableScalability);
+}
+
+MOS_STATUS CodechalHwInterfaceNext::Initialize(
+    CodechalSetting *settings)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+    MediaUserSettingSharedPtr userSettingPtr = nullptr;
+    uint32_t value = 0;
+
+    CODEC_HW_FUNCTION_ENTER;
+
+    if (UsesRenderEngine(settings->codecFunction, settings->standard) ||
+        CodecHalIsEnableFieldScaling(settings->codecFunction, settings->standard, settings->downsamplingHinted))
+    {
+        CODEC_HW_CHK_NULL_RETURN(m_renderItf);
+
+        m_stateHeapSettings.m_ishBehavior = HeapManager::Behavior::clientControlled;
+        m_stateHeapSettings.m_dshBehavior = HeapManager::Behavior::destructiveExtend;
+        // As a performance optimization keep the DSH locked always,
+        // the ISH is only accessed at device creation and thus does not need to be locked
+        m_stateHeapSettings.m_keepDshLocked = true;
+        m_stateHeapSettings.dwDshIncrement  = 2 * MOS_PAGE_SIZE;
+
+        if (m_stateHeapSettings.dwIshSize > 0 &&
+            m_stateHeapSettings.dwDshSize > 0 &&
+            m_stateHeapSettings.dwNumSyncTags > 0)
+        {
+            CODEC_HW_CHK_STATUS_RETURN(m_renderItf->AllocateHeaps(
+                m_stateHeapSettings));
+        }
+    }
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    userSettingPtr = m_osInterface->pfnGetUserSettingInstance(m_osInterface);
+    ReadUserSettingForDebug(
+        userSettingPtr,
+        value,
+        __MEDIA_USER_FEATURE_VALUE_SSEU_SETTING_OVERRIDE,
+        MediaUserSetting::Group::Device);
+
+    if (value != 0xDEADC0DE)
+    {
+        m_numRequestedEuSlicesOverride  = value & 0xFF;            // Bits 0-7
+        m_numRequestedSubSlicesOverride = (value >> 8) & 0xFF;     // Bits 8-15
+        m_numRequestedEusOverride       = (value >> 16) & 0xFFFF;  // Bits 16-31
+        m_numRequestedOverride          = true;
+    }
+#endif
+
+    m_enableCodecMmc = !MEDIA_IS_WA(GetWaTable(), WaDisableCodecMmc);
+
+    return eStatus;
+}
+
+MOS_STATUS CodechalHwInterfaceNext::InitCacheabilityControlSettings(
+    CODECHAL_FUNCTION codecFunction)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    CODEC_HW_FUNCTION_ENTER;
+
+    CODEC_HW_CHK_NULL_RETURN(m_osInterface);
+
+    for (uint32_t i = MOS_CODEC_RESOURCE_USAGE_BEGIN_CODEC + 1; i < MOS_CODEC_RESOURCE_USAGE_END_CODEC; i++)
+    {
+        CODEC_HW_CHK_STATUS_RETURN(CachePolicyGetMemoryObject(
+            (MOS_HW_RESOURCE_DEF)i));
+    }
+
+    SetCacheabilitySettings(m_cacheabilitySettings);
+
+    bool l3CachingEnabled = !m_osInterface->bSimIsActive;
+
+    if (m_checkBankCount)
+    {
+        CODEC_HW_CHK_NULL_RETURN(m_osInterface);
+        auto gtSysInfo = m_osInterface->pfnGetGtSystemInfo(m_osInterface);
+        CODEC_HW_CHK_NULL_RETURN(gtSysInfo);
+
+        l3CachingEnabled = (gtSysInfo->L3BankCount != 0 || gtSysInfo->L3CacheSizeInKb != 0);
+    }
+
+    if (l3CachingEnabled)
+    {
+        InitL3CacheSettings();
+    }
+
+    return eStatus;
+}
+
+MOS_STATUS CodechalHwInterfaceNext::CachePolicyGetMemoryObject(
+    MOS_HW_RESOURCE_DEF mosUsage)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    m_cacheabilitySettings[mosUsage].Value =
+        (m_osInterface->pfnCachePolicyGetMemoryObject(
+            mosUsage, 
+            m_osInterface->pfnGetGmmClientContext(m_osInterface))).DwordValue;
+
+    return eStatus;
+}
+
+CodechalHwInterfaceNext::CodechalHwInterfaceNext(
+    PMOS_INTERFACE osInterface,
+    bool           disableScalability)
+{
     CODEC_HW_ASSERT(osInterface);
     m_osInterface = osInterface;
 
@@ -53,13 +236,11 @@ CodechalHwInterfaceNext::CodechalHwInterfaceNext(
     MOS_ZeroMemory(&m_dummyStreamIn, sizeof(m_dummyStreamIn));
     MOS_ZeroMemory(&m_dummyStreamOut, sizeof(m_dummyStreamOut));
 
-    // Remove legacy mhw sub interfaces.
-    m_cpInterface = mhwInterfacesNext->m_cpInterface;
-    m_mfxInterface = mhwInterfacesNext->m_mfxInterface;
-    m_vdencInterface = mhwInterfacesNext->m_vdencInterface;
-    m_hcpInterface = mhwInterfacesNext->m_hcpInterface;
-}
+    MOS_ZeroMemory(&m_conditionalBbEndDummy, sizeof(m_conditionalBbEndDummy));
 
+    m_enableCodecMmc = !MEDIA_IS_WA(GetWaTable(), WaDisableCodecMmc);
+    m_disableScalability = disableScalability;
+}
 MOS_STATUS CodechalHwInterfaceNext::GetAvpStateCommandSize(
     uint32_t                        mode,
     uint32_t                        *commandsSize,
@@ -92,6 +273,32 @@ MOS_STATUS CodechalHwInterfaceNext::GetAvpStateCommandSize(
     *patchListSize = avpPatchListSize + cpPatchListSize;
 
     return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS CodechalHwInterfaceNext::GetMfxStateCommandsDataSize(
+    uint32_t  mode,
+    uint32_t *commandsSize,
+    uint32_t *patchListSize,
+    bool      shortFormat)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    CODEC_HW_FUNCTION_ENTER;
+
+    uint32_t cpCmdsize       = 0;
+    uint32_t cpPatchListSize = 0;
+
+    if (m_mfxItf)
+    {
+        CODEC_HW_CHK_STATUS_RETURN(m_mfxItf->GetMfxStateCommandsDataSize(
+            mode, (uint32_t *)commandsSize, (uint32_t *)patchListSize, shortFormat ? true : false));
+
+        m_cpInterface->GetCpStateLevelCmdSize(cpCmdsize, cpPatchListSize);
+    }
+    *commandsSize += (uint32_t)cpCmdsize;
+    *patchListSize += (uint32_t)cpPatchListSize;
+
+    return eStatus;
 }
 
 MOS_STATUS CodechalHwInterfaceNext::GetAvpPrimitiveCommandSize(
@@ -134,28 +341,44 @@ MOS_STATUS CodechalHwInterfaceNext::GetAvpPrimitiveCommandSize(
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS CodechalHwInterfaceNext::GetVdencPictureSecondLevelCommandsSize(
+    uint32_t  mode,
+    uint32_t *commandsSize)
+{
+    CODEC_HW_FUNCTION_ENTER;
+
+    uint32_t commands = 0;
+
+    MHW_MI_CHK_NULL(m_hcpItf);
+
+    uint32_t standard = CodecHal_GetStandardFromMode(mode);
+
+    if (standard == CODECHAL_VP9)
+    {
+        commands += m_hcpItf->GetHcpVp9PicStateCommandSize();
+        commands += m_hcpItf->GetHcpVp9SegmentStateCommandSize() * 8;
+        commands += 132;
+        commands += 248;
+        commands += m_sizeOfCmdBatchBufferEnd;
+        commands += 24; // padding for alignment on 64 
+    }
+    else
+    {
+        MHW_ASSERTMESSAGE("Unsupported encode mode.");
+        return MOS_STATUS_UNKNOWN;
+    }
+
+    *commandsSize = commands;
+
+    return MOS_STATUS_SUCCESS;
+}
+
 MOS_STATUS CodechalHwInterfaceNext::SetCacheabilitySettings(
     MHW_MEMORY_OBJECT_CONTROL_PARAMS cacheabilitySettings[MOS_CODEC_RESOURCE_USAGE_END_CODEC])
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
     CODEC_HW_FUNCTION_ENTER;
-
-    // Next step: replace with new mhw sub interfaces, including vdenc, mfx, hcp.
-    /**********************************************************************/
-    if (m_mfxInterface)
-    {
-        CODEC_HW_CHK_STATUS_RETURN(m_mfxInterface->SetCacheabilitySettings(cacheabilitySettings));
-    }
-    if (m_hcpInterface)
-    {
-        CODEC_HW_CHK_STATUS_RETURN(m_hcpInterface->SetCacheabilitySettings(cacheabilitySettings));
-    }
-    if (m_vdencInterface)
-    {
-        CODEC_HW_CHK_STATUS_RETURN(m_vdencInterface->SetCacheabilitySettings(cacheabilitySettings));
-    }
-    /*                                                                    */
 
     /* New Mhw sub interfaces usage */
     if (m_avpItf)
@@ -173,6 +396,10 @@ MOS_STATUS CodechalHwInterfaceNext::SetCacheabilitySettings(
     if (m_vdencItf)
     {
         CODEC_HW_CHK_STATUS_RETURN(m_vdencItf->SetCacheabilitySettings(cacheabilitySettings));
+    }
+    if (m_vvcpItf != nullptr)
+    {
+        CODEC_HW_CHK_STATUS_RETURN(m_vvcpItf->SetCacheabilitySettings(cacheabilitySettings));
     }
 
     return eStatus;
@@ -369,9 +596,9 @@ MOS_STATUS CodechalHwInterfaceNext::GetMfxPrimitiveCommandsDataSize(
     uint32_t cpCmdsize = 0;
     uint32_t cpPatchListSize = 0;
 
-    if (m_mfxInterface)
+    if (m_mfxItf)
     {
-        CODEC_HW_CHK_STATUS_RETURN(m_mfxInterface->GetMfxPrimitiveCommandsDataSize(
+        CODEC_HW_CHK_STATUS_RETURN(m_mfxItf->GetMfxPrimitiveCommandsDataSize(
             mode, (uint32_t*)commandsSize, (uint32_t*)patchListSize, modeSpecific ? true : false));
 
         m_cpInterface->GetCpSliceLevelCmdSize(cpCmdsize, cpPatchListSize);
@@ -412,6 +639,90 @@ MOS_STATUS CodechalHwInterfaceNext::GetHcpPrimitiveCommandSize(
     *patchListSize = hcpPatchListSize + cpPatchListSize;
 
     return eStatus;
+}
+
+MOS_STATUS CodechalHwInterfaceNext::GetVvcpStateCommandSize(
+    uint32_t                        mode,
+    uint32_t                       *commandsSize,
+    uint32_t                       *patchListSize,
+    PMHW_VDBOX_STATE_CMDSIZE_PARAMS params)
+{
+    CODEC_HW_FUNCTION_ENTER;
+
+    //calculate VVCP related commands size
+    uint32_t vvcpCommandsSize  = 0;
+    uint32_t vvcpPatchListSize = 0;
+    uint32_t cpCmdsize         = 0;
+    uint32_t cpPatchListSize   = 0;
+
+    if (m_vvcpItf)
+    {
+        CODEC_HW_CHK_STATUS_RETURN(m_vvcpItf->GetVvcpStateCmdSize(
+             (uint32_t *)&vvcpCommandsSize,
+             (uint32_t *)&vvcpPatchListSize,
+             params));
+    }
+
+    if (m_cpInterface)
+    {
+        m_cpInterface->GetCpStateLevelCmdSize(cpCmdsize, cpPatchListSize);
+    }
+
+    //Calc final command size
+    *commandsSize  = vvcpCommandsSize + cpCmdsize;
+    *patchListSize = vvcpPatchListSize + cpPatchListSize;
+
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS CodechalHwInterfaceNext::GetVvcpSliceLvlCmdSize(uint32_t *sliceLvlCmdSize)
+{
+    CODEC_HW_FUNCTION_ENTER;
+    if (m_vvcpItf)
+    {
+        CODEC_HW_CHK_STATUS_RETURN(m_vvcpItf->GetVvcpSliceLvlCmdSize(sliceLvlCmdSize));
+    }
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS CodechalHwInterfaceNext::GetVvcpPrimitiveCommandSize(
+    uint32_t  mode,
+    uint32_t *sliceCommandsSize,
+    uint32_t *slicePatchListSize,
+    uint32_t *tileCommandsSize,
+    uint32_t *tilePatchListSize)
+{
+    CODEC_HW_FUNCTION_ENTER;
+
+    //calculate VVCP related commands size
+    uint32_t vvcpSliceCommandsSize  = 0;
+    uint32_t vvcpSlicePatchListSize = 0;
+    uint32_t vvcpTileCommandsSize   = 0;
+    uint32_t vvcpTilePatchListSize  = 0;
+    uint32_t cpCmdsize              = 0;
+    uint32_t cpPatchListSize        = 0;
+
+    if (m_vvcpItf)
+    {
+        CODEC_HW_CHK_STATUS_RETURN(m_vvcpItf->GetVvcpPrimitiveCmdSize(
+            (uint32_t *)&vvcpSliceCommandsSize,
+            (uint32_t *)&vvcpSlicePatchListSize,
+            (uint32_t *)&vvcpTileCommandsSize,
+            (uint32_t *)&vvcpTilePatchListSize));
+    }
+
+    if (m_cpInterface)
+    {
+        m_cpInterface->GetCpSliceLevelCmdSize(cpCmdsize, cpPatchListSize);
+    }
+
+    //Calc final command size
+    *sliceCommandsSize  = vvcpSliceCommandsSize + cpCmdsize;
+    *slicePatchListSize = vvcpSlicePatchListSize + cpPatchListSize;
+    *tileCommandsSize   = vvcpTileCommandsSize;
+    *tilePatchListSize  = vvcpTilePatchListSize;
+
+    return MOS_STATUS_SUCCESS;
 }
 
 MOS_STATUS CodechalHwInterfaceNext::AddHucDummyStreamOut(
@@ -594,4 +905,330 @@ MOS_STATUS CodechalHwInterfaceNext::PerformHucStreamOut(
     }
 
     return eStatus;
+}
+
+MOS_STATUS CodechalHwInterfaceNext::ReadHcpStatus(
+    MHW_VDBOX_NODE_IND vdboxIndex,
+    const EncodeStatusReadParams &params,
+    PMOS_COMMAND_BUFFER cmdBuffer)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    CODEC_HW_FUNCTION_ENTER;;
+
+    CODEC_HW_CHK_NULL_RETURN(cmdBuffer);
+
+    CODEC_HW_CHK_COND_RETURN((vdboxIndex > GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
+
+    auto &par1           = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
+    par1                 = {};
+    CODEC_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer));
+
+    auto mmioRegisters = m_hcpItf->GetMmioRegisters(vdboxIndex);
+
+    auto &par2           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
+    par2                 = {};
+    par2.presStoreBuffer = params.resBitstreamByteCountPerFrame;
+    par2.dwOffset        = params.bitstreamByteCountPerFrameOffset;
+    par2.dwRegister      = mmioRegisters->hcpEncBitstreamBytecountFrameRegOffset;
+    CODEC_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+
+    auto &par3           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
+    par3                 = {};
+    par3.presStoreBuffer = params.resBitstreamSyntaxElementOnlyBitCount;
+    par3.dwOffset        = params.bitstreamSyntaxElementOnlyBitCountOffset;
+    par3.dwRegister      = mmioRegisters->hcpEncBitstreamSeBitcountFrameRegOffset;
+    CODEC_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+
+    auto &par4           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
+    par4                 = {};
+    par4.presStoreBuffer = params.resQpStatusCount;
+    par4.dwOffset        = params.qpStatusCountOffset;
+    par4.dwRegister      = mmioRegisters->hcpEncQpStatusCountRegOffset;
+    CODEC_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+
+    return eStatus;
+}
+
+MOS_STATUS CodechalHwInterfaceNext::ReadImageStatusForHcp(
+    MHW_VDBOX_NODE_IND vdboxIndex,
+    const EncodeStatusReadParams &params,
+    PMOS_COMMAND_BUFFER cmdBuffer)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    CODEC_HW_FUNCTION_ENTER;
+
+    CODEC_HW_CHK_NULL_RETURN(cmdBuffer);
+
+    CODEC_HW_CHK_COND_RETURN((vdboxIndex > GetMaxVdboxIndex()),"ERROR - vdbox index exceed the maximum");
+
+    auto mmioRegisters = m_hcpItf->GetMmioRegisters(vdboxIndex);
+
+    auto &par1           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
+    par1                 = {};
+    par1.presStoreBuffer = params.resImageStatusMask;
+    par1.dwOffset        = params.imageStatusMaskOffset;
+    par1.dwRegister      = mmioRegisters->hcpEncImageStatusMaskRegOffset;
+    CODEC_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+
+    auto &par2           = m_miItf->MHW_GETPAR_F(MI_STORE_REGISTER_MEM)();
+    par2                 = {};
+    par2.presStoreBuffer = params.resImageStatusCtrl;
+    par2.dwOffset        = params.imageStatusCtrlOffset;
+    par2.dwRegister      = mmioRegisters->hcpEncImageStatusCtrlRegOffset;
+    CODEC_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_STORE_REGISTER_MEM)(cmdBuffer));
+
+    auto &par3           = m_miItf->MHW_GETPAR_F(MI_FLUSH_DW)();
+    par3                 = {};
+    CODEC_HW_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_FLUSH_DW)(cmdBuffer));
+
+    return eStatus;
+}
+
+MOS_STATUS CodechalHwInterfaceNext::SetRowstoreCachingOffsets(
+    PMHW_VDBOX_ROWSTORE_PARAMS rowstoreParams)
+{
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+
+    CODEC_HW_FUNCTION_ENTER;
+
+    if (m_vdencItf)
+    {
+        mhw::vdbox::vdenc::RowStorePar par = {};
+        if (rowstoreParams->Mode == CODECHAL_ENCODE_MODE_AVC)
+        {
+            par.mode    = mhw::vdbox::vdenc::RowStorePar::AVC;
+            par.isField = !rowstoreParams->bIsFrame;
+        }
+        else if (rowstoreParams->Mode == CODECHAL_ENCODE_MODE_VP9)
+        {
+            par.mode = mhw::vdbox::vdenc::RowStorePar::VP9;
+            par.bitDepth = mhw::vdbox::vdenc::RowStorePar::DEPTH_8;
+            if (rowstoreParams->ucBitDepthMinus8 == 1 || rowstoreParams->ucBitDepthMinus8 == 2)
+            {
+                par.bitDepth = mhw::vdbox::vdenc::RowStorePar::DEPTH_10;
+            }
+            else if (rowstoreParams->ucBitDepthMinus8 > 2)
+            {
+                par.bitDepth = mhw::vdbox::vdenc::RowStorePar::DEPTH_12;
+            }
+            par.frameWidth = rowstoreParams->dwPicWidth;
+            switch (rowstoreParams->ucChromaFormat)
+            {
+            case HCP_CHROMA_FORMAT_MONOCHROME:
+                par.format = mhw ::vdbox::vdenc::RowStorePar::MONOCHROME;
+                break;
+            case HCP_CHROMA_FORMAT_YUV420:
+                par.format = mhw ::vdbox::vdenc::RowStorePar::YUV420;
+                break;
+            case HCP_CHROMA_FORMAT_YUV422:
+                par.format = mhw ::vdbox::vdenc::RowStorePar::YUV422;
+                break;
+            case HCP_CHROMA_FORMAT_YUV444:
+                par.format = mhw ::vdbox::vdenc::RowStorePar::YUV444;
+                break;
+            }
+        }
+        else if (rowstoreParams->Mode == CODECHAL_ENCODE_MODE_HEVC)
+        {
+            par.mode = mhw::vdbox::vdenc::RowStorePar::HEVC;
+            par.bitDepth = mhw::vdbox::vdenc::RowStorePar::DEPTH_8;
+            if (rowstoreParams->ucBitDepthMinus8 == 1 || rowstoreParams->ucBitDepthMinus8 == 2)
+            {
+                par.bitDepth = mhw::vdbox::vdenc::RowStorePar::DEPTH_10;
+            }
+            else if (rowstoreParams->ucBitDepthMinus8 > 2)
+            {
+                par.bitDepth = mhw::vdbox::vdenc::RowStorePar::DEPTH_12;
+            }
+            par.lcuSize = mhw ::vdbox::vdenc::RowStorePar::SIZE_OTHER;
+            if (rowstoreParams->ucLCUSize == 32)
+            {
+                par.lcuSize = mhw ::vdbox::vdenc::RowStorePar::SIZE_32;
+            }
+            else if (rowstoreParams->ucLCUSize == 64)
+            {
+                par.lcuSize = mhw ::vdbox::vdenc::RowStorePar::SIZE_64;
+            }
+            par.frameWidth = rowstoreParams->dwPicWidth;
+            switch (rowstoreParams->ucChromaFormat)
+            {
+            case HCP_CHROMA_FORMAT_MONOCHROME:
+                par.format = mhw ::vdbox::vdenc::RowStorePar::MONOCHROME;
+                break;
+            case HCP_CHROMA_FORMAT_YUV420:
+                par.format = mhw ::vdbox::vdenc::RowStorePar::YUV420;
+                break;
+            case HCP_CHROMA_FORMAT_YUV422:
+                par.format = mhw ::vdbox::vdenc::RowStorePar::YUV422;
+                break;
+            case HCP_CHROMA_FORMAT_YUV444:
+                par.format = mhw ::vdbox::vdenc::RowStorePar::YUV444;
+                break;
+            }
+        }
+        else if (rowstoreParams->Mode == CODECHAL_ENCODE_MODE_AV1)
+        {
+            par.mode = mhw::vdbox::vdenc::RowStorePar::AV1;
+        }
+        CODEC_HW_CHK_STATUS_RETURN(m_vdencItf->SetRowstoreCachingOffsets(par));
+    }
+    if (m_mfxItf)
+    {
+        CODEC_HW_CHK_STATUS_RETURN(m_mfxItf->GetRowstoreCachingAddrs(rowstoreParams));
+    }
+    if (m_hcpItf)
+    {
+        mhw::vdbox::hcp::HcpVdboxRowStorePar rowstoreParamsHCP = {};
+        rowstoreParamsHCP.Mode             = rowstoreParams->Mode;
+        rowstoreParamsHCP.dwPicWidth       = rowstoreParams->dwPicWidth;
+        rowstoreParamsHCP.ucChromaFormat   = rowstoreParams->ucChromaFormat;
+        rowstoreParamsHCP.ucBitDepthMinus8 = rowstoreParams->ucBitDepthMinus8;
+        rowstoreParamsHCP.ucLCUSize        = rowstoreParams->ucLCUSize;
+        CODEC_HW_CHK_STATUS_RETURN(m_hcpItf->SetRowstoreCachingOffsets(rowstoreParamsHCP));
+    }
+    if (m_avpItf)
+    {
+        mhw::vdbox::avp::AvpVdboxRowStorePar rowstoreParamsAVP = {};
+        rowstoreParamsAVP.picWidth       = rowstoreParams->dwPicWidth;
+        rowstoreParamsAVP.mbaff          = rowstoreParams->bMbaff;
+        rowstoreParamsAVP.mode           = rowstoreParams->Mode;
+        rowstoreParamsAVP.bitDepthMinus8 = rowstoreParams->ucBitDepthMinus8;
+        rowstoreParamsAVP.chromaFormat   = rowstoreParams->ucChromaFormat;
+        CODEC_HW_CHK_STATUS_RETURN(m_avpItf->GetRowstoreCachingAddrs(rowstoreParamsAVP));
+    }
+
+    if (m_vvcpItf != nullptr)
+    {
+        CODEC_HW_CHK_STATUS_RETURN(m_vvcpItf->GetRowstoreCachingAddrs(rowstoreParams));
+    }
+
+    return eStatus;
+}
+
+MOS_STATUS CodechalHwInterfaceNext::InitL3CacheSettings()
+{
+    CODEC_HW_FUNCTION_ENTER;
+
+    // Get default L3 cache settings
+    CODEC_HW_CHK_STATUS_RETURN(m_renderItf->EnableL3Caching(nullptr));
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    // Override default L3 cache settings
+    auto l3CacheConfig =
+        m_renderItf->GetL3CacheConfig();
+    mhw::render::MHW_RENDER_ENGINE_L3_CACHE_SETTINGS l3Overrides = {};
+    l3Overrides.dwTcCntlReg =
+        static_cast<mhw::render::MHW_RENDER_ENGINE_L3_CACHE_CONFIG *>(l3CacheConfig)->dwL3CacheTcCntlReg_Setting;
+    l3Overrides.dwAllocReg =
+        static_cast<mhw::render::MHW_RENDER_ENGINE_L3_CACHE_CONFIG *>(l3CacheConfig)->dwL3CacheAllocReg_Setting;
+    CODEC_HW_CHK_STATUS_RETURN(InitL3ControlUserFeatureSettings(
+        l3CacheConfig,
+        &l3Overrides));
+    CODEC_HW_CHK_STATUS_RETURN(m_renderItf->EnableL3Caching(
+        &l3Overrides));
+#endif  // (_DEBUG || _RELEASE_INTERNAL)
+
+    return MOS_STATUS_SUCCESS;
+}
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+MOS_STATUS CodechalHwInterfaceNext::InitL3ControlUserFeatureSettings(
+    mhw::render::MHW_RENDER_ENGINE_L3_CACHE_CONFIG   *l3CacheConfig,
+    mhw::render::MHW_RENDER_ENGINE_L3_CACHE_SETTINGS *l3Overrides)
+{
+    CODEC_HW_FUNCTION_ENTER;
+
+    CODEC_HW_CHK_NULL_RETURN(l3CacheConfig);
+    CODEC_HW_CHK_NULL_RETURN(l3Overrides);
+
+    MediaUserSetting::Value outValue;
+    ReadUserSettingForDebug(
+        m_userSettingPtr,
+        outValue,
+        "Encode L3CNTLREG Override",
+        MediaUserSetting::Group::Device,
+        l3CacheConfig->dwL3CacheCntlReg_Setting,
+        true);
+    l3Overrides->dwCntlReg = outValue.Get<uint32_t>();
+
+    ReadUserSettingForDebug(
+        m_userSettingPtr,
+        outValue,
+        "Encode L3CNTLREG2 Override",
+        MediaUserSetting::Group::Device,
+        l3CacheConfig->dwL3CacheCntlReg2_Setting,
+        true);
+    l3Overrides->dwCntlReg2 = outValue.Get<uint32_t>();
+
+    ReadUserSettingForDebug(
+        m_userSettingPtr,
+        outValue,
+        "Encode L3CNTLREG3 Override",
+        MediaUserSetting::Group::Device,
+        l3CacheConfig->dwL3CacheCntlReg3_Setting,
+        true);
+    l3Overrides->dwCntlReg3 = outValue.Get<uint32_t>();
+
+    ReadUserSettingForDebug(
+        m_userSettingPtr,
+        outValue,
+        "Encode L3SQCREG1 Override",
+        MediaUserSetting::Group::Device,
+        l3CacheConfig->dwL3CacheSqcReg1_Setting,
+        true);
+    l3Overrides->dwSqcReg1 = outValue.Get<uint32_t>();
+
+    ReadUserSettingForDebug(
+        m_userSettingPtr,
+        outValue,
+        "Encode L3SQCREG4 Override",
+        MediaUserSetting::Group::Device,
+        l3CacheConfig->dwL3CacheSqcReg4_Setting,
+        true);
+    l3Overrides->dwSqcReg4 = outValue.Get<uint32_t>();
+
+    ReadUserSettingForDebug(
+        m_userSettingPtr,
+        outValue,
+        "L3LRA1RegOverride",
+        MediaUserSetting::Group::Device,
+        l3CacheConfig->dwL3LRA1Reg_Setting,
+        true);
+    l3Overrides->dwLra1Reg = outValue.Get<uint32_t>();
+
+    return MOS_STATUS_SUCCESS;
+}
+#endif  // _DEBUG || _RELEASE_INTERNAL
+
+MmioRegistersMfx *CodechalHwInterfaceNext::SelectVdAndGetMmioReg(
+    MHW_VDBOX_NODE_IND  index,
+    PMOS_COMMAND_BUFFER pCmdBuffer)
+{
+    if (m_getVdboxNodeByUMD)
+    {
+        pCmdBuffer->iVdboxNodeIndex = m_osInterface->pfnGetVdboxNodeId(m_osInterface, pCmdBuffer);
+        switch (pCmdBuffer->iVdboxNodeIndex)
+        {
+        case MOS_VDBOX_NODE_1:
+            index = MHW_VDBOX_NODE_1;
+            break;
+        case MOS_VDBOX_NODE_2:
+            index = MHW_VDBOX_NODE_2;
+            break;
+        case MOS_VDBOX_NODE_INVALID:
+            // That's a legal case meaning that we were not assigned with per-bb index because
+            // balancing algorithm can't work (forcedly diabled or miss kernel support).
+            // If that's the case we just proceed with the further static context assignment.
+            break;
+        default:
+            // That's the case when MHW and MOS enumerations mismatch. We again proceed with the
+            // best effort (static context assignment, but provide debug note).
+            MHW_ASSERTMESSAGE("MOS and MHW VDBOX enumerations mismatch! Adjust HW description!");
+            break;
+        }
+    }
+
+    return m_vdencItf->GetMmioRegisters(index);
 }

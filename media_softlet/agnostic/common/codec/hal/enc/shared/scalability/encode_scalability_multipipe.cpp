@@ -31,14 +31,16 @@
 #include "media_status_report.h"
 #include "mhw_utilities.h"
 #include "encode_status_report_defs.h"
-#include "hal_oca_interface.h"
+#include "hal_oca_interface_next.h"
+#include "mos_os_virtualengine_next.h"
+#include "mos_interface.h"
 
 namespace encode
 {
 EncodeScalabilityMultiPipe::EncodeScalabilityMultiPipe(void *hwInterface, MediaContext *mediaContext, uint8_t componentType) :
     MediaScalabilityMultiPipe(mediaContext)
 {
-    m_hwInterface   = (CodechalHwInterface *)hwInterface;
+    m_hwInterface   = (CodechalHwInterfaceNext *)hwInterface;
     m_componentType = componentType;
 }
 
@@ -95,7 +97,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::AllocateSemaphore()
             &m_resSemaphoreOnePipeWait[i],
             &lockFlagsWriteOnly);
         SCALABILITY_CHK_NULL_RETURN(data);
-        *data = 1;
+        *data = 0;
         SCALABILITY_CHK_STATUS_RETURN(m_osInterface->pfnUnlockResource(
             m_osInterface,
             &m_resSemaphoreOnePipeWait[i]));
@@ -163,22 +165,27 @@ MOS_STATUS EncodeScalabilityMultiPipe::Initialize(const MediaScalabilityOption &
     SCALABILITY_CHK_NULL_RETURN(m_osInterface);
     m_miItf = m_hwInterface->GetMiInterfaceNext();
     SCALABILITY_CHK_NULL_RETURN(m_miItf);
+    m_userSettingPtr = m_osInterface->pfnGetUserSettingInstance(m_osInterface);
+    if (!m_userSettingPtr)
+    {
+        ENCODE_NORMALMESSAGE("Initialize m_userSettingPtr instance failed!");
+    }
 
     m_scalabilityOption = MOS_New(EncodeScalabilityOption, (const EncodeScalabilityOption &)option);
     SCALABILITY_CHK_NULL_RETURN(m_scalabilityOption);
 
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
-    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
-    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
-    auto statusKey = MOS_UserFeature_ReadValue_ID(
-        nullptr,
-        __MEDIA_USER_FEATURE_VALUE_ENCODE_ENABLE_FRAME_TRACKING_ID,
-        &userFeatureData,
-        m_osInterface->pOsContext);
+    MediaUserSetting::Value outValue;
+    auto statusKey = ReadUserSetting(
+                        m_userSettingPtr,
+                        outValue,
+                        "Enable Frame Tracking",
+                        MediaUserSetting::Group::Sequence);
+
     if (statusKey == MOS_STATUS_SUCCESS)
     {
-        m_frameTrackingEnabled = userFeatureData.i32Data ? true : false;
+        m_frameTrackingEnabled = outValue.Get<bool>();
     }
     else
     {
@@ -196,12 +203,10 @@ MOS_STATUS EncodeScalabilityMultiPipe::Initialize(const MediaScalabilityOption &
     veInitParms.ucNumOfSdryCmdBufSets          = 16;
     veInitParms.ucMaxNumOfSdryCmdBufInOneFrame = veInitParms.ucMaxNumPipesInUse * m_maxNumBRCPasses;
 
+    SCALABILITY_CHK_STATUS_RETURN(m_osInterface->pfnVirtualEngineInit(m_osInterface, &m_veHitParams, veInitParms));
     SCALABILITY_CHK_NULL_RETURN(m_osInterface->osStreamState);
-    SCALABILITY_CHK_STATUS_RETURN(MosInterface::CreateVirtualEngineState(
-        m_osInterface->osStreamState, &veInitParms, m_veState));
+    m_veState = m_osInterface->osStreamState->virtualEngineInterface;
     SCALABILITY_CHK_NULL_RETURN(m_veState);
-        
-    SCALABILITY_CHK_STATUS_RETURN(MosInterface::GetVeHintParams(m_osInterface->osStreamState, true, &m_veHitParams));
     SCALABILITY_CHK_NULL_RETURN(m_veHitParams);
 
     m_pipeNum = m_scalabilityOption->GetNumPipe();
@@ -227,10 +232,10 @@ MOS_STATUS EncodeScalabilityMultiPipe::Initialize(const MediaScalabilityOption &
     if (m_osInterface->bEnableDbgOvrdInVE)
     {
         gpuCtxCreateOption->DebugOverride = true;
-        for (uint32_t i = 0; i < MosInterface::GetVeEngineCount(m_osInterface->osStreamState); i++)
+        for (uint32_t i = 0; i < m_osInterface->pfnGetVeEngineCount(m_osInterface->osStreamState); i++)
         {
             gpuCtxCreateOption->EngineInstance[i] =
-                MosInterface::GetEngineLogicId(m_osInterface->osStreamState, i);
+                m_osInterface->pfnGetEngineLogicIdByIdx(m_osInterface->osStreamState, i);
         }
     }
 #endif
@@ -238,6 +243,9 @@ MOS_STATUS EncodeScalabilityMultiPipe::Initialize(const MediaScalabilityOption &
 
     //Allocate and init for semaphores
     SCALABILITY_CHK_STATUS_RETURN(AllocateSemaphore());
+
+    //Update encoder scalability status
+    SCALABILITY_CHK_STATUS_RETURN(m_osInterface->pfnSetMultiEngineEnabled(m_osInterface, COMPONENT_Encode, true));
     return eStatus;
 }
 
@@ -287,6 +295,8 @@ MOS_STATUS EncodeScalabilityMultiPipe::Destroy()
 
     m_osInterface->pfnFreeResource(m_osInterface, &m_resDelayMinus);
 
+    SCALABILITY_CHK_STATUS_RETURN(m_osInterface->pfnSetMultiEngineEnabled(m_osInterface, COMPONENT_Encode, false));
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -318,7 +328,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::VerifySpaceAvailable(uint32_t requestedSi
     {
         SCALABILITY_CHK_STATUS_RETURN(MediaScalability::VerifySpaceAvailable(
             requestedSize, requestedPatchListSize, bothPatchListAndCmdBufChkSuccess));
-        if (bothPatchListAndCmdBufChkSuccess = true)
+        if (bothPatchListAndCmdBufChkSuccess == true)
         {
             singleTaskPhaseSupportedInPak = m_singleTaskPhaseSupported;
             return eStatus;
@@ -366,8 +376,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::VerifyCmdBuffer(uint32_t requestedSize, u
         
         
         //Verify 2nd level BB;
-        uint32_t bufIdxPlus1 = m_singleTaskPhaseSupported ? currentPipeVerify : currentPipeVerify + m_pipeNum * m_currentPass;  //Make CMD buffer one next to one.
-        bufIdxPlus1 += 1;
+        uint32_t bufIdxPlus1 = currentPipeVerify + 1;  //Make CMD buffer one next to one.
         
         eStatus = MOS_STATUS_NO_SPACE;
         for (auto i = 0; (i < 3) && (eStatus != MOS_STATUS_SUCCESS); i++)
@@ -416,8 +425,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::GetCmdBuffer(PMOS_COMMAND_BUFFER cmdBuffe
     }
 
     SCALABILITY_CHK_STATUS_RETURN(m_osInterface->pfnGetCommandBuffer(m_osInterface, &m_primaryCmdBuffer, 0));
-    uint32_t bufIdxPlus1 = m_singleTaskPhaseSupported ? m_currentPipe : m_currentPipe + m_pipeNum * m_currentPass;  //Make CMD buffer one next to one.
-    bufIdxPlus1 += 1;
+    uint32_t bufIdxPlus1 = m_currentPipe + 1;  //Make CMD buffer one next to one.
     m_osInterface->pfnGetCommandBuffer(m_osInterface, &m_secondaryCmdBuffer[bufIdxPlus1 - 1], bufIdxPlus1);
 
     if (m_osInterface->apoMosEnabled)
@@ -428,8 +436,8 @@ MOS_STATUS EncodeScalabilityMultiPipe::GetCmdBuffer(PMOS_COMMAND_BUFFER cmdBuffe
             submissionType |= SUBMISSION_TYPE_MULTI_PIPE_FLAGS_LAST_PIPE;
         }
         SCALABILITY_CHK_NULL_RETURN(m_osInterface->osStreamState);
-        SCALABILITY_CHK_STATUS_RETURN(MosInterface::SetVeSubmissionType(
-            m_osInterface->osStreamState, &(m_secondaryCmdBuffer[bufIdxPlus1 - 1]), submissionType));
+        SCALABILITY_CHK_NULL_RETURN(m_osInterface->osStreamState->virtualEngineInterface);
+        SCALABILITY_CHK_STATUS_RETURN(m_osInterface->osStreamState->virtualEngineInterface->SetSubmissionType(&(m_secondaryCmdBuffer[bufIdxPlus1 - 1]), submissionType));
     }
     else
     {
@@ -473,10 +481,10 @@ MOS_STATUS EncodeScalabilityMultiPipe::ReturnCmdBuffer(PMOS_COMMAND_BUFFER cmdBu
         SCALABILITY_ASSERTMESSAGE("Verify Command buffer failed with invalid parameter:currentPass!");
         return eStatus;
     }
-    uint32_t bufIdxPlus1 = m_singleTaskPhaseSupported ? m_currentPipe : m_currentPipe + m_pipeNum * m_currentPass;  //Make CMD buffer one next to one.
-    bufIdxPlus1 += 1;
+    uint32_t bufIdxPlus1 = m_currentPipe + 1;  //Make CMD buffer one next to one.
     m_secondaryCmdBuffer[bufIdxPlus1 - 1] = *cmdBuffer;  //Need to record the iOffset, ptr and other data of CMD buffer, it's not maintain in the mos.
     m_osInterface->pfnReturnCommandBuffer(m_osInterface, &m_secondaryCmdBuffer[bufIdxPlus1 - 1], bufIdxPlus1);
+    m_primaryCmdBuffer.Attributes.bFrequencyBoost |= cmdBuffer->Attributes.bFrequencyBoost;
     m_osInterface->pfnReturnCommandBuffer(m_osInterface, &m_primaryCmdBuffer, 0);
     return eStatus;
 }
@@ -484,7 +492,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::SetHintParams()
 {
     SCALABILITY_FUNCTION_ENTER;
 
-    SCALABILITY_CHK_NULL_RETURN(m_osInterface->osStreamState);
+    SCALABILITY_CHK_NULL_RETURN(m_osInterface);
 
     MOS_STATUS                   eStatus = MOS_STATUS_SUCCESS;
     MOS_VIRTUALENGINE_SET_PARAMS veParams;
@@ -493,8 +501,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::SetHintParams()
     veParams.ucScalablePipeNum = m_pipeNum;
     veParams.bScalableMode     = true;
 
-    SCALABILITY_CHK_STATUS_RETURN(MosInterface::SetVeHintParams(m_osInterface->osStreamState, &veParams));
-
+    SCALABILITY_CHK_STATUS_RETURN(m_osInterface->pfnSetHintParams(m_osInterface, &veParams));
     return eStatus;
 }
 MOS_STATUS EncodeScalabilityMultiPipe::PopulateHintParams(PMOS_COMMAND_BUFFER cmdBuffer)
@@ -502,9 +509,10 @@ MOS_STATUS EncodeScalabilityMultiPipe::PopulateHintParams(PMOS_COMMAND_BUFFER cm
     SCALABILITY_FUNCTION_ENTER;
     SCALABILITY_CHK_NULL_RETURN(cmdBuffer);
     SCALABILITY_CHK_NULL_RETURN(m_veHitParams);
+    SCALABILITY_CHK_NULL_RETURN(m_osInterface);
 
     MOS_STATUS            eStatus  = MOS_STATUS_SUCCESS;
-    PMOS_CMD_BUF_ATTRI_VE attriVe  = MosInterface::GetAttributeVeBuffer(cmdBuffer);
+    PMOS_CMD_BUF_ATTRI_VE attriVe  = m_osInterface->pfnGetAttributeVeBuffer(cmdBuffer);
     if (attriVe)
     {
         attriVe->VEngineHintParams     = *(m_veHitParams);
@@ -531,8 +539,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::SubmitCmdBuffer(PMOS_COMMAND_BUFFER cmdBu
     // Add BB end for every secondary cmd buf when ready for submit
     for (uint32_t pipe = 0; pipe < m_pipeNum; pipe++)
     {
-        uint32_t bufIdxPlus1 = m_singleTaskPhaseSupported ? pipe : pipe + m_pipeNum * m_currentPass;
-        bufIdxPlus1 += 1;
+        uint32_t bufIdxPlus1 = pipe + 1;
 
         MOS_COMMAND_BUFFER& cmdBufferToAddBbEnd = m_secondaryCmdBuffer[bufIdxPlus1 - 1];
         SCALABILITY_CHK_STATUS_RETURN(m_osInterface->pfnGetCommandBuffer(m_osInterface, &cmdBufferToAddBbEnd, bufIdxPlus1));
@@ -674,11 +681,11 @@ MOS_STATUS EncodeScalabilityMultiPipe::ResetSemaphore(uint32_t syncType, uint32_
         }
         break;
     case syncOnePipeWaitOthers:
-        if (!Mos_ResourceIsNull(&m_resSemaphoreOnePipeWait[m_currentPipe]))
+        if (!Mos_ResourceIsNull(&m_resSemaphoreOnePipeWait[semaphoreId]))
         {
             SCALABILITY_CHK_STATUS_RETURN(
                 m_hwInterface->SendMiStoreDataImm(
-                    &m_resSemaphoreOnePipeWait[m_currentPipe],
+                    &m_resSemaphoreOnePipeWait[semaphoreId],
                     0,
                     cmdBuffer));
         }
@@ -715,7 +722,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::UpdateState(void *statePars)
     SCALABILITY_FUNCTION_ENTER;
     MOS_STATUS   eStatus         = MOS_STATUS_SUCCESS;
     StateParams *encodeStatePars = (StateParams *)statePars;
-    if (encodeStatePars->currentPipe < 0 || encodeStatePars->currentPipe >= m_pipeNum)
+    if (encodeStatePars->currentPipe >= m_pipeNum)
     {
         eStatus = MOS_STATUS_INVALID_PARAMETER;
         SCALABILITY_ASSERTMESSAGE("UpdateState failed with invalid parameter:currentPipe!");
@@ -749,7 +756,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::SendAttrWithFrameTracking(
 
     // initialize command buffer attributes
     cmdBuffer.Attributes.bTurboMode               = m_hwInterface->m_turboMode;
-    cmdBuffer.Attributes.bMediaPreemptionEnabled  = renderEngineUsed ? m_hwInterface->GetRenderInterface()->IsPreemptionEnabled() : 0;
+    cmdBuffer.Attributes.bMediaPreemptionEnabled  = renderEngineUsed ? m_hwInterface->GetRenderInterfaceNext()->IsPreemptionEnabled() : 0;
     cmdBuffer.Attributes.dwNumRequestedEUSlices   = m_hwInterface->m_numRequestedEuSlices;
     cmdBuffer.Attributes.dwNumRequestedSubSlices  = m_hwInterface->m_numRequestedSubSlices;
     cmdBuffer.Attributes.dwNumRequestedEUs        = m_hwInterface->m_numRequestedEus;
@@ -823,9 +830,11 @@ MOS_STATUS EncodeScalabilityMultiPipe::Oca1stLevelBBStart(MOS_COMMAND_BUFFER &cm
 {
     MHW_MI_MMIOREGISTERS mmioRegister;
     SCALABILITY_CHK_NULL_RETURN(m_hwInterface);
-    MhwVdboxMfxInterface *mfxInterface = m_hwInterface->GetMfxInterface();
-    SCALABILITY_CHK_NULL_RETURN(mfxInterface);
-    bool validMmio = mfxInterface->ConvertToMiRegister(MHW_VDBOX_NODE_1, mmioRegister);
+
+    auto vdencItf = m_hwInterface->GetVdencInterfaceNext();
+    SCALABILITY_CHK_NULL_RETURN(vdencItf);
+    bool validMmio = vdencItf->ConvertToMiRegister(MHW_VDBOX_NODE_1, mmioRegister);
+
     if (validMmio)
     {
         SCALABILITY_CHK_NULL_RETURN(m_osInterface);
@@ -833,7 +842,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::Oca1stLevelBBStart(MOS_COMMAND_BUFFER &cm
 
         HalOcaInterfaceNext::On1stLevelBBStart(
             cmdBuffer,
-            *m_osInterface->pOsContext,
+            (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext,
             m_osInterface->CurrentGpuContextHandle,
             m_miItf,
             mmioRegister);
@@ -845,7 +854,7 @@ MOS_STATUS EncodeScalabilityMultiPipe::Oca1stLevelBBStart(MOS_COMMAND_BUFFER &cm
 MOS_STATUS EncodeScalabilityMultiPipe::Oca1stLevelBBEnd(MOS_COMMAND_BUFFER &cmdBuffer)
 {
     SCALABILITY_CHK_NULL_RETURN(m_osInterface);
-    HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
+    HalOcaInterfaceNext::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
 
     return MOS_STATUS_SUCCESS;
 }

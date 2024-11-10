@@ -32,6 +32,8 @@
 #include "decode_utils.h"
 #include "decode_avc_basic_feature.h"
 #include "decode_downsampling_packet.h"
+#include "mhw_vdbox_g12_X.h"
+#include "codechal_hw_g12_X.h"
 
 namespace decode
 {
@@ -42,10 +44,13 @@ namespace decode
         //! \brief  AvcDecodePicPkt constructor
         //!
         AvcDecodePicPktXe_M_Base(AvcPipeline *pipeline, CodechalHwInterface *hwInterface)
-            : DecodeSubPacket(pipeline, hwInterface), m_avcPipeline(pipeline)
+            : DecodeSubPacket(pipeline, *hwInterface), m_avcPipeline(pipeline)
         {
+            m_hwInterface = hwInterface;
             if (m_hwInterface != nullptr)
             {
+                m_miInterface  = m_hwInterface->GetMiInterface();
+                m_osInterface  = m_hwInterface->GetOsInterface();
                 m_mfxInterface  =  static_cast<CodechalHwInterfaceG12*>(hwInterface)->GetMfxInterface();
             }
         }
@@ -139,16 +144,9 @@ namespace decode
         //! \return MOS_STATUS
         //!         MOS_STATUS_SUCCESS if success, else fail reason
         //!
-        MOS_STATUS DumpResources(MHW_VDBOX_PIPE_BUF_ADDR_PARAMS& pipeBufAddrParams);
+        MOS_STATUS DumpResources(MHW_VDBOX_PIPE_BUF_ADDR_PARAMS &pipeBufAddrParams);
 
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-        //!
-        //! \brief  Trace Dump Ref Resources
-        //! \return MOS_STATUS
-        //!         MOS_STATUS_SUCCESS if success, else fail reason
-        //!
-        MOS_STATUS TraceDataDumpReferences(MHW_VDBOX_PIPE_BUF_ADDR_PARAMS &pipeBufAddrParams);
-#endif
+        MOS_STATUS DumpResources(MHW_VDBOX_AVC_DIRECTMODE_PARAMS &avcDirectmodeParams, uint32_t mvBufferSize);
 
 #ifdef _DECODE_PROCESSING_SUPPORTED
         DecodeDownSamplingFeature *m_downSamplingFeature = nullptr;
@@ -175,10 +173,10 @@ namespace decode
         uint32_t m_picturePatchListSize        = 0;    //!< Picture patch list size
         uint16_t m_picWidthInMbLastMaxAlloced  = 0;    //!< Max Picture Width in MB  used for buffer allocation in past frames
         uint16_t m_picHeightInMbLastMaxAlloced = 0;    //!< Max Picture Height in MB used for buffer allocation in past frames
-        
-#if MOS_EVENT_TRACE_DUMP_SUPPORTED
-        PMOS_SURFACE m_tempRefSurf = nullptr;
-#endif
+
+        CodechalHwInterface *m_hwInterface = nullptr;
+        MhwMiInterface      *m_miInterface = nullptr;
+
     MEDIA_CLASS_DEFINE_END(decode__AvcDecodePicPktXe_M_Base)
     };
 

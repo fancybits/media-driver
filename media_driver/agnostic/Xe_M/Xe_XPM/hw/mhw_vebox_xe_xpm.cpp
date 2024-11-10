@@ -383,7 +383,7 @@ MOS_STATUS MhwVeboxInterfaceXe_Xpm::AddVeboxDiIecp(
         MHW_NORMALMESSAGE("VEBOX%d STATE: output startx %d endx %d", m_indexofVebox, cmd.DW24.OutputStartingX, cmd.DW24.OutputEndingX);
     }
 
-    Mos_AddCommand(pCmdBuffer, &cmd, cmd.byteSize);
+    pOsInterface->pfnAddCommand(pCmdBuffer, &cmd, cmd.byteSize);
 
 finish:
     return eStatus;
@@ -513,6 +513,8 @@ MOS_STATUS MhwVeboxInterfaceXe_Xpm::CreateGpuContext(
 {
     MEDIA_FEATURE_TABLE *skuTable;
     MOS_STATUS          eStatus = MOS_STATUS_SUCCESS;
+    MOS_GPUCTX_CREATOPTIONS_ENHANCED createOptionenhanced;
+    MEDIA_SYSTEM_INFO* pGtSystemInfo = nullptr;
 
     MHW_CHK_NULL(pOsInterface);
 
@@ -525,43 +527,20 @@ MOS_STATUS MhwVeboxInterfaceXe_Xpm::CreateGpuContext(
         pOsInterface->ctxBasedScheduling = true;
     }
 #endif
+    Mos_SetVirtualEngineSupported(pOsInterface, true);
+    pOsInterface->pfnVirtualEngineSupported(pOsInterface, true, true);
 
-    if (!MOS_VE_CTXBASEDSCHEDULING_SUPPORTED(pOsInterface))
-    {
-        MOS_GPUCTX_CREATOPTIONS createOption;
+    pGtSystemInfo = pOsInterface->pfnGetGtSystemInfo(pOsInterface);
+    MHW_CHK_NULL(pGtSystemInfo);
 
-        // Create VEBOX/VEBOX2 Context
-        MHW_CHK_STATUS(pOsInterface->pfnCreateGpuContext(
-            pOsInterface,
-            VeboxGpuContext,
-            VeboxGpuNode,
-            &createOption));
-    }
-    else
-    {
-        MOS_GPUCTX_CREATOPTIONS_ENHANCED createOptionenhanced;
-        MEDIA_SYSTEM_INFO*               pGtSystemInfo;
+    createOptionenhanced.LRCACount = pGtSystemInfo->VEBoxInfo.NumberOfVEBoxEnabled;
 
-        pGtSystemInfo = pOsInterface->pfnGetGtSystemInfo(pOsInterface);
-        MHW_CHK_NULL(pGtSystemInfo);
-
-        if (pOsInterface->ctxBasedScheduling)
-        {
-            createOptionenhanced.LRCACount = pGtSystemInfo->VEBoxInfo.NumberOfVEBoxEnabled;
-        }
-        else
-        {
-            createOptionenhanced.LRCACount = 1;
-            createOptionenhanced.UsingSFC  = true;
-        }
-
-        // Create VEBOX/VEBOX2 Context
-        MHW_CHK_STATUS(pOsInterface->pfnCreateGpuContext(
-            pOsInterface,
-            VeboxGpuContext,
-            VeboxGpuNode,
-            &createOptionenhanced));
-    }
+    // Create VEBOX/VEBOX2 Context
+    MHW_CHK_STATUS(pOsInterface->pfnCreateGpuContext(
+        pOsInterface,
+        VeboxGpuContext,
+        VeboxGpuNode,
+        &createOptionenhanced));
 
 finish:
     return eStatus;
@@ -596,7 +575,7 @@ MOS_STATUS MhwVeboxInterfaceXe_Xpm::AddVeboxSurfaces(
         false,
         pVeboxSurfaceStateCmdParams->bDIEnable,
         pVeboxSurfaceStateCmdParams->b3DlutEnable);
-    Mos_AddCommand(pCmdBuffer, &cmd1, cmd1.byteSize);
+    m_osInterface->pfnAddCommand(pCmdBuffer, &cmd1, cmd1.byteSize);
 
     // Setup Surface State for Output surface
     if (bOutputValid)
@@ -619,7 +598,7 @@ MOS_STATUS MhwVeboxInterfaceXe_Xpm::AddVeboxSurfaces(
             cmd2.DW3.SurfaceFormat = cmd1.DW3.SurfaceFormat;
         }
 
-        Mos_AddCommand(pCmdBuffer, &cmd2, cmd2.byteSize);
+        m_osInterface->pfnAddCommand(pCmdBuffer, &cmd2, cmd2.byteSize);
     }
 
 finish:

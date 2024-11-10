@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2022, Intel Corporation
+* Copyright (c) 2019-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -91,7 +91,7 @@ inline uint32_t GetUseInterVsSkipSADWinner(uint32_t MrgCand8x8DepEn, uint32_t Mr
 class Av1VdencPkt : public CmdPacket, public MediaStatusReportObserver, public mhw::vdbox::vdenc::Itf::ParSetting, public mhw::vdbox::avp::Itf::ParSetting
 {
 public:
-    Av1VdencPkt(MediaPipeline* pipeline, MediaTask* task, CodechalHwInterface* hwInterface);
+    Av1VdencPkt(MediaPipeline* pipeline, MediaTask* task, CodechalHwInterfaceNext* hwInterface);
     virtual ~Av1VdencPkt() {}
 
     //!
@@ -117,10 +117,7 @@ public:
     //!
     MOS_STATUS Destroy() override;
 
-    virtual MOS_STATUS Submit(MOS_COMMAND_BUFFER *commandBuffer, uint8_t packetPhase = otherPacket) override
-    {
-        return MOS_STATUS_SUCCESS;
-    }
+    virtual MOS_STATUS Submit(MOS_COMMAND_BUFFER *commandBuffer, uint8_t packetPhase = otherPacket) override;
 
     //!
     //! \brief  One frame is completed
@@ -166,6 +163,16 @@ public:
     }
 
 protected:
+#if USE_CODECHAL_DEBUG_TOOL
+    //!
+    //! \brief  Dump input resources or infomation before submit
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS DumpInput();
+
+    virtual MOS_STATUS DumpStatistics();
+#endif
 
     virtual MOS_STATUS AllocateResources();
 
@@ -173,7 +180,7 @@ protected:
         uint32_t            srType,
         MOS_COMMAND_BUFFER *cmdBuffer) override;
 
-    MOS_STATUS EndStatusReport(
+    virtual MOS_STATUS EndStatusReport(
         uint32_t           srType,
         MOS_COMMAND_BUFFER *cmdBuffer) override;
 
@@ -181,8 +188,24 @@ protected:
         MHW_VDBOX_NODE_IND vdboxIndex,
         MediaStatusReport  *statusReport,
         MOS_COMMAND_BUFFER &cmdBuffer);
+    
+    virtual MOS_STATUS AddOneTileCommands(
+        MOS_COMMAND_BUFFER  &cmdBuffer,
+        uint32_t            tileRow,
+        uint32_t            tileCol,
+        uint32_t            tileRowPass = 0) = 0;
+
+    virtual MOS_STATUS EnsureAllCommandsExecuted(MOS_COMMAND_BUFFER &cmdBuffer) = 0;
+
+    virtual MOS_STATUS RegisterPostCdef() = 0;
+
+    virtual MOS_STATUS PatchTileLevelCommands(MOS_COMMAND_BUFFER &cmdBuffer, uint8_t packetPhase);
 
     MOS_STATUS AddCondBBEndFor2ndPass(MOS_COMMAND_BUFFER &cmdBuffer);
+
+    virtual MOS_STATUS Construct3rdLevelBatch();
+
+    virtual MOS_STATUS UpdateUserFeatureKey(PMOS_SURFACE surface);
 
     virtual MOS_STATUS UpdateStatusReport(uint32_t srType, MOS_COMMAND_BUFFER *cmdBuffer) override;
 
@@ -225,6 +248,8 @@ protected:
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
     virtual MOS_STATUS CalculateAvpCommandsSize();
+    virtual MOS_STATUS AddPictureVdencCommands(MOS_COMMAND_BUFFER &cmdBuffer);
+    virtual MOS_STATUS PatchPictureLevelCommands(const uint8_t &packetPhase, MOS_COMMAND_BUFFER &cmdBuffer);
 
 #if USE_CODECHAL_DEBUG_TOOL
     //! \brief    Dump the output resources in status report callback function
@@ -247,8 +272,7 @@ protected:
 
     // Interfaces
     EncodeAllocator                 *m_allocator        = nullptr;
-    PMOS_INTERFACE                   m_osInterface      = nullptr;
-    CodechalHwInterface             *m_hwInterface      = nullptr;
+    CodechalHwInterfaceNext         *m_hwInterface      = nullptr;
     CodechalHwInterfaceNext         *m_hwInterfaceNext  = nullptr;
     EncodeMemComp                   *m_mmcState         = nullptr;
     Av1BasicFeature                 *m_basicFeature     = nullptr;              //!< Encode parameters used in each frame
@@ -267,6 +291,7 @@ protected:
 
     AtomicScratchBufferAv1 m_atomicScratchBuf = {};  //!< Stores atomic operands and result
 
+    bool m_userFeatureUpdated_post_cdef                 = false;    //!< Inidate if mmc user feature key for post cdef is updated
     bool m_vdencPakObjCmdStreamOutEnabled               = false;    //!< Pakobj stream out enable flag
     PMOS_RESOURCE m_resCumulativeCuCountStreamoutBuffer = nullptr;  //!< Cumulative CU count stream out buffer
     PMOS_RESOURCE m_vdencIntraRowStoreScratch           = nullptr;
@@ -298,6 +323,8 @@ protected:
 
     MOS_STATUS ReadPakMmioRegisters(PMOS_COMMAND_BUFFER cmdBuf, bool firstTile);
 
+    MOS_STATUS ReadPakMmioRegistersAtomic(PMOS_COMMAND_BUFFER cmdBuf);
+
     MHW_SETPAR_DECL_HDR(VD_PIPELINE_FLUSH);
 
     MHW_SETPAR_DECL_HDR(VDENC_PIPE_MODE_SELECT);
@@ -310,7 +337,21 @@ protected:
 
     MHW_SETPAR_DECL_HDR(AVP_PIPE_MODE_SELECT);
 
+    MHW_SETPAR_DECL_HDR(AVP_PIPE_BUF_ADDR_STATE);
+
+    MHW_SETPAR_DECL_HDR(AVP_IND_OBJ_BASE_ADDR_STATE);
+
+    MHW_SETPAR_DECL_HDR(AVP_PIC_STATE);
+
+    MHW_SETPAR_DECL_HDR(AVP_TILE_CODING);
+
     virtual MOS_STATUS AddAllCmds_AVP_SURFACE_STATE(PMOS_COMMAND_BUFFER cmdBuffer) const;
+
+    virtual MOS_STATUS AddAllCmds_AVP_PAK_INSERT_OBJECT(PMOS_COMMAND_BUFFER cmdBuffer) const;
+
+    virtual MOS_STATUS AddAllCmds_AVP_PIPE_MODE_SELECT(PMOS_COMMAND_BUFFER cmdBuffer) const;
+
+    virtual MOS_STATUS AddAllCmds_AVP_SEGMENT_STATE(PMOS_COMMAND_BUFFER cmdBuffer) const;
 
     virtual MOS_STATUS GetVdencStateCommandsDataSize(uint32_t *commandsSize, uint32_t *patchListSize) const;
 
@@ -318,7 +359,21 @@ protected:
 
     virtual MOS_STATUS GetAvpPrimitiveCommandsDataSize(uint32_t *commandsSize, uint32_t *patchListSize) const;
 
-MEDIA_CLASS_DEFINE_END(encode__Av1VdencPkt)
+    virtual MOS_STATUS PrepareHWMetaData(MOS_COMMAND_BUFFER *cmdBuffer);
+
+    virtual MOS_STATUS PrepareHWMetaDataFromStreamout(MOS_COMMAND_BUFFER *cmdBuffer, const MetaDataOffset resourceOffset, const AV1MetaDataOffset AV1ResourceOffset);
+
+    virtual MOS_STATUS PrepareHWMetaDataFromRegister(MOS_COMMAND_BUFFER *cmdBuffer, const MetaDataOffset resourceOffset);
+
+    virtual MOS_STATUS PrepareHWMetaDataFromDriver(MOS_COMMAND_BUFFER *cmdBuffer, const MetaDataOffset resourceOffset, const AV1MetaDataOffset AV1ResourceOffset);
+
+    virtual MOS_STATUS readBRCMetaDataFromSLBB(MOS_COMMAND_BUFFER *cmdBuffer, PMOS_RESOURCE presDst, uint32_t dstOffset, PMOS_RESOURCE presSrc, uint32_t srcOffset, uint32_t significantBits);
+
+    virtual MOS_STATUS PrepareHWMetaDataFromStreamoutTileLevel(MOS_COMMAND_BUFFER *cmdBuffer, uint32_t tileCol, uint32_t tileRow);
+
+    inline MOS_STATUS CalAtomic(PMOS_RESOURCE presDst, uint32_t dstOffset, PMOS_RESOURCE presSrc, uint32_t srcOffset, mhw::mi::MHW_COMMON_MI_ATOMIC_OPCODE opCode, MOS_COMMAND_BUFFER *cmdBuffer);
+
+    MEDIA_CLASS_DEFINE_END(encode__Av1VdencPkt)
 };
 
 }  // namespace encode

@@ -31,7 +31,7 @@
 
 #include "decode_allocator.h"
 #include "decode_utils.h"
-#include "codechal_hw.h"
+#include "codec_hw_next.h"
 
 namespace decode {
 
@@ -40,9 +40,9 @@ class BufferOpInf
 {
 public:
     virtual ~BufferOpInf() {}
-    virtual MOS_STATUS Init(CodechalHwInterface& hwInterface, DecodeAllocator& allocator, BasicFeature& basicFeature)
+    virtual MOS_STATUS Init(void *hwInterface, DecodeAllocator &allocator, BasicFeature &basicFeature)
     {
-        m_hwInterface  = &hwInterface;
+        m_hwInterface  = hwInterface;
         m_allocator    = &allocator;
         m_basicFeature = &basicFeature;
         return MOS_STATUS_SUCCESS;
@@ -54,8 +54,7 @@ public:
     virtual bool IsAvailable(BufferType* &buffer) { return true; }
     virtual void Destroy(BufferType* &buffer) = 0;
 
-protected:
-    CodechalHwInterface* m_hwInterface  = nullptr;
+    void*                m_hwInterface  = nullptr;
     DecodeAllocator*     m_allocator    = nullptr;
     BasicFeature*        m_basicFeature = nullptr;
 
@@ -69,7 +68,8 @@ public:
     //!
     //! \brief  RefrenceAssociatedBuffer constructor
     //!
-    RefrenceAssociatedBuffer() {};
+    RefrenceAssociatedBuffer() 
+    {};
 
     //!
     //! \brief  RefrenceAssociatedBuffer deconstructor
@@ -104,7 +104,7 @@ public:
     //! \return  MOS_STATUS
     //!         MOS_STATUS_SUCCESS if success, else fail reason
     //!
-    MOS_STATUS Init(CodechalHwInterface& hwInterface, DecodeAllocator& allocator, BasicFeature& basicFeature,
+    MOS_STATUS Init(void* hwInterface, DecodeAllocator& allocator, BasicFeature& basicFeature,
                     uint32_t initialAllocNum)
     {
         DECODE_FUNC_CALL();

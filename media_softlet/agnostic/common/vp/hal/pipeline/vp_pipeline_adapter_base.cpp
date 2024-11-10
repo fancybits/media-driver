@@ -28,13 +28,15 @@
 #include "vp_pipeline_adapter_base.h"
 #include "media_interfaces_vphal.h"
 #include "vp_platform_interface.h"
-#include "vphal_debug.h"
-#include "media_interfaces_mhw_next.h"
+#include "vp_debug.h"
+#include "vp_user_setting.h"
 #include "renderhal_platform_interface.h"
+#include "vp_user_feature_control.h"
 
 VpPipelineAdapterBase::VpPipelineAdapterBase(
     vp::VpPlatformInterface &vpPlatformInterface,
-    MOS_STATUS &eStatus):
+    MOS_STATUS              &eStatus,
+    bool                    clearViewMode) :
     m_vpPlatformInterface(vpPlatformInterface)
 {
     m_osInterface = m_vpPlatformInterface.GetOsInterface();
@@ -42,7 +44,8 @@ VpPipelineAdapterBase::VpPipelineAdapterBase(
     {
         m_userSettingPtr = m_osInterface->pfnGetUserSettingInstance(m_osInterface);
     }
-    VpUtils::DeclareUserSettings(m_userSettingPtr);
+    VpUserSetting::InitVpUserSetting(m_userSettingPtr, clearViewMode);
+
     eStatus = MOS_STATUS_SUCCESS;
 }
 
@@ -50,8 +53,13 @@ MOS_STATUS VpPipelineAdapterBase::GetVpMhwInterface(
     VP_MHWINTERFACE &vpMhwinterface)
 {
     VP_FUNC_CALL();
-    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
+    MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
+    bool       sfcNeeded                          = false;
+    bool       veboxNeeded                        = false;
+    std::shared_ptr<mhw::vebox::Itf> veboxItf     = nullptr;
+    std::shared_ptr<mhw::sfc::Itf>   sfcItf       = nullptr;
+    std::shared_ptr<mhw::mi::Itf>    miItf        = nullptr;
     m_osInterface = m_vpPlatformInterface.GetOsInterface();
     if (m_osInterface == nullptr)
     {
@@ -67,8 +75,7 @@ MOS_STATUS VpPipelineAdapterBase::GetVpMhwInterface(
     m_vprenderHal = (PRENDERHAL_INTERFACE)MOS_AllocAndZeroMemory(sizeof(*m_vprenderHal));
     if (m_vprenderHal == nullptr)
     {
-        eStatus = MOS_STATUS_NULL_POINTER;
-        return eStatus;
+        VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_NULL_POINTER);
     }
 
     eStatus = RenderHal_InitInterface(
@@ -84,37 +91,21 @@ MOS_STATUS VpPipelineAdapterBase::GetVpMhwInterface(
         return eStatus;
     }
 
-    if (MEDIA_IS_SKU(m_skuTable, FtrVERing) ||
-        MEDIA_IS_SKU(m_skuTable, FtrSFCPipe))
+    veboxNeeded = MEDIA_IS_SKU(m_skuTable, FtrVERing);
+    sfcNeeded   = MEDIA_IS_SKU(m_skuTable, FtrSFCPipe);
+    SetMhwMiItf(m_vprenderHal->pRenderHalPltInterface->GetMhwMiItf());
+    if ((veboxNeeded || sfcNeeded) && !m_clearVideoViewMode)
     {
-        MhwInterfacesNext *mhwInterfaces = nullptr;
-        MhwInterfacesNext::CreateParams params;
-        MOS_ZeroMemory(&params, sizeof(params));
-        params.Flags.m_sfc   = MEDIA_IS_SKU(m_skuTable, FtrSFCPipe);
-        params.Flags.m_vebox = MEDIA_IS_SKU(m_skuTable, FtrVERing);
-
-        mhwInterfaces = MhwInterfacesNext::CreateFactory(params, m_osInterface);
-        if (mhwInterfaces)
+        eStatus = VphalDevice::CreateVPMhwInterfaces(sfcNeeded, veboxNeeded, veboxItf, sfcItf, miItf, m_osInterface);
+        if (eStatus == MOS_STATUS_SUCCESS)
         {
-            SetMhwVeboxItf(mhwInterfaces->m_veboxItf);
-            SetMhwSfcItf(mhwInterfaces->m_sfcItf);
-#if EMUL
-            SetMhwMiItf(mhwInterfaces->m_miItf);
-#else
-            SetMhwMiItf(m_vprenderHal->pRenderHalPltInterface->GetMhwMiItf());
-#endif
-
-            // MhwInterfaces always create CP and MI interfaces, so we have to delete those we don't need.
-            MOS_Delete(mhwInterfaces->m_miInterface);
-            Delete_MhwCpInterface(mhwInterfaces->m_cpInterface);
-            mhwInterfaces->m_cpInterface = nullptr;
-            MOS_Delete(mhwInterfaces);
+            SetMhwVeboxItf(veboxItf);
+            SetMhwSfcItf(sfcItf);
         }
         else
         {
             VP_PUBLIC_ASSERTMESSAGE("Allocate MhwInterfaces failed");
-            eStatus = MOS_STATUS_NO_SPACE;
-            return eStatus;
+            VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_NO_SPACE);
         }
     }
 
@@ -136,6 +127,14 @@ MOS_STATUS VpPipelineAdapterBase::GetVpMhwInterface(
 VpPipelineAdapterBase::~VpPipelineAdapterBase()
 {
     MOS_STATUS eStatus;
+
+    // Wait for all cmd before destroy gpu resource
+    if (m_osInterface && m_osInterface->pfnWaitAllCmdCompletion && m_osInterface->bDeallocateOnExit)
+    {
+        VP_PUBLIC_NORMALMESSAGE("WaitAllCmdCompletion in VpPipelineAdapterBase::~VpPipelineAdapterBase");
+        m_osInterface->pfnWaitAllCmdCompletion(m_osInterface);
+    }
+
     if (m_vprenderHal)
     {
         VPHAL_DBG_OCA_DUMPER_DESTORY(m_vprenderHal);
@@ -152,8 +151,15 @@ VpPipelineAdapterBase::~VpPipelineAdapterBase()
 
     if (m_cpInterface)
     {
-        Delete_MhwCpInterface(m_cpInterface);
-        m_cpInterface = nullptr;
+        if (m_osInterface)
+        {
+            m_osInterface->pfnDeleteMhwCpInterface(m_cpInterface);
+            m_cpInterface = nullptr;
+        }
+        else
+        {
+            VP_PUBLIC_ASSERTMESSAGE("Failed to destroy cpInterface.");
+        }
     }
 
     if (m_sfcItf)
@@ -220,7 +226,14 @@ MOS_STATUS VpPipelineAdapterBase::GetStatusReport(
     pStatusTable = &m_statusTable;
     uiNewHead    = pStatusTable->uiHead;  // uiNewHead start from previous head value
     // entry length from head to tail
-    uiTableLen = (pStatusTable->uiCurrent - pStatusTable->uiHead) & (VPHAL_STATUS_TABLE_MAX_SIZE - 1);
+    if (pStatusTable->uiCurrent < pStatusTable->uiHead)
+    {
+        uiTableLen = pStatusTable->uiCurrent + VPHAL_STATUS_TABLE_MAX_SIZE - pStatusTable->uiHead;
+    }
+    else
+    {
+        uiTableLen = pStatusTable->uiCurrent - pStatusTable->uiHead;
+    }
 
     // step 1 - update pStatusEntry from driver if command associated with the dwTag is done by gpu
     for (i = 0; i < wStatusNum && i < uiTableLen; i++)
@@ -321,7 +334,15 @@ MOS_STATUS VpPipelineAdapterBase::GetStatusReportEntryLength(
     pStatusTable = &m_statusTable;
 
     // entry length from head to tail
-    *puiLength = (pStatusTable->uiCurrent - pStatusTable->uiHead) & (VPHAL_STATUS_TABLE_MAX_SIZE - 1);
+    if (pStatusTable->uiCurrent < pStatusTable->uiHead)
+    {
+        *puiLength = pStatusTable->uiCurrent + VPHAL_STATUS_TABLE_MAX_SIZE - pStatusTable->uiHead;
+    }
+    else
+    {
+        *puiLength = pStatusTable->uiCurrent - pStatusTable->uiHead;
+    }
+    
 finish:
 #else
     MOS_UNUSED(puiLength);

@@ -34,7 +34,6 @@
 
 extern template class MediaFactory<uint32_t, MhwInterfaces>;
 extern template class MediaFactory<uint32_t, MmdDevice>;
-extern template class MediaFactory<uint32_t, MosUtilDevice>;
 extern template class MediaFactory<uint32_t, CodechalDevice>;
 extern template class MediaFactory<uint32_t, CMHalDevice>;
 extern template class MediaFactory<uint32_t, VphalDevice>;
@@ -48,14 +47,13 @@ Register<VphalInterfacesG11JslEhl>((uint32_t)IGFX_JASPERLAKE);
 
 MOS_STATUS VphalInterfacesG11JslEhl::Initialize(
     PMOS_INTERFACE  osInterface,
-    PMOS_CONTEXT    osDriverContext,
     bool            bInitVphalState,
-    MOS_STATUS      *eStatus)
+    MOS_STATUS      *eStatus,
+    bool            clearViewMode)
 {
     m_vpBase = MOS_New(
         VphalState,
         osInterface,
-        osDriverContext,
         eStatus);
 
     return *eStatus;
@@ -93,7 +91,7 @@ MOS_STATUS MhwInterfacesG11JslEhl::Initialize(
 
     // MHW_CP and MHW_MI must always be created
     MOS_STATUS status;
-    m_cpInterface = Create_MhwCpInterface(osInterface);
+    m_cpInterface = osInterface->pfnCreateMhwCpInterface(osInterface);
     m_miInterface = MOS_New(Mi, m_cpInterface, osInterface);
 
     if (params.Flags.m_render)
@@ -424,40 +422,6 @@ MOS_STATUS CMHalInterfacesG11JslEhl::Initialize(CM_HAL_STATE *pCmState)
     m_cmhalDevice->AddSupportedCisaIDs(&cisaID);
     m_cmhalDevice->SetOverridePowerOptionPerGpuContext(true);
     m_cmhalDevice->SetDecompressFlag(true);
-    return MOS_STATUS_SUCCESS;
-}
-
-static bool jslEhlRegisteredMosUtil =
-    MediaFactory<uint32_t, MosUtilDevice>::
-    Register<MosUtilDeviceG11JslEhl>((uint32_t)IGFX_JASPERLAKE);
-
-MOS_STATUS MosUtilDeviceG11JslEhl::Initialize()
-{
-#define MOSUTIL_FAILURE()                                       \
-{                                                           \
-    if (device != nullptr)                                  \
-    {                                                       \
-        delete device;                                      \
-    }                                                       \
-    return MOS_STATUS_NO_SPACE;                             \
-}
-
-    MosUtil *device = nullptr;
-
-    device = MOS_New(MosUtil);
-
-    if (device == nullptr)
-    {
-        MOSUTIL_FAILURE();
-    }
-
-    if (device->Initialize() != MOS_STATUS_SUCCESS)
-    {
-        MOSUTIL_FAILURE();
-    }
-
-    m_mosUtilDevice = device;
-
     return MOS_STATUS_SUCCESS;
 }
 

@@ -30,7 +30,7 @@ namespace encode {
     MOS_STATUS Av1BackAnnotationPkt::Init()
     {
         ENCODE_FUNC_CALL();
-        ENCODE_CHK_STATUS_RETURN(EncodeHucBasic::Init());
+        ENCODE_CHK_STATUS_RETURN(EncodeHucPkt::Init());
 
         m_basicFeature = dynamic_cast<Av1BasicFeature *>(m_featureManager->GetFeature(Av1FeatureIDs::basicFeature));
         ENCODE_CHK_NULL_RETURN(m_basicFeature);
@@ -46,7 +46,7 @@ namespace encode {
 
     MOS_STATUS Av1BackAnnotationPkt::AllocateResources()
     {
-        ENCODE_CHK_STATUS_RETURN(EncodeHucBasic::AllocateResources());
+        ENCODE_CHK_STATUS_RETURN(EncodeHucPkt::AllocateResources());
 
         MOS_ALLOC_GFXRES_PARAMS allocParamsForBufferLinear;
         MOS_ZeroMemory(&allocParamsForBufferLinear, sizeof(MOS_ALLOC_GFXRES_PARAMS));
@@ -61,11 +61,11 @@ namespace encode {
                 // BRC update DMEM
                 allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_vdencbackAnnotationDmemBufferSize, CODECHAL_CACHELINE_SIZE);
                 allocParamsForBufferLinear.pBufName = "AV1 Back Annotation Dmem Buffer";
-                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
+                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_WRITE;
                 m_vdencBackAnnotationDmemBuffer[k][i] = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
 
                 allocParamsForBufferLinear.dwBytes = MOS_ALIGN_CEIL(m_vdencAv1HucCtrlBufferSize, CODECHAL_CACHELINE_SIZE);
-                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_CACHE;
+                allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_WRITE;
                 allocParamsForBufferLinear.pBufName = "AV1 Back Annotation Huc Ctrl Buffer";
                 m_vdencAv1HucCtrlBuffer[k][i] = m_allocator->AllocateResource(allocParamsForBufferLinear, true);
             }
@@ -100,66 +100,6 @@ namespace encode {
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS Av1BackAnnotationPkt::SetHucPipeModeSelectParameters()
-    {
-        HUC_CHK_NULL_RETURN(m_featureManager);
-        EncodeBasicFeature *basicFeature = dynamic_cast<EncodeBasicFeature *>(m_featureManager->GetFeature(Av1FeatureIDs::basicFeature));
-        HUC_CHK_NULL_RETURN(basicFeature);
-
-        MOS_ZeroMemory(&m_pipeModeSelectParams, sizeof(m_pipeModeSelectParams));
-        m_pipeModeSelectParams.Mode = basicFeature->m_mode;
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS Av1BackAnnotationPkt::SetImemParameters()
-    {
-        ENCODE_FUNC_CALL();
-
-        MOS_ZeroMemory(&m_imemParams, sizeof(m_imemParams));
-        m_imemParams.dwKernelDescriptor = m_vdboxHucBackAnnonationKernelDescriptor;
-
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS Av1BackAnnotationPkt::SetDmemParameters()
-    {
-        ENCODE_FUNC_CALL();
-        MOS_ZeroMemory(&m_dmemParams, sizeof(m_dmemParams));
-
-        ENCODE_CHK_STATUS_RETURN(SetDmemBuffer());
-
-        int32_t currentPass = m_pipeline->GetCurrentPass();
-        m_dmemParams.presHucDataSource = m_vdencBackAnnotationDmemBuffer[m_pipeline->m_currRecycledBufIdx][currentPass];
-        m_dmemParams.dwDataLength = MOS_ALIGN_CEIL(m_vdencbackAnnotationDmemBufferSize, CODECHAL_CACHELINE_SIZE);
-        m_dmemParams.dwDmemOffset = HUC_DMEM_OFFSET_RTOS_GEMS;
-        return MOS_STATUS_SUCCESS;
-    }
-
-    MOS_STATUS Av1BackAnnotationPkt::SetRegions()
-    {
-        ENCODE_FUNC_CALL();
-        MOS_ZeroMemory(&m_virtualAddrParams, sizeof(m_virtualAddrParams));
-
-        uint32_t statBufIdx = 0;
-        RUN_FEATURE_INTERFACE_RETURN(Av1EncodeTile, Av1FeatureIDs::encodeTile, GetStatisticsBufferIndex, statBufIdx);
-
-        MOS_RESOURCE *tileRecordBuffer = nullptr;
-        RUN_FEATURE_INTERFACE_RETURN(Av1EncodeTile, Av1FeatureIDs::encodeTile, GetTileRecordBuffer, statBufIdx, tileRecordBuffer);
-
-        ENCODE_CHK_STATUS_RETURN(SetHucCtrlBuffer());
-
-        int32_t currentPass = m_pipeline->GetCurrentPass();
-
-        m_virtualAddrParams.regionParams[0].presRegion = tileRecordBuffer;
-        m_virtualAddrParams.regionParams[0].isWritable = false;
-        m_virtualAddrParams.regionParams[3].presRegion = &m_basicFeature->m_resBitstreamBuffer;
-        m_virtualAddrParams.regionParams[3].isWritable = true;
-        m_virtualAddrParams.regionParams[4].presRegion = m_vdencAv1HucCtrlBuffer[m_pipeline->m_currRecycledBufIdx][currentPass];
-        m_virtualAddrParams.regionParams[4].isWritable = false;
-
-        return MOS_STATUS_SUCCESS;
-    }
-
     MOS_STATUS Av1BackAnnotationPkt::CalculateCommandSize(uint32_t &commandBufferSize, uint32_t &requestedPatchListSize)
     {
         ENCODE_FUNC_CALL();
@@ -171,11 +111,8 @@ namespace encode {
         uint32_t hucPatchListSize = 0;
         MHW_VDBOX_STATE_CMDSIZE_PARAMS stateCmdSizeParams;
 
-        if (m_hwInterface->m_hwInterfaceNext)
-        {
-            ENCODE_CHK_STATUS_RETURN(m_hwInterface->m_hwInterfaceNext->GetHucStateCommandSize(
-                m_basicFeature->m_mode, (uint32_t*)&hucCommandsSize, (uint32_t*)&hucPatchListSize, &stateCmdSizeParams));
-        }
+        ENCODE_CHK_STATUS_RETURN(m_hwInterface->GetHucStateCommandSize(
+            m_basicFeature->m_mode, (uint32_t*)&hucCommandsSize, (uint32_t*)&hucPatchListSize, &stateCmdSizeParams));
 
         commandBufferSize = hucCommandsSize;
         requestedPatchListSize = osInterface->bUsesPatchList ? hucPatchListSize : 0;
@@ -264,7 +201,7 @@ namespace encode {
             return MOS_STATUS_SUCCESS;
         }
 
-        ENCODE_CHK_STATUS_RETURN(EncodeHucBasic::Completed(mfxStatus, rcsStatus, statusReport));
+        ENCODE_CHK_STATUS_RETURN(EncodeHucPkt::Completed(mfxStatus, rcsStatus, statusReport));
 
         EncodeStatusMfx *       encodeStatusMfx  = (EncodeStatusMfx *)mfxStatus;
         EncodeStatusReportData *statusReportData = (EncodeStatusReportData *)statusReport;
@@ -285,9 +222,9 @@ namespace encode {
         ENCODE_CHK_NULL_RETURN(tileRecord);
 
         uint32_t obuSizeBytesOffset = 0;
-        if (m_basicFeature->m_av1PicParams->PicFlags.fields.EnableFrameOBU)
+        if (statusReportData->av1EnableFrameOBU)
         {
-            obuSizeBytesOffset = m_basicFeature->m_frameHdrOBUSizeByteOffset[statBufIdx % ASYNC_NUM];
+            obuSizeBytesOffset = statusReportData->av1FrameHdrOBUSizeByteOffset;
         }
         else
         {
@@ -332,7 +269,7 @@ namespace encode {
             streamSizePerTG += payLoadSize;
 
             //needs to decode the size from the one passed by MSDK
-            if (m_basicFeature->m_av1PicParams->PicFlags.fields.EnableFrameOBU)
+            if (statusReportData->av1EnableFrameOBU)
             {
                 uint32_t frameHdrObuSize = tileRecord[0].Length - tileRecord[0].TileSize - obuSizeBytesOffset -
                     m_numBytesOfOBUSize - 1/*tile group OBU header size*/ - tileGroupParams->TileGroupOBUSizeInBytes;

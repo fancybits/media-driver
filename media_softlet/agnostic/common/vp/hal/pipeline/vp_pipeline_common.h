@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2022, Intel Corporation
+* Copyright (c) 2018-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -65,11 +65,16 @@ using PCVP_PIPELINE_PARAMS = const VPHAL_RENDER_PARAMS*;
 #define RESOURCE_ASSIGNMENT_HINT_BITS_DENOISE \
     uint32_t isHVSTableNeeded : 1;
 
+#define RESOURCE_ASSIGNMENT_HINT_BITS_STD_ALONE \
+    uint32_t isSkinScoreDumpNeededForSTDonly : 1; \
+    uint32_t isSkinScoreOutputNeededForSTDOnly : 1;
+
 #define RESOURCE_ASSIGNMENT_HINT_BITS           \
         RESOURCE_ASSIGNMENT_HINT_BITS_DI        \
         RESOURCE_ASSIGNMENT_HINT_BITS_SCALING   \
         RESOURCE_ASSIGNMENT_HINT_BITS_HDR       \
-        RESOURCE_ASSIGNMENT_HINT_BITS_DENOISE
+        RESOURCE_ASSIGNMENT_HINT_BITS_DENOISE   \
+        RESOURCE_ASSIGNMENT_HINT_BITS_STD_ALONE
 
 #define RESOURCE_ASSIGNMENT_HINT_SIZE   4
 
@@ -125,6 +130,7 @@ struct _VP_SETTINGS
     uint32_t               kernelUpdate           = 0;                   //!< For VEBox Copy and Update kernels
     uint32_t               disableHdr             = 0;                   //!< Disable Hdr
     uint32_t               veboxParallelExecution = 0;                   //!< Control VEBox parallel execution with render engine
+    bool                   clearVideoViewMode     = 0;                   //!< Perf Optimize for ClearVideoView DDI
 };
 
 using VP_SETTINGS = _VP_SETTINGS;
@@ -138,6 +144,7 @@ struct _VP_EXECUTE_CAPS
             uint64_t bSFC           : 1;   // SFC needed
             uint64_t bRender        : 1;   // Render Only needed
             uint64_t bSecureVebox   : 1;   // Vebox in Secure Mode
+            uint64_t bRenderHdr     : 1;   // Render HDR in use
 
             uint64_t bOutputPipeFeatureInuse : 1; // Output surface of pipeline is in use.
             uint64_t bForceCscToRender : 1; // If true, force to use render for csc.
@@ -151,7 +158,7 @@ struct _VP_EXECUTE_CAPS
             uint64_t bDiProcess2ndField : 1;   // Vebox DI enabled
             uint64_t bDIFmdKernel   : 1;   // Vebox FMD Kernel enabled
             uint64_t bIECP          : 1;   // Vebox IECP needed
-            uint64_t bSTE           : 1;   // Vebox STE needed
+            uint64_t bSTE           : 1;   // Vebox STE or Vebox STD_alone needed
             uint64_t bACE           : 1;   // Vebox ACE needed
             uint64_t bTCC           : 1;   // Vebox TCC needed
             uint64_t bCGC           : 1;   // Vebox CGC needed
@@ -165,11 +172,18 @@ struct _VP_EXECUTE_CAPS
             uint64_t bDnKernelUpdate: 1;
             uint64_t bVeboxSecureCopy : 1;
             uint64_t bHDR3DLUT      : 1;  // Vebox 3DLUT needed
+            uint64_t b1K1DLutInited : 1;
             uint64_t bDV            : 1;
             uint64_t b3DlutOutput   : 1;
+            uint64_t bHdr33lutsize  : 1;
             uint64_t bCappipe       : 1;
             uint64_t bLgca          : 1;
             uint64_t bFDFB          : 1;
+            uint64_t bColorBalance  : 1;
+            uint64_t b1K1DLutInUse  : 1;
+            uint64_t bCcmCsc        : 1;
+            uint64_t bDemosaicInUse : 1;
+            uint64_t enableSFCLinearOutputByTileConvert : 1;  //true if do tileconvert from tileF to linear for SFC linear output
 
             // SFC features
             uint64_t bSfcCsc        : 1;   // Sfc Csc enabled
@@ -184,6 +198,9 @@ struct _VP_EXECUTE_CAPS
             uint64_t b3DLutCalc     : 1;
             uint64_t bHVSCalc       : 1;
             uint64_t bSegmentation  : 1;
+            uint64_t bHdr           : 1;
+            uint64_t bFallbackLegacyFC : 1;     // only valid when vpUserFeatureControl->EnableOclFC() is true
+            uint64_t forceBypassWorkload : 1;  // If true, force to bypass workload.
         };
         uint64_t value;
     };
@@ -197,39 +214,53 @@ typedef struct _VP_EngineEntry
     {
         struct
         {
-            uint32_t bEnabled : 1;
-            uint32_t SfcNeeded : 1;
-            uint32_t VeboxNeeded : 1;
-            uint32_t RenderNeeded : 1;
-            uint32_t fcSupported : 1;           // Supported by fast composition
-            uint32_t isolated : 1;              // Only support single feature.
-            uint32_t bypassIfVeboxSfcInUse : 1; // Bypass the feature if vebox or sfc in use. In such case, VeboxNeeded and
+            // set by GetXxxExecuteCaps
+            uint64_t bEnabled : 1;
+            uint64_t SfcNeeded : 1;
+            uint64_t VeboxNeeded : 1;
+            uint64_t RenderNeeded : 1;
+            uint64_t hdrKernelNeeded : 1;
+            uint64_t fcSupported : 1;           // Supported by fast composition
+            uint64_t hdrKernelSupported : 1;    // Supported by Hdr Kenrel
+            uint64_t isolated : 1;              // Only support single feature.
+            uint64_t bt2020ToRGB : 1;           // true if bt2020 to rgb
+            uint64_t is1K1DLutSurfaceInUse : 1;  // 1K1DLut surface in use
+            uint64_t isHdr33LutSizeEnabled : 1;
+            uint64_t isBayerInputInUse : 1;
+            uint64_t forceLegacyFC : 1;          // true if OCL FC not support the format, fall back to legacy FC
+
+            // set by GetXxxPipeEnginCaps
+            uint64_t bypassIfVeboxSfcInUse : 1;  // Bypass the feature if vebox or sfc in use. In such case, VeboxNeeded and
                                                 // SfcNeeded are 0 but it should not block vebox or sfc being selected. 
-            uint32_t forceEnableForSfc : 1;     // Force enabled when sfc being selected.
-            uint32_t forceEnableForFc  : 1;     // Force enabled when fc being selected.
-            uint32_t nonFcFeatureExists : 1;    // The feature exists, which do not support fc
-            uint32_t nonVeboxFeatureExists : 1; // The feature exists, which do not support vebox
-            uint32_t fcOnlyFeatureExists : 1;   // The feature exists, which only support render fc, and not support vebox/sfc.
-            uint32_t multiPassNeeded : 1;       // If true, multi-pass for frame processing is needed.
-            uint32_t VeboxARGBOut : 1;
-            uint32_t VeboxARGB10bitOutput : 1;
-            uint32_t VeboxIECPNeeded : 1;
-            uint32_t bypassVeboxFeatures : 1;
-            uint32_t diProcess2ndField : 1;
-            uint32_t sfc2PassScalingNeededX : 1;
-            uint32_t sfc2PassScalingNeededY : 1;
-            uint32_t usedForNextPass : 1;       // true if current feature should be bypassed for current pass and be processed during next pass.
-            uint32_t sfcNotSupported : 1;       // true if sfc cannot be selected.
-            uint32_t veboxNotSupported : 1;     // true if vebox cannot be selected.
-            uint32_t isOutputPipeNeeded : 1;    // true if the feature is used for parameter calculation.
-            uint32_t sfcOnlyFeatureExists : 1;  // The feature exists, which only support sfc.
-            uint32_t bTemperalInputInuse : 1;   // true if replace input
+            uint64_t forceEnableForSfc : 1;  // Force enabled when sfc being selected.
+            uint64_t forceEnableForFc : 1;   // Force enabled when fc being selected.
+            uint64_t forceEnableForHdrKernel : 1;
+            uint64_t nonFcFeatureExists : 1;     // The feature exists, which do not support fc
+            uint64_t nonVeboxFeatureExists : 1;  // The feature exists, which do not support vebox
+            uint64_t fcOnlyFeatureExists : 1;    // The feature exists, which only support render fc, and not support vebox/sfc.
+            uint64_t multiPassNeeded : 1;        // If true, multi-pass for frame processing is needed.
+            uint64_t VeboxARGBOut : 1;
+            uint64_t VeboxARGB10bitOutput : 1;
+            uint64_t VeboxIECPNeeded : 1;
+            uint64_t bypassVeboxFeatures : 1;
+            uint64_t diProcess2ndField : 1;
+            uint64_t sfc2PassScalingNeededX : 1;
+            uint64_t sfc2PassScalingNeededY : 1;
+            uint64_t usedForNextPass : 1;       // true if current feature should be bypassed for current pass and be processed during next pass.
+            uint64_t sfcNotSupported : 1;       // true if sfc cannot be selected.
+            uint64_t veboxNotSupported : 1;     // true if vebox cannot be selected.
+            uint64_t isOutputPipeNeeded : 1;    // true if the feature is used for parameter calculation.
+            uint64_t sfcOnlyFeatureExists : 1;  // The feature exists, which only support sfc.
+            uint64_t bTemperalInputInuse : 1;   // true if replace input
+            uint64_t outputWithLumaKey : 1;
+            uint64_t enableSFCLinearOutputByTileConvert : 1;  //true if do tileconvert from tileF to linear for SFC linear output
+            uint64_t forceBypassWorkload : 1;   // If true, force to bypass workload.
         };
-        uint32_t value;
+        uint64_t value;
     };
 }VP_EngineEntry;
 
-C_ASSERT(sizeof(_VP_EngineEntry) == sizeof(uint32_t));
+C_ASSERT(sizeof(_VP_EngineEntry) == sizeof(uint64_t));
 
 enum _VP_PACKET_ENGINE
 {
@@ -266,7 +297,6 @@ union RESOURCE_ASSIGNMENT_HINT
     uint32_t value[RESOURCE_ASSIGNMENT_HINT_SIZE];
 };
 
-using PVP_MHWINTERFACE = VP_MHWINTERFACE * ;
 using VP_EXECUTE_CAPS  = _VP_EXECUTE_CAPS;
 using VP_PACKET_ENGINE = _VP_PACKET_ENGINE;
 using PVP_SURFACE      = VP_SURFACE*;

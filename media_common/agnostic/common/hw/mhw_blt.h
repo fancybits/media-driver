@@ -43,6 +43,8 @@ typedef struct _MHW_FAST_COPY_BLT_PARAM
     uint32_t        dwDstBottom;
     uint32_t        dwDstLeft;
     uint32_t        dwDstRight;
+    uint32_t        dwPlaneIndex;
+    uint32_t        dwPlaneNum;
     PMOS_RESOURCE   pSrcOsResource;
     PMOS_RESOURCE   pDstOsResource;
 }MHW_FAST_COPY_BLT_PARAM, *PMHW_FAST_COPY_BLT_PARAM;
@@ -487,6 +489,53 @@ public:
 
      static const size_t dwSize = 1;
      static const size_t byteSize = 4;
+    };
+
+    struct BCS_SWCTRL_XE // just used for XE+
+    {
+        union
+        {
+            struct
+            {
+                /// DWORD 0
+                uint32_t                 Tile4Source : __CODEGEN_BITFIELD(0, 0); ///< U1
+                uint32_t                 Tile4Destination : __CODEGEN_BITFIELD(1, 1); ///< U1
+                uint32_t                 SystemMemoryThrottleThreshold : __CODEGEN_BITFIELD(2, 15); ///< U14
+                uint32_t                 Mask : __CODEGEN_BITFIELD(16, 31); ///< U16
+
+            };
+            uint32_t                     Value;
+        } DW0;
+
+        //////////////////////////////////////////////////////////////////////////
+        /// @name LOCAL ENUMERATIONS
+        /// @{
+        /// @brief U1
+        enum TILE_4_SOURCE
+        {
+            TILE_4_SOURCE_XMAJOR = 0, ///<
+            TILE_4_SOURCE_TILE4 = 1, ///<
+        };
+
+        /// @brief U1
+        enum TILE_4_DESTINATION
+        {
+            TILE_4_DESTINATION_XMAJOR = 0, ///<
+            TILE_4_DESTINATION_TILE4 = 1, ///
+        };
+        /// @brief
+        enum CONSTANTS_TYPE
+        {
+            COMMAND_LENGTH = 1, ///<
+            REGISTER_OFFSET = 0x22200, ///<
+        };
+        //! \name Initializations
+
+        //! \brief Explicit member initialization function
+        BCS_SWCTRL_XE();
+
+        static const size_t dwSize = 1;
+        static const size_t byteSize = 4;
     };
 };
 

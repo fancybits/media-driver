@@ -59,7 +59,8 @@ static struct LinuxCodecInfo iclCodecInfo =
 
 static bool InitIclMediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
     if ((devInfo == nullptr) || (skuTable == nullptr) || (drvInfo == nullptr))
     {
@@ -225,6 +226,10 @@ static bool InitIclMediaWa(struct GfxDeviceInfo *devInfo,
     /*software wa to prevent error propagation for vertical intra refresh on H264 VDEnc*/
     MEDIA_WR_WA(waTable, Wa_18011246551, 1);
 
+    MEDIA_WR_WA(waTable, WaDisableSetObjectCapture, 0);
+
+    MEDIA_WR_WA(waTable, Wa_Vp9UnalignedHeight, 1);
+
     return true;
 }
 
@@ -266,7 +271,8 @@ static struct LinuxCodecInfo ehlCodecInfo =
 
 static bool InitEhlMediaSku(struct GfxDeviceInfo *devInfo,
                              MediaFeatureTable *skuTable,
-                             struct LinuxDriverInfo *drvInfo)
+                             struct LinuxDriverInfo *drvInfo,
+                             MediaUserSettingSharedPtr userSettingPtr)
 {
     if ((devInfo == nullptr) || (skuTable == nullptr) || (drvInfo == nullptr))
     {

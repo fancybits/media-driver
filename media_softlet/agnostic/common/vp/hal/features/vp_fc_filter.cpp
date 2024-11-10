@@ -28,6 +28,7 @@
 #include "vp_render_cmd_packet.h"
 #include "hw_filter.h"
 #include "sw_filter_pipe.h"
+#include "vp_hal_ddi_utils.h"
 #include <vector>
 
 namespace vp {
@@ -88,7 +89,9 @@ MOS_STATUS VpFcFilter::InitLayer(VP_FC_LAYER &layer, bool isInputPipe, int index
     auto &surfGroup             = executedPipe.GetSurfacesSetting().surfGroup;
 
     SurfaceType surfId          = isInputPipe ? (SurfaceType)(SurfaceTypeFcInputLayer0 + index) : SurfaceTypeFcTarget0;
-    layer.surf                  = surfGroup.find(surfId)->second;
+    auto        surfHandle = surfGroup.find(surfId);
+    VP_PUBLIC_CHK_NOT_FOUND_RETURN(surfHandle, &surfGroup);
+    layer.surf = surfHandle->second;
 
     VP_PUBLIC_CHK_NULL_RETURN(layer.surf);
 
@@ -212,9 +215,44 @@ MOS_STATUS VpFcFilter::InitCompParams(VP_COMPOSITE_PARAMS &compParams, SwFilterP
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS VpFcFilter::AdjustParamsBasedOnFcLimit(VP_COMPOSITE_PARAMS &compParams)
+{
+    //The kernel is using the rectangle data to calculate mask. If the rectangle configuration does not comply to kernel requirement, the mask calculation will be incorrect and will see corruption.
+    if (compParams.pColorFillParams == nullptr &&
+        compParams.sourceCount == 1 &&
+        compParams.targetCount == 1 &&
+        compParams.target[0].surf != nullptr &&
+        compParams.source[0].surf != nullptr)
+    {
+        if (compParams.target[0].surf->rcDst.top <= compParams.source[0].surf->rcDst.top &&
+            compParams.target[0].surf->rcDst.left <= compParams.source[0].surf->rcDst.left &&
+            compParams.target[0].surf->rcDst.right >= compParams.source[0].surf->rcDst.right &&
+            compParams.target[0].surf->rcDst.bottom >= compParams.source[0].surf->rcDst.bottom)
+        {
+            VP_RENDER_NORMALMESSAGE("Render Path : 1 Surface to 1 Surface FC Composition. ColorFill is Disabled. Output Dst is bigger than Input Dst. Will make Output Dst become Input Dst to Avoid FC Corruption. (%d %d %d %d) -> (%d %d %d %d)",
+                compParams.target[0].surf->rcDst.left,
+                compParams.target[0].surf->rcDst.top,
+                compParams.target[0].surf->rcDst.right,
+                compParams.target[0].surf->rcDst.bottom,
+                compParams.source[0].surf->rcDst.left,
+                compParams.source[0].surf->rcDst.top,
+                compParams.source[0].surf->rcDst.right,
+                compParams.source[0].surf->rcDst.bottom);
+            compParams.target[0].surf->rcSrc = compParams.source[0].surf->rcDst;
+            compParams.target[0].surf->rcDst = compParams.source[0].surf->rcDst;
+        }
+    }
+
+    return MOS_STATUS_SUCCESS;
+}
+
+
 MOS_STATUS VpFcFilter::CalculateCompParams(VP_COMPOSITE_PARAMS &compParams)
 {
     int layerCount = 0;
+
+    VP_RENDER_CHK_STATUS_RETURN(AdjustParamsBasedOnFcLimit(compParams));
+
     for (uint32_t i = 0; i < compParams.sourceCount; ++i)
     {
         VP_FC_LAYER *layer = &compParams.source[i];
@@ -681,27 +719,37 @@ MOS_STATUS PolicyFcFeatureHandler::UpdateFeaturePipe(VP_EXECUTE_CAPS caps, SwFil
 
     FeatureType type = feature.GetFeatureType();
 
-    if (FeatureTypeLumakeyOnRender      == type ||
-        FeatureTypeBlendingOnRender     == type ||
-        FeatureTypeAlphaOnRender        == type ||
-        FeatureTypeCscOnRender          == type ||
-        FeatureTypeScalingOnRender      == type ||
-        FeatureTypeRotMirOnRender       == type ||
-        FeatureTypeDiOnRender           == type ||
-        FeatureTypeProcampOnRender      == type)
+    if (caps.bRenderHdr)
     {
+        // HDR Kernel
         return PolicyFeatureHandler::UpdateFeaturePipe(caps, feature, featurePipe, executePipe, isInputPipe, index);
-    }
-    else if(FeatureTypeColorFillOnRender == type)
-    {
-        // Only apply color fill on 1st pass.
-        featurePipe.RemoveSwFilter(&feature);
-        executePipe.AddSwFilterUnordered(&feature, isInputPipe, index);
     }
     else
     {
-        VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+        // FC
+        if (FeatureTypeLumakeyOnRender      == type ||
+            FeatureTypeBlendingOnRender     == type ||
+            FeatureTypeAlphaOnRender        == type ||
+            FeatureTypeCscOnRender          == type ||
+            FeatureTypeScalingOnRender      == type ||
+            FeatureTypeRotMirOnRender       == type ||
+            FeatureTypeDiOnRender           == type ||
+            FeatureTypeProcampOnRender      == type)
+        {
+            return PolicyFeatureHandler::UpdateFeaturePipe(caps, feature, featurePipe, executePipe, isInputPipe, index);
+        }
+        else if(FeatureTypeColorFillOnRender == type)
+        {
+            // Only apply color fill on 1st pass.
+            VP_PUBLIC_CHK_STATUS_RETURN(featurePipe.RemoveSwFilter(&feature));
+            VP_PUBLIC_CHK_STATUS_RETURN(executePipe.AddSwFilterUnordered(&feature, isInputPipe, index));
+        }
+        else
+        {
+            VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+        }
     }
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -806,8 +854,8 @@ static MOS_STATUS IsChromaSamplingNeeded(bool &isChromaUpSamplingNeeded, bool &i
                                 VPHAL_SURFACE_TYPE surfType, int layerIndex,
                                 MOS_FORMAT inputFormat, MOS_FORMAT outputFormat)
 {
-    VPHAL_COLORPACK srcColorPack = VpHal_GetSurfaceColorPack(inputFormat);
-    VPHAL_COLORPACK dstColorPack = VpHal_GetSurfaceColorPack(outputFormat);
+    VPHAL_COLORPACK srcColorPack = VpHalDDIUtils::GetSurfaceColorPack(inputFormat);
+    VPHAL_COLORPACK dstColorPack = VpHalDDIUtils::GetSurfaceColorPack(outputFormat);
 
     if (SURF_IN_PRIMARY == surfType                         &&
         // when 3D sampler been used, PL2 chromasitting kernel does not support sub-layer chromasitting
@@ -1062,7 +1110,7 @@ MOS_STATUS PolicyFcHandler::RemoveTransparentLayers(SwFilterPipe& featurePipe)
     return MOS_STATUS_SUCCESS;
 }
 
-MOS_STATUS PolicyFcHandler::LayerSelectForProcess(std::vector<int> &layerIndexes, SwFilterPipe& featurePipe, bool isSingleSubPipe, uint32_t pipeIndex, VP_EXECUTE_CAPS& caps)
+MOS_STATUS PolicyFcHandler::LayerSelectForProcess(std::vector<int> &layerIndexes, SwFilterPipe& featurePipe, VP_EXECUTE_CAPS& caps)
 {
     layerIndexes.clear();
     m_resCounter.Reset(m_hwCaps.m_rules.isAvsSamplerSupported);

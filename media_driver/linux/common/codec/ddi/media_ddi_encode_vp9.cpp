@@ -245,7 +245,9 @@ VAStatus DdiEncodeVp9::EncodeInCodecHal(uint32_t numSlices)
             MOS_ZeroMemory(&(m_segParams->SegData[i]), sizeof(CODEC_VP9_ENCODE_SEG_PARAMS));
         }
     }
-    else if (!isSegParamsChanged)
+    else if (!isSegParamsChanged && 
+            vp9PicParam->PicFlags.fields.frame_type != CODEC_VP9_KEY_FRAME && 
+            vp9PicParam->PicFlags.fields.error_resilient_mode == 0)
     {
         /* segmentation is enabled, but segment parameters are not changed */
         vp9PicParam->PicFlags.fields.seg_update_data = 0;
@@ -256,7 +258,11 @@ VAStatus DdiEncodeVp9::EncodeInCodecHal(uint32_t numSlices)
     encodeParams.pSliceParams    = m_encodeCtx->pSliceParams;
     encodeParams.ppNALUnitParams = m_encodeCtx->ppNALUnitParams;
     encodeParams.pSegmentParams  = m_segParams;
-
+    
+    if(seqParams->NumTemporalLayersMinus1 > 7)
+    {
+        return VA_STATUS_ERROR_INVALID_PARAMETER;
+    }
     for (uint32_t i = 0; i < (seqParams->NumTemporalLayersMinus1+1); i++)
     {
         if (savedFrameRate[i] == 0)
@@ -291,6 +297,7 @@ VAStatus DdiEncodeVp9::EncodeInCodecHal(uint32_t numSlices)
         vp9PicParam->BitOffsetForLFRefDelta         = picBitOffset.bit_offset_ref_lf_delta;
         vp9PicParam->BitOffsetForLFModeDelta        = picBitOffset.bit_offset_mode_lf_delta;
         vp9PicParam->BitOffsetForSegmentation       = picBitOffset.bit_offset_segmentation;
+        vp9PicParam->BitSizeForSegmentation         = picBitOffset.bit_size_segmentation;
 
         m_encodeCtx->ppNALUnitParams[0]->uiNalUnitType             = 0x22;
         m_encodeCtx->ppNALUnitParams[0]->bInsertEmulationBytes     = false;
@@ -377,6 +384,7 @@ VAStatus DdiEncodeVp9::ContextInitialize(CodechalSetting *codecHalSettings)
     // Allocate segment params
     m_segParams = (CODEC_VP9_ENCODE_SEGMENT_PARAMS *)MOS_AllocAndZeroMemory(sizeof(CODEC_VP9_ENCODE_SEGMENT_PARAMS) * 8);
     DDI_CHK_NULL(m_segParams, "nullptr m_segParams.", VA_STATUS_ERROR_ALLOCATION_FAILED);
+    m_encodeCtx->pVpxSegParams = (void*)m_segParams;
 
     // Allocate coded buffer status
     m_codedBufStatus = (VACodedBufferVP9Status *)MOS_AllocAndZeroMemory(DDI_ENCODE_MAX_STATUS_REPORT_BUFFER * sizeof(VACodedBufferVP9Status));
@@ -568,6 +576,9 @@ VAStatus DdiEncodeVp9::ParsePicParams(DDI_MEDIA_CONTEXT *mediaCtx, void *ptr)
     vp9PicParam->PicFlags.fields.comp_prediction_mode         = picParam->pic_flags.bits.comp_prediction_mode;
     vp9PicParam->PicFlags.fields.super_frame                  = picParam->pic_flags.bits.super_frame_flag;
     vp9PicParam->PicFlags.fields.seg_update_data              = picParam->pic_flags.bits.segmentation_enabled;
+#if VA_CHECK_VERSION(1, 23, 0)
+    vp9PicParam->PicFlags.fields.seg_id_block_size            = picParam->seg_id_block_size;
+#endif
 
     vp9PicParam->SrcFrameWidthMinus1          = picParam->frame_width_src - 1;
     vp9PicParam->SrcFrameHeightMinus1         = picParam->frame_height_src - 1;

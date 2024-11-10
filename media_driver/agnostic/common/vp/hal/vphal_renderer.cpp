@@ -25,7 +25,7 @@
 //! \details  The top renderer is responsible for coordinating the sequence of calls to low level renderers, e.g. DNDI or Comp
 //!
 #include "vphal_renderer.h"
-#include "vphal_debug.h"
+#include "vp_debug.h"
 #include "vpkrnheader.h"
 #include "vphal_render_composite.h"
 
@@ -1002,10 +1002,20 @@ void VphalRenderer::UpdateReport(
     {
         MOS_ZeroMemory(&Info, sizeof(VPHAL_GET_SURFACE_INFO));
 
-        VpHal_GetSurfaceInfo(m_pOsInterface, &Info, pRenderParams->pTarget[0]);
+        MOS_STATUS status = VpHal_GetSurfaceInfo(m_pOsInterface, &Info, pRenderParams->pTarget[0]);
+        if (MOS_STATUS_SUCCESS != status)
+        {
+            VPHAL_PUBLIC_ASSERTMESSAGE("VpHal_GetSurfaceInfo failed!");
+            return;
+        }
         m_reporting->GetFeatures().rtCompressible = true;
         m_reporting->GetFeatures().rtCompressMode = (uint8_t)(pRenderParams->pTarget[0]->CompressionMode);
     }
+
+    m_reporting->GetFeatures().rtCacheSetting = (uint8_t)(pRenderParams->pTarget[0]->CacheSetting);
+#if (_DEBUG || _RELEASE_INTERNAL)
+    m_reporting->GetFeatures().rtOldCacheSetting = (uint8_t)(m_pRenderHal->oldCacheSettingForTargetSurface);
+#endif
 }
 
 //!
@@ -1230,7 +1240,7 @@ MOS_STATUS VphalRenderer::UpdateRenderGpuContext(MOS_GPU_CONTEXT currentGpuConte
     MOS_STATUS              eStatus = MOS_STATUS_SUCCESS;
     MOS_GPU_CONTEXT         renderGpuContext;
     MOS_GPU_NODE            renderGpuNode;
-    MOS_GPUCTX_CREATOPTIONS createOption;
+    MOS_GPUCTX_CREATOPTIONS_ENHANCED createOption = {};
     PVPHAL_VEBOX_STATE      pVeboxState = nullptr;
     int                     i           = 0;
 

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020, Intel Corporation
+* Copyright (c) 2020-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -26,14 +26,13 @@
 //!
 #include "decode_avc_basic_feature.h"
 #include "decode_utils.h"
-#include "codechal_utilities.h"
 #include "decode_allocator.h"
 
 namespace decode {
 
     AvcBasicFeature::~AvcBasicFeature()
     {
-        if (m_resMonoPicChromaBuffer != nullptr)
+        if (m_allocator != nullptr && m_resMonoPicChromaBuffer != nullptr)
         {
             m_allocator->Destroy(m_resMonoPicChromaBuffer);
         }
@@ -53,7 +52,7 @@ namespace decode {
         m_shortFormatInUse = codecSettings->shortFormatInUse;
 
         DECODE_CHK_STATUS(m_refFrames.Init(this, *m_allocator));
-        DECODE_CHK_STATUS(m_mvBuffers.Init(*m_hwInterface, *m_allocator, *this, CODEC_AVC_NUM_INIT_DMV_BUFFERS));
+        DECODE_CHK_STATUS(m_mvBuffers.Init(m_hwInterface, *m_allocator, *this, CODEC_AVC_NUM_INIT_DMV_BUFFERS));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -116,17 +115,13 @@ namespace decode {
     MOS_STATUS AvcBasicFeature::ErrorDetectAndConceal()
     {
         /*
-         *Only check the invlid syntax instead of return error to skip decoding since this invalid syntax will not cause critical issue
+         *Only check the invalid syntax instead of return error to skip decoding since this invalid syntax will not cause critical issue
          * */
         DECODE_FUNC_CALL();
         DECODE_CHK_NULL(m_avcPicParams);
+        DECODE_CHK_NULL(m_avcSliceParams);
 
-        if(m_avcPicParams->seq_fields.chroma_format_idc > avcChromaFormat420
-            || m_avcPicParams->bit_depth_luma_minus8 > 0
-            || m_avcPicParams->bit_depth_chroma_minus8 > 0)
-        {
-            DECODE_ASSERTMESSAGE("Only 4:2:0 8bit is supported!");
-        }
+        DECODE_CHK_STATUS(CheckBitDepthAndChromaSampling());
 
         if(m_avcPicParams->seq_fields.chroma_format_idc != 3
             && m_avcPicParams->seq_fields.residual_colour_transform_flag)
@@ -153,7 +148,7 @@ namespace decode {
             DECODE_ASSERTMESSAGE("Conflict with H264 Spec! log2_max_frame_num_minus4 is out of range");
         }
 
-        if(m_avcPicParams->seq_fields.pic_order_cnt_type > 1)
+        if(m_avcPicParams->seq_fields.pic_order_cnt_type > 2)
         {
             DECODE_ASSERTMESSAGE("Conflict with H264 Spec! pic_order_cnt_type is out of range");
         }
@@ -212,9 +207,9 @@ namespace decode {
         }
 
         if(m_avcPicParams->chroma_qp_index_offset < -12
-            || m_avcPicParams->pic_init_qp_minus26 > 12)
+            || m_avcPicParams->chroma_qp_index_offset > 12)
         {
-            DECODE_ASSERTMESSAGE("Conflict with H264 Spec! pic_init_qp_minus26 is out of range");
+            DECODE_ASSERTMESSAGE("Conflict with H264 Spec! chroma_qp_index_offset is out of range");
         }
 
         if(m_avcPicParams->second_chroma_qp_index_offset < -12
@@ -226,6 +221,40 @@ namespace decode {
         if(m_avcPicParams->pic_fields.weighted_bipred_idc > 2)
         {
             DECODE_ASSERTMESSAGE("Conflict with H264 Spec! weighted_bipred_idc is out of range");
+        }
+
+        if (!m_shortFormatInUse)
+        {
+            for (uint32_t slcIdx = 0; slcIdx < m_numSlices; slcIdx++)
+            {
+                PCODEC_AVC_SLICE_PARAMS slc = m_avcSliceParams + slcIdx;
+                if(m_avcPicParams->pic_fields.field_pic_flag == 0)
+                {
+                    if (slc->num_ref_idx_l0_active_minus1 > 15)
+                    {
+                        slc->num_ref_idx_l0_active_minus1 = 0;
+                        DECODE_ASSERTMESSAGE("Conflict with H264 Spec! num_ref_idx_l0_active_minus1 is out of range");
+                    }
+                    if (slc->num_ref_idx_l1_active_minus1 > 15)
+                    {
+                        slc->num_ref_idx_l1_active_minus1 = 0;
+                        DECODE_ASSERTMESSAGE("Conflict with H264 Spec! num_ref_idx_l1_active_minus1 is out of range");
+                    }
+                }
+                else if(m_avcPicParams->pic_fields.field_pic_flag == 1)
+                {
+                    if (slc->num_ref_idx_l0_active_minus1 > 31)
+                    {
+                        slc->num_ref_idx_l0_active_minus1 = 0;
+                        DECODE_ASSERTMESSAGE("Conflict with H264 Spec! num_ref_idx_l0_active_minus1 is out of range");
+                    }
+                    if (slc->num_ref_idx_l1_active_minus1 > 31)
+                    {
+                        slc->num_ref_idx_l1_active_minus1 = 0;
+                        DECODE_ASSERTMESSAGE("Conflict with H264 Spec! num_ref_idx_l1_active_minus1 is out of range");
+                    }
+                }
+            }
         }
 
         return MOS_STATUS_SUCCESS;
@@ -307,17 +336,20 @@ namespace decode {
 
         DECODE_CHK_STATUS(m_refFrames.UpdatePicture(*m_avcPicParams));
 
-        if (m_osInterface->pfnIsMismatchOrderProgrammingSupported())
+        if (!m_isSecondField)
         {
-            for (auto &refFrameIdx : m_refFrameIndexList)
+            if (m_osInterface->pfnIsMismatchOrderProgrammingSupported())
             {
-                DECODE_CHK_STATUS(m_mvBuffers.ActiveCurBuffer(refFrameIdx));
+                for (auto &refFrameIdx : m_refFrameIndexList)
+                {
+                    DECODE_CHK_STATUS(m_mvBuffers.ActiveCurBuffer(refFrameIdx));
+                }
+                DECODE_CHK_STATUS(m_mvBuffers.ActiveCurBuffer(m_avcPicParams->CurrPic.FrameIdx));
             }
-            DECODE_CHK_STATUS(m_mvBuffers.ActiveCurBuffer(m_avcPicParams->CurrPic.FrameIdx));
-        }
-        else
-        {
-            DECODE_CHK_STATUS(m_mvBuffers.UpdatePicture(m_avcPicParams->CurrPic.FrameIdx, m_refFrameIndexList, m_fixedFrameIdx));
+            else
+            {
+                DECODE_CHK_STATUS(m_mvBuffers.UpdatePicture(m_avcPicParams->CurrPic.FrameIdx, m_refFrameIndexList, m_fixedFrameIdx));
+            }
         }
 
         return MOS_STATUS_SUCCESS;
@@ -414,6 +446,21 @@ namespace decode {
             m_sliceRecord[slcCount].offset = m_slcOffset;
             m_lastValidSlice = slcCount;
             slc++;
+        }
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS AvcBasicFeature::CheckBitDepthAndChromaSampling()
+    {
+        DECODE_FUNC_CALL();
+        DECODE_CHK_NULL(m_avcPicParams);
+
+        if (m_avcPicParams->seq_fields.chroma_format_idc > avcChromaFormat420
+            || m_avcPicParams->bit_depth_luma_minus8 > 0
+            || m_avcPicParams->bit_depth_chroma_minus8 > 0)
+        {
+            DECODE_ASSERTMESSAGE("Only 4:2:0 8bit is supported!");
         }
 
         return MOS_STATUS_SUCCESS;

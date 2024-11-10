@@ -28,9 +28,6 @@
 
 #include "decode_basic_feature.h"
 #include "codec_def_common_jpeg.h"
-#include "mhw_vdbox_g12_X.h"
-#include "mhw_vdbox_mfx_interface.h"
-#include "codechal_hw_g12_X.h"
 
 namespace decode {
 
@@ -40,21 +37,7 @@ namespace decode {
 #define CODECHAL_DECODE_JPEG_ERR_FRAME_WIDTH 32
 #define CODECHAL_DECODE_JPEG_ERR_FRAME_HEIGHT 32
 
-//!
-//! \struct _CODECHAL_DECODE_JPEG_HUFFMAN_TABLE
-//! \brief typedef of struct Huffman Table used by JPEG
-//! Note: Some DDIs have no HuffTable selector and are based on Component type
-//!
-typedef struct _CODECHAL_DECODE_JPEG_HUFFMAN_TABLE
-{
-    struct
-    {
-        uint8_t DC_BITS[JPEG_NUM_HUFF_TABLE_DC_BITS];        //!<  DC number of Huffman codes length
-        uint8_t DC_HUFFVAL[JPEG_NUM_HUFF_TABLE_DC_HUFFVAL];  //!<  DC value of Huffman codes
-        uint8_t AC_BITS[JPEG_NUM_HUFF_TABLE_AC_BITS];        //!<  AC number of Huffman codes length
-        uint8_t AC_HUFFVAL[JPEG_NUM_HUFF_TABLE_AC_HUFFVAL];  //!<  AC value of Huffman codes
-    } HuffTable[JPEG_MAX_NUM_HUFF_TABLE_INDEX];
-} CODECHAL_DECODE_JPEG_HUFFMAN_TABLE, *PCODECHAL_DECODE_JPEG_HUFFMAN_TABLE;
+#define MAX_NUM_HUFF_TABLE_INDEX 2
 
 class JpegBasicFeature : public DecodeBasicFeature
 {
@@ -62,13 +45,13 @@ public:
     //!
     //! \brief  JpegBasicFeature constructor
     //!
-    JpegBasicFeature(DecodeAllocator *allocator, CodechalHwInterface *hwInterface) :
-                        DecodeBasicFeature(allocator, hwInterface)
+    JpegBasicFeature(DecodeAllocator *allocator, void *hwInterface, PMOS_INTERFACE osInterface) : 
+        DecodeBasicFeature(allocator, hwInterface, osInterface)
     {
         MOS_ZeroMemory(&m_jpegHuffmanTable, sizeof(m_jpegHuffmanTable));
-        if (hwInterface != nullptr)
+        if (osInterface != nullptr)
         {
-            m_osInterface  = hwInterface->GetOsInterface();
+            m_osInterface = osInterface;
         }
     };
 

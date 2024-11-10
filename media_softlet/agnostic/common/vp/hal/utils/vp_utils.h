@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2022, Intel Corporation
+* Copyright (c) 2018-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -22,18 +22,8 @@
 #ifndef __VP_UTILS_H__
 #define __VP_UTILS_H__
 
-#include <stdint.h>
-#include <vector>
-#include "mos_defs.h"
-#include "mos_os_hw.h"
-#include "mos_os_specific.h"
-#include "mos_resource_defs.h"
-#include "mos_util_debug_specific.h"
-#include "mos_utilities.h"
 #include "mos_util_debug.h"
-#include "mos_os.h"
 #include "vp_common.h"
-#include "media_user_setting.h"
 
 using MosFormatArray = std::vector<MOS_FORMAT>;
 
@@ -116,6 +106,14 @@ using MosFormatArray = std::vector<MOS_FORMAT>;
         return MOS_STATUS_NO_SPACE;                                                               \
     }                                                                                             \
 }
+
+#define VP_PUBLIC_CHK_NOT_FOUND_RETURN(_handle, _group)                         \
+{                                                                               \
+    if (_handle == (_group)->end())                                             \
+    {                                                                           \
+        VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_NULL_POINTER);                   \
+    }                                                                           \
+}
 //------------------------------------------------------------------------------
 // Macros specific to MOS_VP_SUBCOMP_DEBUG sub-comp
 //------------------------------------------------------------------------------
@@ -139,6 +137,9 @@ using MosFormatArray = std::vector<MOS_FORMAT>;
 
 #define VP_DEBUG_CHK_STATUS(_stmt)                                                \
     MOS_CHK_STATUS(MOS_COMPONENT_VP, MOS_VP_SUBCOMP_DEBUG, _stmt)
+
+#define VP_DEBUG_CHK_STATUS_RETURN(_stmt)                                         \
+    MOS_CHK_STATUS_RETURN(MOS_COMPONENT_VP, MOS_VP_SUBCOMP_DEBUG, _stmt)
 
 #define VP_DEBUG_CHK_NULL(_ptr)                                                   \
     MOS_CHK_NULL(MOS_COMPONENT_VP, MOS_VP_SUBCOMP_DEBUG, _ptr)
@@ -273,7 +274,6 @@ protected:
 #define __VPHAL_VEBOX_FEATURE_INUSE                                     "VeBox Feature In use"
 #define __VPHAL_VEBOX_DISABLE_SFC                                       "Disable SFC"
 #define __MEDIA_USER_FEATURE_VALUE_SFC_OUTPUT_DTR_DISABLE               "Disable SFC DTR"
-#define __VPHAL_ENABLE_MMC                                              "Enable VP MMC"
 #define __MEDIA_USER_FEATURE_VALUE_SFC_OUTPUT_CENTERING_DISABLE         "SFC Output Centering Disable"
 #define __VPHAL_BYPASS_COMPOSITION                                      "Bypass Composition"
 #define __MEDIA_USER_FEATURE_VALUE_VEBOX_TGNE_ENABLE_VP                 "Enable Vebox GNE"
@@ -282,13 +282,36 @@ protected:
 #define __MEDIA_USER_FEATURE_VALUE_CSC_COEFF_PATCH_MODE_DISABLE         "CSC Patch Mode Disable"
 #define __MEDIA_USER_FEATURE_VALUE_DISABLE_DN                           "Disable Dn"
 #define __MEDIA_USER_FEATURE_VALUE_DISABLE_PACKET_REUSE                 "Disable PacketReuse"
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_PACKET_REUSE_TEAMS_ALWAYS     "Enable PacketReuse Teams mode Always"
+#define __MEDIA_USER_FEATURE_VALUE_FORCE_ENABLE_VEBOX_OUTPUT_SURF       "Force Enable Vebox Output Surf"
+
+#define __VPHAL_HDR_LUT_MODE                                            "HDR Lut Mode"
+#define __VPHAL_HDR_GPU_GENERTATE_3DLUT                                 "HDR GPU generate 3DLUT"
+#define __VPHAL_HDR_DISABLE_AUTO_MODE                                   "Disable HDR Auto Mode"
+#define __VPHAL_HDR_SPLIT_FRAME_PORTIONS                                "VPHAL HDR Split Frame Portions"
+#define __MEDIA_USER_FEATURE_VALUE_VPP_APOGEIOS_ENABLE                  "VP Apogeios Enabled"
+#define __VPHAL_PRIMARY_MMC_COMPRESSMODE                                "VP Primary Surface Compress Mode"
+#define __VPHAL_RT_MMC_COMPRESSMODE                                     "VP RT Compress Mode"
+#define __VPHAL_RT_Cache_Setting                                        "VP RT Cache Setting"
 
 #if (_DEBUG || _RELEASE_INTERNAL)
+#define __VPHAL_RT_Old_Cache_Setting                                    "VP RT Old Cache Setting"
 #define __VPHAL_ENABLE_COMPUTE_CONTEXT                                  "VP Enable Compute Context"
 #define __VPHAL_RNDR_SCOREBOARD_CONTROL                                 "SCOREBOARD Control"
 #define __VPHAL_RNDR_CMFC_CONTROL                                       "CMFC Control"
 #define __VPHAL_ENABLE_1K_1DLUT                                         "Enable 1K 1DLUT"
+#define __VPHAL_FORCE_3DLUT_INTERPOLATION                               "VPHAL Force 3DLUT Interpolation"
 #define __VPHAL_VEBOX_HDR_MODE                                          "VeboxHDRMode"
+#define __VPHAL_HDR_ENABLE_QUALITY_TUNING                               "VPHAL HDR Enable Quality Tuning"
+#define __VPHAL_HDR_ENABLE_KERNEL_DUMP                                  "VPHAL HDR Enable Kernel Dump"
+#define __VPHAL_HDR_H2S_RGB_TM                                          "VPHAL H2S TM RGB Based"
+#define __VPHAL_HDR_3DLUT_CPU_PATH                                      "HDR 3DLut Table Use CPU Caculate"
+#define __VPHAL_FORCE_VP_3DLUT_KERNEL_ONLY                              "Force VP 3DLut Kernel Only"
+
+// Compression
+#define __VPHAL_MMC_ENABLE                                              "VP MMC In Use"
+#define __VPHAL_RT_MMC_COMPRESSIBLE                                     "VP RT Compressible"
+#define __VPHAL_PRIMARY_MMC_COMPRESSIBLE                                "VP Primary Surface Compressible"
 
 #define __VPHAL_RNDR_FORCE_VP_DECOMPRESSED_OUTPUT                       "FORCE VP DECOMPRESSED OUTPUT"
 #define __VPHAL_COMP_8TAP_ADAPTIVE_ENABLE                               "8-TAP Enable"
@@ -301,45 +324,29 @@ protected:
 #define __VPHAL_DBG_PARAM_DUMP_END_FRAME_KEY_NAME                       "endxmlFrame"
 #define __VPHAL_DBG_DUMP_OUTPUT_DIRECTORY                               "Vphal Debug Dump Output Directory"
 #define __VPHAL_DBG_PARA_DUMP_ENABLE_SKUWA_DUMP                         "enableSkuWaDump"
+
+#define __MEDIA_USER_FEATURE_VALUE_INTER_FRAME_MEMORY_NINJA_START_COUNTER "InterFrameNinjaStartCounter"
+#define __MEDIA_USER_FEATURE_VALUE_INTER_FRAME_MEMORY_NINJA_END_COUNTER "InterFrameNinjaEndCounter"
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_IFNCC                         "EnableIFNCC"
+// For L0 3DLut
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_VP_L0_3DLUT                   "Enable L0 3DLUT"
+#define __MEDIA_USER_FEATURE_VALUE_VP_L0_3DLUT_ENABLED                  "L0 3DLUT Enabled"
+
+// For OCL FC
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_VP_OCL_FC                      "Enable OCL FC"
+#define __MEDIA_USER_FEATURE_VALUE_DISABLE_VP_OCL_FC_FP                  "Disable OCL FC FP"
+#define __MEDIA_USER_FEATURE_VALUE_VP_OCL_FC_SUPPORTED                   "OCL FC Supported"
+#define __MEDIA_USER_FEATURE_VALUE_VP_OCL_FC_REPORT                      "OCL FC Diff Report"
+
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_VESFC_LINEAR_OUTPUT_BY_TILECONVERT "Enable VESFC Linearoutput By TileConvert"
+
+#define  __MEDIA_USER_FEATURE_VALUE_ENABLE_VEBOX_ID_REPORT              "Enable VEBOX ID REPORT"
+#define  __MEDIA_USER_FEATURE_VALUE_USED_VEBOX_ID                       "USED VEBOX ID"
 #endif  //(_DEBUG || _RELEASE_INTERNAL)
 
 class VpUtils
 {
 public:
-    // it is only be used by vpdata->pVpHalState->CopySurface, will be removed after mediaCopy ready
-    static MOS_SURFACE VpHalConvertVphalSurfaceToMosSurface(PVPHAL_SURFACE surface);
-
-    //!
-    //! \brief    Get the color pack type of a surface
-    //! \details  Map mos surface format to color pack format and return.
-    //!           For unknown format return VPHAL_COLORPACK_UNKNOWN
-    //! \param    [in] format
-    //!           MOS_FORMAT of a surface
-    //! \return   VPHAL_COLORPACK
-    //!           Color pack type of the surface
-    //!
-    static VPHAL_COLORPACK GetSurfaceColorPack(MOS_FORMAT format);
-
-    //!
-    //! \brief    Performs Color Space Convert for Sample 8 bit
-    //! \details  Performs Color Space Convert from Src Color Spase to Dst Color Spase
-    //! \param    [out] pOutput
-    //!           Pointer to VPHAL_COLOR_SAMPLE_8
-    //! \param    [in] pInput
-    //!           Pointer to VPHAL_COLOR_SAMPLE_8
-    //! \param    [in] srcCspace
-    //!           Source Color Space
-    //! \param    [in] dstCspace
-    //!           Dest Color Space
-    //! \return   bool
-    //!           Return true if successful, otherwise false
-    //!
-    static bool GetCscMatrixForRender8Bit(
-        VPHAL_COLOR_SAMPLE_8  *output,
-        VPHAL_COLOR_SAMPLE_8  *input,
-        VPHAL_CSPACE          srcCspace,
-        VPHAL_CSPACE          dstCspace);
-
     //!
     //! \brief    Allocates the Surface
     //! \details  Allocates the Surface
@@ -417,19 +424,68 @@ public:
         float        *fCscInOffset,
         float        *fCscOutOffset);
 
-    //! \brief    Get the bit depth of a surface
-    //! \details  Get bit depth of input mos surface format and return.
-    //!           For unknown format return 0
-    //! \param    [in] format
-    //!           MOS_FORMAT of a surface
-    //! \return   uint32_t
-    //!           Bit depth of the surface
     //!
-    static uint32_t GetSurfaceBitDepth(
-        MOS_FORMAT format);
+    //! \brief    Performs Color Space Convert for Sample 8 bit
+    //! \details  Performs Color Space Convert from Src Color Spase to Dst Color Spase
+    //! \param    [out] pOutput
+    //!           Pointer to VPHAL_COLOR_SAMPLE_8
+    //! \param    [in] pInput
+    //!           Pointer to VPHAL_COLOR_SAMPLE_8
+    //! \param    [in] srcCspace
+    //!           Source Color Space
+    //! \param    [in] dstCspace
+    //!           Dest Color Space
+    //! \return   bool
+    //!           Return true if successful, otherwise false
+    //!
+    static bool GetCscMatrixForRender8Bit(
+        VPHAL_COLOR_SAMPLE_8 *output,
+        VPHAL_COLOR_SAMPLE_8 *input,
+        VPHAL_CSPACE          srcCspace,
+        VPHAL_CSPACE          dstCspace);
 
     static bool IsSyncFreeNeededForMMCSurface(PVPHAL_SURFACE surface, PMOS_INTERFACE osInterface);
 
+    static bool IsVerticalRotation(VPHAL_ROTATION rotation);
+
+    //!
+    //! \brief    Performs Color Space Convert for Sample Pixel
+    //! \details  Performs Color Space Convert from Src Color Spase to Dst Color Spase
+    //! \param    [out] pOutput
+    //!           Pointer to float
+    //! \param    [in] pInput
+    //!           Pointer to VPHAL_COLOR_SAMPLE_8
+    //! \param    [in] srcCspace
+    //!           Source Color Space
+    //! \param    [in] dstCspace
+    //!           Dest Color Space
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful
+    //!
+    static MOS_STATUS GetPixelWithCSCForColorFill(
+        VPHAL_COLOR_SAMPLE_8 &input,
+        float                 output[4],
+        VPHAL_CSPACE          srcCspace,
+        VPHAL_CSPACE          dstCspace);
+
+    //!
+    //! \brief    Get Color Space Convert Normalized Matrix
+    //! \details  Get Color Space Convert Normalized Matrix
+    //! \param    [out] pCSC_Matrix
+    //!           Pointer to float
+    //! \param    [in] src
+    //!           Source Color Space
+    //! \param    [in] dst
+    //!           Target Color Space
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful
+    //!
+    static MOS_STATUS GetNormalizedCSCMatrix(
+        MEDIA_CSPACE src,
+        MEDIA_CSPACE dst,
+        float        cscMatrix[12]);
+
+private:
     //!
     //! \brief    Performs Color Space Convert for Sample 8 bit Using Specified Coeff Matrix
     //! \details  Performs Color Space Convert from Src Color Spase to Dst Color Spase
@@ -447,9 +503,13 @@ public:
     //! \return   bool
     //!           Return true if successful, otherwise false
     //!
-    static bool GetCscMatrixForRender8BitWithCoeff(VPHAL_COLOR_SAMPLE_8 *output, VPHAL_COLOR_SAMPLE_8 *input, VPHAL_CSPACE srcCspace, VPHAL_CSPACE dstCspace, int32_t *iCscMatrix);
+    static bool GetCscMatrixForRender8BitWithCoeff(
+        VPHAL_COLOR_SAMPLE_8 *output,
+        VPHAL_COLOR_SAMPLE_8 *input,
+        VPHAL_CSPACE          srcCspace,
+        VPHAL_CSPACE          dstCspace,
+        int32_t              *iCscMatrix);
 
-    static MOS_STATUS  DeclareUserSettings(MediaUserSettingSharedPtr userSettingPtr);
 MEDIA_CLASS_DEFINE_END(VpUtils)
 };
 

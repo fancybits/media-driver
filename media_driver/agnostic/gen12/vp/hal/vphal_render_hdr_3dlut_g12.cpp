@@ -292,7 +292,7 @@ Hdr3DLutGeneratorG12::Hdr3DLutGeneratorG12(PRENDERHAL_INTERFACE renderHal, uint3
 {
     VPHAL_RENDER_CHK_NULL_NO_STATUS_RETURN(m_renderHal);
     VPHAL_RENDER_CHK_NULL_NO_STATUS_RETURN(m_renderHal->pOsInterface);
-    m_cmContext    = MOS_New(CmContext, m_renderHal->pOsInterface->pOsContext);
+    m_cmContext    = MOS_New(CmContext, m_renderHal->pOsInterface);
 
     VPHAL_RENDER_NORMALMESSAGE("Hdr3DLutGeneratorG12 Constructor!");
 
@@ -328,6 +328,27 @@ void Hdr3DLutGeneratorG12::AllocateResources()
     return;
 }
 
+bool Hdr3DLutGeneratorG12::IsObjectVaild()
+{
+    if (!m_cmContext)
+    {
+        return false;
+    }
+    if (!m_cmContext->GetCmDevice())
+    {
+        return false;
+    }
+    if (!m_cmContext->GetCmQueue())
+    {
+        return false;
+    }
+    if (!m_cmContext->GetCmVebox())
+    {
+        return false;
+    }
+    return true;
+}
+
 void Hdr3DLutGeneratorG12::FreeResources()
 {
     MOS_Delete(m_hdr3DLutSurface);
@@ -350,7 +371,15 @@ void Hdr3DLutGeneratorG12::InitCoefSurface(const uint32_t maxDLL, const uint32_t
         CalcCCMMatrix();
         MOS_SecureMemcpy(ccmMatrix, sizeof(float) * 12, color_matrix_calculation, sizeof(float) * 12);
 
-        tmMode          = (TONE_MAPPING_MODE)TONE_MAPPING_MODE_H2S;
+        if (maxDLL > 800)
+        {
+            tmMode = (TONE_MAPPING_MODE)TONE_MAPPING_MODE_H2H;
+            VPHAL_RENDER_NORMALMESSAGE("Change curve, maxDLL %d, hdrMode: %d!", maxDLL, tmMode);
+        }
+        else
+        {
+            tmMode = (TONE_MAPPING_MODE)TONE_MAPPING_MODE_H2S;
+        }
         oetfCurve       = (OETF_CURVE_TYPE)OETF_SRGB;
         tmSrcType       = (TONE_MAPPING_SOURCE_TYPE)TONE_MAPPING_SOURCE_PSEUDO_Y_BT709;
     }

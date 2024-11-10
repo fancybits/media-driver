@@ -183,6 +183,13 @@ typedef enum _MOS_HW_RESOURCE_DEF
     // Camera  caputure.
     MOS_MHW_GMM_RESOURCE_USAGE_CAMERA_CAPTURE,
 
+    // Media GMM Resource USAGES
+    MOS_RESOURCE_USAGE_CCS_MEDIA_WRITABLE,
+
+    // Media BLT copy USAGES
+    MOS_GMM_RESOURCE_USAGE_BLT_SOURCE,
+    MOS_GMM_RESOURCE_USAGE_BLT_DESTINATION,
+
     // PAT Media Usages
     MOS_HW_RESOURCE_USAGE_MEDIA_BATCH_BUFFERS,
     // DECODE
@@ -223,12 +230,13 @@ typedef enum _MOS_HW_RESOURCE_DEF
     // CP
     MOS_HW_RESOURCE_USAGE_CP_EXTERNAL_READ,
     MOS_HW_RESOURCE_USAGE_CP_INTERNAL_WRITE,
+
     // PAT Media Usages END
 
     // always last one
     MOS_HW_RESOURCE_DEF_MAX
 } MOS_HW_RESOURCE_DEF;
-C_ASSERT(MOS_HW_RESOURCE_DEF_MAX == 171); //!< update this and Mos_CachePolicyGetMemoryObject_XXX()
+C_ASSERT(MOS_HW_RESOURCE_DEF_MAX == 174); //!< update this and Mos_CachePolicyGetMemoryObject_XXX()
 
 //!
 //! \brief Enum allow callers to specify a command streamer.
@@ -285,6 +293,7 @@ typedef enum MOS_HW_COMMAND_ENUM
     MOS_SURFACE_STATE,
     MOS_SURFACE_STATE_ADV,
     MOS_STATE_BASE_ADDR,
+    MOS_COMPUTE_WALKER,
     MOS_VEBOX_STATE,
     MOS_VEBOX_DI_IECP,
     MOS_VEBOX_TILING_CONVERT,
@@ -292,6 +301,7 @@ typedef enum MOS_HW_COMMAND_ENUM
     MOS_MI_ATOMIC,
     MOS_MFX_CC_BASE_ADDR_STATE,
     MOS_VEBOX_SURFACE_STATE,
+    MOS_OCA_RESERVED,
     MOS_HW_COMMAND_MAX
 } MOS_HW_COMMAND;
 C_ASSERT(MOS_HW_COMMANDS == 16); //!< update this and Mos_GetUseGlobalGtt_XXX()

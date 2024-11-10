@@ -31,14 +31,14 @@
 #define __ENCODE_SCALABILITY_SINGLEPIPE_H__
 #include "mos_defs.h"
 #include "mos_os.h"
-#include "codechal_hw.h"
-#include "media_scalability_singlepipe.h"
+#include "codec_hw_next.h"
+#include "media_scalability_singlepipe_next.h"
 #include "encode_scalability_option.h"
 
 namespace encode
 {
 
-class EncodeScalabilitySinglePipe: public MediaScalabilitySinglePipe
+class EncodeScalabilitySinglePipe: public MediaScalabilitySinglePipeNext
 {
 
 public:
@@ -87,21 +87,6 @@ public:
     virtual MOS_STATUS UpdateState(void *statePars) override;
 
     //!
-    //! \brief  Verify command buffer
-    //! \param  [in] requestedSize
-    //!         requested size for command buffer
-    //! \param  [in] requestedPatchListSize
-    //!         requested size for patched list
-    //! \param  [out] singleTaskPhaseSupportedInPak
-    //!         Inidcate if to use single task phase in pak.
-    //! \return MOS_STATUS
-    //!         MOS_STATUS_SUCCESS if success, else fail reason
-    //!
-    virtual MOS_STATUS VerifyCmdBuffer(uint32_t requestedSize, 
-                uint32_t requestedPatchListSize, 
-                bool &singleTaskPhaseSupportedInPak)  override;
-
-    //!
     //! \brief  Oca 1st Level BB Start
     //! \param  [in, out] cmdBuffer
     //!         Reference to command buffer
@@ -146,8 +131,16 @@ protected:
 
     virtual MOS_STATUS SendAttrWithFrameTracking(MOS_COMMAND_BUFFER &cmdBuffer, bool frameTrackingRequested) override;
 
+    //void              InitMmioRegisters();
+    //MmioRegistersMfx *GetMmioRegisters(MHW_VDBOX_NODE_IND index);
+    //bool              ConvertToMiRegister(MHW_VDBOX_NODE_IND index, MHW_MI_MMIOREGISTERS &mmioRegister);
+
 private:
-    CodechalHwInterface *m_hwInterface             = nullptr;
+    CodechalHwInterfaceNext   *m_hwInterface    = nullptr;
+    MediaUserSettingSharedPtr  m_userSettingPtr = nullptr;
+
+    ////! \brief Mmio registers address
+    //MHW_MI_MMIOREGISTERS m_mmioRegisters = {};  //!< mfx mmio registers
 
 MEDIA_CLASS_DEFINE_END(encode__EncodeScalabilitySinglePipe)
 };

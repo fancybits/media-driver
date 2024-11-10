@@ -57,12 +57,16 @@ MOS_STATUS MosMediaCopyBase::MediaCopy(
     return MOS_STATUS_SUCCESS;
 }
 
-MOS_STATUS MosMediaCopyBase::MediaCopy(
-    MEDIAUMD_RESOURCE inputResource,
-    uint32_t          inputResourceIndex,
-    MEDIAUMD_RESOURCE outputResource,
-    uint32_t          outputResourceIndex,
-    MCPY_METHOD       preferMethod)
+bool MosMediaCopyBase::IsAILForceOption()
 {
-    return MOS_STATUS_UNIMPLEMENTED;
+    return false;
+}
+
+PMOS_INTERFACE MosMediaCopyBase::GetMediaCopyMosInterface()
+{
+     if (!m_mediaCopyState)
+     {
+        return nullptr;
+     }
+     return m_mediaCopyState->GetMosInterface();
 }

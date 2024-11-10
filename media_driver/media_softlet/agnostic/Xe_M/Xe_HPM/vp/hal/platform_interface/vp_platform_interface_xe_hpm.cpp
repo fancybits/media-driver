@@ -27,13 +27,12 @@
 #include "vp_feature_manager_xe_hpm.h"
 #include "vp_platform_interface_xe_hpm.h"
 #include "vp_vebox_cmd_packet_xe_hpm.h"
-#include "media_user_settings_mgr_g12.h"
 #include "vp_render_sfc_xe_xpm_base.h"
 #include "vp_render_ief.h"
 #include "vp_render_cmd_packet.h"
-#include "vp_kernel_config_m12_base.h"
 #include "vp_scalability_multipipe.h"
 #include "vp_scalability_singlepipe.h"
+#include "media_interfaces_mcpy.h"
 
 extern const Kdll_RuleEntry         g_KdllRuleTable_Xe_Hpm[];
 
@@ -93,8 +92,11 @@ MOS_STATUS VpPlatformInterfaceXe_Hpm::InitVpRenderHwCaps()
        m_vpKernelBinary.fcPatchKernelBinSize,
        m_modifyKdllFunctionPointers);
 #if !defined(_FULL_OPEN_SOURCE)
-    VP_PUBLIC_CHK_STATUS_RETURN(InitVpCmKernels(m_vpKernelBinary.isa3DLUTKernelBin, m_vpKernelBinary.isa3DLUTKernelSize));
-    VP_PUBLIC_CHK_STATUS_RETURN(InitVpCmKernels(m_vpKernelBinary.isaHVSDenoiseKernelBin, m_vpKernelBinary.isaHVSDenoiseKernelSize));
+    // Init CM kernel form VP ISA Kernel Binary List
+    for (auto &curKernelEntry : m_vpIsaKernelBinaryList)
+    {
+       VP_PUBLIC_CHK_STATUS_RETURN(InitVpCmKernels(curKernelEntry.kernelBin, curKernelEntry.kernelBinSize, curKernelEntry.postfix));
+    }
 #endif
 #endif
 
@@ -120,6 +122,22 @@ VpCmdPacket *VpPlatformInterfaceXe_Hpm::CreateRenderPacket(MediaTask * task, _VP
     VP_FUNC_CALL();
 
     return MOS_New(VpRenderCmdPacket, task, hwInterface, allocator, mmc, kernel);
+}
+
+MediaCopyBaseState *VpPlatformInterfaceXe_Hpm::CreateMediaCopy()
+{
+    VP_FUNC_CALL();
+    
+    MediaCopyBaseState *mediaCopy   = nullptr;
+    PMOS_CONTEXT       mos_context  = nullptr;
+
+    if (m_pOsInterface && m_pOsInterface->pfnGetMosContext)
+    {
+        m_pOsInterface->pfnGetMosContext(m_pOsInterface, &mos_context);
+    }
+    mediaCopy = static_cast<MediaCopyBaseState *>(McpyDevice::CreateFactory(mos_context));
+
+    return mediaCopy;
 }
 
 MOS_STATUS VpPlatformInterfaceXe_Hpm::VeboxQueryStatLayout(VEBOX_STAT_QUERY_TYPE queryType, uint32_t* pQuery)
@@ -185,12 +203,6 @@ MOS_STATUS VpPlatformInterfaceXe_Hpm::CreateSfcRender(SfcRenderBase *&sfcRender,
     return MOS_STATUS_SUCCESS;
 }
 
-VpKernelConfig &VpPlatformInterfaceXe_Hpm::GetKernelConfig()
-{
-    static VpKernelConfigM12_Base kernelConfig;
-    return kernelConfig;
-}
-
 MOS_STATUS VpPlatformInterfaceXe_Hpm::GetInputFrameWidthHeightAlignUnit(
     PVP_MHWINTERFACE          pvpMhwInterface,
     uint32_t                 &widthAlignUnit,
@@ -229,7 +241,7 @@ MOS_STATUS VpPlatformInterfaceXe_Hpm::GetVeboxHeapInfo(
     return eStatus;
 }
 
-bool VpPlatformInterfaceXe_Hpm::VeboxScalabilitywith4K(
+bool VpPlatformInterfaceXe_Hpm::IsVeboxScalabilityWith4KNotSupported(
         VP_MHWINTERFACE          vpMhwInterface)
 {
     if (vpMhwInterface.m_veboxInterface && !(vpMhwInterface.m_veboxInterface->m_veboxScalabilitywith4K))
@@ -249,5 +261,12 @@ MOS_STATUS VpPlatformInterfaceXe_Hpm::ConfigureVpScalability(VP_MHWINTERFACE &vp
     vpMhwInterface.pfnCreateSinglePipe = vp::VpScalabilitySinglePipe::CreateSinglePipe;
     vpMhwInterface.pfnCreateMultiPipe  = vp::VpScalabilityMultiPipe::CreateMultiPipe;
 
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS VpPlatformInterfaceXe_Hpm::InitVpFeatureSupportBits()
+{
+    VP_FUNC_CALL();
+    VP_PUBLIC_CHK_STATUS_RETURN(VpPlatformInterface::InitVpFeatureSupportBits());
     return MOS_STATUS_SUCCESS;
 }

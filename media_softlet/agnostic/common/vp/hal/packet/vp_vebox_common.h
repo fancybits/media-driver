@@ -28,7 +28,7 @@
 
 typedef class MhwVeboxInterface              *PMHW_VEBOX_INTERFACE;
 
-typedef struct _VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS
+typedef struct _VP_VEBOX_SURFACE_STATE_CMD_PARAMS
 {
     PVP_SURFACE                     pSurfInput;
     PVP_SURFACE                     pSurfOutput;
@@ -37,7 +37,7 @@ typedef struct _VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS
     PVP_SURFACE                     pSurfSkinScoreOutput;
     bool                            bDIEnable;
     bool                            b3DlutEnable;
-} VPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS, *PVPHAL_VEBOX_SURFACE_STATE_CMD_PARAMS;
+} VP_VEBOX_SURFACE_STATE_CMD_PARAMS, *PVP_VEBOX_SURFACE_STATE_CMD_PARAMS;
 
 enum GFX_MEDIA_VEBOX_DI_OUTPUT_MODE
 {
@@ -77,6 +77,7 @@ public:
         IECP.TCC.value           = 0;
         IECP.PROCAMP.value       = 0;
         IECP.LACE.value          = 0;
+        IECP.CGC.value           = 0;
 
         VP_PUBLIC_CHK_STATUS_RETURN(MOS_SecureMemcpy(&aceParams,
                 sizeof(MHW_ACE_PARAMS),
@@ -160,9 +161,13 @@ public:
             bool           bHdr3DLut;             //!< Enable 3DLut to process HDR
             bool           bUseVEHdrSfc;          //!< Use SFC to perform CSC/Scaling for HDR content
             bool           is3DLutTableFilled;    //!< 3DLut is filled by kernel/
-            uint32_t       uiMaxDisplayLum;       //!< Maximum Display Luminance
-            uint32_t       uiMaxContentLevelLum;  //!< Maximum Content Level Luminance
+            bool           is3DLutTableUpdatedByKernel;  //!< 3DLut is updated by kernel/
+            bool           isExternal3DLutTable;     //!< 3DLut is updated by API/
+            uint32_t       uiMaxDisplayLum;              //!< Maximum Display Luminance
+            uint32_t       uiMaxContentLevelLum;         //!< Maximum Content Level Luminance
             VPHAL_HDR_MODE hdrMode;
+            uint32_t       uiLutSize;
+            MOS_RESOURCE   external3DLutSurfResource;
         };
     } HDR3DLUT;
     struct
@@ -181,6 +186,7 @@ public:
             struct
             {
                 uint32_t bSteEnabled : 1;              // STE enabled;
+                uint32_t bStdEnabled : 1;              // STD enabled; This flag is for vebox std alone case.
             };
             uint32_t value = 0;
         } STE;
@@ -222,13 +228,23 @@ public:
             uint32_t value = 0;
         }BeCSC;
 
+        union
+        {
+             struct
+             {
+                 uint32_t bCGCEnabled : 1;  // Color Gamut Compression enabled;
+             };
+             uint32_t value = 0;
+        }CGC;
+
         bool IsIecpEnabled()
         {
             return ACE.bAceEnabled || LACE.bLaceEnabled ||
                     BeCSC.bBeCSCEnabled || TCC.bTccEnabled ||
-                    STE.bSteEnabled || PROCAMP.bProcampEnabled;
+                   STE.bSteEnabled || PROCAMP.bProcampEnabled || STE.bStdEnabled || CGC.bCGCEnabled;
         }
     } IECP;
+
 
     // Perf
     VPHAL_PERFTAG                       PerfTag = VPHAL_NONE;

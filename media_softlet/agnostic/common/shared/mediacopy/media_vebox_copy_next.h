@@ -89,12 +89,12 @@ public:
         PMOS_RESOURCE dst);
 
     //!
-    //! Is Vebox Tile Convert/Decompression Format supported
+    //! Is ve copy supported surface
     //! \param    [in/out]     surface
     //!           Pointer to Output Surface parameters
     //! \return   true if supported, else false.
     //!
-    bool IsFormatSupported(PMOS_RESOURCE surface);
+    bool IsSurfaceSupported(PMOS_RESOURCE surface);
 
     //!
     //! \brief    Setup Vebox_Surface_State Command parameter
@@ -133,12 +133,37 @@ protected:
         PMOS_COMMAND_BUFFER              cmdBuffer);
 
     //!
-    //! Is Vebox Tile Convert/Decompression Format supported
-    //! \param    [in/out]     surface
-    //!           Pointer to Output Surface parameters
+    //! Is ve copy supported format
+    //! \param    [in/out] surface mos format
+    //!
     //! \return   true if supported, else false.
     //!
-    bool IsFormatSupported(PMOS_SURFACE surface);
+    virtual bool IsVeCopySupportedFormat(MOS_FORMAT format);
+    
+    //!
+    //! \brief    change vebox surface format.
+    //! \details  change vebox surface format
+    //! \param    [in] surface
+    //!           mos  surface
+    //! \return   void
+    virtual void AdjustSurfaceFormat(MOS_SURFACE &surface);
+
+    //!
+    //! \brief    Create Gpu Context for Vebox
+    //! \details  Create Gpu Context for Vebox
+    //! \param    [in] pOsInterface
+    //!           OS interface
+    //! \param    [in] VeboxGpuContext
+    //!           Vebox Gpu Context
+    //! \param    [in] VeboxGpuNode
+    //!           Vebox Gpu Node
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS CreateGpuContext(
+        PMOS_INTERFACE  pOsInterface,
+        MOS_GPU_CONTEXT VeboxGpuContext,
+        MOS_GPU_NODE    VeboxGpuNode);
 
 protected:
     PMOS_INTERFACE      m_osInterface   = nullptr;

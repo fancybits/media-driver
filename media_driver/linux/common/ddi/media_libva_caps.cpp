@@ -93,7 +93,17 @@ const uint32_t MediaLibvaCaps::m_vpSurfaceAttr[m_numVpSurfaceAttr] =
     VA_FOURCC_X2B10G10R10,
     VA_FOURCC_AYUV,
     VA_FOURCC_Y210,
-    VA_FOURCC_Y410
+    VA_FOURCC_Y410,
+    VA_FOURCC_P012,
+#if VA_CHECK_VERSION(1, 9, 0)
+    VA_FOURCC_Y212,
+    VA_FOURCC_Y412,
+#endif
+#if VA_CHECK_VERSION(1, 13, 0)
+    VA_FOURCC_XYUV,
+#else
+    0,
+#endif
 };
 
 const uint32_t MediaLibvaCaps::m_jpegSurfaceAttr[m_numJpegSurfaceAttr] =
@@ -2553,7 +2563,7 @@ VAStatus MediaLibvaCaps::QueryProcessingRate(
     MEDIA_WA_TABLE waTable;
     memset(&platform, 0, sizeof(platform));
 
-    if (MOS_STATUS_SUCCESS != HWInfo_GetGfxInfo(m_mediaCtx->fd, m_mediaCtx->pDrmBufMgr, &platform, &skuTable, &waTable, m_mediaCtx->pGtSystemInfo))
+    if (MOS_STATUS_SUCCESS != HWInfo_GetGfxInfo(m_mediaCtx->fd, m_mediaCtx->pDrmBufMgr, &platform, &skuTable, &waTable, m_mediaCtx->pGtSystemInfo, m_mediaCtx->m_userSettingPtr))
     {
         DDI_ASSERTMESSAGE("Fatal error - Cannot get Sku/Wa Tables/GtSystemInfo and Platform information");
         return VA_STATUS_ERROR_OPERATION_FAILED;
@@ -2691,7 +2701,7 @@ VAStatus MediaLibvaCaps::QuerySurfaceAttributes(
         attribs[i].value.value.i = VP_MIN_PIC_HEIGHT;
         i++;
 
-        for (uint32_t j = 0; j < m_numVpSurfaceAttr; j++)
+        for (uint32_t j = 0; j < m_numVpSurfaceAttr && m_vpSurfaceAttr[j]; j++)
         {
             attribs[i].type = VASurfaceAttribPixelFormat;
             attribs[i].value.type = VAGenericValueTypeInteger;
@@ -2707,6 +2717,9 @@ VAStatus MediaLibvaCaps::QuerySurfaceAttributes(
             VA_SURFACE_ATTRIB_MEM_TYPE_USER_PTR |
             VA_SURFACE_ATTRIB_MEM_TYPE_KERNEL_DRM |
             VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME |
+#if VA_CHECK_VERSION(1, 21, 0)
+            VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_3 |
+#endif
             VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2;
         i++;
 
@@ -2928,6 +2941,9 @@ VAStatus MediaLibvaCaps::QuerySurfaceAttributes(
             VA_SURFACE_ATTRIB_MEM_TYPE_USER_PTR |
             VA_SURFACE_ATTRIB_MEM_TYPE_KERNEL_DRM |
             VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME |
+#if VA_CHECK_VERSION(1, 21, 0)
+            VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_3 |
+#endif
             VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2;
         i++;
     }
@@ -3061,6 +3077,9 @@ VAStatus MediaLibvaCaps::QuerySurfaceAttributes(
             VA_SURFACE_ATTRIB_MEM_TYPE_USER_PTR |
             VA_SURFACE_ATTRIB_MEM_TYPE_KERNEL_DRM |
             VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME |
+#if VA_CHECK_VERSION(1, 21, 0)
+            VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_3 |
+#endif
             VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2;
         i++;
     }
@@ -3418,8 +3437,8 @@ std::string MediaLibvaCaps::GetEncodeCodecKey(VAProfile profile, VAEntrypoint en
 
 bool MediaLibvaCaps::IsDecConfigId(VAConfigID configId)
 {
-    return ((configId >= DDI_CODEC_GEN_CONFIG_ATTRIBUTES_DEC_BASE) &&
-            (configId < (DDI_CODEC_GEN_CONFIG_ATTRIBUTES_DEC_BASE + m_decConfigs.size())));
+    // configId >= DDI_CODEC_GEN_CONFIG_ATTRIBUTES_DEC_BASE always be true
+    return configId < (DDI_CODEC_GEN_CONFIG_ATTRIBUTES_DEC_BASE + m_decConfigs.size());
 }
 
 bool MediaLibvaCaps::IsEncConfigId(VAConfigID configId)
@@ -3759,7 +3778,7 @@ VAStatus MediaLibvaCaps::GetSurfaceModifier(DDI_MEDIA_SURFACE* mediaSurface, uin
             if (m_mediaCtx->m_auxTableMgr && bMmcEnabled)
             {
                 modifier = GmmFlags.Info.MediaCompressed ? I915_FORMAT_MOD_Y_TILED_GEN12_MC_CCS :
--                 (GmmFlags.Info.RenderCompressed ? I915_FORMAT_MOD_Y_TILED_GEN12_RC_CCS : I915_FORMAT_MOD_Y_TILED);
+                    (GmmFlags.Info.RenderCompressed ? I915_FORMAT_MOD_Y_TILED_GEN12_RC_CCS : I915_FORMAT_MOD_Y_TILED);
             }
             else
             {
@@ -3770,18 +3789,18 @@ VAStatus MediaLibvaCaps::GetSurfaceModifier(DDI_MEDIA_SURFACE* mediaSurface, uin
             modifier = I915_FORMAT_MOD_X_TILED;
             break;
         case GMM_NOT_TILED:
-            modifier = DRM_FORMAT_MOD_NONE;
+            modifier = DRM_FORMAT_MOD_LINEAR;
             break;
         default:
             //handle other possible tile format
-            if(I915_TILING_Y == mediaSurface->TileType)
+            if(TILING_Y == mediaSurface->TileType)
             {
                 modifier = GmmFlags.Info.MediaCompressed ? I915_FORMAT_MOD_Y_TILED_GEN12_MC_CCS :
--                 (GmmFlags.Info.RenderCompressed ? I915_FORMAT_MOD_Y_TILED_GEN12_RC_CCS : I915_FORMAT_MOD_Y_TILED);
+                    (GmmFlags.Info.RenderCompressed ? I915_FORMAT_MOD_Y_TILED_GEN12_RC_CCS : I915_FORMAT_MOD_Y_TILED);
             }
             else
             {
-                modifier = DRM_FORMAT_MOD_NONE;
+                modifier = DRM_FORMAT_MOD_LINEAR;
             }
             break;
 
@@ -3798,25 +3817,25 @@ VAStatus MediaLibvaCaps::SetExternalSurfaceTileFormat(DDI_MEDIA_SURFACE* mediaSu
     switch (mediaSurface->pSurfDesc->modifier)
     {
         case DRM_FORMAT_MOD_LINEAR:
-            tileformat = I915_TILING_NONE;
+            tileformat = TILING_NONE;
             bMemCompEnable = false;
             break;
         case I915_FORMAT_MOD_X_TILED:
-            tileformat = I915_TILING_X;
+            tileformat = TILING_X;
             bMemCompEnable = false;
             break;
         case I915_FORMAT_MOD_Y_TILED:
         case I915_FORMAT_MOD_Yf_TILED:
-            tileformat = I915_TILING_Y;
+            tileformat = TILING_Y;
             bMemCompEnable = false;
             break;
         case I915_FORMAT_MOD_Y_TILED_GEN12_RC_CCS:
-            tileformat = I915_TILING_Y;
+            tileformat = TILING_Y;
             bMemCompEnable = true;
             bMemCompRC = true;
             break;
         case I915_FORMAT_MOD_Y_TILED_GEN12_MC_CCS:
-            tileformat = I915_TILING_Y;
+            tileformat = TILING_Y;
             bMemCompEnable = true;
             bMemCompRC = false;
             break;

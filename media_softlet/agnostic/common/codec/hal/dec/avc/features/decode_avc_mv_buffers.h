@@ -28,7 +28,6 @@
 
 #include "codec_def_decode_avc.h"
 #include "decode_allocator.h"
-#include "mhw_vdbox_mfx_interface.h"
 #include "decode_reference_associated_buffer.h"
 
 namespace decode
@@ -38,7 +37,7 @@ class AvcBasicFeature;
 class AvcMvBufferOpInf : public BufferOpInf<MOS_BUFFER, AvcBasicFeature>
 {
 public:
-    virtual MOS_STATUS Init(CodechalHwInterface& hwInterface, DecodeAllocator& allocator,
+    virtual MOS_STATUS Init(void* hwInterface, DecodeAllocator& allocator,
                     AvcBasicFeature& basicFeature);
     virtual MOS_BUFFER *Allocate();
     virtual MOS_STATUS Resize(MOS_BUFFER* &buffer);

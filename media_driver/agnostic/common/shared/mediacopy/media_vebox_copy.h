@@ -55,7 +55,6 @@ public:
     //! \param    osInterface
     //!           [in] Pointer to MOS_INTERFACE.
     //!
-    VeboxCopyState(PMOS_INTERFACE     osInterface);
     VeboxCopyState(PMOS_INTERFACE    osInterface, MhwInterfaces* mhwInterfaces);
 
     virtual ~VeboxCopyState();
@@ -96,12 +95,12 @@ public:
         PMOS_RESOURCE dst);
 
     //!
-    //! Is Vebox Tile Convert/Decompression Format supported
-    //! \param    [in/out]     surface
-    //!           Pointer to Output Surface parameters
+    //! Is ve copy supported surface
+    //! \param    [in]     surface
+    //!           Pointer to surface parameters
     //! \return   true if supported, else false.
     //!
-    bool IsFormatSupported(PMOS_RESOURCE surface);
+    bool IsSurfaceSupported(PMOS_RESOURCE surface);
 
     //!
     //! \brief    Setup Vebox_Surface_State Command parameter
@@ -140,12 +139,14 @@ protected:
         PMOS_COMMAND_BUFFER              cmdBuffer);
 
     //!
-    //! Is Vebox Tile Convert/Decompression Format supported
-    //! \param    [in/out]     surface
+    //! Is ve copy supported format
+    //! \param    [in/out]     surface mos format
     //!           Pointer to Output Surface parameters
     //! \return   true if supported, else false.
     //!
-    bool IsFormatSupported(PMOS_SURFACE surface);
+    virtual bool IsVeCopySupportedFormat(MOS_FORMAT format);
+
+    virtual void AdjustSurfaceFormat(MOS_SURFACE &surface);
 
 protected:
     PMOS_INTERFACE       m_osInterface   = nullptr;
@@ -154,7 +155,6 @@ protected:
     MhwVeboxInterface   *m_veboxInterface = nullptr;
     MhwCpInterface      *m_cpInterface    = nullptr;
     MhwInterfaces::CreateParams params;
-    std::shared_ptr<mhw::vebox::Itf> m_veboxItf = nullptr;
 MEDIA_CLASS_DEFINE_END(VeboxCopyState)
 };
 

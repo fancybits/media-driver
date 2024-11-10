@@ -145,7 +145,7 @@ namespace decode
                     uint8_t *batchBufBase = (uint8_t *)resLock.LockResourceForWrite();
                     DECODE_CHK_NULL(batchBufBase);
                     DECODE_CHK_STATUS(InitPicLevelCmdBuffer(*m_batchBuf, batchBufBase));
-                    HalOcaInterface::OnSubLevelBBStart(cmdBuffer, *m_osInterface->pOsContext, &m_batchBuf->OsResource, 0, true, 0);
+                    HalOcaInterface::OnSubLevelBBStart(cmdBuffer, (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext, &m_batchBuf->OsResource, 0, true, 0);
                     m_picCmdBuffer.cmdBuf1stLvl = &cmdBuffer;
                     DECODE_CHK_STATUS(m_picturePkt->Execute(m_picCmdBuffer));
                     DECODE_CHK_STATUS(m_miInterface->AddMiBatchBufferEnd(&m_picCmdBuffer, nullptr));
@@ -202,13 +202,13 @@ namespace decode
             0x00000050, 0x0000003d, 0x718a0001, 0x00000000,
             0x00000004, 0x77800000, 0x00100030
         };
-
-        Mos_AddCommand(&cmdBuffer, section1, sizeof(section1));
+        DECODE_CHK_NULL(m_osInterface);
+        m_osInterface->pfnAddCommand(&cmdBuffer, section1, sizeof(section1));
 
         DECODE_CHK_STATUS(m_picturePkt->UpdatePipeBufAddrForDummyWL(cmdBuffer));
         DECODE_CHK_STATUS(m_picturePkt->UpdateIndObjAddrForDummyWL(cmdBuffer));
 
-        Mos_AddCommand(&cmdBuffer, section2, sizeof(section2));
+        m_osInterface->pfnAddCommand(&cmdBuffer, section2, sizeof(section2));
 
         return MOS_STATUS_SUCCESS;
     }
@@ -242,6 +242,7 @@ namespace decode
             DECODE_CHK_STATUS(UpdateStatusReport(statusReportGlobalCount, &cmdBuffer));
         }
 
+#ifdef _MMC_SUPPORTED
         CODECHAL_DEBUG_TOOL(
             if (m_mmcState) {
                 if (m_av1BasicFeature->m_filmGrainEnabled)
@@ -253,6 +254,7 @@ namespace decode
                     m_mmcState->UpdateUserFeatureKey(&(m_av1BasicFeature->m_destSurface));
                 }
             })
+#endif
 
         if (m_isLastTileInPartialFrm || m_av1Pipeline->TileBasedDecodingInuse())
         {

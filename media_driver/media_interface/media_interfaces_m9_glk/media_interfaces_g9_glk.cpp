@@ -34,7 +34,6 @@ extern template class MediaFactory<uint32_t, MhwInterfaces>;
 extern template class MediaFactory<uint32_t, MmdDevice>;
 extern template class MediaFactory<uint32_t, CodechalDevice>;
 extern template class MediaFactory<uint32_t, CMHalDevice>;
-extern template class MediaFactory<uint32_t, MosUtilDevice>;
 extern template class MediaFactory<uint32_t, VphalDevice>;
 extern template class MediaFactory<uint32_t, RenderHalDevice>;
 extern template class MediaFactory<uint32_t, Nv12ToP010Device>;
@@ -50,14 +49,13 @@ static bool glkRegisteredVphal =
 
 MOS_STATUS VphalInterfacesG9Glk::Initialize(
     PMOS_INTERFACE  osInterface,
-    PMOS_CONTEXT    osDriverContext,
     bool            bInitVphalState,
-    MOS_STATUS      *eStatus)
+    MOS_STATUS      *eStatus,
+    bool            clearViewMode)
 {
     m_vpBase = MOS_New(
         VphalState,
         osInterface,
-        osDriverContext,
         eStatus);
 
     return *eStatus;
@@ -67,7 +65,7 @@ static bool glkRegisteredMhw =
     MediaFactory<uint32_t, MhwInterfaces>::
     Register<MhwInterfacesG9Kbl>((uint32_t)IGFX_GEMINILAKE);
 
-#ifdef _MMC_SUPPORTED
+#if defined(_MMC_SUPPORTED) && defined(ENABLE_KERNELS) && !defined(_FULL_OPEN_SOURCE)
 static bool glkRegisteredMmd =
     MediaFactory<uint32_t, MmdDevice>::
     Register<MmdDeviceG9Kbl>((uint32_t)IGFX_GEMINILAKE);
@@ -408,9 +406,6 @@ MOS_STATUS CMHalInterfacesG9Glk::Initialize(CM_HAL_STATE *pCmState)
     pGen9Device->OverwriteSteppingTable(CmSteppingInfo_GLK, sizeof(CmSteppingInfo_GLK)/sizeof(const char *));
     return MOS_STATUS_SUCCESS;
 }
-static bool glkRegisteredMosUtil =
-    MediaFactory<uint32_t, MosUtilDevice>::
-    Register<MosUtilDeviceG9Kbl>((uint32_t)IGFX_GEMINILAKE);
 
 static bool glkRegisteredRenderHal =
     MediaFactory<uint32_t, RenderHalDevice>::

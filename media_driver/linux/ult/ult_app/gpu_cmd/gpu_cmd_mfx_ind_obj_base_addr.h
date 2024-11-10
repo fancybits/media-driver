@@ -25,7 +25,6 @@
 #include "gpu_cmd.h"
 #include "mhw_vdbox_mfx_hwcmd_g9_bxt.h"
 #include "mhw_vdbox_mfx_hwcmd_g9_skl.h"
-#include "mhw_vdbox_mfx_hwcmd_g10_X.h"
 
 template<typename _CmdType>
 class GpuCmdMfxIndObjBaseAddr : public GpuCmd<_CmdType>
@@ -68,20 +67,6 @@ class GpuCmdMfxIndObjBaseAddrG9Skl : public GpuCmdMfxIndObjBaseAddr<mhw_vdbox_mf
 public:
 
     GpuCmdMfxIndObjBaseAddrG9Skl()
-    {
-        InitCachePolicy();
-    }
-    
-protected:
-
-    void InitCachePolicy();
-};
-
-class GpuCmdMfxIndObjBaseAddrG10 : public GpuCmdMfxIndObjBaseAddr<mhw_vdbox_mfx_g10_X::MFX_IND_OBJ_BASE_ADDR_STATE_CMD>
-{
-public:
-
-    GpuCmdMfxIndObjBaseAddrG10()
     {
         InitCachePolicy();
     }

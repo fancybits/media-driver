@@ -304,7 +304,7 @@ namespace encode
         VdencLplaAnalysis(
             MediaFeatureManager *featureManager,
             EncodeAllocator *allocator,
-            CodechalHwInterface *hwInterface,
+            CodechalHwInterfaceNext *hwInterface,
             void *constSettings);
 
         virtual ~VdencLplaAnalysis();
@@ -361,27 +361,6 @@ namespace encode
         //!
         MOS_STATUS StoreVdencStatistics(MOS_COMMAND_BUFFER &cmdBuffer, uint8_t index);
 
-        //!
-        //! \brief  Set look ahead init dmem parameters
-        //! \param  [in] dmemParams
-        //!         dmem params
-        //! \return MOS_STATUS
-        //!         MOS_STATUS_SUCCESS if success, else fail reason
-        //!
-        MOS_STATUS SetLaInitDmemParameters(MHW_VDBOX_HUC_DMEM_STATE_PARAMS &dmemParams);
-
-        //!
-        //! \brief  Set look ahead update dmem parameters
-        //! \param  [in] dmemParams
-        //!         dmem params
-        //! \param  [in] currRecycledBufIdx
-        //!         Current recycled buffer index
-        //! \return MOS_STATUS
-        //!         MOS_STATUS_SUCCESS if success, else fail reason
-        //!
-        MOS_STATUS SetLaUpdateDmemParameters(MHW_VDBOX_HUC_DMEM_STATE_PARAMS &dmemParams,
-            uint8_t currRecycledBufIdx, uint16_t curPass, uint16_t numPasses);
-
         MOS_STATUS SetLaUpdateDmemParameters(HUC_DMEM_STATE_PAR_ALIAS &dmemParams,
             uint8_t currRecycledBufIdx, uint16_t curPass, uint16_t numPasses);
 
@@ -416,15 +395,6 @@ namespace encode
         //!         MOS_STATUS_SUCCESS if success, else fail reason
         //!
         MOS_STATUS GetLplaStatusReport(EncodeStatusMfx *encodeStatusMfx, EncodeStatusReportData *statusReportData);
-
-        //!
-        //! \brief  Set vdenc pipe mode select parameters
-        //! \param  [in] pipeModeSelectParams
-        //!         pipe mode select params
-        //! \return MOS_STATUS
-        //!         MOS_STATUS_SUCCESS if success, else fail reason
-        //!
-        MOS_STATUS SetVdencPipeModeSelectParams(MHW_VDBOX_PIPE_MODE_SELECT_PARAMS_G12 &pipeModeSelectParams);
 
         //!
         //! \brief  Calculate Look ahead records
@@ -467,7 +437,7 @@ namespace encode
         MOS_STATUS EnableStreamIn(bool is1stPass, bool isLastPass, bool &streaminEnabled);
         MOS_STATUS SetVdencPipeBufAddrParams(bool enableStreamIn, MHW_VDBOX_PIPE_BUF_ADDR_PARAMS &pipeBufAddrParams);
 
-        MOS_STATUS ReadLPLAData(PMOS_COMMAND_BUFFER cmdBuffer, PMOS_RESOURCE resource, uint32_t baseOffset, bool hucStsUpdNeeded);
+        MOS_STATUS ReadLPLAData(PMOS_COMMAND_BUFFER cmdBuffer, PMOS_RESOURCE resource, uint32_t baseOffset);
 
         MHW_SETPAR_DECL_HDR(VDENC_PIPE_MODE_SELECT);
 
@@ -503,9 +473,9 @@ namespace encode
 
         MOS_STATUS SetStreaminDataPerRegion(
             uint32_t streamInWidth, uint32_t top, uint32_t bottom, uint32_t left, uint32_t right,
-            PMHW_VDBOX_VDENC_STREAMIN_STATE_PARAMS streaminParams, void *streaminData);
+            mhw::vdbox::vdenc::VDENC_STREAMIN_STATE_PAR *streaminParams, void *streaminData);
 
-        MOS_STATUS SetStreaminDataPerLcu( PMHW_VDBOX_VDENC_STREAMIN_STATE_PARAMS streaminParams, void *streaminData);
+        MOS_STATUS SetStreaminDataPerLcu(mhw::vdbox::vdenc::VDENC_STREAMIN_STATE_PAR *streaminParams, void *streaminData);
 
         MOS_STATUS StreaminZigZagToLinearMap( uint32_t  streamInWidth,  uint32_t  x, uint32_t  y, uint32_t *offset, uint32_t *xyOffset);
 
@@ -515,7 +485,7 @@ namespace encode
         HevcBasicFeature                  *m_hevcBasicFeature = nullptr;  //!< Hevc Basic Feature used in each frame
 
         EncodeBasicFeature       *m_basicFeature    = nullptr;  //!< EncodeBasicFeature
-        CodechalHwInterface      *m_hwInterface     = nullptr;  //!< Codechal HW Interface
+        CodechalHwInterfaceNext      *m_hwInterface     = nullptr;  //!< Codechal HW Interface
         EncodeAllocator          *m_allocator       = nullptr;  //!< Encode Allocator
         PMOS_INTERFACE            m_osInterface     = nullptr;
 
@@ -559,6 +529,7 @@ namespace encode
         PMOS_RESOURCE              m_vdencLaUpdateDmemBuffer[CODECHAL_ENCODE_RECYCLED_BUFFER_NUM][CODECHAL_LPLA_NUM_OF_PASSES] = {};  //!< VDEnc Lookahead Update DMEM buffer
         uint32_t                   m_statsBuffer[600][4]                                                                       = {};
         bool                       m_useDSData = false;
+        bool                       m_bLastPicFlagFirstIn                                                                       = true;
 
     MEDIA_CLASS_DEFINE_END(encode__VdencLplaAnalysis)
     };

@@ -34,21 +34,38 @@
 #include <signal.h>
 #include <unistd.h>  // fork
 #include <algorithm>
-#ifdef HAVE_EXECINFO_H
-#include <execinfo.h> // backtrace
-#endif
 #include <sys/types.h>
 #include <sys/stat.h>  // fstat
 #include <sys/ipc.h>  // System V IPC
 #include <sys/types.h>
 #include <sys/sem.h>
+#include <sys/mman.h>
+#include "mos_compat.h" // libc variative definitions: backtrace
 #include "mos_user_setting.h"
 #include "mos_utilities_specific.h"
 #include "mos_utilities.h"
 #include "mos_util_debug.h"
+#include "inttypes.h"
+
+int32_t g_mosMemAllocCounter         = 0;
+int32_t g_mosMemAllocFakeCounter     = 0;
+int32_t g_mosMemAllocCounterGfx      = 0;
+uint8_t g_mosUltFlag                 = 0;
+int32_t g_mosMemAllocIndex           = 0;
+
+int32_t *MosUtilities::m_mosMemAllocCounter       = &g_mosMemAllocCounter;
+int32_t *MosUtilities::m_mosMemAllocFakeCounter   = &g_mosMemAllocFakeCounter;
+int32_t *MosUtilities::m_mosMemAllocCounterGfx    = &g_mosMemAllocCounterGfx;
+uint8_t *MosUtilities::m_mosUltFlag               = &g_mosUltFlag;
+int32_t *MosUtilities::m_mosMemAllocIndex         = &g_mosMemAllocIndex;
 
 const char           *MosUtilitiesSpecificNext::m_szUserFeatureFile     = USER_FEATURE_FILE;
 MOS_PUF_KEYLIST      MosUtilitiesSpecificNext::m_ufKeyList              = nullptr;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+int32_t g_mosMemoryFailSimulateAllocCounter = 0;
+int32_t *MosUtilities::m_mosAllocMemoryFailSimulateAllocCounter = &g_mosMemoryFailSimulateAllocCounter;
+#endif
 
 double MosUtilities::MosGetTime()
 {
@@ -66,25 +83,25 @@ double MosUtilities::MosGetTime()
 #define MOS_UFKEY_INT     "UFKEY_INTERNAL"
 
 //!
+//! \brief trace setting definition
+//!
+#define TRACE_SETTING_PATH             "/dev/shm/GFX_MEDIA_TRACE"
+#define TRACE_SETTING_SIZE             sizeof(MtControlData)
+
+//!
 //! \brief Linux specific trace entry path and file description.
 //!
 const char *const MosUtilitiesSpecificNext::m_mosTracePath  = "/sys/kernel/debug/tracing/trace_marker_raw";
 int32_t           MosUtilitiesSpecificNext::m_mosTraceFd    = -1;
-MosMutex          MosUtilitiesSpecificNext::m_userSettingMutex;
+uint64_t          MosUtilitiesSpecificNext::m_filterEnv     = 0;
+uint32_t          MosUtilitiesSpecificNext::m_levelEnv      = 0;
 
-//!
-//! \brief Keyword for GFX tracing
-//!
-#define DATA_DUMP_KEYWORD               0x10000
-#define COMP_CP_KEYWORD                 0x20000
-#define COMP_VP_KEYWORD                 0x40000
-#define COMP_CODEC_KEYWORD              0x80000
-#define COMP_ALL_KEYWORD                0x01000
+MosMutex          MosUtilitiesSpecificNext::m_userSettingMutex;
 
 //!
 //! \brief trace event size definition
 //!
-#define TRACE_EVENT_MAX_SIZE           (1024)
+#define TRACE_EVENT_MAX_SIZE           (3072)
 #define TRACE_EVENT_HEADER_SIZE        (sizeof(uint32_t)*3)
 #define TRACE_EVENT_MAX_DATA_SIZE      (TRACE_EVENT_MAX_SIZE - TRACE_EVENT_HEADER_SIZE - sizeof(uint16_t)) // Trace info data size section is in uint16_t
 
@@ -631,7 +648,7 @@ MOS_STATUS MosUtilitiesSpecificNext::UserFeatureSet(MOS_PUF_KEYLIST *pKeyList, M
     {
          return MOS_STATUS_NO_SPACE;
     }
-    MosUtilities::MosAtomicIncrement(&MosUtilities::m_mosMemAllocFakeCounter);  //ulValueBuf does not count it, because it is freed after the MEMNJA final report.
+    MosUtilities::MosAtomicIncrement(MosUtilities::m_mosMemAllocFakeCounter);  //ulValueBuf does not count it, because it is freed after the MEMNJA final report.
     MOS_OS_NORMALMESSAGE("ulValueBuf %p for key %s", ulValueBuf, NewKey.pValueArray[0].pcValueName);
 
     m_userSettingMutex.Lock();
@@ -657,7 +674,7 @@ MOS_STATUS MosUtilitiesSpecificNext::UserFeatureSet(MOS_PUF_KEYLIST *pKeyList, M
     {
         //if found, the previous value buffer needs to be freed before reallocating
         MOS_FreeMemory(Key->pValueArray[iPos].ulValueBuf);
-        MosUtilities::MosAtomicDecrement(&MosUtilities::m_mosMemAllocFakeCounter);
+        MosUtilities::MosAtomicDecrement(MosUtilities::m_mosMemAllocFakeCounter);
         MOS_OS_NORMALMESSAGE("ulValueBuf %p for key %s", ulValueBuf, NewKey.pValueArray[0].pcValueName);
     }
 
@@ -998,7 +1015,25 @@ MOS_STATUS MosUtilitiesSpecificNext::UserFeatureDumpDataToFile(const char *szFil
     MOS_PUF_KEYLIST   pKeyTmp;
     int32_t           j;
 
+   // For release version: writes to the file if it exists,
+// skips if it does not exist
+// For other version: always writes to the file
+
+#if(_RELEASE)
+    File = fopen(szFileName, "r");
+    if (File == NULL)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+    else
+    {
+        fclose(File);
+        File = fopen(szFileName, "w+");
+    }
+#else
     File = fopen(szFileName, "w+");
+#endif
+
     if ( !File )
     {
         return MOS_STATUS_USER_FEATURE_KEY_WRITE_FAILED;
@@ -1031,8 +1066,7 @@ MOS_STATUS MosUtilitiesSpecificNext::UserFeatureDumpDataToFile(const char *szFil
                         *(uint32_t*)(pKeyTmp->pElem->pValueArray[j].ulValueBuf));
                     break;
                 case UF_QWORD:
-                    fprintf(File, "\t\t\t%lu\n",
-                        *(uint64_t*)(pKeyTmp->pElem->pValueArray[j].ulValueBuf));
+                    fprintf(File, "\t\t\t%" PRIu64"\n", *(uint64_t*)(pKeyTmp->pElem->pValueArray[j].ulValueBuf));
                     break;
                 default:
                     fprintf(File, "\t\t\t%s\n",
@@ -1353,26 +1387,33 @@ MOS_STATUS MosUtilities::MosOsUtilitiesInit(MediaUserSettingSharedPtr userSettin
     }
 #endif
 
+    //The user setting is device based, no need to guard with the reference count.
+    //It will be destroyed in media context termiation.
+    eStatus = MosUserSetting::InitMosUserSetting(userSettingPtr);
+
     if (m_mosUtilInitCount == 0)
     {
         //Init MOS User Feature Key from mos desc table
-        //
-        //Destroy the user setting instance which created for mavd user setting reset.
-        //Will remove this destroy once it moves the usersetting instacne to mediacontext.
-        MosUserSetting::DestroyMediaUserSetting();
-
-        eStatus = MosUserSetting::InitMosUserSetting(userSettingPtr);
         MosUtilitiesSpecificNext::UserFeatureDumpFile(MosUtilitiesSpecificNext::m_szUserFeatureFile, &MosUtilitiesSpecificNext::m_ufKeyList);
-
         MosDeclareUserFeature();
 
 #if MOS_MESSAGES_ENABLED
         // Initialize MOS message params structure and HLT
         MosUtilDebug::MosMessageInit(userSettingPtr);
 #endif // MOS_MESSAGES_ENABLED
-        m_mosMemAllocCounter     = 0;
-        m_mosMemAllocFakeCounter = 0;
-        m_mosMemAllocCounterGfx  = 0;
+        if (m_mosMemAllocCounter &&
+            m_mosMemAllocCounterGfx &&
+            m_mosMemAllocFakeCounter)
+        {
+            *m_mosMemAllocCounter     = 0;
+            *m_mosMemAllocFakeCounter = 0;
+            *m_mosMemAllocCounterGfx  = 0;
+        }
+        else
+        {
+            MOS_OS_ASSERTMESSAGE("MemNinja count pointers are nullptr");
+        }
+
         MosTraceEventInit();
     }
     m_mosUtilInitCount++;
@@ -1392,20 +1433,22 @@ MOS_STATUS MosUtilities::MosOsUtilitiesClose(MediaUserSettingSharedPtr userSetti
     if (m_mosUtilInitCount == 0)
     {
         MosTraceEventClose();
-        m_mosMemAllocCounter -= m_mosMemAllocFakeCounter;
-        memoryCounter = m_mosMemAllocCounter + m_mosMemAllocCounterGfx;
-        m_mosMemAllocCounterNoUserFeature    = m_mosMemAllocCounter;
-        m_mosMemAllocCounterNoUserFeatureGfx = m_mosMemAllocCounterGfx;
-        MOS_OS_VERBOSEMESSAGE("MemNinja leak detection end");
-
-        ReportUserSetting(
-            userSettingPtr,
-            __MEDIA_USER_FEATURE_VALUE_MEMNINJA_COUNTER,
-            memoryCounter,
-            MediaUserSetting::Group::Device);
-
+        if (m_mosMemAllocCounter &&
+            m_mosMemAllocCounterGfx &&
+            m_mosMemAllocFakeCounter)
+        {
+            *m_mosMemAllocCounter -= *m_mosMemAllocFakeCounter;
+            memoryCounter = *m_mosMemAllocCounter + *m_mosMemAllocCounterGfx;
+            m_mosMemAllocCounterNoUserFeature    = *m_mosMemAllocCounter;
+            m_mosMemAllocCounterNoUserFeatureGfx = *m_mosMemAllocCounterGfx;
+            MOS_OS_VERBOSEMESSAGE("MemNinja leak detection end");
+            ReportUserSetting(
+                userSettingPtr,
+                __MEDIA_USER_FEATURE_VALUE_MEMNINJA_COUNTER,
+                memoryCounter,
+                MediaUserSetting::Group::Device);
+        }
         MosDestroyUserFeature();
-        MosUserSetting::DestroyMediaUserSetting();
 
 #if (_DEBUG || _RELEASE_INTERNAL)
         // MOS maintains a reference counter,
@@ -1517,7 +1560,6 @@ MOS_STATUS MosUtilities::MosInitializeReg(RegBufferMap &regBufferMap)
         if (regStream.good())
         {
             std::string id       = "";
-
             while(!regStream.eof())
             {
                 std::string line = "";
@@ -1552,8 +1594,11 @@ MOS_STATUS MosUtilities::MosInitializeReg(RegBufferMap &regBufferMap)
                     {
                         std::string name = line.substr(0,pos);
                         std::string value = line.substr(pos+1);
-                        auto        &keys  = regBufferMap[id];
-                        keys[name]       = value;
+                        if (name.size() > 0 && value.size() > 0)
+                        {
+                            auto &keys = regBufferMap[id];
+                            keys[name] = value;
+                        }
                     }
                 }
             }
@@ -1573,6 +1618,7 @@ MOS_STATUS MosUtilities::MosInitializeReg(RegBufferMap &regBufferMap)
 MOS_STATUS MosUtilities::MosUninitializeReg(RegBufferMap &regBufferMap)
 {
     MOS_STATUS status = MOS_STATUS_SUCCESS;
+
     if (regBufferMap.size() == 0)
     {
         return MOS_STATUS_SUCCESS;
@@ -1590,23 +1636,37 @@ MOS_STATUS MosUtilities::MosUninitializeReg(RegBufferMap &regBufferMap)
     std::ofstream regStream;
     try
     {
-        regStream.open(USER_FEATURE_FILE_NEXT, std::ios::out | std::ios::trunc);
+// For release version: writes to the file if it exists,
+// skips if it does not exist
+// For other version: always writes to the file
+#if(_RELEASE)
+        std::ifstream regFile(USER_FEATURE_FILE_NEXT);
+        if (regFile.good())
+        {
+            regFile.close();
+            regStream.open(USER_FEATURE_FILE_REPORT, std::ios::out | std::ios::trunc);
+        }
+        else
+        {
+            regFile.close();
+            return status;
+        }
+#else
+        regStream.open(USER_FEATURE_FILE_REPORT, std::ios::out | std::ios::trunc);
+#endif
         if (regStream.good())
         {
-            for(auto pair: regBufferMap)
+            regStream << iter->first << "\n";
+
+            auto &keys = iter->second;
+            for (auto key: keys)
             {
-                regStream << pair.first << "\n";
-
-                auto &keys = regBufferMap[pair.first];
-                for (auto key: keys)
-                {
-                    auto name = key.first;
-                    regStream << key.first << "=" << key.second << "\n";
-                }
-
-                keys.clear();
-                regStream << std::endl;
+                auto name = key.first;
+                regStream << key.first << "=" << key.second << "\n";
             }
+
+            keys.clear();
+            regStream << std::endl;
             regBufferMap.clear();
             regStream.flush();
         }
@@ -1685,6 +1745,19 @@ MOS_STATUS MosUtilities::MosReadEnvVariable(
     return MOS_STATUS_INVALID_PARAMETER;
 }
 
+bool MosUtilities::MosEnvVariableEqual(
+    const std::string            envName,
+    const std::string            targetVal)
+{
+    char *retVal = getenv(envName.c_str());
+    bool res = false;
+    if (retVal != nullptr)
+    {
+        res = strcmp(retVal, targetVal.c_str()) ? false : true;
+    }
+    return res;
+}
+
 MOS_STATUS MosUtilities::MosGetRegValue(
     UFKEY_NEXT keyHandle,
     const std::string &valueName,
@@ -1715,6 +1788,33 @@ MOS_STATUS MosUtilities::MosGetRegValue(
     }
 
     return status;
+}
+
+MOS_STATUS MosUtilities::MosPrintCPUAllocateMemory(int32_t event_id, int32_t level, int32_t param_id_1, int64_t value_1, int32_t param_id_2, int64_t value_2,
+    const char *funName, const char *fileName, int32_t line)
+{
+#if (_RELEASE_INTERNAL)
+    if (MOS_IS_MEMORY_FOOT_PRINT_ENABLED())
+    {
+        MosAtomicIncrement(m_mosMemAllocIndex);
+        MT_LOG3(event_id, level, param_id_1, value_1, MT_MEMORY_INDEX, *MosUtilities::m_mosMemAllocIndex, param_id_2, value_2);
+    }
+
+#endif
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS MosUtilities::MosPrintCPUDestroyMemory(int32_t event_id, int32_t level, int32_t param_id_1, int64_t value_1, 
+    const char *funName, const char *fileName, int32_t line)
+{
+#if (_RELEASE_INTERNAL)
+    if (MOS_IS_MEMORY_FOOT_PRINT_ENABLED())
+    {
+        MosAtomicDecrement(m_mosMemAllocIndex);
+        MT_LOG2(event_id, level, param_id_1, value_1, MT_MEMORY_INDEX, *MosUtilities::m_mosMemAllocIndex);
+    }
+#endif
+    return MOS_STATUS_SUCCESS;
 }
 
 MOS_STATUS MosUtilities::MosSetRegValue(
@@ -1906,14 +2006,14 @@ MOS_STATUS MosUtilities::MosReadMediaSoloEnabledUserFeature(bool &mediasoloEnabl
     return eStatus;
 }
 
-MOS_STATUS MosUtilities::MosReadApoDdiEnabledUserFeature(uint32_t &userfeatureValue, char *path)
+MOS_STATUS MosUtilities::MosReadApoDdiEnabledUserFeature(uint32_t &userfeatureValue, char *path, MediaUserSettingSharedPtr userSettingPtr)
 {
     MOS_STATUS eStatus  = MOS_STATUS_SUCCESS;
     MOS_UNUSED(path);
 
     uint32_t enableApoDdi = 0;
     eStatus = ReadUserSetting(
-        nullptr,
+        userSettingPtr,
         enableApoDdi,
         "ApoDdiEnable",
         MediaUserSetting::Group::Device);
@@ -1927,33 +2027,16 @@ MOS_STATUS MosUtilities::MosReadApoDdiEnabledUserFeature(uint32_t &userfeatureVa
     return eStatus;
 }
 
-MOS_STATUS MosUtilities::MosReadApoMosEnabledUserFeature(uint32_t &userfeatureValue, char *path)
+MOS_STATUS MosUtilities::MosReadApoMosEnabledUserFeature(uint32_t &userfeatureValue, char *path, MediaUserSettingSharedPtr userSettingPtr)
 {
     MOS_STATUS eStatus  = MOS_STATUS_SUCCESS;
     MOS_USER_FEATURE_VALUE_DATA userFeatureData     = {};
     MOS_UNUSED(path);
 
-    //If apo mos enabled, to check if media solo is enabled. Disable apo mos if media solo is enabled.
-#if MOS_MEDIASOLO_SUPPORTED
-    eStatus = MosUtilities::MosUserFeatureReadValueID(
-            nullptr,
-            __MEDIA_USER_FEATURE_VALUE_MEDIASOLO_ENABLE_ID,
-            &userFeatureData,
-            (MOS_CONTEXT_HANDLE) nullptr);
-
-    //If media solo is enabled, disable apogeios.
-    if (eStatus == MOS_STATUS_SUCCESS && userFeatureData.i32Data != 0)
-    {
-        // This error case can be hit if the user feature key does not exist.
-        MOS_OS_NORMALMESSAGE("Solo is enabled, disable apo mos");
-        userfeatureValue = 0;
-        return MOS_STATUS_SUCCESS;
-    }
-#endif
 
     uint32_t enableApoMos = 0;
     eStatus = ReadUserSetting(
-        nullptr,
+        userSettingPtr,
         enableApoMos,
         "ApoMosEnable",
         MediaUserSetting::Group::Device);
@@ -2110,7 +2193,7 @@ PMOS_MUTEX MosUtilities::MosCreateMutex(uint32_t spinCount)
     return pMutex;
 }
 
-MOS_STATUS MosUtilities::MosDestroyMutex(PMOS_MUTEX pMutex)
+MOS_STATUS MosUtilities::MosDestroyMutex(PMOS_MUTEX &pMutex)
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
@@ -2120,7 +2203,7 @@ MOS_STATUS MosUtilities::MosDestroyMutex(PMOS_MUTEX pMutex)
         {
             eStatus = MOS_STATUS_UNKNOWN;
         }
-        MOS_FreeMemory(pMutex);
+        MOS_FreeMemAndSetNull(pMutex);
     }
 
     return eStatus;
@@ -2174,10 +2257,9 @@ PMOS_SEMAPHORE MosUtilities::MosCreateSemaphore(
 }
 
 MOS_STATUS MosUtilities::MosDestroySemaphore(
-    PMOS_SEMAPHORE              pSemaphore)
+    PMOS_SEMAPHORE              &pSemaphore)
 {
-    MOS_SafeFreeMemory(pSemaphore);
-
+    MOS_FreeMemAndSetNull(pSemaphore);
     return MOS_STATUS_SUCCESS;
 }
 
@@ -2261,13 +2343,21 @@ uint32_t MosUtilities::MosWaitForMultipleObjects(
 int32_t MosUtilities::MosAtomicIncrement(
     int32_t *pValue)
 {
-    return __sync_add_and_fetch(pValue, 1);
+    if (pValue != nullptr)
+    {
+        return __sync_add_and_fetch(pValue, 1);
+    }
+    return 0;
 }
 
 int32_t MosUtilities::MosAtomicDecrement(
     int32_t *pValue)
 {
-    return __sync_sub_and_fetch(pValue, 1);
+    if (pValue != nullptr)
+    {
+        return __sync_sub_and_fetch(pValue, 1);
+    }
+    return 0;
 }
 
 #ifndef WDDM_LINUX
@@ -2376,12 +2466,40 @@ MOS_STATUS MosUtilities::MosGetLocalTime(
 void MosUtilities::MosTraceEventInit()
 {
     char *val = getenv("GFX_MEDIA_TRACE");
-    if (val == nullptr)
+    if (val)
     {
-        return;
+        MosUtilitiesSpecificNext::m_filterEnv = strtoll(val, nullptr, 0);
+        val = getenv("GFX_MEDIA_TRACE_LEVEL");
+        if (val)
+        {
+            MosUtilitiesSpecificNext::m_levelEnv = static_cast<uint32_t>(strtoll(val, nullptr, 0));
+        }
+        m_mosTraceEnable = true;
+        m_mosTraceFilter = &MosUtilitiesSpecificNext::m_filterEnv;
+        m_mosTraceLevel  = reinterpret_cast<uint8_t *>(&MosUtilitiesSpecificNext::m_levelEnv);
     }
-    char *tmp;
-    m_mosTraceFilter = strtoll(val, &tmp, 0);
+    else
+    {
+        int fd = open(TRACE_SETTING_PATH, O_RDONLY);
+        if (fd < 0)
+        {
+            return;
+        }
+        void *addr = mmap(NULL, TRACE_SETTING_SIZE, PROT_READ, MAP_SHARED, fd, 0);
+        close(fd); // close first, map addr still valid after close
+        if (addr == MAP_FAILED)
+        {
+            return;
+        }
+        m_mosTraceControlData = reinterpret_cast<const MtControlData *>(addr);
+
+        m_mosTraceEnable = &m_mosTraceControlData->enable;
+        m_mosTraceFilter = {
+                        m_mosTraceControlData->filter,
+                        sizeof(m_mosTraceControlData->filter) / sizeof(uint64_t)};
+        m_mosTraceLevel = &m_mosTraceControlData->level;
+    }
+
     // close first, if already opened.
     if (MosUtilitiesSpecificNext::m_mosTraceFd >= 0)
     {
@@ -2394,12 +2512,21 @@ void MosUtilities::MosTraceEventInit()
 
 void MosUtilities::MosTraceEventClose()
 {
+    m_mosTraceEnable.Reset();
+    m_mosTraceFilter.Reset();
+    m_mosTraceLevel.Reset();
+    if (m_mosTraceControlData)
+    {
+        munmap((void *)m_mosTraceControlData, TRACE_SETTING_SIZE);
+        m_mosTraceControlData = nullptr;
+    }
     if (MosUtilitiesSpecificNext::m_mosTraceFd >= 0)
     {
         close(MosUtilitiesSpecificNext::m_mosTraceFd);
         MosUtilitiesSpecificNext::m_mosTraceFd = -1;
     }
-    m_mosTraceFilter = 0;
+    MosUtilitiesSpecificNext::m_filterEnv = 0;
+    MosUtilitiesSpecificNext::m_levelEnv  = {};
     return;
 }
 
@@ -2416,19 +2543,24 @@ void MosUtilities::MosTraceEvent(
     const void       *pArg2,
     uint32_t         dwSize2)
 {
+    if (!m_mosTraceEnable)
+    {
+        return; // skip if trace not enabled from share memory
+    }
+
     if (MosUtilitiesSpecificNext::m_mosTraceFd >= 0 &&
         TRACE_EVENT_MAX_SIZE > dwSize1 + dwSize2 + TRACE_EVENT_HEADER_SIZE)
     {
         uint8_t traceBuf[256];
         uint8_t *pTraceBuf = traceBuf;
+
         // special handling for media runtime log, filter by component
         if (usId == EVENT_MEDIA_LOG && pArg1 != nullptr && dwSize1 >= 2*sizeof(int32_t))
         {
             int32_t comp = (*(int32_t*)pArg1) >> 24;
             int32_t level = *((int32_t*)pArg1 + 1);
-            uint64_t keyword = m_mosTraceFilter;
 
-            if ((m_mosTraceFilter & ((1ULL << TR_KEY_MOSMSG_ALL) | (1ULL << (comp + 16)))) == 0)
+            if (!m_mosTraceFilter(TR_KEY_MOSMSG_ALL) || !m_mosTraceFilter(MEDIA_EVENT_FILTER_KEYID(comp + 16)))
             {
                 // keyword not set for this component, skip it
                 return;
@@ -2452,12 +2584,12 @@ void MosUtilities::MosTraceEvent(
 
             if (pArg1 && dwSize1 > 0)
             {
-                memcpy(pTraceBuf+nLen, pArg1, dwSize1);
+                MOS_SecureMemcpy(pTraceBuf+nLen, dwSize1, pArg1, dwSize1);
                 nLen += dwSize1;
             }
             if (pArg2 && dwSize2 > 0)
             {
-                memcpy(pTraceBuf+nLen, pArg2, dwSize2);
+                MOS_SecureMemcpy(pTraceBuf+nLen, dwSize2, pArg2, dwSize2);
                 nLen += dwSize2;
             }
             size_t writeSize = write(MosUtilitiesSpecificNext::m_mosTraceFd, pTraceBuf, nLen);
@@ -2466,8 +2598,8 @@ void MosUtilities::MosTraceEvent(
                 MOS_FreeMemory(pTraceBuf);
             }
         }
-#ifdef HAVE_EXECINFO_H
-        if (m_mosTraceFilter & (1ULL << TR_KEY_CALL_STACK))
+#if Backtrace_FOUND
+        if (m_mosTraceFilter(TR_KEY_CALL_STACK))
         {
             // reserve space for header and stack size field.
             // max 32-2=30 layers call stack in 64bit driver.
@@ -2486,9 +2618,16 @@ void MosUtilities::MosTraceEvent(
                 size_t ret = write(MosUtilitiesSpecificNext::m_mosTraceFd, traceBuf, nLen);
             }
         }
-#endif /* HAVE_EXECINFO_H */
+#endif
     }
     return;
+}
+
+bool MosUtilities::MosShouldTraceEventMsg(
+    uint8_t level,
+    uint8_t compID)
+{
+    return false;
 }
 
 void MosUtilities::MosTraceEventMsg(
@@ -2620,6 +2759,16 @@ void MosUtilities::MosGfxInfo(
     // not implemented
 }
 
+#if (_DEBUG || _RELEASE_INTERNAL)
+void MosUtilities::MosMMPWriteFile(
+    const std::string &name,
+    const void        *data,
+    size_t             size)
+{
+    std::ofstream ofs(name);
+    ofs.write(static_cast<const char *>(data), size);
+}
+#endif  //(_DEBUG || _RELEASE_INTERNAL)
 void PerfUtility::startTick(std::string tag)
 {
     std::lock_guard<std::mutex> lock(perfMutex);

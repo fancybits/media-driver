@@ -40,7 +40,7 @@ namespace encode
         HevcVdencScc(
             MediaFeatureManager *featureManager,
             EncodeAllocator *allocator,
-            CodechalHwInterface *hwInterface,
+            CodechalHwInterfaceNext *hwInterface,
             void *constSettings);
 
         virtual ~HevcVdencScc();
@@ -96,6 +96,8 @@ namespace encode
         //!           true if SCC enabled, else SCC disabled.
         //!
         bool IsSCCEnabled() { return m_enableSCC; }
+
+        virtual bool IsCompressFlagNeeded() { return true; }
 
         MHW_SETPAR_DECL_HDR(VDENC_PIPE_MODE_SELECT);
 

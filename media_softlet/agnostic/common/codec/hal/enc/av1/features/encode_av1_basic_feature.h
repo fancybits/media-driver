@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2022, Intel Corporation
+* Copyright (c) 2019-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -35,6 +35,9 @@
 #include "mhw_vdbox_avp_itf.h"
 #include "mhw_vdbox_huc_itf.h"
 #include "encode_mem_compression.h"
+#if _MEDIA_RESERVED
+#include "codec_def_encode_av1_ext.h"
+#endif
 
 namespace encode
 {
@@ -65,7 +68,7 @@ class Av1BasicFeature : public EncodeBasicFeature, public mhw::vdbox::vdenc::Itf
 {
 public:
     Av1BasicFeature(EncodeAllocator * allocator,
-                     CodechalHwInterface *hwInterface,
+                     CodechalHwInterfaceNext *hwInterface,
                      TrackedBuffer *trackedBuf,
                      RecycleResource *recycleBuf,
                      void *constSettings) :
@@ -138,6 +141,7 @@ public:
     PCODEC_AV1_ENCODE_PICTURE_PARAMS    m_av1PicParams          = nullptr;                      //!< Pointer to picture parameter
     Av1ReferenceFrames                  m_ref                   = {};                           //!< Reference List
     Av1StreamIn                         m_streamIn              = {};                           //!< Stream In
+    AV1MetaDataOffset                   m_AV1metaDataOffset     = {};                           //!< AV1 Metadata Offset
 
     uint32_t            m_sizeOfSseSrcPixelRowStoreBufferPerLcu = 0;                            //!< Size of SSE row store buffer per LCU
     static constexpr uint32_t  m_vdencBrcStatsBufferSize        = 1216;                         //!< Vdenc bitrate control buffer size
@@ -157,7 +161,12 @@ public:
     bool                               m_enableSWBackAnnotation = true;                        //!< indicate whether SW back annotation enabled or not
     bool                               m_enableSWStitching = false;                             //!< indicate whether SW bitstream stitching enabled or not
     bool                               m_enableNonDefaultMapping = false;                       //!< indicate whether Non-default mapping enabled or not
-    bool                               m_adaptiveRounding   = false;                            //!< whether adaptive rounding will be enabled
+
+    RoundingMethod                     m_roundingMethod = fixedRounding;
+    bool                               m_enableCDEF = false;
+    bool                               m_postCdefReconSurfaceFlag = false;
+
+    uint32_t                           m_vdencTileSliceStart[av1MaxTileNum] = { 0 };           //!< VDEnc TILE_SLICE buffer offset array for every tile
 
     enum FlushCmd
     {
@@ -168,14 +177,14 @@ public:
 
 #define ASYNC_NUM 32
 
-    uint32_t                           m_frameHdrOBUSizeByteOffset[ASYNC_NUM] = {};  //!< indicate current frame OBUFrame offset
+    uint32_t                           m_frameHdrOBUSizeByteOffset = 0;  //!< indicate current frame OBUFrame offset
     uint16_t                           m_tileGroupHeaderSize = 0;
     uint32_t                           m_encodedFrameNum = 0;                                   //!< Currently encoded frame number
 
     PMOS_RESOURCE                      m_resMvTemporalBuffer = nullptr;                         //!< Pointer to MOS_RESOURCE of MvTemporal Buffer
 
     PMOS_RESOURCE m_bitstreamDecoderEncoderLineRowstoreReadWriteBuffer     = nullptr;  //!< Handle of Bitstream Decode Line Rowstore buffer,
-    PMOS_RESOURCE m_bitstreamDecoderEncoderTileLineRowstoreReadWriteBuffer = nullptr;  //!< Handle of Bitstream Decode Tile Line buffer
+    PMOS_RESOURCE m_bitstreamDecoderEncoderTileLineRowstoreReadWriteBuffer[AV1_NUM_OF_DUAL_CTX] = {};  //!< Handle of Bitstream Decode Tile Line buffer
     PMOS_RESOURCE m_intraPredictionTileLineRowstoreReadWriteBuffer         = nullptr;  //!< Handle of Intra Prediction Tile Line Rowstore Read/Write Buffer
     PMOS_RESOURCE m_spatialMotionVectorLineReadWriteBuffer                 = nullptr;  //!< Handle of Spatial Motion Vector Line rowstore buffer, can be programmed to use Local Media Storage VMM instead of Memory
     PMOS_RESOURCE m_spatialMotionVectorCodingTileLineReadWriteBuffer       = nullptr;  //!< Handle of Spatial Motion Vector Tile Line buffer
@@ -186,18 +195,18 @@ public:
     PMOS_RESOURCE m_deblockerFilterLineReadWriteYBuffer                    = nullptr;  //!< DW92..93, Deblocker Filter Line Read/Write Y Buffer Address
     PMOS_RESOURCE m_deblockerFilterLineReadWriteUBuffer                    = nullptr;  //!< DW95..96, Deblocker Filter Line Read/Write U Buffer Address
     PMOS_RESOURCE m_deblockerFilterLineReadWriteVBuffer                    = nullptr;  //!< DW98..99, Deblocker Filter Line Read/Write V Buffer Address
-    PMOS_RESOURCE m_deblockerFilterTileLineReadWriteYBuffer                = nullptr;  //!< DW101..102, Deblocker Filter Tile Line Read/Write Y Buffer Address
-    PMOS_RESOURCE m_deblockerFilterTileLineReadWriteVBuffer                = nullptr;  //!< DW104..105, Deblocker Filter Tile Line Read/Write V Buffer Address
-    PMOS_RESOURCE m_deblockerFilterTileLineReadWriteUBuffer                = nullptr;  //!< DW107..108, Deblocker Filter Tile Line Read/Write U Buffer Address
-    PMOS_RESOURCE m_deblockerFilterTileColumnReadWriteYBuffer              = nullptr;  //!< DW110..111, Deblocker Filter Tile Column Read/Write Y Buffer Address
-    PMOS_RESOURCE m_deblockerFilterTileColumnReadWriteUBuffer              = nullptr;  //!< DW113..114, Deblocker Filter Tile Column Read/Write U Buffer Address
-    PMOS_RESOURCE m_deblockerFilterTileColumnReadWriteVBuffer              = nullptr;  //!< DW116..117, Deblocker Filter Tile Column Read/Write V Buffer Address
-    PMOS_RESOURCE m_cdefFilterLineReadWriteBuffer                          = nullptr;  //!< DW119..120, CDEF Filter Line Read/Write Y Buffer Address
-    PMOS_RESOURCE m_cdefFilterTileLineReadWriteBuffer                      = nullptr;  //!< DW128..129, CDEF Filter Tile Line Read/Write Y Buffer Address
-    PMOS_RESOURCE m_cdefFilterTileColumnReadWriteBuffer                    = nullptr;  //!< DW137..138, CDEF Filter Tile Column Read/Write Y Buffer Address
-    PMOS_RESOURCE m_cdefFilterMetaTileLineReadWriteBuffer                  = nullptr;  //!< DW140..141, CDEF Filter Meta Tile Line Read/Write Buffer Address
-    PMOS_RESOURCE m_cdefFilterMetaTileColumnReadWriteBuffer                = nullptr;  //!< DW143..144, CDEF Filter Meta Tile Column Read/Write Buffer Address
-    PMOS_RESOURCE m_cdefFilterTopLeftCornerReadWriteBuffer                 = nullptr;  //!< DW146..147, CDEF Filter Top-Left Corner Read/Write Buffer Address
+    PMOS_RESOURCE m_deblockerFilterTileLineReadWriteYBuffer[AV1_NUM_OF_DUAL_CTX] = {};  //!< DW101..102, Deblocker Filter Tile Line Read/Write Y Buffer Address
+    PMOS_RESOURCE m_deblockerFilterTileLineReadWriteVBuffer[AV1_NUM_OF_DUAL_CTX] = {};  //!< DW104..105, Deblocker Filter Tile Line Read/Write V Buffer Address
+    PMOS_RESOURCE m_deblockerFilterTileLineReadWriteUBuffer[AV1_NUM_OF_DUAL_CTX] = {};  //!< DW107..108, Deblocker Filter Tile Line Read/Write U Buffer Address
+    PMOS_RESOURCE m_deblockerFilterTileColumnReadWriteYBuffer[AV1_NUM_OF_DUAL_CTX] = {};  //!< DW110..111, Deblocker Filter Tile Column Read/Write Y Buffer Address
+    PMOS_RESOURCE m_deblockerFilterTileColumnReadWriteUBuffer[AV1_NUM_OF_DUAL_CTX] = {};  //!< DW113..114, Deblocker Filter Tile Column Read/Write U Buffer Address
+    PMOS_RESOURCE m_deblockerFilterTileColumnReadWriteVBuffer[AV1_NUM_OF_DUAL_CTX] = {};  //!< DW116..117, Deblocker Filter Tile Column Read/Write V Buffer Address
+    PMOS_RESOURCE m_cdefFilterLineReadWriteBuffer[AV1_NUM_OF_DUAL_CTX]           = {};  //!< DW119..120, CDEF Filter Line Read/Write Y Buffer Address
+    PMOS_RESOURCE m_cdefFilterTileLineReadWriteBuffer[AV1_NUM_OF_DUAL_CTX]       = {};       //!< DW128..129, CDEF Filter Tile Line Read/Write Y Buffer Address
+    PMOS_RESOURCE m_cdefFilterTileColumnReadWriteBuffer[AV1_NUM_OF_DUAL_CTX]     = {};  //!< DW137..138, CDEF Filter Tile Column Read/Write Y Buffer Address
+    PMOS_RESOURCE m_cdefFilterMetaTileLineReadWriteBuffer[AV1_NUM_OF_DUAL_CTX]   = {};       //!< DW140..141, CDEF Filter Meta Tile Line Read/Write Buffer Address
+    PMOS_RESOURCE m_cdefFilterMetaTileColumnReadWriteBuffer[AV1_NUM_OF_DUAL_CTX] = {};  //!< DW143..144, CDEF Filter Meta Tile Column Read/Write Buffer Address
+    PMOS_RESOURCE m_cdefFilterTopLeftCornerReadWriteBuffer[AV1_NUM_OF_DUAL_CTX]  = {};       //!< DW146..147, CDEF Filter Top-Left Corner Read/Write Buffer Address
     PMOS_RESOURCE m_superResTileColumnReadWriteYBuffer                     = nullptr;  //!< DW149..150, Super-Res Tile Column Read/Write Y Buffer Address
     PMOS_RESOURCE m_superResTileColumnReadWriteUBuffer                     = nullptr;  //!< DW152..153, Super-Res Tile Column Read/Write U Buffer Address
     PMOS_RESOURCE m_superResTileColumnReadWriteVBuffer                     = nullptr;  //!< DW155..156, Super-Res Tile Column Read/Write V Buffer Address

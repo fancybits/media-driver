@@ -33,6 +33,7 @@
 #include "decode_av1_tile_coding_g12.h"
 #include "mhw_vdbox_avp_interface.h"
 #include "decode_internal_target.h"
+#include "codechal_hw.h"
 
 namespace decode
 {
@@ -42,13 +43,14 @@ namespace decode
         //!
         //! \brief  Av1BasicFeatureG12 constructor
         //!
-        Av1BasicFeatureG12(DecodeAllocator *allocator, CodechalHwInterface *hwInterface) :
-                         DecodeBasicFeature(allocator, hwInterface)
+        Av1BasicFeatureG12(DecodeAllocator *allocator, void *hwInterface, PMOS_INTERFACE osInterface) :
+            DecodeBasicFeature(allocator, hwInterface ? ((CodechalHwInterface*)hwInterface)->m_hwInterfaceNext : nullptr, osInterface)
         {
-            if (hwInterface != nullptr)
+            if (osInterface != nullptr)
             {
-                m_osInterface  = hwInterface->GetOsInterface();
+                m_osInterface = osInterface;
             }
+            m_hwInterface = (CodechalHwInterface*)hwInterface;
         };
 
         //!
@@ -122,7 +124,6 @@ namespace decode
         CodecAv1SegmentsParams          *m_segmentParams           = nullptr;      //!< Pointer to AV1 segments parameter
         CodecAv1TileParams              *m_av1TileParams           = nullptr;      //!< Pointer to AV1 tiles parameter
 
-        PMOS_BUFFER                     m_tmpCdfBuffers[4]         = {};           //!< 4 temporal cdf table buffers for later use.
         PMOS_BUFFER                     m_defaultCdfBuffers[4]     = {};           //!< 4 default frame contexts per base_qindex
         PMOS_BUFFER                     m_defaultCdfBufferInUse    = nullptr;      //!< default cdf table used base on current base_qindex
         uint8_t                         m_curCoeffCdfQCtx          = 0;            //!< Coeff CDF Q context ID for current frame
@@ -162,6 +163,8 @@ namespace decode
 
         MhwVdboxAvpInterface *m_avpInterface = nullptr;
         PMOS_INTERFACE        m_osInterface  = nullptr;
+        CodechalHwInterface  *m_hwInterface  = nullptr;
+
     MEDIA_CLASS_DEFINE_END(decode__Av1BasicFeatureG12)
     };
 

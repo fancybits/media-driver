@@ -69,7 +69,25 @@ public:
 
     virtual MOS_STATUS Destroy() override;
 
+    virtual MOS_STATUS CreateFeatureManager() override;
+
     uint32_t GetCompletedReport();
+
+    //!
+    //! \brief  Create post sub packets
+    //! \param  [in] subPipelineManager
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS CreatePostSubPipeLines(DecodeSubPipelineManager &subPipelineManager) override;
+
+    //!
+    //! \brief  Create pre sub packets
+    //! \param  [in] subPipelineManager
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS CreatePreSubPipeLines(DecodeSubPipelineManager &subPipelineManager) override;
 
 protected:
     virtual MOS_STATUS Initialize(void *settings) override;
@@ -107,6 +125,19 @@ protected:
     //!
     MOS_STATUS AllocateResources(HevcBasicFeature &basicFeature);
 
+    virtual MOS_STATUS InitContexOption(HevcScalabilityPars &scalPars) override;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    //!
+    //! \brief  Earlier stop for hw error status
+    //! \param  [in] status
+    //!         Status report from HW
+    //! \return MOS_STATUS
+    //!         MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS HwStatusCheck(const DecodeStatusMfx &status) override;
+#endif
+
 #ifdef _MMC_SUPPORTED
     //!
     //! \brief    Initialize MMC state
@@ -126,11 +157,19 @@ protected:
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
     MOS_STATUS DumpParams(HevcBasicFeature &basicFeature);
+
+    //! \brief    Dump the second level batch buffer
+    //!
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS DumpSecondLevelBatchBuffer() override;
 #endif
 
 private:
     HevcDecodeLongPktM12 *m_hevcDecodePktLong = nullptr;
-MEDIA_CLASS_DEFINE_END(decode__HevcPipelineM12)
+    CodechalHwInterface  *m_hwInterface       = nullptr;
+    MEDIA_CLASS_DEFINE_END(decode__HevcPipelineM12)
 };
 
 }

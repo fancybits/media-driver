@@ -47,6 +47,18 @@ namespace sfc
 class Itf
 {
 public:
+
+    enum CommandsNumberOfAddresses
+    {
+        SFC_STATE_CMD_NUMBER_OF_ADDRESSES                  = 8,
+        SFC_AVS_LUMA_Coeff_Table_CMD_NUMBER_OF_ADDRESSES   = 0,
+        SFC_AVS_CHROMA_Coeff_Table_CMD_NUMBER_OF_ADDRESSES = 0,
+        SFC_AVS_STATE_CMD_NUMBER_OF_ADDRESSES              = 0,
+        SFC_FRAME_START_CMD_NUMBER_OF_ADDRESSES            = 0,
+        SFC_IEF_STATE_CMD_NUMBER_OF_ADDRESSES              = 0,
+        SFC_LOCK_CMD_NUMBER_OF_ADDRESSES                   = 0,
+    };
+
     class ParSetting
     {
     public:
@@ -96,6 +108,9 @@ public:
         bool                      bVdbox,
         CODECHAL_STANDARD         codecStandard,
         CodecDecodeJpegChromaType jpegChromaType) = 0;
+
+    virtual MOS_STATUS GetInputMinWidthHeightInfo(uint32_t &width, uint32_t &height) = 0;
+    virtual MOS_STATUS GetOutputMinWidthHeightInfo(uint32_t &width, uint32_t &height) = 0;
 
     virtual MOS_STATUS GetMinWidthHeightInfo(uint32_t &width, uint32_t &height) = 0;
 

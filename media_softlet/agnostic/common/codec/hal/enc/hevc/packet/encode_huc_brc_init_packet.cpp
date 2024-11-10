@@ -32,7 +32,7 @@ namespace encode {
     MOS_STATUS HucBrcInitPkt::Init()
     {
         ENCODE_FUNC_CALL();
-        ENCODE_CHK_STATUS_RETURN(EncodeHucBasic::Init());
+        ENCODE_CHK_STATUS_RETURN(EncodeHucPkt::Init());
         ENCODE_CHK_NULL_RETURN(m_featureManager);
 
         m_basicFeature = dynamic_cast<HevcBasicFeature *>(m_featureManager->GetFeature(HevcFeatureIDs::basicFeature));
@@ -43,7 +43,7 @@ namespace encode {
 
     MOS_STATUS HucBrcInitPkt::AllocateResources()
     {
-        ENCODE_CHK_STATUS_RETURN(EncodeHucBasic::AllocateResources());
+        ENCODE_CHK_STATUS_RETURN(EncodeHucPkt::AllocateResources());
 
         // initiate allocation paramters and lock flags
         MOS_ALLOC_GFXRES_PARAMS allocParamsForBufferLinear;
@@ -51,6 +51,7 @@ namespace encode {
         allocParamsForBufferLinear.Type = MOS_GFXRES_BUFFER;
         allocParamsForBufferLinear.TileType = MOS_TILE_LINEAR;
         allocParamsForBufferLinear.Format = Format_Buffer;
+        allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ_WRITE_NOCACHE;
         MOS_RESOURCE *allocatedbuffer;
         for (auto k = 0; k < CODECHAL_ENCODE_RECYCLED_BUFFER_NUM; k++)
         {
@@ -136,13 +137,9 @@ namespace encode {
         uint32_t hucCommandsSize = 0;
         uint32_t hucPatchListSize = 0;
         MHW_VDBOX_STATE_CMDSIZE_PARAMS stateCmdSizeParams;
-
-        if (m_hwInterface->m_hwInterfaceNext)
-        {
-            stateCmdSizeParams.uNumMfxWait      = 3;
-            ENCODE_CHK_STATUS_RETURN(m_hwInterface->m_hwInterfaceNext->GetHucStateCommandSize(
-                m_basicFeature->m_mode, (uint32_t*)&hucCommandsSize, (uint32_t*)&hucPatchListSize, &stateCmdSizeParams));
-        }
+        stateCmdSizeParams.uNumMfxWait      = 3;
+        ENCODE_CHK_STATUS_RETURN(m_hwInterface->GetHucStateCommandSize(
+            m_basicFeature->m_mode, (uint32_t*)&hucCommandsSize, (uint32_t*)&hucPatchListSize, &stateCmdSizeParams));
 
         commandBufferSize = hucCommandsSize;
         requestedPatchListSize = osInterface->bUsesPatchList ? hucPatchListSize : 0;
@@ -193,17 +190,19 @@ namespace encode {
         hucVdencBrcInitDmem->BRCPyramidEnable_U8 = 0;
 
         //QP modulation settings
+        m_basicFeature->m_hevcSeqParams->GopRefDist = 
+                        m_basicFeature->m_hevcSeqParams->GopRefDist == 0 ? 1 : 
+                        m_basicFeature->m_hevcSeqParams->GopRefDist;
         bool bAllowedPyramid = m_basicFeature->m_hevcSeqParams->GopRefDist != 3;
         uint16_t intraPeriod = m_basicFeature->m_hevcSeqParams->GopPicSize > 4001 ? 4000 : m_basicFeature->m_hevcSeqParams->GopPicSize - 1;
         intraPeriod = ((intraPeriod + m_basicFeature->m_hevcSeqParams->GopRefDist - 1) / m_basicFeature->m_hevcSeqParams->GopRefDist) * m_basicFeature->m_hevcSeqParams->GopRefDist;
-        if (m_basicFeature->m_hevcSeqParams->HierarchicalFlag  && bAllowedPyramid)
+        if (m_basicFeature->m_hevcSeqParams->HierarchicalFlag && bAllowedPyramid)
         {
             hucVdencBrcInitDmem->GopP_U16 = intraPeriod/m_basicFeature->m_hevcSeqParams->GopRefDist;
-            hucVdencBrcInitDmem->GopB_U16 = hucVdencBrcInitDmem->GopP_U16;
-            hucVdencBrcInitDmem->GopB1_U16 = ((hucVdencBrcInitDmem->GopP_U16 + hucVdencBrcInitDmem->GopB_U16) == intraPeriod) ? 0 : hucVdencBrcInitDmem->GopB_U16 * 2;
-            hucVdencBrcInitDmem->GopB2_U16 = intraPeriod - hucVdencBrcInitDmem->GopP_U16 - hucVdencBrcInitDmem->GopB_U16 - hucVdencBrcInitDmem->GopB1_U16;
-
-            hucVdencBrcInitDmem->MaxBRCLevel_U8 = hucVdencBrcInitDmem->GopB1_U16 == 0 ? HEVC_BRC_FRAME_TYPE_B : (hucVdencBrcInitDmem->GopB2_U16 == 0 ? HEVC_BRC_FRAME_TYPE_B1 : HEVC_BRC_FRAME_TYPE_B2);
+            hucVdencBrcInitDmem->GopB_U16 = (hucVdencBrcInitDmem->GopP_U16)*(m_basicFeature->m_hevcSeqParams->GopRefDist>1);
+            hucVdencBrcInitDmem->GopB1_U16 = hucVdencBrcInitDmem->GopP_U16 * ((m_basicFeature->m_hevcSeqParams->GopRefDist > 2) + (m_basicFeature->m_hevcSeqParams->GopRefDist == 4 || m_basicFeature->m_hevcSeqParams->GopRefDist > 5));
+            hucVdencBrcInitDmem->GopB2_U16 = (intraPeriod - hucVdencBrcInitDmem->GopP_U16 - hucVdencBrcInitDmem->GopB_U16 - hucVdencBrcInitDmem->GopB1_U16) * (m_basicFeature->m_hevcSeqParams->GopRefDist > 3);
+            hucVdencBrcInitDmem->MaxBRCLevel_U8      = hucVdencBrcInitDmem->GopB1_U16 == 0 ? HEVC_BRC_FRAME_TYPE_B : (hucVdencBrcInitDmem->GopB2_U16 == 0 ? HEVC_BRC_FRAME_TYPE_B1 : HEVC_BRC_FRAME_TYPE_B2);
             hucVdencBrcInitDmem->BRCPyramidEnable_U8 = 1;
         }
         else //FlatB or LDB
@@ -228,17 +227,17 @@ namespace encode {
         {
             if (m_basicFeature->m_hevcSeqParams->TargetBitRate == 0)
             {
-                CODECHAL_ENCODE_ASSERTMESSAGE("TargetBitRate is zero!");
+                ENCODE_ASSERTMESSAGE("TargetBitRate is zero!");
                 return MOS_STATUS_INVALID_PARAMETER;
             }
-            hucVdencBrcInitDmem->SlidingWindow_Size_U32     = m_basicFeature->m_hevcSeqParams->SlidingWindowSize;
-            hucVdencBrcInitDmem->SLIDINGWINDOW_MaxRateRatio = m_basicFeature->m_hevcSeqParams->MaxBitRatePerSlidingWindow * 100 / m_basicFeature->m_hevcSeqParams->TargetBitRate;
+            hucVdencBrcInitDmem->SlidingWindow_Size_U32     = MOS_MIN((uint32_t)m_basicFeature->m_hevcSeqParams->SlidingWindowSize, 60);
+            hucVdencBrcInitDmem->SLIDINGWINDOW_MaxRateRatio = (uint8_t)((uint64_t)m_basicFeature->m_hevcSeqParams->MaxBitRatePerSlidingWindow * 100 / m_basicFeature->m_hevcSeqParams->TargetBitRate);
         }
         else
         {
             if (m_basicFeature->m_hevcSeqParams->FrameRate.Denominator == 0)
             {
-                CODECHAL_ENCODE_ASSERTMESSAGE("FrameRate.Deminator is zero!");
+                ENCODE_ASSERTMESSAGE("FrameRate.Deminator is zero!");
                 return MOS_STATUS_INVALID_PARAMETER;
             }
             uint32_t framerate = m_basicFeature->m_hevcSeqParams->FrameRate.Numerator / m_basicFeature->m_hevcSeqParams->FrameRate.Denominator;
@@ -290,16 +289,8 @@ namespace encode {
             currentPass,
             hucRegionDumpInit));
 
-        auto vdencBRCHistoryBuffer = m_basicFeature->m_recycleBuf->GetBuffer(VdencBRCHistoryBuffer, 0);
-        ENCODE_CHK_STATUS_RETURN(debugInterface->DumpHucRegion(
-            vdencBRCHistoryBuffer,
-            0,
-            MOS_ALIGN_CEIL(HevcBasicFeature::m_sizeOfHcpPakFrameStats * hevcBasicFeature->m_maxTileNumber, CODECHAL_PAGE_SIZE),
-            0,
-            "_History",
-            true,
-            currentPass,
-            hucRegionDumpInit));
+        ENCODE_CHK_STATUS_RETURN(DumpRegion(0, "_History", true, hucRegionDumpInit));
+
         return MOS_STATUS_SUCCESS;
     }
 #endif

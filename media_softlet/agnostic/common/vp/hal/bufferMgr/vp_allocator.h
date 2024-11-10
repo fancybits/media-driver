@@ -386,7 +386,8 @@ public:
         MOS_TILE_MODE_GMM       tileModeByForce = MOS_TILE_UNSET_GMM,
         Mos_MemPool             memType = MOS_MEMPOOL_VIDEOMEMORY,
         bool                    isNotLockable = false,
-        void                    *systemMemory = nullptr);
+        void                    *systemMemory = nullptr,
+        uint32_t                depth = 0);
 
     //!
     //! \brief    Allocates the Surface
@@ -567,6 +568,51 @@ public:
     bool IsSyncFreeNeededForMMCSurface(PMOS_SURFACE pOsSurface);
     void CleanRecycler();
 
+    //!
+    //! \brief    Allocate resource from cpu buffer
+    //! \details  Allocate resource from cpu buffer
+    //! \param    PMOS_RESOURCE pOsResource
+    //!           [in/out] Pointer to OS resource
+    //! \param    size_t linearAddress
+    //!           [in]    CPU address
+    //! \param    uint32_t dataSize
+    //!           [in]    data size of CPU buffer
+    //! \param    uint32_t height
+    //!           [in]    height of resource
+    //! \param    uint64_t width
+    //!           [in]    width of resource
+    //! \param    uint64_t planePitch
+    //!           [in]    pitch of resource
+    //! \param    uint32_t CpTag
+    //!           [in]    Cp surface tag value
+    //! \param    GMM_RESOURCE_FORMAT Format
+    //!           [in]    resouce format
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    MOS_STATUS AllocateCPUResource(
+        PMOS_RESOURCE osResource,           // [in/out]Pointer to OS resource
+        size_t linearAddress,               // [in]    CPU address
+        uint32_t dataSize,                  // [in]    data size of CPU buffer
+        uint32_t height,                    // [in]    height of resource
+        uint64_t width,                     // [in]    width of resource
+        uint64_t planePitch,                // [in]    pitch of resource
+        uint32_t CpTag,                     // [in]    Cp surface tag value
+        GMM_RESOURCE_FORMAT Format          // [in]    resouce format
+    );
+
+    MOS_HW_RESOURCE_DEF GetResourceCache(uint32_t feature, bool bOut, ENGINE_TYPE engineType, MOS_COMPONENT id = COMPONENT_VPCommon);
+
+    int64_t GetTotalSize()
+    {
+        return m_totalSize;
+    }
+
+    int64_t GetPeakSize()
+    {
+        return m_peakSize;
+    }
+
 protected:
     //!
     //! \brief    Set mmc flags to surface
@@ -590,6 +636,8 @@ protected:
     Allocator       *m_allocator    = nullptr;
     MediaMemComp    *m_mmc          = nullptr;
     std::vector<VP_SURFACE *> m_recycler;   // Container for delayed destroyed surface.
+    int64_t         m_totalSize     = 0; // current total memory size.
+    int64_t         m_peakSize      = 0;  // the peak value of memory size.
 
 MEDIA_CLASS_DEFINE_END(vp__VpAllocator)
 };

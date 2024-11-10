@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019, Intel Corporation
+* Copyright (c) 2019-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -39,7 +39,7 @@ namespace encode
     Av1EncodeTile::Av1EncodeTile(
         MediaFeatureManager *featureManager,
         EncodeAllocator *allocator,
-        CodechalHwInterface *hwInterface,
+        CodechalHwInterfaceNext *hwInterface,
         void *constSettings) :
         EncodeTile(featureManager, allocator, hwInterface, constSettings)
     {
@@ -515,43 +515,66 @@ namespace encode
 
     MOS_STATUS Av1EncodeTile::TileSizeCheck(const PCODEC_AV1_ENCODE_PICTURE_PARAMS &av1PicParam)
     {
-        uint16_t sbCols = MOS_ROUNDUP_DIVIDE(av1PicParam->frame_width_minus1 + 1, av1SuperBlockWidth);
-        uint16_t sbRows = MOS_ROUNDUP_DIVIDE(av1PicParam->frame_height_minus1 + 1, av1SuperBlockHeight);
-        uint16_t tileAreaSb = sbCols * sbRows;
+        uint32_t maxTileAreaSb = MOS_ROUNDUP_DIVIDE(av1MaxTileArea, av1SuperBlockWidth * av1SuperBlockHeight);
+        uint32_t sbCols        = MOS_ROUNDUP_DIVIDE(av1PicParam->frame_width_minus1 + 1, av1SuperBlockWidth);
+        uint32_t sbRows        = MOS_ROUNDUP_DIVIDE(av1PicParam->frame_height_minus1 + 1, av1SuperBlockHeight);
 
-        uint16_t maxTileWidthSb  = MOS_ROUNDUP_DIVIDE(av1MaxTileWidth, av1SuperBlockWidth);
-        uint16_t minLog2TileCols = TileLog2(maxTileWidthSb, sbCols);
-        uint16_t maxTileAreaSb   = MOS_ROUNDUP_DIVIDE(av1MaxTileWidth * av1MaxTileHeight, av1SuperBlockWidth * av1SuperBlockHeight);
-        uint16_t minLog2Tiles    = MOS_MAX(minLog2TileCols, TileLog2(maxTileAreaSb, tileAreaSb));
-
+        //Tile Width sum equals image width, no pixel leak
         if (av1PicParam->width_in_sbs_minus_1[0] + 1 == 0)
         {
             return MOS_STATUS_INVALID_PARAMETER;
         }
+        uint32_t curTileWidthSb = av1PicParam->width_in_sbs_minus_1[0] + 1;
+        uint32_t widestTileSb   = av1PicParam->width_in_sbs_minus_1[0] + 1;
+        uint32_t tileWidthSbSum = 0;
 
-        uint16_t widestTileSb = av1PicParam->width_in_sbs_minus_1[0] + 1;
-        for (uint8_t i = 1; i < m_numTileColumns; i++)
+        if (m_basicFeature->m_dualEncEnable && m_numTileRows != 1)
         {
-            widestTileSb = MOS_MAX(widestTileSb, (av1PicParam->width_in_sbs_minus_1[i] + 1));
-        }
-
-        if (minLog2Tiles)
-        {
-            tileAreaSb >>= (minLog2Tiles + 1);
-        }
-
-        uint16_t maxTileHeightSb = MOS_MAX(1, tileAreaSb / widestTileSb);
-        for (uint8_t i = 0; i < m_numTileRows; i++)
-        {
-            if ((av1PicParam->height_in_sbs_minus_1[i] + 1) > maxTileHeightSb)
-            {
-                return MOS_STATUS_INVALID_PARAMETER;
-            }
+            ENCODE_ASSERTMESSAGE("dual encode cannot support multi rows submission yet.");
+            return MOS_STATUS_INVALID_PARAMETER;
         }
 
         for (uint8_t i = 0; i < m_numTileColumns; i++)
         {
-            if ((av1PicParam->width_in_sbs_minus_1[i] + 1) > maxTileWidthSb)
+            curTileWidthSb = av1PicParam->width_in_sbs_minus_1[i] + 1;
+            widestTileSb   = MOS_MAX(widestTileSb, curTileWidthSb);
+            tileWidthSbSum += curTileWidthSb;
+            if (m_basicFeature->m_dualEncEnable && curTileWidthSb == 2)
+            {
+                m_firstDummyIdx = i;
+            }
+        }
+        if (tileWidthSbSum != sbCols)
+        {
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+
+        //Tile Height sum equals image height, no pixel leak
+        if (av1PicParam->height_in_sbs_minus_1[0] + 1 == 0)
+        {
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+        uint32_t curTileHeightSb = av1PicParam->height_in_sbs_minus_1[0] + 1;
+        uint32_t highestWidthSb  = av1PicParam->height_in_sbs_minus_1[0] + 1;
+        uint32_t tileHeightSbSum = 0;
+
+        for (uint8_t i = 0; i < m_numTileRows; i++)
+        {
+            curTileHeightSb = av1PicParam->height_in_sbs_minus_1[i] + 1;
+            highestWidthSb  = MOS_MAX(1, curTileHeightSb);
+            tileHeightSbSum += curTileHeightSb;
+        }
+        if (tileHeightSbSum != sbRows)
+        {
+            return MOS_STATUS_INVALID_PARAMETER;
+        }
+
+        // Max tile check
+
+        for (uint8_t i = 0; i < m_numTileRows; i++)
+        {
+            curTileHeightSb = av1PicParam->height_in_sbs_minus_1[i] + 1;
+            if ((widestTileSb * curTileHeightSb) > maxTileAreaSb)
             {
                 return MOS_STATUS_INVALID_PARAMETER;
             }
@@ -743,14 +766,14 @@ namespace encode
 
             if (hdrDataOffset >= hdrBufSize)
             {
-                CODECHAL_ENCODE_ASSERTMESSAGE("Encode: Data offset in packed slice header data is out of bounds.");
+                ENCODE_ASSERTMESSAGE("Encode: Data offset in packed slice header data is out of bounds.");
                 delete []temp;
                 return MOS_STATUS_INVALID_FILE_SIZE;
             }
 
             if (hdrDataByteSize > hdrBufSize)
             {
-                CODECHAL_ENCODE_ASSERTMESSAGE("Encode: Data length in packed slice header data is greater than buffer size.");
+                ENCODE_ASSERTMESSAGE("Encode: Data length in packed slice header data is greater than buffer size.");
                 delete []temp;
                 return MOS_STATUS_INVALID_FILE_SIZE;
             }
@@ -763,7 +786,7 @@ namespace encode
 
             if (slcCount > encodeParams->dwNumSlices)
             {
-                CODECHAL_ENCODE_ASSERTMESSAGE("Encode: Number of slice headers exceeds number of slices.");
+                ENCODE_ASSERTMESSAGE("Encode: Number of slice headers exceeds number of slices.");
                 delete []temp;
                 return MOS_STATUS_INVALID_FILE_SIZE;
             }
@@ -818,7 +841,7 @@ namespace encode
             {
                 av1TileInfo->firstTileOfTileGroup = (tmpTileGroupParams->TileGroupStart == m_tileIdx);
                 av1TileInfo->lastTileOfTileGroup  = (tmpTileGroupParams->TileGroupEnd == m_tileIdx);
-                av1TileInfo->tileNum              = m_tileIdx - tmpTileGroupParams->TileGroupStart;
+                av1TileInfo->tgTileNum            = m_tileIdx - tmpTileGroupParams->TileGroupStart;
                 av1TileInfo->tileGroupId          = tileGrupCnt;
                 break;
             }
@@ -869,6 +892,7 @@ namespace encode
         params.tileLCUStreamOutOffset = m_curTileCodingParams.TileLCUStreamOutOffset;
         params.VdencHEVCVP9TileSlicePar18 = true;
         params.VdencHEVCVP9TileSlicePar19 = m_curTileCodingParams.CumulativeCUTileOffset;
+        params.tileRowstoreOffset = 0;
 
         return MOS_STATUS_SUCCESS;
     }
@@ -909,7 +933,7 @@ namespace encode
         params.lastTileOfFrame      = av1TileInfo.lastTileOfFrame;
         params.firstTileOfTileGroup = av1TileInfo.firstTileOfTileGroup;
         params.lastTileOfTileGroup  = av1TileInfo.lastTileOfTileGroup;
-        params.tileNum              = av1TileInfo.tileNum;
+        params.tgTileNum            = av1TileInfo.tgTileNum;
         params.tileGroupId          = av1TileInfo.tileGroupId;
 
         return eStatus;
@@ -920,9 +944,9 @@ namespace encode
         auto basicFeature = dynamic_cast<Av1BasicFeature *>(m_basicFeature);
         ENCODE_CHK_NULL_RETURN(basicFeature);
 
-        if (basicFeature->m_enableSWStitching)
+        if (basicFeature->m_enableSWStitching || basicFeature->m_dualEncEnable)
         {
-            params.pakBaseObjectOffset = m_tileData[m_tileIdx].bitstreamByteOffset * CODECHAL_CACHELINE_SIZE;
+            params.pakBaseObjectOffset = MOS_ALIGN_CEIL(m_tileData[m_tileIdx].bitstreamByteOffset * CODECHAL_CACHELINE_SIZE, MOS_PAGE_SIZE);
         }
 
         return MOS_STATUS_SUCCESS;
@@ -966,7 +990,7 @@ namespace encode
         ENCODE_CHK_NULL_RETURN(av1Seqparams);
 
         // for BRC, adaptive rounding is done in HuC, so we can skip it here.
-        if (av1BasicFeature->m_adaptiveRounding && !IsRateControlBrc(av1Seqparams->RateControlMethod))
+        if (av1BasicFeature->m_roundingMethod == RoundingMethod::adaptiveRounding && !IsRateControlBrc(av1Seqparams->RateControlMethod))
         {
             uint32_t frameSizeIn8x8Units1 = ((av1BasicFeature->m_oriFrameWidth + 63) >> 6) * ((av1BasicFeature->m_oriFrameHeight + 63) >> 6);
             uint32_t frameSizeIn8x8Units2 = ((av1BasicFeature->m_oriFrameWidth + 7) >> 3) * ((av1BasicFeature->m_oriFrameHeight + 7) >> 3);
@@ -976,7 +1000,7 @@ namespace encode
             {
                 MOS_RESOURCE* buf = nullptr;
 
-                GetTileBasedStatisticsBuffer(m_prevStatisticsBufIndex, buf);
+                ENCODE_CHK_STATUS_RETURN(GetTileBasedStatisticsBuffer(m_prevStatisticsBufIndex, buf));
                 ENCODE_CHK_NULL_RETURN(buf);
 
                 //will be optimized to avoid perf degradation when async > 1
@@ -1009,53 +1033,68 @@ namespace encode
                 av1BasicFeature->m_par65Intra = 5;
             }
         }
-        else
+        else if (av1BasicFeature->m_roundingMethod == RoundingMethod::fixedRounding)
         {
             av1BasicFeature->m_par65Inter = 2;
             av1BasicFeature->m_par65Intra = 6;
         }
 
-#if _MEDIA_RESERVED
-        for (auto i = 0; i < 3; i++)
+        if (av1BasicFeature->m_roundingMethod == RoundingMethod::adaptiveRounding
+            || av1BasicFeature->m_roundingMethod == RoundingMethod::fixedRounding)
         {
-            params.vdencCmd2Par65[i][0][0] = av1BasicFeature->m_par65Intra;
-            params.vdencCmd2Par65[i][0][1] = av1BasicFeature->m_par65Intra;
-            params.vdencCmd2Par65[i][1][0] = av1BasicFeature->m_par65Inter;
-            params.vdencCmd2Par65[i][1][1] = av1BasicFeature->m_par65Inter;
-            params.vdencCmd2Par65[i][2][0] = av1BasicFeature->m_par65Inter;
-            params.vdencCmd2Par65[i][2][1] = av1BasicFeature->m_par65Inter;
-        }
+#if _MEDIA_RESERVED
+            for (auto i = 0; i < 3; i++)
+            {
+                params.vdencCmd2Par65[i][0][0] = av1BasicFeature->m_par65Intra;
+                params.vdencCmd2Par65[i][0][1] = av1BasicFeature->m_par65Intra;
+                params.vdencCmd2Par65[i][1][0] = av1BasicFeature->m_par65Inter;
+                params.vdencCmd2Par65[i][1][1] = av1BasicFeature->m_par65Inter;
+                params.vdencCmd2Par65[i][2][0] = av1BasicFeature->m_par65Inter;
+                params.vdencCmd2Par65[i][2][1] = av1BasicFeature->m_par65Inter;
+            }
 #else
-        params.extSettings.emplace_back(
-            [av1BasicFeature](uint32_t *data) {
-                uint8_t tmp0 = av1BasicFeature->m_par65Intra & 0xf;
-                uint8_t tmp1 = av1BasicFeature->m_par65Inter & 0xf;
+            params.extSettings.emplace_back(
+                [av1BasicFeature](uint32_t *data) {
+                    uint8_t tmp0 = av1BasicFeature->m_par65Intra & 0xf;
+                    uint8_t tmp1 = av1BasicFeature->m_par65Inter & 0xf;
 
-                data[32] |= (tmp1 << 16);
-                data[32] |= (tmp1 << 20);
-                data[32] |= (tmp0 << 24);
-                data[32] |= (tmp0 << 28);
+                    data[32] |= (tmp1 << 16);
+                    data[32] |= (tmp1 << 20);
+                    data[32] |= (tmp0 << 24);
+                    data[32] |= (tmp0 << 28);
 
-                data[33] |= tmp1;
-                data[33] |= (tmp1 << 4);
-                data[33] |= (tmp1 << 8);
-                data[33] |= (tmp1 << 12);
-                data[33] |= (tmp0 << 16);
-                data[33] |= (tmp0 << 20);
-                data[33] |= (tmp1 << 24);
-                data[33] |= (tmp1 << 28);
+                    data[33] |= tmp1;
+                    data[33] |= (tmp1 << 4);
+                    data[33] |= (tmp1 << 8);
+                    data[33] |= (tmp1 << 12);
+                    data[33] |= (tmp0 << 16);
+                    data[33] |= (tmp0 << 20);
+                    data[33] |= (tmp1 << 24);
+                    data[33] |= (tmp1 << 28);
 
-                data[34] |= tmp1;
-                data[34] |= (tmp1 << 4);
-                data[34] |= (tmp0 << 8);
-                data[34] |= (tmp0 << 12);
-                data[34] |= (tmp1 << 16);
-                data[34] |= (tmp1 << 20);
+                    data[34] |= tmp1;
+                    data[34] |= (tmp1 << 4);
+                    data[34] |= (tmp0 << 8);
+                    data[34] |= (tmp0 << 12);
+                    data[34] |= (tmp1 << 16);
+                    data[34] |= (tmp1 << 20);
 
-                return MOS_STATUS_SUCCESS;
-            });
-#endif  // _MEDIA_RESERVED
+                    return MOS_STATUS_SUCCESS;
+                });
+#endif  // _MEDIA_RESERVED  
+        }
 
+
+        return MOS_STATUS_SUCCESS;
+    }
+
+MOS_STATUS Av1EncodeTile::GetTileStatusInfo(
+        Av1TileStatusInfo &av1TileStatsOffset,
+        Av1TileStatusInfo &av1StatsSize)
+    {
+        av1TileStatsOffset = m_av1TileStatsOffset;
+        av1StatsSize = m_av1StatsSize;
+        
         return MOS_STATUS_SUCCESS;
     }
 

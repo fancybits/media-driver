@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2020, Intel Corporation
+* Copyright (c) 2011-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -311,12 +311,26 @@ MOS_STATUS CodechalDecodeAvc::AllocateInvalidRefBuffer()
     {
         CODECHAL_DECODE_CHK_STATUS_RETURN(CodecHalGetResourceInfo(m_osInterface, &m_destSurface));
 
+        MOS_MEMCOMP_STATE mmcMode = MOS_MEMCOMP_DISABLED;
+#ifdef _MMC_SUPPORTED
+        if(m_mmc != nullptr && m_mmc->IsMmcEnabled())
+        {
+            CODECHAL_DECODE_CHK_STATUS_RETURN(
+            m_osInterface->pfnGetMemoryCompressionMode(
+                m_osInterface,
+                &m_destSurface.OsResource,
+                &mmcMode));
+        }
+#endif
+
         MOS_SURFACE surface;
         CODECHAL_DECODE_CHK_STATUS_MESSAGE_RETURN(AllocateSurface(
                                                       &surface,
                                                       m_destSurface.dwPitch,
                                                       m_destSurface.dwHeight,
-                                                      "InvalidRefBuffer"),
+                                                      "InvalidRefBuffer",
+                                                      Format_NV12,
+                                                      mmcMode != MOS_MEMCOMP_DISABLED ? true : false),
             "Failed to allocate invalid reference buffer.");
         m_resInvalidRefBuffer = surface.OsResource;
 
@@ -1542,10 +1556,10 @@ MOS_STATUS CodechalDecodeAvc::InitPicMhwParams(
                     &dstSurface));
 
                 m_debugInterface->m_refIndex = frameId;
-                std::string refSurfName      = "RefSurf" + std::to_string(static_cast<uint32_t>(m_debugInterface->m_refIndex));
+                std::string refSurfName      = "RefSurf[" + std::to_string(static_cast<uint32_t>(m_debugInterface->m_refIndex)) + "]";
                 CODECHAL_DECODE_CHK_STATUS_RETURN(m_debugInterface->DumpYUVSurface(
                     &dstSurface,
-                    CodechalDbgAttr::attrReferenceSurfaces,
+                    CodechalDbgAttr::attrDecodeReferenceSurfaces,
                     refSurfName.data()));)
 
             if (frameId < firstValidFrameId)
@@ -1605,6 +1619,37 @@ MOS_STATUS CodechalDecodeAvc::InitPicMhwParams(
     picMhwParams->AvcDirectmodeParams.avcRefList              = (void**)m_avcRefList;
     picMhwParams->AvcDirectmodeParams.bPicIdRemappingInUse    = m_picIdRemappingInUse;
     picMhwParams->AvcDirectmodeParams.presMvcDummyDmvBuffer   = &(m_resMvcDummyDmvBuffer[(m_avcPicParams->seq_fields.direct_8x8_inference_flag) ? 1 : 0]);
+
+    CODECHAL_DEBUG_TOOL(
+
+        CODEC_REF_LIST * *refList;
+        MHW_MI_CHK_NULL(refList = (CODEC_REF_LIST **)picMhwParams->AvcDirectmodeParams.avcRefList);
+
+        for (auto i = 0; i < CODEC_MAX_NUM_REF_FRAME; i++)
+        {
+            if (picMhwParams->AvcDirectmodeParams.pAvcPicIdx[i].bValid)
+            {
+                uint8_t idx   = picMhwParams->AvcDirectmodeParams.pAvcPicIdx[i].ucPicIdx;
+                uint8_t picID = picMhwParams->AvcDirectmodeParams.bPicIdRemappingInUse ? i : refList[idx]->ucFrameId;
+                uint8_t mvIdx = refList[idx]->ucDMVIdx[0];
+
+                // dump Reference mvdata
+                std::string mvBufDumpName = "_DEC_Ref_MV_" + std::to_string(i);
+                CODECHAL_DECODE_CHK_STATUS_RETURN(m_debugInterface->DumpBuffer(
+                    &picMhwParams->AvcDirectmodeParams.presAvcDmvBuffers[mvIdx],
+                    CodechalDbgAttr::attrMvData,
+                    mvBufDumpName.c_str(),
+                    m_avcDmvBufferSize));
+            }
+        }
+
+        // dump Current mvdata
+        CODECHAL_DECODE_CHK_STATUS_RETURN(m_debugInterface->DumpBuffer(
+        &picMhwParams->AvcDirectmodeParams.presAvcDmvBuffers[picMhwParams->AvcDirectmodeParams.ucAvcDmvIdx],
+            CodechalDbgAttr::attrMvData,
+            "DEC_Cur_MV_",
+            m_avcDmvBufferSize));
+        );
 
     return eStatus;
 }
@@ -2002,7 +2047,7 @@ MOS_STATUS CodechalDecodeAvc::DecodePrimitiveLevel()
     //    &cmdBuffer));
     )
 
-    HalOcaInterface::DumpCodechalParam(cmdBuffer, *m_osInterface->pOsContext, m_pCodechalOcaDumper, CODECHAL_AVC);
+    HalOcaInterface::DumpCodechalParam(cmdBuffer, (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext, m_pCodechalOcaDumper, CODECHAL_AVC);
     HalOcaInterface::On1stLevelBBEnd(cmdBuffer, *m_osInterface);
 
     CODECHAL_DECODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, &cmdBuffer, m_videoContextUsesNullHw));
@@ -2112,7 +2157,7 @@ CodechalDecodeAvc::CodechalDecodeAvc(
     CodechalDecode(hwInterface, debugInterface, standardInfo)
 {
     m_mmc = nullptr;
-
+    m_hwInterface = hwInterface;
     // Parameters passed by application
     m_picWidthInMb                = 0;
     m_picHeightInMb               = 0;

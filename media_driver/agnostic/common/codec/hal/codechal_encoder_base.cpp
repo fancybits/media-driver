@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2017-2021, Intel Corporation
+* Copyright (c) 2017-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -26,17 +26,28 @@
 //!
 
 #include "codechal_encoder_base.h"
-#include "codechal_encode_tracked_buffer_hevc.h"
 #include "mos_solo_generic.h"
 #include "hal_oca_interface.h"
 #include "codechal_encode_csc_ds.h"
+#include "mos_os_cp_interface_specific.h"
+#if defined (_HEVC_ENCODE_VME_SUPPORTED) || defined (_HEVC_ENCODE_VDENC_SUPPORTED)
+#include "codechal_encode_tracked_buffer_hevc.h"
+#endif
 
 void CodechalEncoderState::PrepareNodes(
     MOS_GPU_NODE& videoGpuNode,
     bool&         setVideoNode)
 {
     if (MOS_VE_MULTINODESCALING_SUPPORTED(m_osInterface))
+    {
+        MOS_GPU_NODE node = m_osInterface->pfnGetLatestVirtualNode(m_osInterface, COMPONENT_Decode);
+        if (node != MOS_GPU_NODE_MAX)
+        {
+            setVideoNode = true;
+            videoGpuNode = (node == MOS_GPU_NODE_VIDEO) ? MOS_GPU_NODE_VIDEO2 : MOS_GPU_NODE_VIDEO;
+        }
         return;
+    }
 
     if (m_vdboxOneDefaultUsed)
     {
@@ -530,7 +541,59 @@ MOS_STATUS CodechalEncoderState::Allocate(CodechalSetting * codecHalSettings)
         CODECHAL_ENCODE_CHK_STATUS_RETURN(m_cscDsState->Initialize());
     }
 
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(Codechal::Allocate(codecHalSettings));
+    {
+        CODECHAL_PUBLIC_FUNCTION_ENTER;
+
+        CODECHAL_PUBLIC_CHK_NULL_RETURN(codecHalSettings);
+        CODECHAL_PUBLIC_CHK_NULL_RETURN(m_hwInterface);
+        //CODECHAL_PUBLIC_CHK_NULL_RETURN(m_osInterface);
+
+        MOS_TraceEvent(EVENT_CODECHAL_CREATE,
+            EVENT_TYPE_INFO,
+            &codecHalSettings->codecFunction,
+            sizeof(uint32_t),
+            nullptr,
+            0);
+
+        CODECHAL_PUBLIC_CHK_STATUS_RETURN(m_hwInterface->Initialize(codecHalSettings));
+
+        MOS_NULL_RENDERING_FLAGS nullHWAccelerationEnable;
+        nullHWAccelerationEnable.Value = 0;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+        if (!m_statusReportDebugInterface)
+        {
+            m_statusReportDebugInterface = MOS_New(CodechalDebugInterface);
+            CODECHAL_PUBLIC_CHK_NULL_RETURN(m_statusReportDebugInterface);
+            CODECHAL_PUBLIC_CHK_STATUS_RETURN(
+                m_statusReportDebugInterface->Initialize(m_hwInterface, codecHalSettings->codecFunction));
+        }
+
+        ReadUserSettingForDebug(
+            m_userSettingPtr,
+            nullHWAccelerationEnable.Value,
+            __MEDIA_USER_FEATURE_VALUE_NULL_HW_ACCELERATION_ENABLE,
+            MediaUserSetting::Group::Device);
+
+        m_useNullHw[MOS_GPU_CONTEXT_VIDEO] =
+            (nullHWAccelerationEnable.CodecGlobal || nullHWAccelerationEnable.CtxVideo);
+        m_useNullHw[MOS_GPU_CONTEXT_VIDEO2] =
+            (nullHWAccelerationEnable.CodecGlobal || nullHWAccelerationEnable.CtxVideo2);
+        m_useNullHw[MOS_GPU_CONTEXT_VIDEO3] =
+            (nullHWAccelerationEnable.CodecGlobal || nullHWAccelerationEnable.CtxVideo3);
+        m_useNullHw[MOS_GPU_CONTEXT_VDBOX2_VIDEO] =
+            (nullHWAccelerationEnable.CodecGlobal || nullHWAccelerationEnable.CtxVDBox2Video);
+        m_useNullHw[MOS_GPU_CONTEXT_VDBOX2_VIDEO2] =
+            (nullHWAccelerationEnable.CodecGlobal || nullHWAccelerationEnable.CtxVDBox2Video2);
+        m_useNullHw[MOS_GPU_CONTEXT_VDBOX2_VIDEO3] =
+            (nullHWAccelerationEnable.CodecGlobal || nullHWAccelerationEnable.CtxVDBox2Video3);
+        m_useNullHw[MOS_GPU_CONTEXT_RENDER] =
+            (nullHWAccelerationEnable.CodecGlobal || nullHWAccelerationEnable.CtxRender);
+        m_useNullHw[MOS_GPU_CONTEXT_RENDER2] =
+            (nullHWAccelerationEnable.CodecGlobal || nullHWAccelerationEnable.CtxRender2);
+#endif  // _DEBUG || _RELEASE_INTERNAL
+
+    }
 
     CODECHAL_ENCODE_CHK_STATUS_RETURN(Initialize(codecHalSettings));
 
@@ -544,11 +607,13 @@ MOS_STATUS CodechalEncoderState::Allocate(CodechalSetting * codecHalSettings)
     CODECHAL_ENCODE_CHK_NULL_RETURN(m_allocator = MOS_New(CodechalEncodeAllocator, this));
 
     // create tracked buffer state
+#if defined (_HEVC_ENCODE_VME_SUPPORTED) || defined (_HEVC_ENCODE_VDENC_SUPPORTED)
     if (m_standard == CODECHAL_HEVC)
     {
         CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBuf = MOS_New(CodechalEncodeTrackedBufferHevc, this));
     }
     else
+#endif
     {
         CODECHAL_ENCODE_CHK_NULL_RETURN(m_trackedBuf = MOS_New(CodechalEncodeTrackedBuffer, this));
     }
@@ -592,6 +657,8 @@ MOS_STATUS CodechalEncoderState::Execute(void *params)
 {
     CODECHAL_ENCODE_FUNCTION_ENTER;
 
+    PERF_UTILITY_AUTO(__FUNCTION__, PERF_ENCODE, PERF_LEVEL_HAL);
+
     MOS_TraceEventExt(EVENT_CODECHAL_EXECUTE, EVENT_TYPE_START,
             &m_codecFunction, sizeof(m_codecFunction),
             nullptr, 0);
@@ -603,6 +670,11 @@ MOS_STATUS CodechalEncoderState::Execute(void *params)
     CODECHAL_ENCODE_CHK_STATUS_RETURN(Mos_Solo_SetGpuAppTaskEvent(m_osInterface,encodeParams->gpuAppTaskEvent));
 
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_miInterface->SetWatchdogTimerThreshold(m_frameWidth, m_frameHeight));
+
+    if (m_frameNum == 0)
+    {
+        m_osInterface->pfnSetLatestVirtualNode(m_osInterface, m_videoGpuNode);
+    }
 
     if (m_codecFunction == CODECHAL_FUNCTION_FEI_PRE_ENC)
     {
@@ -989,14 +1061,14 @@ MOS_STATUS CodechalEncoderState::Initialize(
     // Set Vdbox index in use
     m_vdboxIndex = (m_videoGpuNode == MOS_GPU_NODE_VIDEO2)? MHW_VDBOX_NODE_2 : MHW_VDBOX_NODE_1;
 
+    if (!m_feiEnable)
+    {
+        eStatus = AllocateMDFResources();
+    }
+
     if (eStatus != MOS_STATUS_SUCCESS)
     {
         Destroy();
-    }
-
-    if (!m_feiEnable)
-    {
-        CODECHAL_ENCODE_CHK_STATUS_RETURN(AllocateMDFResources());
     }
 
     return eStatus;
@@ -1012,8 +1084,9 @@ MOS_STATUS CodechalEncoderState::AllocateMDFResources()
 
         if (m_cmDev == nullptr)
         {
+            CODECHAL_ENCODE_CHK_NULL_RETURN(m_osInterface);
             m_osInterface->pfnNotifyStreamIndexSharing(m_osInterface);
-            CODECHAL_ENCODE_CHK_STATUS_RETURN(CreateCmDevice(m_osInterface->pOsContext, m_cmDev, devOp));
+            CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnCreateCmDevice(m_osInterface->pOsContext, m_cmDev, devOp, CM_DEVICE_CREATE_PRIORITY_DEFAULT));
         }
         //just WA for issues in MDF null support
         if (!m_cmQueue)
@@ -1037,9 +1110,9 @@ MOS_STATUS CodechalEncoderState::DestroyMDFResources()
         m_cmDev->DestroyTask(m_cmTask);
         m_cmTask = nullptr;
     }
-    if (m_cmDev)
+    if (m_cmDev && m_osInterface)
     {
-        DestroyCmDevice(m_cmDev);
+        m_osInterface->pfnDestroyCmDevice(m_cmDev);
         m_cmDev = nullptr;
     }
 
@@ -1077,7 +1150,7 @@ MOS_STATUS CodechalEncoderState::AddKernelMdf(
     CODECHAL_ENCODE_CHK_STATUS_RETURN(task->AddKernel(kernel));
     if (isEnqueue)
     {
-        queue->Enqueue(task, event);
+        CODECHAL_ENCODE_CHK_STATUS_RETURN(queue->Enqueue(task, event));
         task->Reset();
     }
     else
@@ -1433,6 +1506,10 @@ MOS_STATUS CodechalEncoderState::AllocateResources()
     m_encodeStatusBuf.dwHuCStatusRegOffset    = CODECHAL_OFFSETOF(EncodeStatus, HuCStatusReg);
     m_encodeStatusBuf.dwHuCStatus2RegOffset   = CODECHAL_OFFSETOF(EncodeStatus, HuCStatus2Reg);
     m_encodeStatusBuf.dwLookaheadStatusOffset = CODECHAL_OFFSETOF(EncodeStatus, lookaheadStatus);
+    m_encodeStatusBuf.dwSADLumaOffset         = CODECHAL_OFFSETOF(EncodeStatus, dwSADLuma);
+    m_encodeStatusBuf.dwIntraBlockCountOffset = CODECHAL_OFFSETOF(EncodeStatus, dwIntraBlockCount);
+    m_encodeStatusBuf.dwInterBlockCountOffset = CODECHAL_OFFSETOF(EncodeStatus, dwInterBlockCount);
+    m_encodeStatusBuf.dwSkipBlockCountOffset  = CODECHAL_OFFSETOF(EncodeStatus, dwSkipBlockCount);
 
     m_encodeStatusBuf.wCurrIndex  = 0;
     m_encodeStatusBuf.wFirstIndex = 0;
@@ -2025,8 +2102,8 @@ MOS_STATUS CodechalEncoderState::ExecuteMeKernel(
         &walkerParams,
         &walkerCodecParams));
 
-    HalOcaInterface::TraceMessage(cmdBuffer, *m_osInterface->pOsContext, __FUNCTION__, sizeof(__FUNCTION__));
-    HalOcaInterface::OnDispatch(cmdBuffer, *m_osInterface->pOsContext, *m_miInterface, *m_renderEngineInterface->GetMmioRegisters());
+    HalOcaInterface::TraceMessage(cmdBuffer, (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext, __FUNCTION__, sizeof(__FUNCTION__));
+    HalOcaInterface::OnDispatch(cmdBuffer, *m_osInterface, *m_miInterface, *m_renderEngineInterface->GetMmioRegisters());
 
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_renderEngineInterface->AddMediaObjectWalkerCmd(
         &cmdBuffer,
@@ -2311,6 +2388,7 @@ void CodechalEncoderState::Destroy()
     {
         // Destroy encode video node associations
         m_osInterface->pfnDestroyVideoNodeAssociation(m_osInterface, m_videoGpuNode);
+        m_osInterface->pfnSetLatestVirtualNode(m_osInterface, MOS_GPU_NODE_MAX);
     }
 
     if (m_mmcState != nullptr)
@@ -3118,7 +3196,7 @@ MOS_STATUS CodechalEncoderState::StartStatusReport(
     }
 
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_perfProfiler->AddPerfCollectStartCmd((void*)this, m_osInterface, m_miInterface, cmdBuffer));
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(NullHW::StartPredicate(m_miInterface, cmdBuffer));
+    CODECHAL_ENCODE_CHK_STATUS_RETURN(NullHW::StartPredicate(m_osInterface, m_miInterface, cmdBuffer));
 
     return eStatus;
 }
@@ -3136,7 +3214,7 @@ MOS_STATUS CodechalEncoderState::EndStatusReport(
     CODECHAL_ENCODE_FUNCTION_ENTER;
 
     CODECHAL_ENCODE_CHK_NULL_RETURN(cmdBuffer);
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(NullHW::StopPredicate(m_miInterface, cmdBuffer));
+    CODECHAL_ENCODE_CHK_STATUS_RETURN(NullHW::StopPredicate(m_osInterface, m_miInterface, cmdBuffer));
 
     // Update the tag in GPU Sync eStatus buffer (H/W Tag) to match the current S/W tag if applicable
     if (m_frameTrackingEnabled && m_osInterface->bTagResourceSync)
@@ -3170,7 +3248,7 @@ MOS_STATUS CodechalEncoderState::EndStatusReport(
         }
     }
 
-    MHW_MI_STORE_DATA_PARAMS storeDataParams;
+    MHW_MI_STORE_DATA_PARAMS storeDataParams = {};
     uint32_t offset = 0;
     if (m_osInterface->pfnGetGpuContext(m_osInterface) == m_renderContext)
     {
@@ -3895,31 +3973,14 @@ MOS_STATUS CodechalEncoderState::ReadCounterValue(uint16_t index, EncodeStatusRe
 
     if (m_hwInterface->GetCpInterface()->IsHwCounterIncrement(m_osInterface))
     {
-        if(MEDIA_IS_WA(m_waTable, WaReadCtrNounceRegister))
+        if (Mos_ResourceIsNull(&m_resHwCount))
         {
-            //Report counter from register
-            CODECHAL_ENCODE_CHK_STATUS_RETURN(
-                m_osInterface->osCpInterface->ReadCtrNounceRegister(
-                    true,
-                    (uint32_t *)&m_regHwCount[index]));
-            address2Counter = (uint64_t *)&m_regHwCount[index];
-            CODECHAL_ENCODE_NORMALMESSAGE("MMIO returns end ctr is %llx", *address2Counter);
-            CODECHAL_ENCODE_NORMALMESSAGE("bitstream size = %d.", encodeStatusReport->bitstreamSize);
-
-            // Here gets the end counter of current bit stream, which should minus counter increment.
-            *address2Counter = *address2Counter - (((encodeStatusReport->bitstreamSize + 63) >> 6) << 2);
+            CODECHAL_ENCODE_ASSERTMESSAGE("m_resHwCount is not allocated");
+            return MOS_STATUS_NULL_POINTER;
         }
-        else
-        {
-            if (Mos_ResourceIsNull(&m_resHwCount))
-            {
-                CODECHAL_ENCODE_ASSERTMESSAGE("m_resHwCount is not allocated");
-                return MOS_STATUS_NULL_POINTER;
-            }
 
-            //Report HW counter by command output resource
-            address2Counter = (uint64_t *)(((char *)(m_dataHwCount)) + (index * sizeof(HwCounter)));
-        }
+        //Report HW counter by command output resource
+        address2Counter = (uint64_t *)(((char *)(m_dataHwCount)) + (index * sizeof(HwCounter)));
     }
     else
     {
@@ -4045,13 +4106,16 @@ MOS_STATUS CodechalEncoderState::GetStatusReport(
         PCODEC_REF_LIST refList = encodeStatusReport->pCurrRefList;
         uint32_t localCount = encodeStatus->dwStoredData - globalHWStoredData;
 
+        encodeStatusReport->pFrmStatsInfo = codecStatus[i].pFrmStatsInfo;
+        encodeStatusReport->pBlkStatsInfo = codecStatus[i].pBlkStatsInfo;
+
         if (localCount == 0 || localCount > globalCount)
         {
             CODECHAL_DEBUG_TOOL(
                 m_statusReportDebugInterface->m_bufferDumpFrameNum = encodeStatus->dwStoredData;
             )
 
-            // to be discussed, how to identify whether huc invloved in pipeline
+            // to be discussed, how to identify whether huc involved in pipeline
             if (!m_swBrcMode && m_vdencEnabled && m_vdencBrcEnabled && (m_standard == CODECHAL_HEVC || m_standard == CODECHAL_AVC || m_standard == CODECHAL_VP9))
             {
                 MOS_USER_FEATURE_VALUE_WRITE_DATA userFeatureWriteData;
@@ -4185,6 +4249,8 @@ MOS_STATUS CodechalEncoderState::GetStatusReport(
                 {
                     return eStatus;
                 }
+
+                CODECHAL_ENCODE_CHK_STATUS_RETURN(GetStatusReportExt(encodeStatus, encodeStatusReport, index));
 
                 if (m_osInterface->osCpInterface->IsCpEnabled() && m_skipFrameBasedHWCounterRead == false)
                 {
@@ -4372,7 +4438,7 @@ MOS_STATUS CodechalEncoderState::GetStatusReport(
         }
         codecStatus[i] = *encodeStatusReport;
 
-        NullHW::StatusReport((uint32_t &)codecStatus[i].CodecStatus,
+        NullHW::StatusReport(m_osInterface, (uint32_t &)codecStatus[i].CodecStatus,
                                         codecStatus[i].bitstreamSize);
     }
 
@@ -4498,7 +4564,7 @@ MOS_STATUS CodechalEncoderState::UserFeatureKeyReport()
 
 MOS_STATUS CodechalEncoderState::SubmitCommandBuffer(
     PMOS_COMMAND_BUFFER cmdBuffer,
-    int32_t         nullRendering)
+    bool         bNullRendering)
 {
     MOS_STATUS eStatus = MOS_STATUS_SUCCESS;
 
@@ -4507,7 +4573,7 @@ MOS_STATUS CodechalEncoderState::SubmitCommandBuffer(
     CODECHAL_ENCODE_CHK_NULL_RETURN(cmdBuffer);
 
     HalOcaInterface::On1stLevelBBEnd(*cmdBuffer, *m_osInterface);
-    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, cmdBuffer, nullRendering));
+    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_osInterface->pfnSubmitCommandBuffer(m_osInterface, cmdBuffer, bNullRendering));
     return eStatus;
 }
 
@@ -4637,7 +4703,7 @@ MOS_STATUS CodechalEncoderState::SendPredicationCommand(
         CODECHAL_ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMiFlushDwCmd(cmdBuffer, &flushDwParams));
 
         // load presPredication to general purpose register0
-        MHW_MI_STORE_REGISTER_MEM_PARAMS    loadRegisterMemParams;
+        MHW_MI_LOAD_REGISTER_MEM_PARAMS    loadRegisterMemParams;
         MOS_ZeroMemory(&loadRegisterMemParams, sizeof(loadRegisterMemParams));
         loadRegisterMemParams.presStoreBuffer = m_encodeParams.m_presPredication;
         loadRegisterMemParams.dwOffset = (uint32_t)m_encodeParams.m_predicationResOffset;
@@ -5107,10 +5173,10 @@ CodechalEncoderState::CodechalEncoderState(
     CodechalHwInterface* hwInterface,
     CodechalDebugInterface* debugInterface,
     PCODECHAL_STANDARD_INFO standardInfo):
-    Codechal(hwInterface, debugInterface)
+    Codechal((hwInterface==nullptr) ?nullptr:hwInterface->m_hwInterfaceNext, debugInterface)
 {
+    m_hwInterface             = hwInterface;
     pfnGetKernelHeaderAndSize = nullptr;
-
     // Add Null checks here for all interfaces.
     CODECHAL_ENCODE_CHK_NULL_NO_STATUS_RETURN(m_hwInterface);
     m_mfxInterface = m_hwInterface->GetMfxInterface();
@@ -5123,7 +5189,9 @@ CodechalEncoderState::CodechalEncoderState(
     m_stateHeapInterface = m_renderEngineInterface->m_stateHeapInterface;
     CODECHAL_ENCODE_ASSERT(m_renderEngineInterface->GetHwCaps());
 
+    m_osInterface = hwInterface->GetOsInterface();
     CODECHAL_ENCODE_CHK_NULL_NO_STATUS_RETURN(m_osInterface);
+    m_userSettingPtr = m_osInterface->pfnGetUserSettingInstance(m_osInterface);
     m_osInterface->pfnGetPlatform(m_osInterface, &m_platform);
     m_skuTable     = m_osInterface->pfnGetSkuTable(m_osInterface);
     m_waTable      = m_osInterface->pfnGetWaTable(m_osInterface);
@@ -5227,6 +5295,14 @@ CodechalEncoderState::~CodechalEncoderState()
         MediaPerfProfiler::Destroy(m_perfProfiler, (void*)this, m_osInterface);
         m_perfProfiler = nullptr;
     }
+
+    // Destroy HW interface objects (GSH, SSH, etc)
+    if (m_hwInterface != nullptr)
+    {
+        MOS_Delete(m_hwInterface);
+        m_hwInterface = nullptr;
+        Codechal::m_hwInterface = nullptr;
+    }
 }
 
 MOS_STATUS CodechalEncoderState::SetupWalkerContext(
@@ -5254,12 +5330,24 @@ MOS_STATUS CodechalEncoderState::SetupWalkerContext(
 
         HalOcaInterface::OnIndirectState(
             *cmdBuffer,
-            *m_osInterface->pOsContext,
+            (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext,
             dsh,
             params->pKernelState->m_dshRegion.GetOffset() + params->pKernelState->dwCurbeOffset,
             false,
             params->pKernelState->KernelParams.iCurbeLength);
     }
+
+    uint32_t InterfaceDescriptorTotalLength = m_stateHeapInterface->pStateHeapInterface->GetSizeofCmdInterfaceDescriptorData();
+    uint32_t InterfaceDescriptorDataStartOffset = MOS_ALIGN_CEIL(
+        params->pKernelState->m_dshRegion.GetOffset() + params->pKernelState->dwIdOffset,
+        m_stateHeapInterface->pStateHeapInterface->GetIdAlignment());
+    
+    // Media_State_Flush should be used before MEDIA_INTERFACE_DESCRIPTOR_LOAD to ensure that the temporary Interface Descriptor storage is cleared
+    MHW_MEDIA_STATE_FLUSH_PARAM mediaStateFlushParams;
+    MOS_ZeroMemory(&mediaStateFlushParams, sizeof(mediaStateFlushParams));
+    mediaStateFlushParams.bFlushToGo = true;
+    mediaStateFlushParams.ui8InterfaceDescriptorOffset = (uint8_t)InterfaceDescriptorDataStartOffset;
+    CODECHAL_ENCODE_CHK_STATUS_RETURN(m_miInterface->AddMediaStateFlush(cmdBuffer, nullptr, &mediaStateFlushParams));
 
     MHW_ID_LOAD_PARAMS idLoadParams;
     MOS_ZeroMemory(&idLoadParams, sizeof(idLoadParams));
@@ -5267,14 +5355,9 @@ MOS_STATUS CodechalEncoderState::SetupWalkerContext(
     idLoadParams.dwNumKernelsLoaded = 1;
     CODECHAL_ENCODE_CHK_STATUS_RETURN(m_renderEngineInterface->AddMediaIDLoadCmd(cmdBuffer, &idLoadParams));
 
-    uint32_t InterfaceDescriptorTotalLength = m_stateHeapInterface->pStateHeapInterface->GetSizeofCmdInterfaceDescriptorData();
-    uint32_t InterfaceDescriptorDataStartOffset = MOS_ALIGN_CEIL(
-        params->pKernelState->m_dshRegion.GetOffset() + params->pKernelState->dwIdOffset,
-        m_stateHeapInterface->pStateHeapInterface->GetIdAlignment());
-
     HalOcaInterface::OnIndirectState(
         *cmdBuffer,
-        *m_osInterface->pOsContext,
+        (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext,
         dsh,
         InterfaceDescriptorDataStartOffset,
         false,

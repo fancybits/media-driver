@@ -44,6 +44,11 @@ struct MediaKernelDumpConfig
 
 struct MediaDbgCfg
 {
+    MediaDbgCfg()
+    {
+        cmdAttribs[MediaDbgAttr::attrEnableFastDump] = 1;
+    }
+
     int32_t                                      frameIndex;
     std::map<std::string, int32_t>               cmdAttribs;
     std::map<std::string, MediaKernelDumpConfig> kernelAttribs;
@@ -71,10 +76,7 @@ public:
     MOS_STATUS ParseConfig(MOS_CONTEXT_HANDLE mosCtx);
     MOS_STATUS DeleteCfgNode(uint32_t frameIdx);
 
-    std::string GetMediaStateStr(MEDIA_DEBUG_STATE_TYPE mediaState);
-
     bool AttrIsEnabled(std::string attrName);
-    bool AttrIsEnabled(MEDIA_DEBUG_STATE_TYPE mediaState, std::string attrName);
 
  protected:
     void     GenerateDefaultConfig(std::string configFileName);
@@ -85,6 +87,7 @@ public:
 
     virtual uint32_t GetDumpFrameNum() = 0;
     virtual std::string InitFileName(MediaDbgFunction mediaFunction) = 0;
+    virtual MediaUserSettingSharedPtr GetUserSettingInstance() = 0;
 
 protected:
     MediaDbgFunction         m_mediaFunction;

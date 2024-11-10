@@ -23,55 +23,51 @@ if(GEN8_BDW)
     media_include_subdirectory(media_interfaces_m8_bdw)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN9_BXT)
+if(GEN9_BXT)
     media_include_subdirectory(media_interfaces_m9_bxt)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN9_SKL)
+if(GEN9_SKL)
     media_include_subdirectory(media_interfaces_m9_skl)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN9_CFL)
+if(GEN9_CFL)
     media_include_subdirectory(media_interfaces_m9_cfl)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN9_GLK)
+if(GEN9_GLK)
     media_include_subdirectory(media_interfaces_m9_glk)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN9_KBL)
+if(GEN9_KBL)
     media_include_subdirectory(media_interfaces_m9_kbl)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN10_CNL)
-    media_include_subdirectory(media_interfaces_m10_cnl)
-endif()
-
-if(ENABLE_REQUIRED_GEN_CODE OR GEN11_ICLLP)
+if(GEN11_ICLLP)
     media_include_subdirectory(media_interfaces_m11_icllp)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN11_JSL)
+if(GEN11_JSL)
     media_include_subdirectory(media_interfaces_m11_jsl_ehl)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN12_TGLLP)
+if(GEN12_TGLLP)
     media_include_subdirectory(media_interfaces_m12_tgllp)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN12_DG1)
+if(GEN12_DG1)
     media_include_subdirectory(media_interfaces_m12_dg1)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN12_RKL)
+if(GEN12_RKL)
     media_include_subdirectory(media_interfaces_m12_rkl)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN12_ADLS)
+if(GEN12_ADLS)
     media_include_subdirectory(media_interfaces_m12_adls)
 endif()
 
-if(ENABLE_REQUIRED_GEN_CODE OR GEN12_ADLP)
+if(GEN12_ADLP)
     media_include_subdirectory(media_interfaces_m12_adlp)
 endif()
 

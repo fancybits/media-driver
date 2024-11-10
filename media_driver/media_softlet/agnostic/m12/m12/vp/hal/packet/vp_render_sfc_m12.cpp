@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020, Intel Corporation
+* Copyright (c) 2020-2024, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -28,6 +28,7 @@
 //!
 
 #include "vp_render_sfc_m12.h"
+#include "vp_hal_ddi_utils.h"
 #include "mhw_sfc_g12_X.h"
 #include "mos_defs.h"
 
@@ -60,9 +61,19 @@ MOS_STATUS SfcRenderM12::SetupSfcState(
     sfcStateParamsM12 = static_cast<PMHW_SFC_STATE_PARAMS_G12>(m_renderDataLegacy.sfcStateParams);
     VP_RENDER_CHK_NULL_RETURN(sfcStateParamsM12);
 
-    VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resAvsLineBuffer, m_AVSLineBufferSurfaceArray[m_scalabilityParams.curPipe]));
-    VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resIefLineBuffer, m_IEFLineBufferSurfaceArray[m_scalabilityParams.curPipe]));
-    VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resSfdLineBuffer, m_SFDLineBufferSurfaceArray[m_scalabilityParams.curPipe]));
+    if (m_renderData.b1stPassOfSfc2PassScaling)
+    {
+        VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resAvsLineBuffer, m_AVSLineBufferSurfaceArrayfor1stPassofSfc2Pass[m_scalabilityParams.curPipe]));
+        VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resIefLineBuffer, m_IEFLineBufferSurfaceArrayfor1stPassofSfc2Pass[m_scalabilityParams.curPipe]));
+        VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resSfdLineBuffer, m_SFDLineBufferSurfaceArrayfor1stPassofSfc2Pass[m_scalabilityParams.curPipe]));
+    }
+    else
+    {
+        VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resAvsLineBuffer, m_AVSLineBufferSurfaceArray[m_scalabilityParams.curPipe]));
+        VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resIefLineBuffer, m_IEFLineBufferSurfaceArray[m_scalabilityParams.curPipe]));
+        VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resSfdLineBuffer, m_SFDLineBufferSurfaceArray[m_scalabilityParams.curPipe]));
+    }
+
     VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resAvsLineTileBuffer, m_AVSLineTileBufferSurface));
     VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resIefLineTileBuffer, m_IEFLineTileBufferSurface));
     VP_RENDER_CHK_STATUS_RETURN(SetLineBuffer(sfcStateParamsM12->resSfdLineTileBuffer, m_SFDLineTileBufferSurface));
@@ -125,7 +136,7 @@ MOS_STATUS SfcRenderM12::SetSfcStateInputOrderingModeHcp(
     }
     else if (CODECHAL_VP9 == m_videoConfig.codecStandard)
     {
-        VPHAL_COLORPACK colorPack = VpUtils::GetSurfaceColorPack(m_renderDataLegacy.SfcInputFormat);
+        VPHAL_COLORPACK colorPack = VpHalDDIUtils::GetSurfaceColorPack(m_renderDataLegacy.SfcInputFormat);
 
         if ((VPHAL_COLORPACK_420 == colorPack)
             || (VPHAL_COLORPACK_444 == colorPack))
@@ -200,7 +211,7 @@ MOS_STATUS SfcRenderM12::SetupScalabilityParams()
 
     if (MhwSfcInterfaceG12::SFC_PIPE_MODE_HCP == m_pipeMode)
     {
-        VPHAL_COLORPACK colorPack = VpUtils::GetSurfaceColorPack(m_renderDataLegacy.SfcInputFormat);
+        VPHAL_COLORPACK colorPack = VpHalDDIUtils::GetSurfaceColorPack(m_renderDataLegacy.SfcInputFormat);
 
         if ((VPHAL_COLORPACK_420 == colorPack || VPHAL_COLORPACK_422 == colorPack) &&
             (!MOS_IS_ALIGNED(m_scalabilityParams.srcStartX, 2) || MOS_IS_ALIGNED(m_scalabilityParams.srcEndX, 2)))

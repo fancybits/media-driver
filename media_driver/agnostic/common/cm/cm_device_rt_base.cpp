@@ -409,7 +409,9 @@ int32_t CmDeviceRTBase::Initialize(MOS_CONTEXT *mosContext)
     }
 
     // prepare GPU predefined queue/kernel/task for surface init
+#if !defined(_FULL_OPEN_SOURCE)
     result = PrepareGPUinitSurface();
+#endif
     // get the last tracker
     PCM_HAL_STATE state = (( PCM_CONTEXT_DATA )m_accelData)->cmHalState;
     m_surfaceMgr->SetLatestVeboxTrackerAddr(state->renderHal->veBoxTrackerRes.data);
@@ -1890,12 +1892,6 @@ CmDeviceRTBase::CreateVmeSurfaceG7_5(CmSurface2D* curSurface,
     CmSurface2DRT* currentRT = static_cast<CmSurface2DRT *>(curSurface) ;
     CmSurface2DRT** forward  = nullptr;
     CmSurface2DRT** backward = nullptr;
-
-    if( ! currentRT )
-    {
-        CM_ASSERTMESSAGE("Error: Pointer to current surface is null.");
-        return CM_INVALID_ARG_VALUE;
-    }
 
     if(forwardSurfaces != nullptr)
     {

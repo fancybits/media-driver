@@ -45,6 +45,7 @@ enum AV1_BRC_FRAME_TYPE
     AV1_BRC_FRAME_TYPE_I = 2,
     AV1_BRC_FRAME_TYPE_B1 = 3,
     AV1_BRC_FRAME_TYPE_B2 = 4,
+    AV1_BRC_FRAME_TYPE_B3 = 5,
     AV1_BRC_FRAME_TYPE_INVALID
 
 };
@@ -69,6 +70,9 @@ enum AV1_BRC_FRAME_TYPE
         uint16_t vdencCmd2Offset = 0;
         uint16_t avpPicStateOffset = 0;
         uint16_t secondAvpPicStateOffset = 0;
+        uint16_t pakInsertSlbSize = 0;
+        uint16_t vdencTileSliceStateOffset = 0;
+        uint16_t tileNum = 1;
     };
     //!
     //! \struct Av1BrcPakMmio
@@ -86,7 +90,7 @@ enum AV1_BRC_FRAME_TYPE
     class Av1Brc : public MediaFeature, public mhw::vdbox::vdenc::Itf::ParSetting, public mhw::vdbox::huc::Itf::ParSetting
     {
     public:
-        Av1Brc(MediaFeatureManager *featureManager, EncodeAllocator *allocator, CodechalHwInterface *hwInterface, void *constSettings);
+        Av1Brc(MediaFeatureManager *featureManager, EncodeAllocator *allocator, CodechalHwInterfaceNext *hwInterface, void *constSettings);
 
         virtual ~Av1Brc();
 
@@ -201,9 +205,9 @@ enum AV1_BRC_FRAME_TYPE
         // const data
         static constexpr uint32_t m_brcHistoryBufSize       = 6080;   //!< BRC history buffer size
 
-        CodechalHwInterface  *m_hwInterface  = nullptr;
-        EncodeAllocator      *m_allocator    = nullptr;
-        Av1BasicFeature      *m_basicFeature = nullptr;  //!< EncodeBasicFeature
+        CodechalHwInterfaceNext  *m_hwInterface  = nullptr;
+        EncodeAllocator          *m_allocator    = nullptr;
+        Av1BasicFeature          *m_basicFeature = nullptr;  //!< EncodeBasicFeature
 
         SlbData  m_slbData = {};
         uint8_t  m_rcMode  = 0;

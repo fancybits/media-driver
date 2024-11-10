@@ -29,7 +29,7 @@
 #include "mos_util_debug.h"
 #include "codechal_setting.h"
 #include "mos_os_specific.h"
-#include "codechal_hw.h"
+#include "codec_hw_next.h"
 #include "mos_utilities.h"
 
 #define DECODE_CP_ASSERT(_ptr) \
@@ -49,9 +49,6 @@
 
 #define DECODE_CP_CHK_STATUS_MESSAGE(_stmt, _message, ...) \
     MOS_CHK_STATUS_MESSAGE_RETURN(MOS_COMPONENT_CP, MOS_CP_SUBCOMP_CODEC, _stmt, _message, ##__VA_ARGS__)
-
-#define DECODE_CP_CHK_NULL(_ptr) \
-    MOS_CHK_NULL(MOS_COMPONENT_CP, MOS_CP_SUBCOMP_CODEC, _ptr)
 
 #define DECODE_CP_CHK_NULL_RETURN(_ptr) \
     MOS_CHK_NULL_RETURN(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_DECODE, _ptr)
@@ -134,7 +131,7 @@ public:
     virtual decode::DecodeSubPacket*  CreateDecodeCpIndSubPkt(
         decode::DecodePipeline *pipeline, 
         CODECHAL_MODE           mode,
-        CodechalHwInterface    *hwInterface)
+        CodechalHwInterfaceNext    *hwInterface)
     {
         MOS_UNUSED(pipeline);
         MOS_UNUSED(mode);
@@ -173,7 +170,8 @@ MEDIA_CLASS_DEFINE_END(DecodeCpInterface)
 //
 DecodeCpInterface *Create_DecodeCpInterface(
     CodechalSetting *    codechalSettings,
-    CodechalHwInterface *hwInterfaceInput);
+    MhwCpInterface  *    cpInterface,
+    PMOS_INTERFACE       osInterface);
 
 //!
 //! \brief    Delete the DecodeCpInterface Object

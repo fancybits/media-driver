@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2020, Intel Corporation
+* Copyright (c) 2011-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -27,7 +27,6 @@
 
 extern template class MediaFactory<uint32_t, MhwInterfaces>;
 extern template class MediaFactory<uint32_t, MmdDevice>;
-extern template class MediaFactory<uint32_t, MosUtilDevice>;
 extern template class MediaFactory<uint32_t, CodechalDevice>;
 extern template class MediaFactory<uint32_t, CMHalDevice>;
 extern template class MediaFactory<uint32_t, VphalDevice>;
@@ -63,10 +62,6 @@ static bool rklRegisteredCMHal =
     MediaFactory<uint32_t, CMHalDevice>::
     Register<CMHalInterfacesG12Rkl>((uint32_t)IGFX_ROCKETLAKE);
 
-static bool rklRegisteredMosUtil =
-    MediaFactory<uint32_t, MosUtilDevice>::
-    Register<MosUtilDeviceG12Tgllp>((uint32_t)IGFX_ROCKETLAKE);
-
 static bool rklRegisteredRenderHal =
     MediaFactory<uint32_t, RenderHalDevice>::
     Register<RenderHalInterfacesG12Tgllp>((uint32_t)IGFX_ROCKETLAKE);
@@ -74,6 +69,10 @@ static bool rklRegisteredRenderHal =
 static bool rklRegisteredDecodeHistogram =
     MediaFactory<uint32_t, DecodeHistogramDevice>::
     Register<DecodeHistogramDeviceG12Tgllp>((uint32_t)IGFX_ROCKETLAKE);
+
+static bool rklRegisteredHwInfo =
+    MediaFactory<uint32_t, MediaInterfacesHwInfoDevice>::
+    Register<MediaInterfacesHwInfoDeviceG12Tgllp>((uint32_t)IGFX_ROCKETLAKE);
 
 MOS_STATUS CMHalInterfacesG12Rkl::Initialize(CM_HAL_STATE *pCmState)
 {

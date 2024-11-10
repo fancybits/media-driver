@@ -40,10 +40,15 @@ RenderCopyState::RenderCopyState(PMOS_INTERFACE osInterface, MhwInterfaces *mhwI
     m_osInterface(osInterface),
     m_mhwInterfaces(mhwInterfaces)
 {
+    if (nullptr == osInterface)
+    {
+        MCPY_ASSERTMESSAGE("osInterface is nullptr");
+        return;
+    }
     m_renderInterface = mhwInterfaces->m_renderInterface;
     m_RenderData.pKernelParam = (PRENDERHAL_KERNEL_PARAM)g_rendercopy_KernelParam;
     Mos_SetVirtualEngineSupported(osInterface, true);
-    Mos_CheckVirtualEngineSupported(osInterface, true, false);
+    osInterface->pfnVirtualEngineSupported(osInterface, true, false);
 
     MOS_NULL_RENDERING_FLAGS        NullRenderingFlags;
     NullRenderingFlags = osInterface->pfnGetNullHWRenderFlags(osInterface);
@@ -67,8 +72,15 @@ RenderCopyState:: ~RenderCopyState()
 
     if (m_cpInterface != nullptr)
     {
-        Delete_MhwCpInterface(m_cpInterface);
-        m_cpInterface = nullptr;
+        if (m_osInterface)
+        {
+            m_osInterface->pfnDeleteMhwCpInterface(m_cpInterface);
+            m_cpInterface = nullptr;
+        }
+        else
+        {
+            MCPY_ASSERTMESSAGE("Failed to destroy vpInterface.");
+        }
     }
 
     // Destroy Kernel DLL objects (cache, hash table, states)
@@ -81,29 +93,9 @@ RenderCopyState:: ~RenderCopyState()
 
 MOS_STATUS RenderCopyState::Initialize()
 {
-    MOS_GPU_NODE              RenderGpuNode;
-    MOS_GPU_CONTEXT           RenderGpuContext;
-    MOS_GPUCTX_CREATOPTIONS   createOption;
     RENDERHAL_SETTINGS_LEGACY RenderHalSettings;
 
-    RenderGpuContext   = MOS_GPU_CONTEXT_COMPUTE;
-    RenderGpuNode      = MOS_GPU_NODE_COMPUTE;
-
     MCPY_CHK_NULL_RETURN(m_osInterface);
-
-    Mos_SetVirtualEngineSupported(m_osInterface, true);
-    Mos_CheckVirtualEngineSupported(m_osInterface, true, true);
-    // Create render copy Context
-    MCPY_CHK_STATUS_RETURN(m_osInterface->pfnCreateGpuContext(
-        m_osInterface,
-        RenderGpuContext,
-        RenderGpuNode,
-        &createOption));
-
-    // Register context with the Batch Buffer completion event
-    MCPY_CHK_STATUS_RETURN(m_osInterface->pfnRegisterBBCompleteNotifyEvent(
-        m_osInterface,
-        RenderGpuContext));
 
     m_renderHal = (PRENDERHAL_INTERFACE_LEGACY)MOS_AllocAndZeroMemory(sizeof(RENDERHAL_INTERFACE_LEGACY));
     MCPY_CHK_NULL_RETURN(m_renderHal);
@@ -116,7 +108,9 @@ MOS_STATUS RenderCopyState::Initialize()
     RenderHalSettings.iMediaStates = 32;
     MCPY_CHK_STATUS_RETURN(m_renderHal->pfnInitialize(m_renderHal, &RenderHalSettings));
 
-    m_renderHal->sseuTable = VpDefaultSSEUTable;
+    m_renderHal->sseuTable              = VpDefaultSSEUTable;
+    m_renderHal->forceDisablePreemption = true;
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -260,7 +254,8 @@ MOS_STATUS RenderCopyState::SetupSurfaceStates()
     int32_t                         iBTEntry;
     PRENDERHAL_INTERFACE            pRenderHal  = m_renderHal;
     PMEDIACOPY_RENDER_DATA          pRenderData = &m_RenderData;
-
+    RENDERHAL_SURFACE               RenderHalSource = {};  // source for mhw
+    RENDERHAL_SURFACE               RenderHalTarget = {};  // target for mhw
     MCPY_CHK_NULL_RETURN(pRenderHal);
     MCPY_CHK_NULL_RETURN(pRenderData);
     // Source surface
@@ -268,7 +263,7 @@ MOS_STATUS RenderCopyState::SetupSurfaceStates()
 
     pRenderData->SurfMemObjCtl.SourceSurfMemObjCtl =
          pRenderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
-         MOS_MP_RESOURCE_USAGE_SurfaceState_FF,
+         MOS_MP_RESOURCE_USAGE_SurfaceState_RCS,
          pRenderHal->pOsInterface->pfnGetGmmClientContext(pRenderHal->pOsInterface)).DwordValue;
 
     pRenderData->SurfMemObjCtl.TargetSurfMemObjCtl = pRenderData->SurfMemObjCtl.SourceSurfMemObjCtl;
@@ -638,6 +633,8 @@ MOS_STATUS RenderCopyState::LoadStaticData(
     PMEDIACOPY_RENDER_DATA                  pRenderData = &m_RenderData;
     RECT                                    AlignedRect;
     int32_t                                 iBytePerPixelPerPlane = GetBytesPerPixelPerPlane(m_Target.Format);
+    uint32_t                                WalkerWidthBlockSize = 128;
+    uint32_t                                WalkerHeightBlockSize = 8;
 
     MCPY_CHK_NULL_RETURN(pRenderData);
 
@@ -653,11 +650,11 @@ MOS_STATUS RenderCopyState::LoadStaticData(
     {
         if ((m_currKernelId == KERNEL_CopyKernel_1D_to_2D_Packed) || (m_currKernelId == KERNEL_CopyKernel_2D_to_1D_Packed))
         {
-            m_WalkerHeightBlockSize = 32;
+            WalkerHeightBlockSize = 32;
         }
         else if (m_currKernelId == KERNEL_CopyKernel_2D_to_2D_Packed)
         {
-            m_WalkerHeightBlockSize = 8;
+            WalkerHeightBlockSize = 8;
         }
         else
         {
@@ -667,7 +664,7 @@ MOS_STATUS RenderCopyState::LoadStaticData(
     }
     else
     {
-        m_WalkerHeightBlockSize = 8;
+        WalkerHeightBlockSize = 8;
     }
 
     // Set walker cmd params - Rasterscan
@@ -680,27 +677,27 @@ MOS_STATUS RenderCopyState::LoadStaticData(
     AlignedRect.bottom = (m_Source.dwHeight < m_Target.dwHeight) ? m_Source.dwHeight : m_Target.dwHeight;
     // Calculate aligned output area in order to determine the total # blocks
    // to process in case of non-16x16 aligned target.
-    AlignedRect.right += m_WalkerWidthBlockSize - 1;
-    AlignedRect.bottom += m_WalkerHeightBlockSize - 1;
-    AlignedRect.left -= AlignedRect.left % m_WalkerWidthBlockSize;
-    AlignedRect.top -= AlignedRect.top % m_WalkerHeightBlockSize;
-    AlignedRect.right -= AlignedRect.right % m_WalkerWidthBlockSize;
-    AlignedRect.bottom -= AlignedRect.bottom % m_WalkerHeightBlockSize;
+    AlignedRect.right += WalkerWidthBlockSize - 1;
+    AlignedRect.bottom += WalkerHeightBlockSize - 1;
+    AlignedRect.left -= AlignedRect.left % WalkerWidthBlockSize;
+    AlignedRect.top -= AlignedRect.top % WalkerHeightBlockSize;
+    AlignedRect.right -= AlignedRect.right % WalkerWidthBlockSize;
+    AlignedRect.bottom -= AlignedRect.bottom % WalkerHeightBlockSize;
 
     pWalkerParams->InterfaceDescriptorOffset = pRenderData->iMediaID;
 
-    pWalkerParams->GroupStartingX = (AlignedRect.left / m_WalkerWidthBlockSize);
-    pWalkerParams->GroupStartingY = (AlignedRect.top / m_WalkerHeightBlockSize);
+    pWalkerParams->GroupStartingX = (AlignedRect.left / WalkerWidthBlockSize);
+    pWalkerParams->GroupStartingY = (AlignedRect.top / WalkerHeightBlockSize);
 
     // Set number of blocks
     pRenderData->iBlocksX =
-        ((AlignedRect.right - AlignedRect.left) + m_WalkerWidthBlockSize - 1) / m_WalkerWidthBlockSize;
+        ((AlignedRect.right - AlignedRect.left) + WalkerWidthBlockSize - 1) / WalkerWidthBlockSize;
     pRenderData->iBlocksY =
-        ((AlignedRect.bottom - AlignedRect.top) + m_WalkerHeightBlockSize -1)/ m_WalkerHeightBlockSize;
+        ((AlignedRect.bottom - AlignedRect.top) + WalkerHeightBlockSize -1)/ WalkerHeightBlockSize;
 
-    // Set number of blocks, block size is m_WalkerWidthBlockSize x m_WalkerHeightBlockSize.
+    // Set number of blocks, block size is WalkerWidthBlockSize x WalkerHeightBlockSize.
     pWalkerParams->GroupWidth = pRenderData->iBlocksX;
-    pWalkerParams->GroupHeight = pRenderData->iBlocksY; // hight/m_WalkerWidthBlockSize
+    pWalkerParams->GroupHeight = pRenderData->iBlocksY; // hight/WalkerWidthBlockSize
 
     pWalkerParams->ThreadWidth = 1;
     pWalkerParams->ThreadHeight = 1;
@@ -709,8 +706,8 @@ MOS_STATUS RenderCopyState::LoadStaticData(
     // Indirect Data Length is a multiple of 64 bytes (size of L3 cacheline). Bits [5:0] are zero.
     pWalkerParams->IndirectDataLength = MOS_ALIGN_CEIL(pRenderData->iCurbeLength, 1 << MHW_COMPUTE_INDIRECT_SHIFT);
     pWalkerParams->BindingTableID = pRenderData->iBindingTable;
-    MCPY_NORMALMESSAGE("WidthBlockSize %d, HeightBlockSize %d, Widththreads %d, Heightthreads%d",
-        m_WalkerWidthBlockSize, m_WalkerHeightBlockSize, pWalkerParams->GroupWidth, pWalkerParams->GroupHeight);
+    MCPY_NORMALMESSAGE("this = %p, WidthBlockSize %d, HeightBlockSize %d, Widththreads %d, Heightthreads%d",
+        this, WalkerWidthBlockSize, WalkerHeightBlockSize, pWalkerParams->GroupWidth, pWalkerParams->GroupHeight);
 
     return eStatus;
 }

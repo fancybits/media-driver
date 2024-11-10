@@ -90,9 +90,11 @@ MOS_STATUS VPFeatureManagerXe_Xpm_Base::CheckFeatures(void * params, bool &bApgF
         return MOS_STATUS_SUCCESS;
     }
 
-    if (disableVeboxOutput && disableSfc)
+    // If bForceToRender is set as true, then output pipe is decided by whether HDR is enabled.
+    // If HDR is enabled, use APO path. Otherwise legacy path is selected.
+    if (disableVeboxOutput && disableSfc && !pvpParams->bForceToRender)
     {
-        VP_PUBLIC_NORMALMESSAGE("Fallback to legacy since both vebox output and sfc being disabled.");
+        VP_PUBLIC_NORMALMESSAGE("Fallback to legacy since 1. both vebox output and sfc being disabled. 2. Render is not forced to");
         return MOS_STATUS_SUCCESS;
     }
 
@@ -197,6 +199,14 @@ MOS_STATUS VPFeatureManagerXe_Xpm_Base::CheckFeatures(void * params, bool &bApgF
             pvpParams->pSrc[0]->pDenoiseParams->bEnableHVSDenoise)
         {
             VP_PUBLIC_NORMALMESSAGE("If HVS case, still go to APG path, not need change to Composition");
+        }
+        else if (IsHdrNeeded(pvpParams->pSrc[0], pvpParams->pTarget[0]))
+        {
+            VP_PUBLIC_NORMALMESSAGE("If HDR case, still go to APG path, not need change to Composition");
+        }
+        else if (IS_COLOR_SPACE_BT2020_YUV(pvpParams->pSrc[0]->ColorSpace) && IS_COLOR_SPACE_BT2020_YUV(pvpParams->pTarget[0]->ColorSpace))
+        {
+            VP_PUBLIC_NORMALMESSAGE("If input color space is BT2020 and output color space is BT2020_FullRange, go to APG path.");
         }
         else
         {

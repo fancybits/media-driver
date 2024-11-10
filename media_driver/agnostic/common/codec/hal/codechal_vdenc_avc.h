@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2021, Intel Corporation
+* Copyright (c) 2011-2023, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -784,6 +784,21 @@ public:
         MHW_VDBOX_AVC_SLICE_STATE &                 sliceState,
         uint16_t                                    slcIdx);
 
+    //!
+    //! \brief    Get AVC VDenc frame level status extention
+    //!
+    //! \param    [in] cmdBuffer
+    //!           Point to MOS_COMMAND_BUFFER
+    //!           [in] StatusReportFeedbackNumber
+    //!           Status report number
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    virtual MOS_STATUS GetAvcVdencFrameLevelStatusExt(uint32_t StatusReportFeedbackNumber, MOS_COMMAND_BUFFER *cmdBuffer)
+    {
+        return MOS_STATUS_SUCCESS;
+    };
+
 protected:
     // AvcGeneraicState functions
     //!
@@ -992,11 +1007,11 @@ protected:
 protected:
     bool                                        m_vdencSinglePassEnable = false;   //!< Enable VDEnc single pass
 
-    MOS_RESOURCE                                m_vdencIntraRowStoreScratchBuffer; //!< Handle of intra row store surface
-    MOS_RESOURCE                                m_pakStatsBuffer;                  //!< Handle of PAK status buffer
-    MOS_RESOURCE                                m_pakStatsBufferFull;              //!< Handle of PAK status buffer include PerMB and frame level.
-    MOS_RESOURCE                                m_vdencStatsBuffer;                //!< Handle of VDEnc status buffer
-    MOS_RESOURCE                                m_vdencTlbMmioBuffer;              //!< VDEnc TLB MMIO buffer
+    MOS_RESOURCE                                m_vdencIntraRowStoreScratchBuffer;                         //!< Handle of intra row store surface
+    MOS_RESOURCE                                m_pakStatsBuffer;                                          //!< Handle of PAK status buffer
+    MOS_RESOURCE                                m_pakStatsBufferFull[CODECHAL_ENCODE_RECYCLED_BUFFER_NUM]; //!< Handle of PAK status buffer include PerMB and frame level.
+    MOS_RESOURCE                                m_vdencStatsBuffer;                                        //!< Handle of VDEnc status buffer
+    MOS_RESOURCE                                m_vdencTlbMmioBuffer;                                      //!< VDEnc TLB MMIO buffer
 
     uint32_t                                    m_mmioMfxLra0Override = 0;         //!< Override Register MFX_LRA_0
     uint32_t                                    m_mmioMfxLra1Override = 0;         //!< Override Register MFX_LRA_1
@@ -1286,7 +1301,13 @@ MOS_STATUS CodechalVdencAvcState::SetDmemHuCBrcInitResetImpl(CODECHAL_VDENC_AVC_
         avcSeqParams, this, &profileLevelMaxFrame));
 
     hucVDEncBrcInitDmem->INIT_ProfileLevelMaxFrame_U32 = profileLevelMaxFrame;
-    if (avcSeqParams->GopRefDist && (avcSeqParams->GopPicSize > 0))
+
+    if (avcSeqParams->GopRefDist >= avcSeqParams->GopPicSize && avcSeqParams->GopPicSize > 1)
+    {
+        hucVDEncBrcInitDmem->INIT_GopP_U16 = 1;
+        hucVDEncBrcInitDmem->INIT_GopB_U16 = avcSeqParams->GopPicSize - 2;
+    }
+    else if (avcSeqParams->GopRefDist && (avcSeqParams->GopPicSize > 0))
     {
         // Their ratio is used in BRC kernel to detect mini GOP structure. Have to be multiple.
         hucVDEncBrcInitDmem->INIT_GopP_U16 = (avcSeqParams->GopPicSize - 1) / avcSeqParams->GopRefDist;
