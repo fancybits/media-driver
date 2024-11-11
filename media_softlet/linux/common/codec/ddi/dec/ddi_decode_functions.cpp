@@ -26,7 +26,16 @@
 
 #include <sys/ioctl.h>
 #include <fcntl.h>
+
+#ifdef __linux__
 #include <linux/fb.h>
+#elif defined(__DragonFly__) || defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__sun)
+#include <sys/fbio.h>
+#define FBIOGET_VSCREENINFO FBIOGTYPE
+#define fb_var_screeninfo fbtype
+#define xres fb_width
+#define yres fb_height
+#endif
 
 #include "ddi_decode_functions.h"
 #include "media_libva_util_next.h"
