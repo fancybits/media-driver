@@ -21,7 +21,7 @@
 media_include_subdirectory(include)
 set(TMP_SOURCES_
     ${CMAKE_CURRENT_LIST_DIR}/mos_bufmgr_api.c
-    ${CMAKE_CURRENT_LIST_DIR}/xf86drm.c
+    #${CMAKE_CURRENT_LIST_DIR}/xf86drm.c
     ${CMAKE_CURRENT_LIST_DIR}/xf86drmHash.c
     ${CMAKE_CURRENT_LIST_DIR}/xf86drmMode.c
     ${CMAKE_CURRENT_LIST_DIR}/xf86drmRandom.c
