@@ -36,6 +36,7 @@
 #include "mos_bufmgr_priv.h"
 #include "media_fourcc.h"
 #include "mos_oca_rtlog_mgr.h"
+#include "xf86drm.h"
 
 #if (_DEBUG || _RELEASE_INTERNAL)
 #include <stdlib.h>   //for simulate random OS API failure

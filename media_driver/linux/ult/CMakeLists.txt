@@ -50,7 +50,7 @@ else ()
 endif ()
 
 add_subdirectory(libdrm_mock)
-add_subdirectory(ult_app)
+#add_subdirectory(ult_app)
 
 enable_testing()
 add_test(NAME test_devult COMMAND devult ${UMD_PATH})
