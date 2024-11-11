@@ -39,7 +39,12 @@ void OcaOnMosCriticalMessage(const PCCHAR functionName, int32_t lineNum)
         ++subStrLen;
         if (8 == subStrLen)
         {
-            MT_PARAM param[] = {{MT_FUNC_NAME, *(int64_t*)subStr}};
+            int64_t name = 0;
+            for (uint32_t i = 0; i < subStrLen; ++i)
+            {
+                name |= ((uint64_t)subStr[i] << (i * 8));
+            }
+            MT_PARAM param[] = {{MT_FUNC_NAME, name}};
             OcaRtLogSectionMgr::InsertRTLog(MOS_OCA_RTLOG_COMPONENT_COMMON, isErr, MT_ERR_CRITICAL_MESSAGE, 1, param);
             subStr += subStrLen;
             subStrLen = 0;
