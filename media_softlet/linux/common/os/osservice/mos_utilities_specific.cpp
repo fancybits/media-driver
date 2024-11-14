@@ -2598,7 +2598,7 @@ void MosUtilities::MosTraceEvent(
                 MOS_FreeMemory(pTraceBuf);
             }
         }
-#if Backtrace_FOUND
+#if Backtrace_FOUND && defined(__linux__)
         if (m_mosTraceFilter(TR_KEY_CALL_STACK))
         {
             // reserve space for header and stack size field.
