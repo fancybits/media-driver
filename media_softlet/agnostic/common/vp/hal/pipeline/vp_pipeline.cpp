@@ -44,6 +44,16 @@ VpPipeline::VpPipeline(PMOS_INTERFACE osInterface) :
 
 VpPipeline::~VpPipeline()
 {
+#if (_DEBUG || _RELEASE_INTERNAL)
+    if (m_reportOnceFlag)
+    {
+        ReportUserSettingForDebug(
+            m_userSettingPtr,
+            __MEDIA_USER_FEATURE_VALUE_FALLBACK_SCALING_TO_RENDER_8K_REPORT,
+            0,
+            MediaUserSetting::Group::Sequence);
+    }
+#endif
     // Delete m_featureManager before m_resourceManager, since
     // m_resourceManager is referenced by m_featureManager.
     MOS_Delete(m_featureManager);
@@ -218,12 +228,12 @@ MOS_STATUS VpPipeline::UserFeatureReport()
             {
                 m_reporting->GetFeatures().rtOldCacheSetting = (uint8_t)(m_vpMhwInterface.m_renderHal->oldCacheSettingForTargetSurface);
             }
-            if (m_reporting->GetFeatures().isL03DLut)
+            if (m_reporting->GetFeatures().isOcl3DLut)
             {
-                VP_PUBLIC_NORMALMESSAGE("VP L0 3DLut Enabled");
+                VP_PUBLIC_NORMALMESSAGE("VP OCL 3DLut Enabled");
                 ReportUserSettingForDebug(
                     m_userSettingPtr,
-                    __MEDIA_USER_FEATURE_VALUE_VP_L0_3DLUT_ENABLED,
+                    __MEDIA_USER_FEATURE_VALUE_VP_OCL_3DLUT_ENABLED,
                     1,
                     MediaUserSetting::Group::Sequence);
             }
@@ -241,10 +251,38 @@ MOS_STATUS VpPipeline::UserFeatureReport()
 
             ReportUserSettingForDebug(
                 m_userSettingPtr,
+                __MEDIA_USER_FEATURE_VALUE_VP_OCL_FC_FEATURE_REPORT,
+                m_reporting->GetFeatures().featureLogOclFC,
+                MediaUserSetting::Group::Sequence);
+
+            ReportUserSettingForDebug(
+                m_userSettingPtr,
                 __MEDIA_USER_FEATURE_VALUE_VP_OCL_FC_REPORT,
                 m_reporting->GetFeatures().diffLogOclFC,
                 MediaUserSetting::Group::Sequence);
+
+            if (m_reporting->GetFeatures().isLegacyFCInUse)
+            {
+                ReportUserSettingForDebug(
+                    m_userSettingPtr,
+                    __MEDIA_USER_FEATURE_VALUE_VP_LEGACY_FC_IN_USE,
+                    1,
+                    MediaUserSetting::Group::Sequence);
+                m_reporting->GetFeatures().isLegacyFCInUse = false;
+            }
         }
+
+        if (m_reportOnceFlag && m_reporting->GetFeatures().fallbackScalingToRender8K)
+        {
+            ReportUserSettingForDebug(
+                m_userSettingPtr,
+                __MEDIA_USER_FEATURE_VALUE_FALLBACK_SCALING_TO_RENDER_8K_REPORT,
+                1,
+                MediaUserSetting::Group::Sequence);
+            m_reporting->GetFeatures().fallbackScalingToRender8K = false;
+            m_reportOnceFlag                                     = false;
+        }
+        
 #endif
 
         m_reporting->GetFeatures().VPApogeios = m_currentFrameAPGEnabled;

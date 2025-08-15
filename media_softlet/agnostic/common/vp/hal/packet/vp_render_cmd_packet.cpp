@@ -229,6 +229,7 @@ MOS_STATUS VpRenderCmdPacket::Prepare()
             VP_RENDER_CHK_NULL_RETURN(m_kernel);
 
             m_kernel->SetCacheCntl(m_surfMemCacheCtl);
+            m_kernel->SetPerfTag();
             VP_RENDER_CHK_STATUS_RETURN(SetEuThreadSchedulingMode(m_kernel->GetEuThreadSchedulingMode()));
 
             // reset render Data for current kernel
@@ -2074,6 +2075,9 @@ MOS_STATUS VpRenderCmdPacket::SetFcParams(PRENDER_FC_PARAMS params)
     m_renderKernelParams.push_back(kernelParams);
     m_isMultiBindingTables = false;
     m_submissionMode       = SINGLE_KERNEL_ONLY;
+#if(_DEBUG || _RELEASE_INTERNAL)  
+    m_report->GetFeatures().isLegacyFCInUse = true;
+#endif
     return MOS_STATUS_SUCCESS;
 }
 
