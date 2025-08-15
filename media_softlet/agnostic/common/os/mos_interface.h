@@ -61,6 +61,23 @@ typedef struct _MOS_VIRTUALENGINE_SET_PARAMS  MOS_VIRTUALENGINE_SET_PARAMS, *PMO
 typedef struct _MOS_VIRTUALENGINE_INIT_PARAMS MOS_VIRTUALENGINE_INIT_PARAMS, *PMOS_VIRTUALENGINE_INIT_PARAMS;
 typedef struct _MOS_CMD_BUF_ATTRI_VE MOS_CMD_BUF_ATTRI_VE, *PMOS_CMD_BUF_ATTRI_VE;
 typedef struct _MHW_VDBOX_GPUNODE_LIMIT *PMHW_VDBOX_GPUNODE_LIMIT;
+#if !EMUL
+inline bool IsGMMMapped(GMM_CLIENT_CONTEXT *gmmClientContext, PADAPTER_INFO adapterInfo, GMM_RESOURCE_FLAG& flags)
+{
+    if (gmmClientContext                            &&
+        adapterInfo->SkuTable.FtrE2ECompression     &&
+        !adapterInfo->SkuTable.FtrFlatPhysCCS       &&
+        !adapterInfo->WaTable.WaAuxTable64KGranular &&
+        flags.Info.MediaCompressed)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+#endif
 class MosInterface
 {
 protected:
@@ -509,6 +526,33 @@ public:
         const char            *filePathPrefix);
 
     //!
+    //! \brief    Add Indirect state
+    //!
+    //! \param    [in] streamState
+    //!           Handle of Os Stream State
+    //! \param    [in] stateSize
+    //!           Size of the state
+    //! \param    [in] pIndirectState
+    //!           ptr to the sys memory of state
+    //! \param    [in] gfxAddressBottom
+    //!           ptr which store bottom gfx address of the state
+    //! \param    [in] gfxAddressTop
+    //!           ptr which store top gfx address of the state
+    //! \param    [in] stateName
+    //!           Name of the state
+    //!
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
+    //!
+    static MOS_STATUS AddIndirectState(
+        MOS_STREAM_HANDLE streamState,
+        uint32_t          stateSize,
+        uint32_t         *pIndirectState,
+        uint32_t         *gfxAddressBottom,
+        uint32_t         *gfxAddressTop,
+        const char       *stateName);
+
+    //!
     //! \brief    Dump Command Buffer
     //! \details  [Cmd Buffer Interface] Dump an existing cmd buffer
     //! \details  Caller: HAL only
@@ -528,6 +572,10 @@ public:
     static MOS_STATUS DumpCommandBuffer(
         MOS_STREAM_HANDLE streamState,
         COMMAND_BUFFER_HANDLE cmdBuffer);
+
+    static MOS_STATUS DumpSyncCommandBuffer(
+        OsContextNext          *osContext,
+        GpuContextSpecificNext *gpuContext);
 #endif  // MOS_COMMAND_BUFFER_DUMP_SUPPORTED
 
     //!
@@ -1873,40 +1921,6 @@ public:
     //!
     static MOS_STATUS MosFreeLibrary(HMODULE hLibModule);
 
-    //! \brief    Get Virtual Engine State
-    //! \details  [Virtual Engine Interface] Get Virtual Engine State from streamState
-    //! \details  Caller: Hal (Scalability) only
-    //! \details  This func is called when a stream (Hal instance) need to get a VE state
-    //! \details  corresponding to current GPU context.
-    //!
-    //! \param    [in] streamState
-    //!           Handle of Os Stream State
-    //!
-    //! \return   MOS_VE_HANDLE
-    //!           Handle of MOS virtual engine state, Invalid handle if get failed 
-    //!
-    static MOS_VE_HANDLE GetVirtualEngineState(
-        MOS_STREAM_HANDLE  streamState);
-
-    //!
-    //! \brief    Set Virtual Engine State
-    //! \details  [Virtual Engine Interface] Set Virtual Engine State of provided streamState
-    //! \details  Caller: Hal (Scalability) only
-    //! \details  This func is called when a stream (Hal instance) need to set an existing VE state
-    //! \details  into provided stream.
-    //!
-    //! \param    [in] streamState
-    //!           Handle of Os Stream State
-    //! \param    [in] veState
-    //!           Handle of Virtual Engine State to set
-    //!
-    //! \return   MOS_STATUS
-    //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
-    //!
-    static MOS_STATUS SetVirtualEngineState(
-        MOS_STREAM_HANDLE streamState,
-        MOS_VE_HANDLE veState);
-
     //!
     //! \brief    Create Virtual Engine State
     //! \details  [Virtual Engine Interface] Create Virtual Engine State of provided streamState
@@ -1987,29 +2001,6 @@ public:
         PMOS_VIRTUALENGINE_HINT_PARAMS *hintParams);
 
     //!
-    //! \brief    Set Virtual Engine Submission Type
-    //!
-    //! \details  [Virtual Engine Interface] Set submission type for the provided cmd buffer
-    //! \details  Caller: Hal (Scalability) only
-    //! \details  Set submission type as per cmd buffer hint parameter. Must be set before submission.
-    //!           Submission type is to set cmd buffer (primary or secondary) property to indicate 
-    //!           which pipe it belongs. See MOS_SUBMISSION_TYPE.
-    //!
-    //! \param    [in] streamState
-    //!           Handle of Os Stream State
-    //! \param    [out] cmdBuf
-    //!           Handle of cmd buffer to set submission type
-    //! \param    [in] type
-    //!           Submission type to set
-    //! \return   MOS_STATUS
-    //!           MOS_STATUS_SUCCESS if success, else fail reason
-    //!
-    static MOS_STATUS SetVeSubmissionType(
-        MOS_STREAM_HANDLE     streamState,
-        COMMAND_BUFFER_HANDLE cmdBuf,
-        MOS_SUBMISSION_TYPE   type);
-
-    //!
     //! \brief    Get Adapter BDF
     //! \details  [System info Interface] Get Adapter BDF
     //! \details  Caller: DDI & HAL
@@ -2024,6 +2015,70 @@ public:
     //!           MOS_STATUS_SUCCESS if success, else fail reason
     //!
     static MOS_STATUS GetAdapterBDF(PMOS_CONTEXT mosCtx, ADAPTER_BDF *adapterBDF);
+    
+    //!
+    //! \brief    Set Hybrid Cmd To GpuContext
+    //! \details  Set Hybrid Cmd To GpuContext
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] ptr to pOsInterface
+    //! \param    uint64_t gpuCtxOnHybridCmd
+    //!           gpuCtxOnHybridCmd
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS
+    //!
+    static MOS_STATUS SetHybridCmdMgrToGpuContext(
+        PMOS_INTERFACE pOsInterface,
+        uint64_t       gpuCtxOnHybridCmd);
+
+    //!
+    //! \brief    Set Hybrid Cmd Submit Mode
+    //! \details  Set Hybrid Cmd Submit Mode
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] ptr to pOsInterface
+    //! \param    uint64_t hybridMgrSubmitMode
+    //!           hybridMgrSubmitMode
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS
+    //!
+    static MOS_STATUS SetHybridCmdMgrSubmitMode(
+        PMOS_INTERFACE pOsInterface,
+        uint64_t       hybridMgrSubmitMode);
+
+    //!
+    //! \brief    Start the Cmd Consumer
+    //! \details  Start the Cmd Consumer
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] ptr to pOsInterface
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS
+    //!
+    static MOS_STATUS StartHybridCmdMgr(
+        PMOS_INTERFACE pOsInterface);
+
+    //!
+    //! \brief    Stop the Cmd Consumer
+    //! \details  Stop the Cmd Consumer
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] ptr to pOsInterface
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS
+    //!
+    static MOS_STATUS StopHybridCmdMgr(
+        PMOS_INTERFACE pOsInterface);
+
+    //!
+    //! \brief    Submit Cmd Package to Cmd Consumer
+    //! \details  Submit Cmd Package to Cmd Consumer
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] ptr to pOsInterface
+    //! \param    CmdPackage& cmdPackage
+    //!           [in] reference to cmdPackage
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS
+    //!
+    static MOS_STATUS SubmitPackage(
+        PMOS_INTERFACE pOsInterface,
+        CmdPackage    &cmdPackage);
 
 #if _DEBUG || _RELEASE_INTERNAL
     //!
@@ -2375,7 +2430,8 @@ public:
 
     static void SetIsTrinityEnabled(bool bTrinity);
 
-    static bool IsGpuSyncByCmd(MOS_STREAM_HANDLE streamState);
+    static bool IsGpuSyncByCmd(MOS_STREAM_HANDLE streamState, GPU_CONTEXT_HANDLE gpuContextHandle);
+
 private:
     //!
     //! \brief    Init per stream parameters

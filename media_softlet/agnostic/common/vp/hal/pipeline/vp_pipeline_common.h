@@ -124,6 +124,9 @@ struct VP_SURFACE
     uint32_t                    bufferWidth         = 0;               //!< 1D buffer Width, n/a if 2D surface
     uint32_t                    bufferHeight        = 0;               //!< 1D buffer Height, n/a if 2D surface
 
+    //NPU L0 Info
+    void *zeNpuHostMem = nullptr;
+
     // Return true if no resource assigned to current vp surface.
     bool        IsEmpty();
     // Clean the vp surface to empty state. Only valid for false == isResourceOwner case.
@@ -153,6 +156,7 @@ struct _VP_EXECUTE_CAPS
             uint64_t bVebox         : 1;   // Vebox needed
             uint64_t bSFC           : 1;   // SFC needed
             uint64_t bRender        : 1;   // Render Only needed
+            uint64_t bNpu           : 1;   // Npu Only Needed
             uint64_t bSecureVebox   : 1;   // Vebox in Secure Mode
             uint64_t bRenderHdr     : 1;   // Render HDR in use
 
@@ -175,6 +179,7 @@ struct _VP_EXECUTE_CAPS
             uint64_t bBt2020ToRGB   : 1;   // Vebox Bt2020 gamut compression to RGB format
             uint64_t bProcamp       : 1;   // Vebox Procamp needed
             uint64_t bBeCSC         : 1;   // Vebox back end CSC needed
+            uint64_t bFeCSC         : 1;   // Vebox front end CSC needed
             uint64_t bLACE          : 1;   // Vebox LACE Needed
             uint64_t bQueryVariance : 1;
             uint64_t bRefValid      : 1;   // Vebox Ref is Valid
@@ -182,6 +187,7 @@ struct _VP_EXECUTE_CAPS
             uint64_t bDnKernelUpdate: 1;
             uint64_t bVeboxSecureCopy : 1;
             uint64_t bHDR3DLUT      : 1;  // Vebox 3DLUT needed
+            uint64_t bH2S           : 1;  // Vebox 3DLUT H2S Mode
             uint64_t b1K1DLutInited : 1;
             uint64_t bDV            : 1;
             uint64_t b3DlutOutput   : 1;
@@ -211,6 +217,9 @@ struct _VP_EXECUTE_CAPS
             uint64_t bHdr           : 1;
             uint64_t bFallbackLegacyFC : 1;     // only valid when vpUserFeatureControl->EnableOclFC() is true
             uint64_t forceBypassWorkload : 1;  // If true, force to bypass workload.
+
+            //Render or NPU
+            uint64_t bAiPath        : 1;        // if ture, it will walk into ai common filter to execute a series of ai sub kernels
         };
         uint64_t value;
     };
@@ -229,6 +238,7 @@ typedef struct _VP_EngineEntry
             uint64_t SfcNeeded : 1;
             uint64_t VeboxNeeded : 1;
             uint64_t RenderNeeded : 1;
+            uint64_t npuNeeded : 1;
             uint64_t hdrKernelNeeded : 1;
             uint64_t fcSupported : 1;           // Supported by fast composition
             uint64_t hdrKernelSupported : 1;    // Supported by Hdr Kenrel
@@ -236,7 +246,9 @@ typedef struct _VP_EngineEntry
             uint64_t bt2020ToRGB : 1;           // true if bt2020 to rgb
             uint64_t is1K1DLutSurfaceInUse : 1;  // 1K1DLut surface in use
             uint64_t isHdr33LutSizeEnabled : 1;
+            uint64_t isH2S : 1;                  //Vebox 3DLut H2S
             uint64_t isBayerInputInUse : 1;
+            uint64_t frontEndCscNeeded : 1;  // true if use vebox front end csc to do output csc feature instead of using backendcsc + sfc. Only using it when no scaling needed
             uint64_t forceLegacyFC : 1;          // true if OCL FC not support the format, fall back to legacy FC
 
             // set by GetXxxPipeEnginCaps

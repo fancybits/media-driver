@@ -28,6 +28,8 @@
 #ifndef __VP_COMMON_DEFS_H__
 #define __VP_COMMON_DEFS_H__
 
+#include <cstdint>
+#include "mos_defs.h"
 #include "media_common_defs.h"
 
 #define ADDRESS_PAGE_ALIGNMENT_MASK_X64 0xFFFFFFFFFFFFF000ULL
@@ -191,6 +193,7 @@ enum VpKernelID
     kernelOclFc420PL3Input,
     kernelOclFc420PL3Output,
     kernelOclFc422HVInput,
+
     baseKernelMaxNumID
 };
 
@@ -200,7 +203,25 @@ enum VpKernelIDNext
     kernelHdr3DLutCalc = vpKernelIDNextBase,
     kernelHdr3DLutCalcOcl,
     kernelHVSCalc,
+
+    //Add New Kernel ID Here
+
+    // AI Common
+    kernelAiCommon,
+    kernelAiCommonEnd = kernelAiCommon + 0x1000,
+
     vpKernelIDNextMax
+};
+C_ASSERT(kernelAiCommonEnd == vpKernelIDNextMax - 1);
+
+//!
+//! \brief Base VP graph list
+//!
+enum VP_GRAPH_ID
+{
+    VP_GRAPH_ID_INVALID = 0,
+
+    VP_GRAPH_ID_BASE_MAX
 };
 
 typedef struct _VPHAL_COMPOSITE_CACHE_CNTL
@@ -551,7 +572,8 @@ typedef enum _VPHAL_OUTPUT_PIPE_MODE
     VPHAL_OUTPUT_PIPE_MODE_INVALID = -1,  //!< None output pipe selected. This is an invalid state
     VPHAL_OUTPUT_PIPE_MODE_COMP    = 0,   //!< Composition output pipe. RenderTarget will be written by Composition
     VPHAL_OUTPUT_PIPE_MODE_SFC     = 1,   //!< SFC output pipe. RenderTarget will be written by SFC
-    VPHAL_OUTPUT_PIPE_MODE_VEBOX   = 2    //!< Vebox output pipe. RenderTarget will be written by Vebox
+    VPHAL_OUTPUT_PIPE_MODE_VEBOX   = 2,    //!< Vebox output pipe. RenderTarget will be written by Vebox
+    VPHAL_OUTPUT_PIPE_MODE_NPU     = 3
 } VPHAL_OUTPUT_PIPE_MODE,
     *PVPHAL_OUTPUT_PIPE_MODE;
 
@@ -917,6 +939,7 @@ typedef struct _VPHAL_3DLUT_PARAMS
     uint32_t       ChannelMapping     = 0;        // Channel Mapping for the 3DLUT input to 3DLUT output.
     uint16_t       BitDepthPerChannel = 0;        // Bit Depth Per Channel(4 channels for 3DLUT).
     uint16_t       ByteCountPerEntry  = 0;        // Byte Count Per Entry including reserved bytes.
+    uint16_t       MappingMode        = 0;        // Mapping Mode
 
     VPHAL_3DLUT_INTERPOLATION InterpolationMethod = VPHAL_3DLUT_INTERPOLATION_DEFAULT;  // VEBox 3DLut interpolation mode
 } VPHAL_3DLUT_PARAMS, *PVPHAL_3DLUT_PARAMS;
@@ -963,7 +986,9 @@ typedef struct _VPHAL_VIDEO_COLOR_RGBA
 typedef struct _VPHAL_COLORFILL_PARAMS
 {
     bool         bYCbCr                 = false;
+    bool         isFloat                = false;
     uint32_t     Color                  = 0;
+    float        ColorFloat[4]          = {0.0f};
     VPHAL_VIDEO_COLOR_RGBA Color1       = {};
     VPHAL_CSPACE CSpace                 = CSpace_None;
     bool         bDisableColorfillinSFC = false;

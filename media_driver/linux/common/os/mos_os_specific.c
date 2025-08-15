@@ -65,6 +65,7 @@
 #include "memory_policy_manager.h"
 #include "mos_oca_interface_specific.h"
 #include "mos_os_next.h"
+#include "levelzero_npu_interface.h"
 
 extern int32_t CreateCmDevice(MOS_CONTEXT *mosContext,
                               CMRT_UMD::CmDevice* &device,
@@ -1853,6 +1854,16 @@ MOS_STATUS Mos_DestroyInterface(PMOS_INTERFACE pOsInterface)
         pOsInterface->osContextPtr = nullptr;
     }
 
+    if (pOsInterface->npuInterface)
+    {
+        MOS_Delete(pOsInterface->npuInterface);
+    }
+
+    if (pOsInterface->hybridCmdMgr)
+    {
+        MOS_Delete(pOsInterface->hybridCmdMgr);
+    }
+
     if (pOsInterface->osCpInterface)
     {
         Delete_MosCpInterface(pOsInterface->osCpInterface);
@@ -1991,6 +2002,16 @@ void Mos_Specific_Destroy(
 
         MOS_Delete(pOsContext);
         pOsInterface->osContextPtr = nullptr;
+    }
+
+    if (pOsInterface->npuInterface)
+    {
+        MOS_Delete(pOsInterface->npuInterface);
+    }
+
+    if (pOsInterface->hybridCmdMgr)
+    {
+        MOS_Delete(pOsInterface->hybridCmdMgr);
     }
 
     if (pOsInterface->osCpInterface)
@@ -4863,7 +4884,7 @@ MOS_STATUS Mos_Specific_DestroyGpuComputeContext(
         auto gpuContext = MosInterface::GetGpuContext(osInterface->osStreamState, gpuContextHandle);
         MOS_OS_CHK_NULL_RETURN(gpuContext);
 
-        MOS_GPU_CONTEXT gpuContextName = gpuContext->GetCpuContextID();
+        MOS_GPU_CONTEXT gpuContextName = gpuContext->GetGpuContextID();
         if(gpuContextName != MOS_GPU_CONTEXT_CM_COMPUTE && gpuContextName != MOS_GPU_CONTEXT_COMPUTE)
         {
             MOS_OS_ASSERTMESSAGE("It is not compute gpu context and it will be destroyed in osInterface destroy.");
@@ -4877,7 +4898,7 @@ MOS_STATUS Mos_Specific_DestroyGpuComputeContext(
     GpuContext *gpuContext = gpuContextMgr->GetGpuContext(gpuContextHandle);
     MOS_OS_CHK_NULL_RETURN(gpuContext);
 
-    MOS_GPU_CONTEXT gpuContextName = gpuContext->GetCpuContextID();
+    MOS_GPU_CONTEXT gpuContextName = gpuContext->GetGpuContextID();
     if(gpuContextName != MOS_GPU_CONTEXT_CM_COMPUTE && gpuContextName != MOS_GPU_CONTEXT_COMPUTE)
     {
         MOS_OS_ASSERTMESSAGE("It is not compute gpu context and it will be destroyed in osInterface destroy.");
@@ -7093,9 +7114,20 @@ bool Mos_Specific_IsAsyncDevice(PMOS_INTERFACE pOsInterface)
 }
 
 bool Mos_Specific_IsGpuSyncByCmd(
-    PMOS_INTERFACE osInterface)
+    PMOS_INTERFACE     osInterface,
+    GPU_CONTEXT_HANDLE gpuContextHandle)
 {
     return false;
+}
+
+void Mos_Specific_OnNativeFenceSyncBBAdded(PMOS_COMMAND_BUFFER pCmdBuffer, uint64_t gfxAddr)
+{
+}
+
+void Mos_Specific_DisableNativeFenceSyncByCmd(
+    PMOS_INTERFACE  osInterface,
+    GPU_CONTEXT_HANDLE gpuContextHandle)
+{
 }
 
 //! \brief    Unified OS Initializes OS Linux Interface
@@ -7277,6 +7309,8 @@ MOS_STATUS Mos_Specific_InitInterface(
 
     pOsInterface->pfnIsAsynDevice                           = Mos_Specific_IsAsyncDevice;
     pOsInterface->pfnIsGpuSyncByCmd                         = Mos_Specific_IsGpuSyncByCmd;
+    pOsInterface->pfnOnNativeFenceSyncBBAdded               = Mos_Specific_OnNativeFenceSyncBBAdded;
+    pOsInterface->pfnDisableNativeFenceSyncByCmd            = Mos_Specific_DisableNativeFenceSyncByCmd;
 
 #if (_DEBUG || _RELEASE_INTERNAL)
     pOsInterface->pfnGetEngineLogicId                       = Mos_Specific_GetEngineLogicId;
@@ -7448,6 +7482,20 @@ MOS_STATUS Mos_Specific_InitInterface(
         pOsInterface->umdMediaResetEnable = false;
     }
 
+    pOsInterface->hybridCmdMgr = MOS_New(HybridCmdMgr);
+    if (pOsInterface->hybridCmdMgr == nullptr)
+    {
+        MOS_OS_ASSERTMESSAGE("fail to create HybridCmdMgr.");
+        return MOS_STATUS_UNKNOWN;
+    }
+
+    pOsInterface->npuInterface = MOS_New(L0NpuInterface, pOsInterface);
+    if (pOsInterface->npuInterface == nullptr)
+    {
+        MOS_OS_ASSERTMESSAGE("fail to create level zerp npu interface.");
+        return MOS_STATUS_UNKNOWN;
+    }
+
     // initialize MOS_CP interface
     pOsInterface->osCpInterface = Create_MosCpInterface(pOsInterface);
     if (pOsInterface->osCpInterface == nullptr)
@@ -7523,7 +7571,18 @@ finish:
     {
         MOS_Delete(pOsContext);
     }
-    return eStatus;
+    if (MOS_STATUS_SUCCESS != eStatus)
+    {
+        if (nullptr != pOsInterface->npuInterface)
+        {
+            MOS_Delete(pOsInterface->npuInterface);
+        }
+        if (nullptr != pOsInterface->hybridCmdMgr)
+        {
+            MOS_Delete(pOsInterface->hybridCmdMgr);
+        }
+    }
+        return eStatus;
 }
 
 //!

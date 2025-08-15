@@ -52,6 +52,7 @@
 #include "mos_oca_interface_specific.h"
 #include "mos_os_next.h"
 #include "mos_os_cp_interface_specific.h"
+#include "levelzero_npu_interface.h"
 
 //!
 //! \brief DRM VMAP patch
@@ -913,7 +914,14 @@ MOS_STATUS Mos_DestroyInterface(PMOS_INTERFACE osInterface)
             }
         }
     }
-
+    if (osInterface->hybridCmdMgr)
+    {
+        MOS_Delete(osInterface->hybridCmdMgr);
+    }
+    if (osInterface->npuInterface)
+    {
+        MOS_Delete(osInterface->npuInterface);
+    }
     if (osInterface->osCpInterface)
     {
         Delete_MosCpInterface(osInterface->osCpInterface);
@@ -2264,7 +2272,7 @@ MOS_STATUS Mos_Specific_DestroyGpuComputeContext(
     auto gpuContext = MosInterface::GetGpuContext(osInterface->osStreamState, gpuContextHandle);
     MOS_OS_CHK_NULL_RETURN(gpuContext);
 
-    MOS_GPU_CONTEXT gpuContextName = gpuContext->GetCpuContextID();
+    MOS_GPU_CONTEXT gpuContextName = gpuContext->GetGpuContextID();
     if(gpuContextName != MOS_GPU_CONTEXT_CM_COMPUTE && gpuContextName != MOS_GPU_CONTEXT_COMPUTE)
     {
         MOS_OS_ASSERTMESSAGE("It is not compute gpu context and it will be destroyed in osInterface destroy.");
@@ -3394,6 +3402,10 @@ bool Mos_Specific_IsGpuSyncByCmd(
     return false;
 }
 
+void Mos_Specific_OnNativeFenceSyncBBAdded(PMOS_COMMAND_BUFFER pCmdBuffer, uint64_t gfxAddr)
+{
+}
+
 MOS_STATUS Mos_Specific_LoadFunction(
     PMOS_INTERFACE osInterface)
 {
@@ -3649,6 +3661,22 @@ MOS_STATUS Mos_Specific_InitInterface(
             osInterface->bMediaReset          = false;
             osInterface->umdMediaResetEnable = false;
         }
+    }
+
+    osInterface->npuInterface = MOS_New(L0NpuInterface, osInterface);
+    if (osInterface->npuInterface == nullptr)
+    {
+        MOS_OS_ASSERTMESSAGE("fail to create level zerp npu interface.");
+        Mos_DestroyInterface(osInterface);
+        return MOS_STATUS_UNKNOWN;
+    }
+
+    osInterface->hybridCmdMgr = MOS_New(HybridCmdMgr);
+    if (osInterface->hybridCmdMgr == nullptr)
+    {
+        MOS_OS_ASSERTMESSAGE("fail to create hybridCmdMgr");
+        Mos_DestroyInterface(osInterface);
+        return MOS_STATUS_UNKNOWN;
     }
 
     // initialize MOS_CP interface

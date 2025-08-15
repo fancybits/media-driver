@@ -130,12 +130,11 @@ namespace encode
 
         ENCODE_FUNC_CALL();
         bool mmcEnabled = false;
-#ifdef _MMC_SUPPORTED
+
         EncodeMemComp *mmcState = m_pipeline->GetMmcState();
         ENCODE_CHK_NULL_RETURN(mmcState);
         mmcEnabled = mmcState->IsMmcEnabled();
         ENCODE_CHK_STATUS_RETURN(mmcState->SendPrologCmd(&cmdBuffer, false));
-#endif
 
         MHW_GENERIC_PROLOG_PARAMS genericPrologParams;
         MOS_ZeroMemory(&genericPrologParams, sizeof(genericPrologParams));
@@ -267,8 +266,8 @@ namespace encode
 
         ENCODE_CHK_STATUS_RETURN(StartPerfCollect(*cmdBuffer));
 
-        AddAllCmds_HUC_IMEM_STATE(cmdBuffer);
-        AddAllCmds_HUC_PIPE_MODE_SELECT(cmdBuffer);
+        ENCODE_CHK_STATUS_RETURN(AddAllCmds_HUC_IMEM_STATE(cmdBuffer));
+        ENCODE_CHK_STATUS_RETURN(AddAllCmds_HUC_PIPE_MODE_SELECT(cmdBuffer));
 
         SETPAR_AND_ADDCMD(HUC_DMEM_STATE, m_hucItf, cmdBuffer);
         SETPAR_AND_ADDCMD(HUC_VIRTUAL_ADDR_STATE, m_hucItf, cmdBuffer);

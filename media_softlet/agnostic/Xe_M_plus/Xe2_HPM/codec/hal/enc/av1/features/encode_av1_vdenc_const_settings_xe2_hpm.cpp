@@ -182,7 +182,7 @@ MOS_STATUS EncodeAv1VdencConstSettingsXe2_Hpm::SetVdencCmd1Settings()
         if (TargetUsage == 7)
         {
             par.vdencCmd1Par2[6] = 0x9;
-            par.vdencCmd1Par2[7] = 0x8f;
+            par.vdencCmd1Par2[7] = 0xb;
         }
 
         for (auto i = 0; i < 12; i++)
@@ -431,6 +431,46 @@ MOS_STATUS EncodeAv1VdencConstSettingsXe2_Hpm::SetVdencCmd2Settings()
 #include "encode_av1_vdenc_const_settings_xe2_hpm_open.h"
 #undef VDENC_CMD2_SETTINGS_OPEN
 #endif  // _MEDIA_RESERVED
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS EncodeAv1VdencConstSettingsXe2_Hpm::SetVdencStreaminStateSettings()
+{
+    ENCODE_FUNC_CALL();
+
+    auto setting = static_cast<Av1VdencFeatureSettings *>(m_featureSetting);
+    ENCODE_CHK_NULL_RETURN(setting);
+
+    setting->vdencStreaminStateSettings.emplace_back(
+        VDENC_STREAMIN_STATE_LAMBDA() {
+            static const std::array<
+                std::array<
+                    uint8_t,
+                    NUM_TARGET_USAGE_MODES + 1>,
+                4>
+                numMergeCandidates = {{
+                    {3, 3, 3, 2, 2, 2, 2, 1},
+                    {3, 3, 3, 2, 2, 2, 2, 2},
+                    {3, 3, 3, 2, 2, 2, 2, 1},
+                    {3, 3, 3, 2, 2, 2, 2, 2},
+                }};
+
+            static const std::array<
+                uint8_t,
+                NUM_TARGET_USAGE_MODES + 1>
+                numImePredictors =  {8, 8, 8, 8, 8, 8, 6, 3};
+
+            par.maxTuSize                = 3;  //Maximum TU Size allowed, restriction to be set to 3
+            par.maxCuSize                = (cu64Align) ? 3 : 2;
+            par.numMergeCandidateCu64x64 = numMergeCandidates[3][m_av1SeqParams->TargetUsage];
+            par.numMergeCandidateCu32x32 = numMergeCandidates[2][m_av1SeqParams->TargetUsage];
+            par.numMergeCandidateCu16x16 = numMergeCandidates[1][m_av1SeqParams->TargetUsage];
+            par.numMergeCandidateCu8x8   = numMergeCandidates[0][m_av1SeqParams->TargetUsage];
+            par.numImePredictors         = numImePredictors[m_av1SeqParams->TargetUsage];
+
+            return MOS_STATUS_SUCCESS;
+        });
+
     return MOS_STATUS_SUCCESS;
 }
 }  // namespace encode

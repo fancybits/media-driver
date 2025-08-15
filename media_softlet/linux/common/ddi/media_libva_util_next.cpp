@@ -220,11 +220,9 @@ void MediaLibvaUtilNext::InitSurfaceAllocateParams(
     params.format         = format;
     params.cpTag          = 0;
     params.memType        = memType;
-#ifdef _MMC_SUPPORTED
+
     params.bMemCompEnable = true;
-#else
-    params.bMemCompEnable = false;
-#endif
+
     params.bMemCompRC     = false;
     return;
 }
@@ -350,6 +348,10 @@ VAStatus MediaLibvaUtilNext::GenerateGmmParamsForNoneCompressionExternalSurface(
             gmmCustomParams.Flags.Info.Linear = true;
     }
 
+
+    // Init NotCompressed flag as true to default Create as uncompressed surface on Xe2 Compression.
+    gmmCustomParams.Flags.Info.NotCompressed = 1;
+
     switch (mediaSurface->pSurfDesc->uiPlanes)
     {
         case 1:
@@ -422,6 +424,13 @@ VAStatus MediaLibvaUtilNext::GenerateGmmParamsForCompressionExternalSurface(
     gmmCustomParams.BaseAlignment = 4096;
     gmmCustomParams.NoOfPlanes    = mediaSurface->pSurfDesc->uiPlanes;
     gmmCustomParams.CpTag         = params.cpTag;
+
+    if (MEDIA_IS_SKU(&mediaDrvCtx->SkuTable, FtrXe2Compression))
+    {
+        // Init NotCompressed flag as false to default Create as compressed surface w/ Xe2 Compression.
+        gmmCustomParams.Flags.Info.NotCompressed = 0;
+    }
+
     switch (params.tileFormat)
     {
         case TILING_Y:
@@ -754,6 +763,12 @@ VAStatus MediaLibvaUtilNext::GenerateGmmParamsForInternalSurface(
     
     DDI_CHK_CONDITION(gmmParams.Format == GMM_FORMAT_INVALID, "Unsupported format", VA_STATUS_ERROR_UNSUPPORTED_RT_FORMAT);
 
+    if (MEDIA_IS_SKU(&mediaDrvCtx->SkuTable, FtrXe2Compression))
+    {
+        // Init NotCompressed flag as true to default Create as uncompressed surface on Xe2 Compression.
+        gmmParams.Flags.Info.NotCompressed = 1;
+    }
+
     switch (params.tileFormat)
     {
         case TILING_Y:
@@ -776,6 +791,11 @@ VAStatus MediaLibvaUtilNext::GenerateGmmParamsForInternalSurface(
                 {
                     gmmParams.Flags.Info.MediaCompressed  = 0;
                     gmmParams.Flags.Info.RenderCompressed = 1;
+                }
+
+                if(MEDIA_IS_SKU(&mediaDrvCtx->SkuTable, FtrXe2Compression))
+                {
+                    gmmParams.Flags.Info.NotCompressed = 0;
                 }
 
                 if (MEDIA_IS_SKU(&mediaDrvCtx->SkuTable, FtrRenderCompressionOnly))
@@ -1515,10 +1535,6 @@ VAStatus MediaLibvaUtilNext::CreateShadowResource(DDI_MEDIA_SURFACE *surface)
     DDI_FUNC_ENTER;
     DDI_CHK_NULL(surface, "nullptr surface", VA_STATUS_ERROR_INVALID_SURFACE);
     DDI_CHK_NULL(surface->pGmmResourceInfo, "nullptr surface->pGmmResourceInfo", VA_STATUS_ERROR_INVALID_SURFACE);
-    if (surface->pGmmResourceInfo->GetSetCpSurfTag(0, 0) != 0)
-    {
-        return VA_STATUS_ERROR_INVALID_SURFACE;
-    }
 
     if (surface->iWidth < 64 || surface->iRealHeight < 64 || (surface->iPitch % 64 != 0) || surface->format == Media_Format_P016)
     {
@@ -2238,7 +2254,7 @@ VAStatus MediaLibvaUtilNext::GetSurfaceModifier(
         switch(gmmTileType)
         {
             case GMM_TILED_4:
-                modifier = gmmFlags.Info.MediaCompressed ? compressedModifier : I915_FORMAT_MOD_4_TILED;
+                modifier = gmmFlags.Info.NotCompressed ? I915_FORMAT_MOD_4_TILED : compressedModifier;
                 break;
             case GMM_TILED_Y:
                 modifier = I915_FORMAT_MOD_Y_TILED;
@@ -2253,7 +2269,7 @@ VAStatus MediaLibvaUtilNext::GetSurfaceModifier(
                 //handle other possible tile format
                 if(TILING_Y == mediaSurface->TileType)
                 {
-                    modifier = gmmFlags.Info.MediaCompressed ? compressedModifier : I915_FORMAT_MOD_4_TILED;
+                    modifier = gmmFlags.Info.NotCompressed ? I915_FORMAT_MOD_4_TILED : compressedModifier;
                 }
                 else
                 {

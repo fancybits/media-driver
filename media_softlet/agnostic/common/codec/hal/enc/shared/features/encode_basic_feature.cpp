@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2022, Intel Corporation
+* Copyright (c) 2018-2025, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -94,6 +94,28 @@ MOS_STATUS EncodeBasicFeature::Init(void *setting)
         MediaUserSetting::Group::Sequence);
     m_enableTileStitchByHW = outValue.Get<bool>();
 
+
+    if (m_osInterface != nullptr)
+    {
+        //If Wa_16025947269 is set, disable chroma prefetch
+        MEDIA_WA_TABLE *waTable = m_osInterface->pfnGetWaTable(m_osInterface);
+        m_chromaPrefetchDisable = (waTable != nullptr) ? MEDIA_IS_WA(waTable, Wa_16025947269) : false;
+
+        //If user setting is set, set m_chromaPrefetchDisable as the user setting value.
+#if (_DEBUG || _RELEASE_INTERNAL)
+        bool chromaPrefetchDisable = 0;
+        auto status = ReadUserSettingForDebug(
+            m_userSettingPtr,
+            chromaPrefetchDisable,
+            "ChromaPrefetchDisable",
+            MediaUserSetting::Group::Sequence);
+        if (status == MOS_STATUS_SUCCESS)
+        {
+            m_chromaPrefetchDisable = chromaPrefetchDisable;
+        }
+#endif
+    }
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -124,6 +146,12 @@ MOS_STATUS EncodeBasicFeature::Update(void *params)
     m_resMetadataBuffer    = (encodeParams->presMetadataBuffer);
     m_metaDataOffset       = encodeParams->metaDataOffset;
 
+    m_laDataBufferEnabled = encodeParams->bLaDataBufferEnabled;
+    if (encodeParams->bLaDataBufferEnabled)
+    {
+        m_LaDataBuffer = (encodeParams->presLaDataBuffer);
+    }
+    
     // Get resource details of the bitstream resource
     MOS_SURFACE bsSurface;
     MOS_ZeroMemory(&bsSurface, sizeof(bsSurface));
@@ -196,7 +224,7 @@ MOS_STATUS EncodeBasicFeature::Update(void *params)
     }
 
     // check output Chroma format
-    UpdateFormat(params);
+    ENCODE_CHK_STATUS_RETURN(UpdateFormat(params));
 
     m_predicationNotEqualZero              = encodeParams->m_predicationNotEqualZero;
     m_predicationEnabled                   = encodeParams->m_predicationEnabled;

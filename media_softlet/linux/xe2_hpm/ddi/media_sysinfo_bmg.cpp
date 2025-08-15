@@ -109,6 +109,7 @@ static bool InitBmgShadowSku(struct GfxDeviceInfo *devInfo,
 
     bool disableMMC     = false;
     skuTable->FtrE2ECompression = 1;
+    skuTable->FtrXe2Compression = 1;
     // Disable MMC for all components if set reg key
     MOS_USER_FEATURE_VALUE_DATA userFeatureData;
     MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
@@ -125,6 +126,7 @@ static bool InitBmgShadowSku(struct GfxDeviceInfo *devInfo,
     if (disableMMC)
     {
         skuTable->FtrE2ECompression = 0;
+        skuTable->FtrXe2Compression = 0;
     }
 
     skuTable->FtrLinearCCS = 1;
@@ -196,5 +198,26 @@ static bool bmgDevicee20C = DeviceInfoFactory<GfxDeviceInfo>::
 static bool bmgDevicee20D = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0xe20D, &bmgInfo);
 
+static bool bmgDevicee210 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xe210, &bmgInfo);
+
 static bool bmgDevicee212 = DeviceInfoFactory<GfxDeviceInfo>::
     RegisterDevice(0xe212, &bmgInfo);
+
+static bool bmgDevicee216 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xe216, &bmgInfo);
+
+static bool bmgDevicee211 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xe211, &bmgInfo);
+ 
+static bool bmgDevicee220 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xe220, &bmgInfo);
+
+static bool bmgDevicee221 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xe221, &bmgInfo);
+
+static bool bmgDevicee222 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xe222, &bmgInfo);
+
+static bool bmgDevicee223 = DeviceInfoFactory<GfxDeviceInfo>::
+    RegisterDevice(0xe223, &bmgInfo);

@@ -41,6 +41,7 @@
 
 #include "media_user_setting_specific.h"
 #include "null_hardware.h"
+#include "mos_hybrid_cmd_manager.h"
 //!
 //! \brief OS specific includes and definitions
 //!
@@ -159,6 +160,7 @@ typedef enum _TRINITY_PATH
 #define    MOS_FORCE_VDBOX_NONE     0
 #define    MOS_FORCE_VDBOX_1        0x0001
 #define    MOS_FORCE_VDBOX_2        0x0002
+#define    MOS_FORCE_VDBOX_3        0x0003
 //below is for scalability case,
 //format is FE vdbox is specified as lowest 4 bits; BE0 is 2nd low 4 bits; BE1 is 3rd low 4bits.
 #define    MOS_FORCE_VDBOX_1_1_2    0x0211
@@ -556,7 +558,7 @@ struct MosStreamState
     bool  dumpCommandBufferToFile               = false;    //!< Indicates that the command buffer should be dumped to a file
     bool  dumpCommandBufferAsMessages           = false;    //!< Indicates that the command buffer should be dumped via MOS normal messages
     char  sDirName[MOS_MAX_HLT_FILENAME_LEN]    = {0};      //!< Dump Directory name - maximum 260 bytes length
-    std::vector<INDIRECT_STATE_INFO> indirectStateInfo                     = {};
+    std::vector<INDIRECT_STATE_INFO> indirectStateInfo = {};  //!< this only valid when command buffer dump enabled
 #endif // MOS_COMMAND_BUFFER_DUMP_SUPPORTED
 
 #if _DEBUG || _RELEASE_INTERNAL
@@ -608,6 +610,7 @@ class CodechalSecureDecodeInterface;
 class CodechalSetting;
 class CodechalHwInterface;
 class CodechalHwInterfaceNext;
+class L0NpuInterface;
 
 struct MOS_SURF_DUMP_SURFACE_DEF
 {
@@ -699,6 +702,10 @@ typedef struct _MOS_INTERFACE
     int32_t                         modulizedMosEnabled;
     int32_t                         modularizedGpuCtxEnabled;
     OsContext*                      osContextPtr;
+
+    HybridCmdMgr                   *hybridCmdMgr = nullptr;
+    //for npu levelzero
+    L0NpuInterface*                 npuInterface = nullptr;
 
     // used for media reset enabling/disabling in UMD
     // pls remove it after hw scheduling
@@ -1606,6 +1613,69 @@ typedef struct _MOS_INTERFACE
     void (*pfnResetResource)(
         PMOS_RESOURCE               resource);
 
+    //!
+    //! \brief    Set Hybrid Cmd To GpuContext
+    //! \details  Set Hybrid Cmd To GpuContext
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] ptr to pOsInterface
+    //! \param    uint64_t gpuCtxOnHybridCmd
+    //!           gpuCtxOnHybridCmd
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS
+    //!
+    MOS_STATUS (*pfnSetHybridCmdMgrToGpuContext)(
+        PMOS_INTERFACE pOsInterface,
+        uint64_t       gpuCtxOnHybridCmd);
+
+    //!
+    //! \brief    Set Hybrid Cmd Submit Mode
+    //! \details  Set Hybrid Cmd Submit Mode
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] ptr to pOsInterface
+    //! \param    uint64_t hybridMgrSubmitMode
+    //!           hybridMgrSubmitMode
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS
+    //!
+    MOS_STATUS (*pfnSetHybridMgrSubmitMode)(
+        PMOS_INTERFACE pOsInterface,
+        uint64_t       hybridMgrSubmitMode);
+
+    //!
+    //! \brief    Start the Cmd Consumer
+    //! \details  Start the Cmd Consumer
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] ptr to pOsInterface
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS
+    //!
+    MOS_STATUS (*pfnStartHybridCmdMgr)(
+        PMOS_INTERFACE pOsInterface);
+
+    //!
+    //! \brief    Stop the Cmd Consumer
+    //! \details  Stop the Cmd Consumer
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] ptr to pOsInterface
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS
+    //!
+    MOS_STATUS (*pfnStopHybridCmdMgr)(
+        PMOS_INTERFACE pOsInterface);
+
+    //!
+    //! \brief    Submit Cmd Package to Cmd Consumer
+    //! \details  Submit Cmd Package to Cmd Consumer
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] ptr to pOsInterface
+    //! \param    CmdPackage& cmdPackage
+    //!           [in] reference to cmdPackage
+    //! \return   MOS_STATUS
+    //!           Return MOS_STATUS
+    //!
+    MOS_STATUS (*pfnSubmitPackage)(
+        PMOS_INTERFACE pOsInterface,
+        CmdPackage    &cmdPackage);
 
 #if (_DEBUG || _RELEASE_INTERNAL)
     //!
@@ -2046,6 +2116,10 @@ typedef struct _MOS_INTERFACE
     bool (*pfnIsAsynDevice)(
         PMOS_INTERFACE              osInterface);
 
+    void (*pfnDisableNativeFenceSyncByCmd)(
+        PMOS_INTERFACE osInterface,
+        GPU_CONTEXT_HANDLE gpuContextHandle);
+
     //!
     //! \brief   Get User Setting instance
     //!
@@ -2060,7 +2134,9 @@ typedef struct _MOS_INTERFACE
 
     bool (*pfnGetCacheSetting)(MOS_COMPONENT id, uint32_t feature, bool bOut, ENGINE_TYPE engineType, MOS_CACHE_ELEMENT &element, bool isHeapSurf);
 
-    bool (* pfnIsGpuSyncByCmd) (PMOS_INTERFACE osInterface);
+    bool (*pfnIsGpuSyncByCmd)(PMOS_INTERFACE osInterface, GPU_CONTEXT_HANDLE gpuContextHandle);
+
+    void (*pfnOnNativeFenceSyncBBAdded)(PMOS_COMMAND_BUFFER pCmdBuffer, uint64_t gfxAddr);
 
     // Virtual Engine related
     int32_t                         bSupportVirtualEngine;                        //!< Enable virtual engine flag
@@ -2528,6 +2604,70 @@ void Mos_ResetMosResource(
 bool Mos_InsertCacheSetting(CACHE_COMPONENTS id, std::map<uint64_t, MOS_CACHE_ELEMENT> *cacheTablesPtr);
 
 bool Mos_GetCacheSetting(MOS_COMPONENT id, uint32_t feature, bool bOut, ENGINE_TYPE engineType, MOS_CACHE_ELEMENT &element, bool isHeapSurf);
+
+//!
+//! \brief    Set Hybrid Cmd To GpuContext
+//! \details  Set Hybird Cmd To GpuContext
+//! \param    PMOS_INTERFACE pOsInterface
+//!           [in] ptr to pOsInterface
+//! \param    uint64_t gpuCtxOnHybridCmd
+//!           gpuCtxOnHybridCmd
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS
+//!
+MOS_STATUS MOS_SetHybridCmdMgrToGpuContext(
+    PMOS_INTERFACE pOsInterface,
+    uint64_t       gpuCtxOnHybridCmd);
+
+//!
+//! \brief    Set Hybrid Cmd Submit Mode
+//! \details  Set Hybrid Cmd Submit Mode
+//! \param    PMOS_INTERFACE pOsInterface
+//!           [in] ptr to pOsInterface
+//! \param    uint64_t hybridMgrSubmitMode
+//!           hybridMgrSubmitMode
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS
+//!
+MOS_STATUS MOS_SetHybridCmdMgrSubmitMode(
+    PMOS_INTERFACE pOsInterface,
+    uint64_t       hybridMgrSubmitMode);
+
+//!
+//! \brief    Start the Cmd Buffer Consumer
+//! \details  Start the Cmd Buffer Consumer
+//! \param    PMOS_INTERFACE pOsInterface
+//!           [in] Pointer to OS interface structure
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS
+//!
+MOS_STATUS MOS_StartHybridCmdMgr(
+    PMOS_INTERFACE pOsInterface);
+
+//!
+//! \brief    Stop the Cmd Buffer Consumer
+//! \details  Stop the Cmd Buffer Consumer
+//! \param    PMOS_INTERFACE pOsInterface
+//!           [in] Pointer to OS interface structure
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS
+//!
+MOS_STATUS MOS_StopHybridCmdMgr(
+    PMOS_INTERFACE pOsInterface);
+
+//!
+//! \brief    Submit Cmd Package to Cmd Consumer
+//! \details  Submit Cmd Package to Cmd Consumer
+//! \param    PMOS_INTERFACE pOsInterface
+//!           [in] ptr to pOsInterface
+//! \param    CmdPackage& cmdPackage
+//!           [in] reference to cmdPackage
+//! \return   MOS_STATUS
+//!           Return MOS_STATUS
+//!
+MOS_STATUS MOS_SubmitPackage(
+    PMOS_INTERFACE pOsInterface,
+    CmdPackage    &cmdPackage);
 
 #if (_DEBUG || _RELEASE_INTERNAL)
 //!

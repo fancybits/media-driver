@@ -219,7 +219,7 @@ namespace encode
         dmem->UPD_CurWidth  = (uint16_t)m_basicFeature->m_oriFrameWidth;
         dmem->UPD_CurHeight = (uint16_t)m_basicFeature->m_oriFrameHeight;
         dmem->UPD_Asyn = 0;
-        dmem->UPD_EnableAdaptiveRounding = (m_basicFeature->m_roundingMethod == RoundingMethod::adaptiveRounding);
+        dmem->UPD_EnableAdaptiveRounding = m_basicFeature->m_roundingMethod;
         dmem->UPD_AdaptiveTUEnabled = picParams->AdaptiveTUEnabled;
 
         if (seqParams->GopRefDist == 16 && m_rcMode == RATECONTROL_CQL)
@@ -233,13 +233,11 @@ namespace encode
         else
             dmem->UPD_MaxBRCLevel = 0;
 
-        bool bAllowedPyramid = seqParams->GopRefDist != 3;
-
         if (m_basicFeature->m_pictureCodingType == I_TYPE)
         {
             dmem->UPD_CurrFrameType = AV1_BRC_FRAME_TYPE_I;
         }
-        else if (seqParams->SeqFlags.fields.HierarchicalFlag && bAllowedPyramid)
+        else if (seqParams->SeqFlags.fields.HierarchicalFlag)
         {
             if (picParams->HierarchLevelPlus1 > 0)
             {
@@ -442,11 +440,15 @@ namespace encode
         return profileLevelMaxFrame;
     }
 
-    inline int32_t ComputeVDEncInitQPI(uint32_t width, uint32_t height, FRAMERATE frameRate, uint32_t targetBitRate, uint16_t gopPicSize, bool is10Bit, uint16_t n_p)
+    inline int32_t ComputeVDEncInitQPI(uint32_t width, uint32_t height, FRAMERATE frameRate, uint32_t targetBitRate, uint16_t gopPicSize, bool is10Bit, uint8_t chromaFormat, uint16_t n_p)
     {
         ENCODE_FUNC_CALL();
 
         uint32_t frameSize = ((width * height * 3) >> 1);
+        if (chromaFormat == AVP_CHROMA_FORMAT_YUV444)
+        {
+            frameSize *= 2;
+        }
         if (is10Bit)
         {
             frameSize = (frameSize * 10) >> 3;
@@ -582,6 +584,7 @@ namespace encode
                 m_basicFeature->m_av1SeqParams->TargetBitRate[0],
                 m_basicFeature->m_av1SeqParams->GopPicSize,
                 m_basicFeature->m_is10Bit,
+                m_basicFeature->m_chromaFormat,
                 dmem->INIT_GopP);
 
         qpP = qpI + 20;

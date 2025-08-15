@@ -397,6 +397,16 @@ typedef enum _MEDIA_EVENT
     EVENT_DECODE_IP_ALIGNMENT,                     //! event for Decode IP Alignment
     EVENT_ENCODE_IP_ALIGNMENT,                     //! event for Encode IP Alignment
     EVENT_VPP_IP_ALIGNMENT,                        //! event for VPP IP Alignment
+    EVENT_IP_ALIGNMENT_INIT,                       //! event for IP Alignment Init
+    EVENT_IP_ALIGNMENT_REPORT,                     //! event for IP Alignment Report
+    EVENT_ENCODE_DDI_11_DESTROYVIDEOENCODER,       //! event for Encode Destroy Device
+    EVENT_HWS_NATIVE_FENCE_SYNC_BB_ADDED,          //! event for HWS sync cmd resource added
+    EVENT_HWS_NATIVE_FENCE_SIGNAL,                 //! event for HWS native fence signal
+    EVENT_HWS_NATIVE_FENCE_WAIT,                   //! event for HWS native fence wait for sync
+    EVENT_HWS_NATIVE_FENCE_CMD_FLUSH,              //! event for HWS sync cmd flush
+    EVENT_HWS_NATIVE_FENCE_ADD_TO_ARRAY_CMD,       //! event for Hws Native Fence Add To Array Cmd
+    EVENT_HWS_NATIVE_FENCE_ADD_TO_QUEUE_API,       //! event for Hws Native Fence Add To Queue Api
+    EVENT_HWS_NATIVE_FENCE_12_WAIT                 //! event for Hws Native Fence 12 Wait
 } MEDIA_EVENT;
 
 typedef enum _MEDIA_EVENT_TYPE
@@ -407,12 +417,9 @@ typedef enum _MEDIA_EVENT_TYPE
     EVENT_TYPE_INFO2 = 3,           //! function extra information event
 } MEDIA_EVENT_TYPE;
 
-typedef enum _MT_LEVEL
-{
-    MT_VERBOSE  = 0,  //! verbos runtime log
-    MT_NORMAL   = 1,  //! normal runtime log
-    MT_CRITICAL = 2,  //! critical runtime log
-} MT_LEVEL;
+#define MT_CRITICAL ((int32_t)MT_LOG_LEVEL::CRITICAL)  //! critical runtime log
+#define MT_NORMAL   ((int32_t)MT_LOG_LEVEL::NORMAL)    //! normal runtime log
+#define MT_VERBOSE  ((int32_t)MT_LOG_LEVEL::VERBOSE)   //! verbos runtime log
 
 class MtEnable
 {

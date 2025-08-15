@@ -917,67 +917,73 @@ bool XRenderHal_Platform_Interface_Next::PerThreadScratchSpaceStart64Byte(RENDER
     return true;
 }
 
-uint32_t XRenderHal_Platform_Interface_Next::CalculatePreferredSlmAllocationSizeFromSlmSize(
-    RENDERHAL_INTERFACE *renderHal, 
-    uint32_t             slmSize, 
-    uint32_t             numberOfThreadsPerThreadGroup)
+MOS_STATUS XRenderHal_Platform_Interface_Next::CalculatePreferredSlmAllocationSizeFromSlmSize(
+    RENDERHAL_INTERFACE *renderHal,
+    uint32_t             slmSize,
+    uint32_t             numberOfThreadsPerThreadGroup,
+    uint32_t            &perferedSlmAllocationSize)
 {
-    if (!renderHal || !renderHal->pOsInterface || !renderHal->pOsInterface->pfnGetGtSystemInfo)
-    {
-        MHW_RENDERHAL_ASSERTMESSAGE("renderhal or osInterface or pfnGetGtSystemInfo is nullptr");
-        return 0;
-    }
+    MHW_RENDERHAL_CHK_NULL_RETURN(renderHal);
+    MHW_RENDERHAL_CHK_NULL_RETURN(renderHal->pOsInterface);
+    MHW_RENDERHAL_CHK_NULL_RETURN(renderHal->pOsInterface->pfnGetGtSystemInfo);
     if (numberOfThreadsPerThreadGroup == 0)
     {
         MHW_RENDERHAL_ASSERTMESSAGE("numberOfThreadsPerThreadGroup is 0");
-        return 0;
+        return MOS_STATUS_INVALID_PARAMETER;
     }
 
     MEDIA_SYSTEM_INFO *gtInfo = renderHal->pOsInterface->pfnGetGtSystemInfo(renderHal->pOsInterface);
-    if (!gtInfo)
-    {
-        MHW_RENDERHAL_ASSERTMESSAGE("GtSystemInfo is nullptr");
-        return 0;
-    }
+    MHW_RENDERHAL_CHK_NULL_RETURN(gtInfo);
     if (gtInfo->SubSliceCount == 0)
     {
         MHW_RENDERHAL_ASSERTMESSAGE("SubSliceCount is 0");
-        return 0;
+        return MOS_STATUS_INVALID_PARAMETER;
     }
-    uint32_t preferredSlmAllicationSize = 0;
-    slmSize                             = slmSize / 1024 + (slmSize % 1024 != 0);
+    uint32_t slmSizeInKB                = slmSize / 1024 + (slmSize % 1024 != 0);
     uint32_t threadsPerDssCount         = gtInfo->ThreadCount / gtInfo->SubSliceCount;
     uint32_t workGroupCountPerDss       = (threadsPerDssCount + numberOfThreadsPerThreadGroup - 1) / numberOfThreadsPerThreadGroup;
-    uint32_t slmSizePerSubSlice         = slmSize * workGroupCountPerDss;
-    if (slmSize == 0)
+    uint32_t slmSizePerSubSlice         = slmSizeInKB * workGroupCountPerDss;
+
+    if (gtInfo->SLMSizeInKb == 0)
     {
-        preferredSlmAllicationSize = 0;
+        MHW_RENDERHAL_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+    }
+    slmSizePerSubSlice = MOS_MIN(slmSizePerSubSlice, gtInfo->SLMSizeInKb);
+    if (slmSizePerSubSlice < slmSizeInKB)
+    {
+        MHW_RENDERHAL_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+    }
+
+    if (slmSizeInKB == 0)
+    {
+        perferedSlmAllocationSize = 0;
     }
     else if (slmSizePerSubSlice <= 16)
     {
-        preferredSlmAllicationSize = 1;
+        perferedSlmAllocationSize = 1;
     }
     else if (slmSizePerSubSlice <= 32)
     {
-        preferredSlmAllicationSize = 2;
+        perferedSlmAllocationSize = 2;
     }
     else if (slmSizePerSubSlice > 256)
     {
         if (slmSizePerSubSlice > 384)
         {
             MHW_RENDERHAL_ASSERTMESSAGE("slmSizePerSubSlice %d is bigger than max size", slmSizePerSubSlice);
+            return MOS_STATUS_INVALID_PARAMETER;
         }
         else
         {
-            preferredSlmAllicationSize = 10;
+            perferedSlmAllocationSize = 10;
         }
     }
     else
     {
-        preferredSlmAllicationSize = slmSizePerSubSlice / 32 + (slmSizePerSubSlice % 32 != 0) + 1;
+        perferedSlmAllocationSize = slmSizePerSubSlice / 32 + (slmSizePerSubSlice % 32 != 0) + 1;
     }
     
-    return preferredSlmAllicationSize;
+    return MOS_STATUS_SUCCESS;
 }
 
 uint32_t XRenderHal_Platform_Interface_Next::EncodeSLMSize(uint32_t SLMSize)
@@ -1218,6 +1224,7 @@ MOS_STATUS XRenderHal_Platform_Interface_Next::SendComputeWalker(
     MHW_RENDERHAL_CHK_NULL_RETURN(pCurMediaState);
 
     mhwIdEntryParams.dwKernelOffset  = pKernelEntry->dwOffset;
+    mhwIdEntryParams.kernelSize      = pKernelEntry->iSize;
     mhwIdEntryParams.dwSamplerCount  = pKernelEntry->Params.Sampler_Count;
     mhwIdEntryParams.dwSamplerOffset = pCurMediaState->dwOffset +
                                        pRenderHal->pStateHeap->dwOffsetSampler +
@@ -1227,10 +1234,11 @@ MOS_STATUS XRenderHal_Platform_Interface_Next::SendComputeWalker(
     if (pGpGpuWalkerParams->isGenerateLocalID && pGpGpuWalkerParams->emitLocal != MHW_EMIT_LOCAL_NONE)
     {
         //When COMPUTE_WALKER Emit Local ID is enabled, thread group number need to divide MHW_RENDER_ENGINE_NUMBER_OF_THREAD_UNIT
-        mhwIdEntryParams.dwNumberofThreadsInGPGPUGroup = pGpGpuWalkerParams->ThreadWidth * pGpGpuWalkerParams->ThreadHeight / MHW_RENDER_ENGINE_NUMBER_OF_THREAD_UNIT;
-        if (mhwIdEntryParams.dwNumberofThreadsInGPGPUGroup > MHW_RENDER_ENGINE_MAX_NUMBER_OF_THREAD)
+        uint32_t engineNumberOfThreadUnit              = (pGpGpuWalkerParams->simdSize == 16) ? 16 : MHW_RENDER_ENGINE_NUMBER_OF_THREAD_UNIT;
+        mhwIdEntryParams.dwNumberofThreadsInGPGPUGroup = MOS_MAX(1, pGpGpuWalkerParams->ThreadWidth * pGpGpuWalkerParams->ThreadHeight / engineNumberOfThreadUnit);
+        if (mhwIdEntryParams.dwNumberofThreadsInGPGPUGroup > 1024 / engineNumberOfThreadUnit)
         {
-            MHW_RENDERHAL_ASSERTMESSAGE("Number of Threads In GpGpuGroup %d Exceeds the Max Number %d", mhwIdEntryParams.dwNumberofThreadsInGPGPUGroup, MHW_RENDER_ENGINE_MAX_NUMBER_OF_THREAD);
+            MHW_RENDERHAL_ASSERTMESSAGE("Number of Threads In GpGpuGroup %d Exceeds the Max Number %d", mhwIdEntryParams.dwNumberofThreadsInGPGPUGroup, 1024 / engineNumberOfThreadUnit);
             MHW_RENDERHAL_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
         }
     }
@@ -1238,7 +1246,10 @@ MOS_STATUS XRenderHal_Platform_Interface_Next::SendComputeWalker(
     {
         mhwIdEntryParams.dwNumberofThreadsInGPGPUGroup = pGpGpuWalkerParams->ThreadWidth * pGpGpuWalkerParams->ThreadHeight;
     }
-    mhwIdEntryParams.preferredSlmAllocationSize = CalculatePreferredSlmAllocationSizeFromSlmSize(m_renderHal, pGpGpuWalkerParams->SLMSize, mhwIdEntryParams.dwNumberofThreadsInGPGPUGroup);
+    if (pGpGpuWalkerParams->SLMSize > 0)
+    {
+        MHW_RENDERHAL_CHK_STATUS_RETURN(CalculatePreferredSlmAllocationSizeFromSlmSize(m_renderHal, pGpGpuWalkerParams->SLMSize, mhwIdEntryParams.dwNumberofThreadsInGPGPUGroup, mhwIdEntryParams.preferredSlmAllocationSize));
+    }
     //This only a WA to disable EU fusion for multi-layer blending cases or single layer do colorfill and rotation together.
     //Need remove it after kernel or compiler fix it.
     mhwIdEntryParams.bBarrierEnable              = pRenderHal->eufusionBypass ? 1 : 0;
@@ -1543,7 +1554,9 @@ MHW_SETPAR_DECL_SRC(COMPUTE_WALKER, XRenderHal_Platform_Interface_Next)
 {
     MHW_RENDERHAL_CHK_NULL_RETURN(m_gpgpuWalkerParams);
     MHW_RENDERHAL_CHK_NULL_RETURN(m_interfaceDescriptorParams);
+    MHW_RENDERHAL_CHK_NULL_RETURN(m_renderHal);
 
+    params.simdSize                 = m_gpgpuWalkerParams->simdSize;
     params.IndirectDataLength       = m_gpgpuWalkerParams->IndirectDataLength;
     params.IndirectDataStartAddress = m_gpgpuWalkerParams->IndirectDataStartAddress;
     params.ThreadWidth              = m_gpgpuWalkerParams->ThreadWidth;
@@ -1558,6 +1571,7 @@ MHW_SETPAR_DECL_SRC(COMPUTE_WALKER, XRenderHal_Platform_Interface_Next)
     params.GroupStartingZ = m_gpgpuWalkerParams->GroupStartingZ;
 
     params.dwKernelOffset                = m_interfaceDescriptorParams->dwKernelOffset;
+    params.kernelSize                    = m_interfaceDescriptorParams->kernelSize;
     params.dwSamplerCount                = m_interfaceDescriptorParams->dwSamplerCount;
     params.dwSamplerOffset               = m_interfaceDescriptorParams->dwSamplerOffset;
     params.dwBindingTableOffset          = m_interfaceDescriptorParams->dwBindingTableOffset;
@@ -1576,7 +1590,12 @@ MHW_SETPAR_DECL_SRC(COMPUTE_WALKER, XRenderHal_Platform_Interface_Next)
     {
         params.GroupDepth = 1;
     }
+    if (m_gpgpuWalkerParams->simdSize == 0)
+    {
+        params.simdSize = 32;
+    }
 
+    params.registersPerThread    = m_gpgpuWalkerParams->registersPerThread;
     params.isEmitInlineParameter = m_gpgpuWalkerParams->isEmitInlineParameter;
     if (m_gpgpuWalkerParams->inlineDataLength > 0 && m_gpgpuWalkerParams->inlineData)
     {
@@ -1586,6 +1605,11 @@ MHW_SETPAR_DECL_SRC(COMPUTE_WALKER, XRenderHal_Platform_Interface_Next)
 
     params.isGenerateLocalId = m_gpgpuWalkerParams->isGenerateLocalID;
     params.emitLocal         = mhw::render::MHW_EMIT_LOCAL_MODE(m_gpgpuWalkerParams->emitLocal);
+
+    params.heapsResource.curbeResourceList      = m_gpgpuWalkerParams->curbeResourceList;
+    params.heapsResource.curbeResourceListSize  = m_gpgpuWalkerParams->curbeResourceListSize;
+    params.heapsResource.inlineResourceList     = m_gpgpuWalkerParams->inlineResourceList;
+    params.heapsResource.inlineResourceListSize = m_gpgpuWalkerParams->inlineResourceListSize;
 
     return MOS_STATUS_SUCCESS;
 }

@@ -249,10 +249,10 @@ MOS_STATUS VpRenderHdr3DLutKernel::SetupSurfaceState()
 
     UpdateCurbeBindingIndex(SurfaceType3DLut, BI_VEBOX_HDR_3DLUT_3DLUT);
     kernelSurfaceParam.isOutput                         = true;
-    m_surfaceState.insert(std::make_pair(SurfaceType3DLut, kernelSurfaceParam));
+    m_surfaceState.emplace(SurfaceType3DLut, kernelSurfaceParam);
     UpdateCurbeBindingIndex(SurfaceType3DLutCoef, BI_VEBOX_HDR_3DLUT_COEF);
     kernelSurfaceParam.isOutput                         = false;
-    m_surfaceState.insert(std::make_pair(SurfaceType3DLutCoef, kernelSurfaceParam));
+    m_surfaceState.emplace(SurfaceType3DLutCoef, kernelSurfaceParam);
 
     VP_RENDER_CHK_STATUS_RETURN(InitCoefSurface(m_maxDisplayLum, m_maxContentLevelLum, m_hdrMode));
 
@@ -390,7 +390,16 @@ MOS_STATUS VpRenderHdr3DLutKernel::InitCoefSurface(const uint32_t maxDLL, const 
         CalcCCMMatrix();
         MOS_SecureMemcpy(ccmMatrix, sizeof(float) * 12, color_matrix_calculation, sizeof(float) * 12);
 
-        tmMode    = (TONE_MAPPING_MODE)TONE_MAPPING_MODE_H2S;
+        if (maxDLL > 800)
+        {
+            tmMode = (TONE_MAPPING_MODE)TONE_MAPPING_MODE_H2E;
+            VP_RENDER_NORMALMESSAGE("Change curve to H2E, maxDLL %d", maxDLL);
+        }
+        else
+        {
+            tmMode = (TONE_MAPPING_MODE)TONE_MAPPING_MODE_H2S;
+        }
+
         oetfCurve = (OETF_CURVE_TYPE)OETF_SRGB;
         tmSrcType = (TONE_MAPPING_SOURCE_TYPE)TONE_MAPPING_SOURCE_PSEUDO_Y_BT709;
     }
@@ -584,10 +593,10 @@ MOS_STATUS VpRenderHdr3DLutKernelCM::SetupSurfaceState()
 
     UpdateCurbeBindingIndex(SurfaceType3DLut, BI_VEBOX_HDR_3DLUT_3DLUT_CM);
     kernelSurfaceParam.isOutput                         = true;
-    m_surfaceState.insert(std::make_pair(SurfaceType3DLut, kernelSurfaceParam));
+    m_surfaceState.emplace(SurfaceType3DLut, kernelSurfaceParam);
     UpdateCurbeBindingIndex(SurfaceType3DLutCoef, BI_VEBOX_HDR_3DLUT_COEF_CM);
     kernelSurfaceParam.isOutput                         = false;
-    m_surfaceState.insert(std::make_pair(SurfaceType3DLutCoef, kernelSurfaceParam));
+    m_surfaceState.emplace(SurfaceType3DLutCoef, kernelSurfaceParam);
     
     VP_RENDER_CHK_STATUS_RETURN(InitCoefSurface(m_maxDisplayLum, m_maxContentLevelLum, m_hdrMode));
 

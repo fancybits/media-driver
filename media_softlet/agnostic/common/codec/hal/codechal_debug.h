@@ -67,6 +67,9 @@ namespace CodechalDbgAttr        = MediaDbgAttr;
 #define CODECHAL_DEBUG_ASSERTMESSAGE(_message, ...) \
     MOS_ASSERTMESSAGE(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_DEBUG, _message, ##__VA_ARGS__)
 
+#define CODECHAL_DEBUG_WARNINGMESSAGE(_message, ...) \
+    MOS_WARNINGMESSAGE(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_DEBUG, _message, ##__VA_ARGS__)
+
 #define CODECHAL_DEBUG_NORMALMESSAGE(_message, ...) \
     MOS_NORMALMESSAGE(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_DEBUG, _message, ##__VA_ARGS__)
 
@@ -289,6 +292,14 @@ public:
         const char *              bufferName,
         uint32_t                  size,
         uint32_t                  offset = 0,
+        CODECHAL_MEDIA_STATE_TYPE mediaState = CODECHAL_NUM_MEDIA_STATES);
+
+    virtual MOS_STATUS LoadBinaryToLockableBuffer(
+        PMOS_RESOURCE             resource,
+        const char               *attrName,
+        const char               *bufferName,
+        uint32_t                  size,
+        uint32_t                  offset     = 0,
         CODECHAL_MEDIA_STATE_TYPE mediaState = CODECHAL_NUM_MEDIA_STATES);
 
     MOS_STATUS DumpSurface(

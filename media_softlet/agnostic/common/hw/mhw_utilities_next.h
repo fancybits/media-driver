@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021, Intel Corporation
+* Copyright (c) 2021-2025, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -111,6 +111,9 @@ typedef struct _MHW_BATCH_BUFFER MHW_BATCH_BUFFER, * PMHW_BATCH_BUFFER;
 
 #define MHW_ASSERTMESSAGE(_message, ...)                                        \
     MOS_ASSERTMESSAGE(MOS_COMPONENT_HW, MOS_HW_SUBCOMP_ALL, _message, ##__VA_ARGS__)
+
+#define MHW_WARNINGMESSAGE(_message, ...)                                       \
+    MOS_WARNINGMESSAGE(MOS_COMPONENT_HW, MOS_HW_SUBCOMP_ALL, _message, ##__VA_ARGS__)
 
 #define MHW_NORMALMESSAGE(_message, ...)                                        \
     MOS_NORMALMESSAGE(MOS_COMPONENT_HW, MOS_HW_SUBCOMP_ALL, _message, ##__VA_ARGS__)
@@ -603,6 +606,23 @@ typedef struct _MHW_MOCS_PARAMS
     uint8_t  bitFieldHigh;
 } MHW_MOCS_PARAMS;
 
+struct MHW_INDIRECT_STATE_RESOURCE_PARAMS
+{
+    PMOS_RESOURCE stateHeap      = nullptr;
+    uint8_t      *stateBasePtr   = nullptr;
+    uint32_t      stateOffset    = 0;
+    PMOS_RESOURCE resource       = nullptr;
+    uint32_t      resourceOffset = 0;
+    bool          isWrite        = false;
+#if MOS_COMMAND_BUFFER_DUMP_SUPPORTED
+    bool        needDump        = false;
+    uint32_t    dumpSize        = 0;
+    const char *dumpName        = nullptr;
+    uint8_t    *resourceBasePtr = nullptr;
+#endif
+};
+using PMHW_INDIRECT_STATE_RESOURCE_PARAMS = MHW_INDIRECT_STATE_RESOURCE_PARAMS*;
+
 typedef struct _MHW_RESOURCE_PARAMS
 {
     PMOS_RESOURCE                       presResource;
@@ -801,6 +821,13 @@ struct MHW_SEMAPHORE_WATI_REGISTERS
     uint32_t    m_tokenRegister = 0;
     uint32_t    m_gpr0Lo = 0;
     uint32_t    m_gpr0Hi = 0;
+    uint32_t    m_gpr1Lo = 0;
+    uint32_t    m_gpr1Hi = 0;
+    uint32_t    m_gpr2Lo = 0;
+    uint32_t    m_gpr2Hi = 0;
+    uint32_t    m_gpr3Lo = 0;
+    uint32_t    m_gpr3Hi = 0;
+    uint32_t    m_predicateResult2 = 0;
     bool        m_bMMIORemap = 0;
 };
 #endif // __MHW_UTILITIES_NEXT_H__

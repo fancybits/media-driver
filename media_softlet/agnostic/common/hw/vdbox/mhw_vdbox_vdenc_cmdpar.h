@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2023, Intel Corporation
+* Copyright (c) 2020-2025, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -184,6 +184,7 @@ struct _MHW_PAR_T(VDENC_PIPE_MODE_SELECT)
     uint8_t DownScaleType            = 0;
     uint8_t VdencPipeModeSelectPar12 = 0;
     uint8_t VdencPipeModeSelectPar13 = 0;
+    bool    chromaPrefetchDisable    = false;
 };
 
 struct _MHW_PAR_T(VDENC_SRC_SURFACE_STATE)
@@ -566,7 +567,7 @@ struct _MHW_PAR_T(VDENC_CMD2)
     uint8_t  intraRefreshMbSizeMinus1         = 1;
     uint8_t  intraRefreshMode                 = 0;
     bool     intraRefresh                     = false;
-    uint8_t  qpAdjustmentForRollingI          = 0;
+    int8_t   qpAdjustmentForRollingI          = 0;
     uint8_t  qpForSegs[8]                     = {};
     bool     vp9DynamicSlice                  = false;
     uint8_t  qpPrimeYDc                       = 0;
@@ -574,6 +575,7 @@ struct _MHW_PAR_T(VDENC_CMD2)
     uint32_t intraRefreshBoundary[3]          = {};
     uint8_t  av1RefId[2][4]                   = {{1, 1, 1, 1}, {1, 1, 1, 1}};
     uint8_t  subPelMode                       = 3;
+    uint8_t  av1EnableIntraEdgeFilter         = 0;
 
     __MHW_VDBOX_VDENC_WRAPPER(
         std::vector<std::function<MOS_STATUS(uint32_t *)>> extSettings);

@@ -33,6 +33,7 @@
 #include "vp_kernel_config.h"
 #include "media_copy.h"
 #include "vp_frametracker.h"
+#include "vp_npu_cmd_packet.h"
 
 namespace vp
 {
@@ -100,7 +101,7 @@ public:
         return m_kernelDllState;
     }
 
-    MOS_STATUS SetKernelName(std::string kernelname);
+    MOS_STATUS SetKernelName(const std::string &kernelname);
 
     std::string& GetKernelName()
     {
@@ -144,6 +145,8 @@ public:
 
     MOS_STATUS SetKernelExeEnv(KRN_EXECUTE_ENV &exeEnv);
 
+    MOS_STATUS SetKernelPerThreadArgInfo(KRN_PER_THREAD_ARG_INFO &perThreadArgInfo);
+
     MOS_STATUS SetKernelCurbeSize(uint32_t size);
 
     MOS_STATUS AddKernelBti(KRN_BTI &bti);
@@ -156,6 +159,11 @@ public:
     KRN_EXECUTE_ENV &GetKernelExeEnv()
     {
         return m_kernelExeEnv;
+    }
+
+    KRN_PER_THREAD_ARG_INFO &GetKernelPerThreadArgInfo()
+    {
+        return m_kernelPerThreadArgInfo;
     }
 
 protected:
@@ -178,6 +186,7 @@ protected:
     uint32_t m_curbeSize = 0;
     KERNEL_BTIS     m_kernelBtis;
     KRN_EXECUTE_ENV m_kernelExeEnv = {};
+    KRN_PER_THREAD_ARG_INFO m_kernelPerThreadArgInfo = {};
 
 public:
     const static std::string          s_kernelNameNonAdvKernels;
@@ -239,6 +248,10 @@ public:
     {
         return nullptr;
     }
+    virtual VpCmdPacket* CreateNpuPacket(MediaTask* task, _VP_MHWINTERFACE* hwInterface, VpAllocator*& allocator, VPMediaMemComp* mmc, VpGraphSet* graph)
+    {
+        return nullptr;
+    }
 
     virtual MediaCopyBaseState* CreateMediaCopy()
     {
@@ -253,6 +266,11 @@ public:
     KERNEL_POOL& GetKernelPool()
     {
         return m_kernelPool;
+    }
+
+    GRAPH_POOL& GetGraphPool()
+    {
+        return m_graphPool;
     }
 
     PMOS_INTERFACE &GetOsInterface()
@@ -286,6 +304,8 @@ public:
         bool                      bVdbox,
         CODECHAL_STANDARD         codecStandard,
         CodecDecodeJpegChromaType jpegChromaType);
+
+    virtual void SetForceVeboxInputHeight8AlignedFlag(bool enable) final;
 
     virtual bool IsVeboxScalabilityWith4KNotSupported(
         VP_MHWINTERFACE           vpMhwInterface);
@@ -372,15 +392,16 @@ public:
 
     //for OCL kernel use only
     virtual void InitVpDelayedNativeAdvKernel(
-        const uint32_t  *kernelBin,
-        uint32_t         kernelBinSize,
-        KRN_ARG         *kernelArgs,
-        uint32_t         kernelArgSize,
-        uint32_t         kernelCurbeSize,
-        KRN_EXECUTE_ENV& kernelExeEnv,
-        KRN_BTI         *kernelBtis,
-        uint32_t         kernelBtiSize,
-        std::string      kernelName);
+        const uint32_t         *kernelBin,
+        uint32_t                kernelBinSize,
+        KRN_ARG                *kernelArgs,
+        uint32_t                kernelArgSize,
+        uint32_t                kernelCurbeSize,
+        KRN_EXECUTE_ENV        &kernelExeEnv,
+        KRN_BTI                *kernelBtis,
+        uint32_t                kernelBtiSize,
+        std::string             kernelName,
+        KRN_PER_THREAD_ARG_INFO perThreadArgInfo = {});
 
     virtual void AddNativeAdvKernelToDelayedList(
         DelayLoadedKernelType kernelType,
@@ -448,6 +469,11 @@ public:
         return m_isOclKernelEnabled;
     }
 
+    virtual bool IsVrtEnabled()
+    {
+        return false;
+    }
+
     virtual MOS_STATUS InitVpFeatureSupportBits()
     {
         return MOS_STATUS_SUCCESS;
@@ -458,11 +484,16 @@ public:
         return m_vpFeatureSupportBits;
     }
 
+    virtual void DisableKernelPathFor3DLUTGen()
+    {
+        return;
+    }
 protected:
     PMOS_INTERFACE m_pOsInterface = nullptr;
     VP_KERNEL_BINARY m_vpKernelBinary = {};                 //!< vp kernels
     VpKernelConfig  *m_vpKernelConfig = nullptr;
     KERNEL_POOL    m_kernelPool;
+    GRAPH_POOL       m_graphPool;
     void (*m_modifyKdllFunctionPointers)(PKdll_State) = nullptr;
     bool m_sfc2PassScalingEnabled = false;
     bool m_sfc2PassScalingPerfMode = false;

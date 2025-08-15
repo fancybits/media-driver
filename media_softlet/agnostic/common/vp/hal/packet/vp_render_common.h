@@ -45,6 +45,7 @@ struct KERNEL_THREAD_SPACE
 {
     uint32_t uWidth;
     uint32_t uHeight;
+    uint32_t uDepth;
     uint32_t uLocalWidth;
     uint32_t uLocalHeight;
 };
@@ -75,7 +76,7 @@ enum KRN_ARG_KIND
 
 enum KRN_ARG_ADDRESSMODE
 {
-    AddressingModeStateful = 0,
+    AddressingModeStateful = 0,   //this stateful specifically means bindful stateful surfaces. Not bindless statefull surfaces.
     AddressingModeStateless,
     AddressingModeBindless,
     AddressIngModeMax
@@ -85,9 +86,7 @@ enum IMPLICIT_ARG_TYPE
 {
     ValueType = 0,
     IndirectDataPtr,
-    ScratchPtr,
-    SamplerStateBasePtr,
-    SurfaceStateBasePtr
+    ScratchPtr
 };
 
 struct KRN_ARG
@@ -128,6 +127,14 @@ struct KRN_EXECUTE_ENV
     uint8_t  uiWorkGroupWalkOrderDimensions[3];
     uint64_t uiPrivateSize;
     uint32_t uiSlmSize;
+    bool     bRequireDisableEufusion;
+    bool     bHasDPAS;
+};
+
+struct KRN_PER_THREAD_ARG_INFO
+{
+    uint32_t packedLocalIdOffset = 0;
+    uint32_t packedLocalIdSize   = 0;
 };
 
 using SurfaceIndex = uint32_t;
@@ -140,6 +147,8 @@ typedef struct MOS_ALIGNED(16) _SURFACE_PARAMS
     bool        isOutput;
     bool        needVerticalStirde;
     bool        combineChannelY;
+    uint32_t    planeIndex;
+    bool        usePackedPlanar;
 } SURFACE_PARAMS, *PSURFACE_PARAMS;
 using KERNEL_ARG_INDEX_SURFACE_MAP = std::map<uint32_t, SURFACE_PARAMS>;
 

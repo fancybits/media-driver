@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2023, Intel Corporation
+* Copyright (c) 2020-2025, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -32,7 +32,7 @@
 #include "decode_utils.h"
 
 DecodeMemComp::DecodeMemComp(CodechalHwInterfaceNext *hwInterface, PMOS_INTERFACE osInterface) :
-    MediaMemComp(osInterface ? osInterface : hwInterface->GetOsInterface())
+    MediaMemComp(osInterface ? osInterface : (hwInterface ? hwInterface->GetOsInterface() : nullptr))
 {
     m_mmcEnabledKey     = __MEDIA_USER_FEATURE_VALUE_CODEC_MMC_ENABLE;
     m_mmcInUseKey       = __MEDIA_USER_FEATURE_VALUE_CODEC_MMC_IN_USE;
@@ -115,6 +115,10 @@ void DecodeMemComp::InitDecodeMmc(CodechalHwInterfaceNext *hwInterface)
 #if (_DEBUG || _RELEASE_INTERNAL)
     m_compressibleId = __MEDIA_USER_FEATURE_VALUE_MMC_DEC_RT_COMPRESSIBLE_ID;
     m_compressModeId = __MEDIA_USER_FEATURE_VALUE_MMC_DEC_RT_COMPRESSMODE_ID;
+    if (m_mmcEnabledForDecode)
+    {
+        DECODE_NORMALMESSAGE("Decode MMC ON ");
+    }
 #endif
 }
 

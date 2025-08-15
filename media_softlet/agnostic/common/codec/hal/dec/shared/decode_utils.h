@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2022, Intel Corporation
+* Copyright (c) 2018-2025, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -33,8 +33,16 @@
 #define DECODE_ASSERT(_expr)                                                   \
     MOS_ASSERT(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_DECODE, _expr)
 
+#if (_DEBUG || _RELEASE_INTERNAL)
 #define DECODE_ASSERTMESSAGE(_message, ...)                                    \
     MOS_ASSERTMESSAGE(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_DECODE, _message, ##__VA_ARGS__)
+#else
+#define DECODE_ASSERTMESSAGE(_message, ...)                                    \
+    OcaOnMosCriticalMessage(MOS_FUNCTION, __LINE__);
+#endif
+
+#define DECODE_WARNINGMESSAGE(_message, ...) \
+    MOS_WARNINGMESSAGE(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_DECODE, _message, ##__VA_ARGS__)
 
 #define DECODE_NORMALMESSAGE(_message, ...)                                    \
     MOS_NORMALMESSAGE(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_DECODE, _message, ##__VA_ARGS__)

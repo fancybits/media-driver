@@ -105,6 +105,8 @@ public:
         return IsEmpty() || RenderTargetTypeParameter == GetRenderTargetType();
     }
 
+    MOS_STATUS GetAiSwFilter(SwFilterAiBase *&swAiFilter);
+
 private:
     std::vector<SwFilterSet *> m_OrderedFilters;    // For features in featureRule
     SwFilterSet m_UnorderedFilters;                 // For features not in featureRule
@@ -175,6 +177,7 @@ public:
     bool IsAllInputPipeEmpty();
     bool IsAllInputPipeSurfaceFeatureEmpty();
     bool IsAllInputPipeSurfaceFeatureEmpty(std::vector<int> &layerIndexes);
+    MOS_STATUS  QuerySwAiFilter(bool &containsSwAiFilter);
 
     VP_SURFACE_SETTING &GetSurfacesSetting()
     {
@@ -244,6 +247,16 @@ public:
         m_isExePipe = isExePipe;
     }
 
+    uint64_t GetGpuCtxOnHybridCmd()
+    {
+        return m_gpuCtxOnHybridCmd;
+    }
+
+    bool IsForceToRender()
+    {
+        return m_forceToRender;
+    }
+
 protected:
     MOS_STATUS CleanFeaturesFromPipe(bool isInputPipe, uint32_t index);
     MOS_STATUS CleanFeaturesFromPipe(bool isInputPipe);
@@ -268,6 +281,9 @@ protected:
     SwFilterPipeType                    m_swFilterPipeType = SwFilterPipeTypeInvalid;
     bool                                m_processedSecurePrepared = false;
     bool                                m_isExePipe = false;
+    uint64_t                            m_gpuCtxOnHybridCmd = 0;
+    // this only take effect when more than 1 swFilterPipe in vp pipeline, which means each swFilterPipe need its own forceToRender flag
+    bool                                m_forceToRender = false;    
 
 MEDIA_CLASS_DEFINE_END(vp__SwFilterPipe)
 };

@@ -23,7 +23,6 @@
 ======================= end_copyright_notice ==================================*/
 //!
 //! \file       renderhal_xe2_hpg_next.cpp
-//! \brief      implementation of Gen12_9 hardware functions
 //! \details    Render functions
 //!
 
@@ -41,6 +40,7 @@
 #define ENLARGE_KERNEL_COUNT_XE2_HPG RENDERHAL_KERNEL_COUNT * 3
 #define ENLARGE_KERNEL_HEAP_XE2_HPG RENDERHAL_KERNEL_HEAP * 3
 #define ENLARGE_CURBE_SIZE_XE2_HPG RENDERHAL_CURBE_SIZE * 16
+#define ENLARGED_SSH_BINDING_TABLES_XE2_HPG   16
 
 extern const RENDERHAL_STATE_HEAP_SETTINGS g_cRenderHal_State_Heap_Settings_xe2_hpg =
 {
@@ -73,12 +73,13 @@ extern const RENDERHAL_STATE_HEAP_SETTINGS g_cRenderHal_State_Heap_Settings_xe2_
 
 extern const RENDERHAL_ENLARGE_PARAMS g_cRenderHal_Enlarge_State_Heap_Settings_Adv_xe2_hpg =
 {
-    RENDERHAL_SSH_BINDING_TABLES_MAX,      //!< iBindingTables
+    ENLARGED_SSH_BINDING_TABLES_XE2_HPG,    //!< iBindingTables
     RENDERHAL_SSH_SURFACE_STATES_MAX,      //!< iSurfaceStates
     RENDERHAL_SSH_SURFACES_PER_BT_XE2_HPG, //!< iSurfacesPerBT
     ENLARGE_KERNEL_COUNT_XE2_HPG,          //!< iKernelCount
     ENLARGE_KERNEL_HEAP_XE2_HPG,           //!< iKernelHeapSize
-    ENLARGE_CURBE_SIZE_XE2_HPG             //!< iCurbeSize
+    ENLARGE_CURBE_SIZE_XE2_HPG,            //!< iCurbeSize
+    RENDERHAL_MEDIA_IDS                    //!< iMediaIDs
 };
 
 MOS_STATUS XRenderHal_Interface_Xe2_Hpg_Next::IsRenderHalMMCEnabled(
@@ -136,10 +137,11 @@ MOS_STATUS XRenderHal_Interface_Xe2_Hpg_Next::SendTo3DStateBindingTablePoolAlloc
     MHW_RENDERHAL_CHK_NULL_RETURN(pCmdBuffer);
     MHW_RENDERHAL_CHK_NULL_RETURN(m_renderItf);
 
-    auto &computerModeParams          = m_renderItf->MHW_GETPAR_F(STATE_COMPUTE_MODE)();
-    computerModeParams                = {};
-    computerModeParams.enableLargeGrf = true;
+    auto &computerModeParams                       = m_renderItf->MHW_GETPAR_F(STATE_COMPUTE_MODE)();
+    computerModeParams                             = {};
+    computerModeParams.enableLargeGrf              = pRenderHal->largeGrfMode;
     computerModeParams.forceEuThreadSchedulingMode = pRenderHal->euThreadSchedulingMode;
+    computerModeParams.enableVariableRegisterSizeAllocationVrt = pRenderHal->enableVariableRegisterSizeAllocationVrt;
     m_renderItf->MHW_ADDCMD_F(STATE_COMPUTE_MODE)(pCmdBuffer);
 
     SETPAR_AND_ADDCMD(_3DSTATE_BINDING_TABLE_POOL_ALLOC, m_renderItf, pCmdBuffer);

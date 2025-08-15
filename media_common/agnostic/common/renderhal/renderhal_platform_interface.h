@@ -565,6 +565,13 @@ public:
         return MOS_STATUS_SUCCESS;
     };
 
+    virtual MOS_STATUS SendStateComputeMode(
+        PRENDERHAL_INTERFACE pRenderHal,
+        PMOS_COMMAND_BUFFER  pCmdBuffer)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
+
     virtual bool IsBindlessHeapInUse(
         PRENDERHAL_INTERFACE pRenderHal)
     {
@@ -698,6 +705,8 @@ public:
         PRENDERHAL_INTERFACE         pRenderHal) = 0;
 
     virtual std::shared_ptr<mhw::mi::Itf> GetMhwMiItf() = 0;
+
+    virtual uint32_t GetGrfSize() = 0;
 
 };
 

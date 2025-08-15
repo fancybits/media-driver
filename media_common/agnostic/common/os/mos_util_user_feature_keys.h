@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2023, Intel Corporation
+* Copyright (c) 2009-2025, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -134,10 +134,12 @@
 #define __MEDIA_USER_FEATURE_VALUE_SIM_ENABLE                             "Simulation Enable"
 #define __MEDIA_USER_FEATURE_VALUE_SIM_IN_USE                             "Simulation In Use"
 
+#define __MEDIA_USER_FEATURE_VALUE_ENABLE_VDBOX_ID_REPORT                 "Enable VDBOX ID Report"
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_VE_DEBUG_OVERRIDE               "Enable VE Debug Override"
 #define __MEDIA_USER_FEATURE_VALUE_FORCE_VDBOX                            "Force VDBOX"
 #define __MEDIA_USER_FEATURE_VALUE_FORCE_VEBOX                            "Force VEBOX"
 #define __MEDIA_USER_FEATURE_VALUE_FORCE_YFYS                             "Force to allocate YfYs"
+#define __MEDIA_USER_FEATURE_VALUE_USED_VDBOX_ID                          "Used VDBOX ID"
 
 #define __MEDIA_USER_FEATURE_VALUE_NULL_HW_ACCELERATION_ENABLE            "NullHWAccelerationEnable"
 
@@ -187,12 +189,12 @@
 //! \brief Message level and assert flag for each component is set through the user feature keys
 //!        "Mos Message Tags", "Codec Message Tags", "VP Message Tags",
 //!        "CP Message Tags", "DDI Message Tags" and "CM Message Tags"
-//!        3 bits for level, 1 bit for assert on/off per sub-component.
+//!        3 bits for level, 1 bit for assert on/off, 1 bit for warning message per sub-component.
 //!        Each component has to create a separate key for its sub-comps.
 //!
-//!        31____________________________________________________________________________3__________0
-//!         |                                                                 |          |Asrt|level|
-//!         |________________________________|__________|__________|__________|__________|__________|
+//!        31________________________________________________________________________4_______________0
+//!         |                                                                 |      |Warn|Asrt|level|
+//!         |________________________________|__________|__________|__________|______|_______________|
 //!
 
 //!
@@ -201,10 +203,10 @@
 #define __MOS_USER_FEATURE_KEY_MESSAGE_OS_TAG                       "Mos Message Tags"
 #define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_OS                  "Mos Tags By Sub Component"
 //!
-//! \brief 63____________________________________________________________________________3__________0
-//!         |                                                                            |   Self   |
-//!         |                    Reserved (HLT can be added as a sub-comp of MOS)        |Asrt|level|
-//!         |____________________________________________________________________________|__________|
+//! \brief 63_________________________________________________________________________4_______________0
+//!         |                                                                         |      Self     |
+//!         |                    Reserved (HLT can be added as a sub-comp of MOS)     |Warn|Asrt|level|
+//!         |_________________________________________________________________________|_______________|
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_OS_TAG                 "Mos Sub Components Tags"
 
@@ -214,10 +216,10 @@
 #define __MOS_USER_FEATURE_KEY_MESSAGE_MHW_TAG                       "Mhw Message Tags"
 #define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_MHW                  "Mhw Tags By Sub Component"
 //!
-//! \brief 63____________________________________________________________________________3__________0
-//!         |                                                                            |   Self   |
-//!         |                    Reserved (HLT can be added as a sub-comp of MOS)        |Asrt|level|
-//!         |____________________________________________________________________________|__________|
+//! \brief 63________________________________________________________________________4_______________0
+//!         |                                                                        |      Self     |
+//!         |                    Reserved (HLT can be added as a sub-comp of MOS)    |Warn|Asrt|level|
+//!         |________________________________________________________________________|_______________|
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_MHW_TAG                 "Mhw Sub Components Tags"
 
@@ -228,13 +230,13 @@
 #define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_CODEC               "Codec Tags By Sub Component"
 //!
 //! \brief Message level and assert flag for each sub-comp of CodecHal set through this user feature key
-//!        3 bits for level, 1 bit for assert on/off per sub-component.
+//!        3 bits for level, 1 bit for assert on/off, 1 bit for warning message per sub-component.
 //!        Each component has to create a separate key for its sub-comps.
 //!
-//!        63___________________24_23______20_19______16_15______12_11_______8_7________4_3_________0
-//!         |                     |  Debug   |  Public  |    HW    |  Encode  |  Decode  |    DDI   |
-//!         |      Reserved       |Asrt|level|Asrt|level|Asrt|level|Asrt|level|Asrt|level|Asrt|level|
-//!         |________________________________|__________|__________|__________|__________|__________|
+//!        63___________________30_29___________25_24___________20_19___________15_14___________10_9_____________5_4______________0
+//!         |                     |     Debug     |    Public     |      HW       |     Encode    |    Decode     |       DDI     |
+//!         |      Reserved       |Warn|Asrt|level|Warn|Asrt|level|Warn|Asrt|level|Warn|Asrt|level|Warn|Asrt|level|Warn|Asrt|level|
+//!         |_____________________________________|_______________|_______________|_______________|_______________|_______________|
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_CODEC_TAG              "Codec Sub Components Tags"
 
@@ -245,13 +247,13 @@
 #define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_VP                  "VP Tags By Sub Component"
 //!
 //! \brief Message level and assert flag for each sub-comp of VP set through this user feature key
-//!        3 bits for level, 1 bit for assert on/off per sub-component.
+//!        3 bits for level, 1 bit for assert on/off, 1 bit for warning message per sub-component.
 //!        Each component has to create a separate key for its sub-comps.
 //!
-//!        63___________________24_23______20_19______16_15______12_11_______8_7________4_3_________0
-//!         |                     | Reserved |  Render  |  Debug   |  Public  |    HW    |    DDI   |
-//!         |      Reserved       |Asrt|level|Asrt|level|Asrt|level|Asrt|level|Asrt|level|Asrt|level|
-//!         |________________________________|__________|__________|__________|__________|__________|
+//!        63___________________30_29___________25_24___________20_19___________15_14____________10_9____________5_4______________0
+//!         |                     |   Reserved    |    Render     |     Debug     |    Public     |       HW      |      DDI      |
+//!         |      Reserved       |Warn|Asrt|level|Warn|Asrt|level|Warn|Asrt|level|Warn|Asrt|level|Warn|Asrt|level|Warn|Asrt|level|
+//!         |_____________________________________|_______________|_______________|_______________|_______________|_______________|
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_VP_TAG                 "VP Sub Components Tags"
 
@@ -263,13 +265,13 @@
 #define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_CP                  "CP Tags By Sub Component"
 //!
 //! \brief Message level and assert flag for each sub-comp of CP set through this user feature key
-//!        3 bits for level, 1 bit for assert on/off per sub-component.
+//!        3 bits for level, 1 bit for assert on/off, 1 bit for warning message per sub-component.
 //!        Each component has to create a separate key for its sub-comps.
 //!
-//!     63_____48_47___44_43____40_39_______36_35_________32_31___28_27____24_23___20_19___16_15__12_11__8_7_________4_3_________0
-//!     |        |  LIB  |  DLL   |AUTHCHANNEL|SECURESESSION|CMD_BFR|UMD_CTXT| CODEC |GPU_HAL|PCH_HAL| OS |  DEVICE   |CP_DDI    |
-//!     |Reserved|  A|L  |   A|L  |    A|L    |     A|L     |  A|L  |  A|L   |  A|L  |  A|L  |  A|L  |A|L |Asrt|level |Asrt|level|
-//!     |________|_______|________|___________|_____________|_______|________|_______|_______|_______|____|___________|__________|
+//!     63_____30_29___25_24___20_19_____15_14_____10_9_____5_4______________0
+//!     |        | CODEC |  MHW  | GPU_HAL | TEE_HAL |   OS  |     DDI       |
+//!     |Reserved| W|A|L | W|A|L |  W|A|L  |  W|A|L  | W|A|L |Warn|Asrt|level|
+//!     |________|_______|_______|_________|_________|_______|_______________|
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_CP_TAG                 "CP Sub Components Tags"
 
@@ -279,10 +281,10 @@
 #define __MOS_USER_FEATURE_KEY_MESSAGE_DDI_TAG                      "DDI Message Tags"
 #define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_DDI                 "DDI Tags By Sub Component"
 //!
-//! \brief 63____________________________________________________________________________3__________0
-//!         |                                                                            |   Self   |
-//!         |                    Reserved (can create DDI subcomponents)                 |Asrt|level|
-//!         |____________________________________________________________________________|__________|
+//! \brief 63____________________________________________________________________________4_______________0
+//!         |                                                                            |      Self     |
+//!         |                    Reserved (can create DDI subcomponents)                 |Warn|Asrt|level|
+//!         |____________________________________________________________________________|_______________|
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_DDI_TAG                "DDI Sub Components Tags"
 
@@ -292,10 +294,10 @@
 #define __MOS_USER_FEATURE_KEY_MESSAGE_CM_TAG                       "CM Message Tags"
 #define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_CM                  "CM Tags By Sub Component"
 //!
-//! \brief 63________________________________________________________________8_7________4_3_________0
-//!         |                                                                 |   Self   |    DDI   |
-//!         |                    Reserved (can create CM subcomponents)       |Asrt|level|Asrt|level|
-//!         |____________________________________________________________________________|__________|
+//! \brief 63______________________________________________________________9_______________5_4______________0
+//!         |                                                              |        Self    |        Self   |
+//!         |                    Reserved (can create CM subcomponents)    |Warn|Asrt|level |Warn|Asrt|level|
+//!         |______________________________________________________________|________________|_______________|
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_CM_TAG                 "CM Sub Components Tags"
 
@@ -305,10 +307,10 @@
 #define __MOS_USER_FEATURE_KEY_MESSAGE_SCALABILITY_TAG              "SCALABILITY Message Tags"
 #define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_SCALABILITY         "SCALABILITY Tags By Sub Component"
 //!
-//! \brief 63____________________________________________________________________________3__________0
-//!         |                                                                            |   Self   |
-//!         |                    Reserved (can create SCALABILITY subcomponents)         |Asrt|level|
-//!         |____________________________________________________________________________|__________|
+//! \brief 63____________________________________________________________________________4_______________0
+//!         |                                                                            |      Self     |
+//!         |                    Reserved (can create SCALABILITY subcomponents)         |Warn|Asrt|level|
+//!         |____________________________________________________________________________|_______________|
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_SCALABILITY_TAG        "SCALABILITY Sub Components Tags"
 
@@ -319,10 +321,10 @@
 #define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_MMC         "MMC Tags By Sub Component"
 
 //!
-//! \brief 63____________________________________________________________________________3__________0
-//!         |                                                                            |   Self   |
-//!         |                    Reserved (can create MMC subcomponents)                 |Asrt|level|
-//!         |____________________________________________________________________________|__________|
+//! \brief 63____________________________________________________________________________4_______________0
+//!         |                                                                            |      Self     |
+//!         |                    Reserved (can create MMC subcomponents)                 |Warn|Asrt|level|
+//!         |____________________________________________________________________________|_______________|
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_MMC_TAG        "MMC Sub Components Tags"
 
@@ -332,10 +334,10 @@
 #define __MOS_USER_FEATURE_KEY_MESSAGE_MCPY_TAG             "MCPY Message Tags"
 #define __MOS_USER_FEATURE_KEY_BY_SUB_COMPONENT_MCPY        "MCPY Tags By Sub Component"
 //!
-//! \brief 63____________________________________________________________________________3__________0
-//!         |                                                                            |   Self   |
-//!         |                    Reserved (can create MCPY subcomponents)                |Asrt|level|
-//!         |____________________________________________________________________________|__________|
+//! \brief 63____________________________________________________________________________4_______________0
+//!         |                                                                            |      Self     |
+//!         |                    Reserved (can create MCPY subcomponents)                |Warn|Asrt|level|
+//!         |____________________________________________________________________________|_______________|
 //!
 #define __MOS_USER_FEATURE_KEY_SUB_COMPONENT_MCPY_TAG       "MCPY Sub Components Tags"
 
@@ -390,6 +392,7 @@
 #define __VPHAL_DBG_SURF_DUMP_ENABLE_AUX_DUMP                         "enableAuxDump"
 #define __VPHAL_DBG_SURF_DUMPER_RESOURCE_LOCK                         "SurfaceDumperResourceLockError"
 #define __VPHAL_DBG_STATE_DUMP_ENABLE                                 "enableStateDump"
+#define __VPHAL_DBG_SURF_DUMP_POSTCOMP_RESOURCE_COPY                  "enablePostCompDumpCopy"
 //User feature key for Codec debug
 #define __MEDIA_USER_FEATURE_VALUE_CODECHAL_DEBUG_OUTPUT_DIRECTORY    "CodecHal Debug Output Directory"
 #define __MEDIA_USER_FEATURE_VALUE_IS_CODEC_ROW_STORE_CACHE_ENABLED   "Codec Row Store Cache Enabled"
@@ -421,6 +424,9 @@
 #define __MEDIA_USER_FEATURE_VALUE_VP_MMC_IN_USE                                "VP MMC In Use"
 
 #define __MEDIA_USER_FEATURE_VALUE_NULLHW_ENABLE                                "NULL HW Enable"
+#if (_DEBUG || _RELEASE_INTERNAL)
+#define __MEDIA_USER_FEATURE_VALUE_NULLHW_PROXY_REPEAT_COUNT                    "NULL HW Proxy Repeat Count"
+#endif
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_PLATFORM                         "MockAdaptor Platform"
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_STEPPING                         "MockAdaptor Stepping"
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_DEVICE                           "MockAdaptor Device ID"
@@ -436,6 +442,7 @@
 #define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_OUTPUT_FILE_NAME    "Perf Profiler Output File Name"
 #define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_BUFFER_SIZE_KEY     "Perf Profiler Buffer Size"
 #define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_MUL_PROC_SINGLE_BIN "Perf Profiler Multi Process Single Binary"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_PARALLEL_EXEC       "Perf Profiler Parallel Execution Support"
 
 #define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_1      "Perf Profiler Register 1"
 #define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_2      "Perf Profiler Register 2"

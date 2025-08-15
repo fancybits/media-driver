@@ -80,7 +80,13 @@ namespace encode{
         ENCODE_CHK_NULL_RETURN(perfProfiler);
         ENCODE_CHK_STATUS_RETURN(perfProfiler->AddPerfCollectStartCmd(
             (void *)m_pipeline, m_osInterface, m_miItf, cmdBuffer));
-
+#if (_DEBUG || _RELEASE_INTERNAL)
+        if (m_statusReport && m_statusReport->IsVdboxIdReportEnabled())
+        {
+            ENCODE_CHK_NULL_RETURN(m_pipeline);
+            StoreEngineId(cmdBuffer, encode::EncodeStatusReportType::statusReportCsEngineIdRegs, m_pipeline->GetCurrentPipe());
+        }
+#endif
         return MOS_STATUS_SUCCESS;
     }
 
@@ -195,11 +201,10 @@ namespace encode{
         m_basicFeature = dynamic_cast<Av1BasicFeature *>(m_featureManager->GetFeature(Av1FeatureIDs::basicFeature));
         ENCODE_CHK_NULL_RETURN(m_basicFeature);
 
-#ifdef _MMC_SUPPORTED
         m_mmcState = m_pipeline->GetMmcState();
         ENCODE_CHK_NULL_RETURN(m_mmcState);
         m_basicFeature->m_mmcState = m_mmcState;
-#endif
+
         m_allocator = m_pipeline->GetEncodeAllocator();
         ENCODE_CHK_STATUS_RETURN(AllocateResources());
 
@@ -538,10 +543,8 @@ namespace encode{
 
         ENCODE_FUNC_CALL();
 
-#ifdef _MMC_SUPPORTED
         ENCODE_CHK_NULL_RETURN(m_mmcState);
         ENCODE_CHK_STATUS_RETURN(m_mmcState->SendPrologCmd(&cmdBuffer, false));
-#endif
 
         MHW_GENERIC_PROLOG_PARAMS genericPrologParams;
         MOS_ZeroMemory(&genericPrologParams, sizeof(genericPrologParams));
@@ -578,7 +581,6 @@ namespace encode{
         ENCODE_CHK_NULL_RETURN(srcSurfaceParams.psSurface);
         ENCODE_CHK_NULL_RETURN(reconSurfaceParams.psSurface);
 
-#ifdef _MMC_SUPPORTED
         ENCODE_CHK_NULL_RETURN(m_mmcState);
         if (m_mmcState->IsMmcEnabled())
         {
@@ -592,7 +594,6 @@ namespace encode{
             pipeBufAddrParams->PreDeblockSurfMmcState = MOS_MEMCOMP_DISABLED;
             pipeBufAddrParams->RawSurfMmcState        = MOS_MEMCOMP_DISABLED;
         }
-#endif
 
         CODECHAL_DEBUG_TOOL(
             m_basicFeature->m_reconSurface.MmcState = pipeBufAddrParams->PreDeblockSurfMmcState;)
@@ -610,7 +611,6 @@ namespace encode{
 
         ENCODE_FUNC_CALL();
 
-#ifdef _MMC_SUPPORTED
         ENCODE_CHK_NULL_RETURN(m_mmcState);
         if (m_mmcState->IsMmcEnabled())
         {
@@ -621,7 +621,7 @@ namespace encode{
         {
             surfaceStateParams->mmcState = MOS_MEMCOMP_DISABLED;
         }
-#endif
+
         return eStatus;
     }
 
@@ -1558,7 +1558,7 @@ namespace encode{
         //initialize following
         MOS_RESOURCE *osResourceInline = nullptr;
         uint32_t      offsetInline     = 0;
-        m_statusReport->GetAddress(statusReportGlobalCount, osResourceInline, offsetInline);
+        ENCODE_CHK_STATUS_RETURN(m_statusReport->GetAddress(statusReportGlobalCount, osResourceInline, offsetInline));
         offsetInline             = m_atomicScratchBuf.operandSetSize * m_atomicScratchBuf.encodeUpdateIndex;
         uint32_t zeroValueOffset = offsetInline;
         uint32_t operand1Offset  = offsetInline + m_atomicScratchBuf.operand1Offset;
@@ -2132,6 +2132,11 @@ namespace encode{
         miLoadRegMemParams.dwRegister      = mmioRegs->generalPurposeRegister0LoOffset;
         ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_MEM)(cmdBuffer));
 
+        //Clear VCS_GPR0_Hi
+        auto &miLoadRegImmParams      = m_miItf->MHW_GETPAR_F(MI_LOAD_REGISTER_IMM)();
+        miLoadRegImmParams.dwData     = 0;
+        miLoadRegImmParams.dwRegister = mmioRegs->generalPurposeRegister0HiOffset;
+        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
 
         uint32_t SHRNum          = static_cast<uint32_t>(log2(significantBits & (significantBits - 1) ^ significantBits));
         uint32_t miMathCmdNum    = 0;
@@ -2153,20 +2158,24 @@ namespace encode{
         {
             mhw::mi::MHW_MI_ALU_PARAMS aluParams[4] = {};
             uint32_t                   aluCount     = 0;
-            //load shr bits to register4
-            auto &miLoadRegImmParams      = m_miItf->MHW_GETPAR_F(MI_LOAD_REGISTER_IMM)();
+
+            //load shr bits to GPREG4
             miLoadRegImmParams            = {};
             miLoadRegImmParams.dwData     = SHRbit[i];
             miLoadRegImmParams.dwRegister = mmioRegs->generalPurposeRegister4LoOffset;
             ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
 
-            //load1 srca, reg1
+            miLoadRegImmParams.dwData     = 0;
+            miLoadRegImmParams.dwRegister = mmioRegs->generalPurposeRegister4HiOffset;
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer));
+
+            //load1 srca, GPREG0
             aluParams[aluCount].AluOpcode = MHW_MI_ALU_LOAD;
             aluParams[aluCount].Operand1  = MHW_MI_ALU_SRCA;
             aluParams[aluCount].Operand2  = MHW_MI_ALU_GPREG0;
             ++aluCount;
 
-            //load2 srcb, reg2
+            //load2 srcb, GPREG4
             aluParams[aluCount].AluOpcode = MHW_MI_ALU_LOAD;
             aluParams[aluCount].Operand1  = MHW_MI_ALU_SRCB;
             aluParams[aluCount].Operand2  = MHW_MI_ALU_GPREG4;

@@ -440,6 +440,7 @@ typedef struct _MHW_ID_ENTRY_PARAMS
     uint32_t            dwMediaIdOffset;                //! Offset of the first Media Interface Descriptor (in DSH)
     uint32_t            iMediaId;                       //! Media Interface Descriptor #
     uint32_t            dwKernelOffset;                 //! Kernel offset (in ISH)
+    uint32_t            kernelSize;
     uint32_t            dwSamplerOffset;                //! Sampler offset (in DSH)
     uint32_t            dwSamplerCount;                 //! Sample count
     uint32_t            dwBindingTableOffset;           //! Binding table offset (in DSH)
@@ -700,14 +701,6 @@ typedef enum _MHW_CHROMAKEY_MODE
     MHW_CHROMAKEY_MODE_REPLACE_BLACK = 1
 } MHW_CHROMAKEY_MODE;
 
-typedef struct _MHW_INLINE_DATA_PARAMS
-{
-    uint32_t          dwOffset;
-    uint32_t          dwSize;
-    PMOS_RESOURCE     resource;
-    bool              isPtrType;
-} MHW_INLINE_DATA_PARAMS, *PMHW_INLINE_DATA_PARAMS;
-
 typedef struct _MHW_SAMPLER_STATE_UNORM_PARAM
 {
     MHW_SAMPLER_FILTER_MODE      SamplerFilterMode;
@@ -832,6 +825,7 @@ typedef struct _MHW_SURFACE_STATE_SEND_PARAMS {
     int32_t                 iIndirectStateBase;
     int32_t                 iSurfaceStateOffset;
     bool                    bNeedNullPatch;
+    PMOS_RESOURCE           surfaceStateHeapMosResource;
 } MHW_SURFACE_STATE_SEND_PARAMS, *PMHW_SURFACE_STATE_SEND_PARAMS;
 
 struct MHW_STATE_HEAP_SETTINGS

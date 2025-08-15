@@ -25,7 +25,8 @@
 #include "mos_util_debug.h"
 #include "mos_utilities.h"
 
-#define _SW_BRC _MEDIA_RESERVED && (_DEBUG || _RELEASE_INTERNAL)
+#define _SW_BRC             _MEDIA_RESERVED && (_DEBUG || _RELEASE_INTERNAL)
+#define _KERNEL_RESERVED    _MEDIA_RESERVED && ENABLE_KERNELS
 
 enum HuCFunction
 {
@@ -46,8 +47,16 @@ enum HuCFunction
 #define ENCODE_ASSERT(_expr)                                                   \
     MOS_ASSERT(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_ENCODE, _expr)
 
+#if (_DEBUG || _RELEASE_INTERNAL)
 #define ENCODE_ASSERTMESSAGE(_message, ...)                                    \
     MOS_ASSERTMESSAGE(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_ENCODE, _message, ##__VA_ARGS__)
+#else
+#define ENCODE_ASSERTMESSAGE(_message, ...)                                    \
+    OcaOnMosCriticalMessage(MOS_FUNCTION, __LINE__);
+#endif
+
+#define ENCODE_WARNINGMESSAGE(_message, ...)                                   \
+    MOS_WARNINGMESSAGE(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_ENCODE, _message, ##__VA_ARGS__)
 
 #define ENCODE_NORMALMESSAGE(_message, ...)                                    \
     MOS_NORMALMESSAGE(MOS_COMPONENT_CODEC, MOS_CODEC_SUBCOMP_ENCODE, _message, ##__VA_ARGS__)

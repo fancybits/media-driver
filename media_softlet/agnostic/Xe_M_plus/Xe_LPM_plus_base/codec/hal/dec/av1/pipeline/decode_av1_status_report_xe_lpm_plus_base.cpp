@@ -34,7 +34,7 @@ namespace decode {
 class DecodeAllocator;
     DecodeAv1StatusReportXe_Lpm_Plus_Base::DecodeAv1StatusReportXe_Lpm_Plus_Base(
         DecodeAllocator* allocator, bool enableRcs, PMOS_INTERFACE osInterface):
-        DecodeStatusReport(allocator, enableRcs)
+        DecodeStatusReport(allocator, enableRcs, osInterface)
     {
         DECODE_FUNC_CALL()
 
@@ -68,7 +68,7 @@ class DecodeAllocator;
                 statusReportData->codecStatus = CODECHAL_STATUS_SUCCESSFUL;
             }
 
-            DECODE_ASSERTMESSAGE(
+            DECODE_WARNINGMESSAGE(
                 "Superblock Y Position for the First Error detected in the current decoded tile: %d, \n"
                 "Superblock X Position for the First Error detected in the current decoded tile: %d, \n"
                 "Bitstream Overflow:            %d, \n"

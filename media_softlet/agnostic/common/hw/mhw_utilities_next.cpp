@@ -56,6 +56,7 @@ static const std::set<MOS_HW_COMMAND> s_OCAResourceInfoType = {
     MOS_HUC_DMEM,
     MOS_HUC_VIRTUAL_ADDR,
     MOS_VDENC_PIPE_BUF_ADDR,
+    MOS_BINDLESS_STATELESS_SURFACE,
 };
 
 //!
@@ -475,15 +476,17 @@ MOS_STATUS Mhw_SendGenericPrologCmdNext(
     MHW_CHK_NULL_RETURN(pSkuTable);
     pWaTable = pOsInterface->pfnGetWaTable(pOsInterface);
     MHW_CHK_NULL_RETURN(pWaTable);
-
     GpuContext = pOsInterface->pfnGetGpuContext(pOsInterface);
-    if (pOsInterface->pfnIsGpuSyncByCmd(pOsInterface) && pCmdBuffer->syncMhwBatchBuffer != nullptr) // Some gpu context may not support sync with batch buffer
+    if (pOsInterface->pfnIsGpuSyncByCmd(pOsInterface, pOsInterface->CurrentGpuContextHandle) && pCmdBuffer->syncMhwBatchBuffer != nullptr)  // Some gpu context may not support sync with batch buffer
     {
         //Reset params
         auto &miBatchBufferStartParams = miItf->MHW_GETPAR_F(MI_BATCH_BUFFER_START)();
+        uint64_t gfxAddr = pOsInterface->pfnGetResourceGfxAddress(pOsInterface, &pCmdBuffer->OsResource);
+        pOsInterface->pfnOnNativeFenceSyncBBAdded(pCmdBuffer, gfxAddr);
         miBatchBufferStartParams       = {};
         MHW_CHK_STATUS_RETURN(miItf->MHW_ADDCMD_F(MI_BATCH_BUFFER_START)(pCmdBuffer, pCmdBuffer->syncMhwBatchBuffer));
     }
+
     if ( pOsInterface->Component != COMPONENT_CM )
     {
         if (    GpuContext == MOS_GPU_CONTEXT_RENDER        ||

@@ -255,7 +255,6 @@ void MhwInterfacesPvc_Next::Destroy()
     }
 }
 
-#ifdef _MMC_SUPPORTED
 static bool pvcRegisteredMmd =
     MediaFactory<uint32_t, MmdDevice>::
     Register<MmdDeviceXe_Xpm_Plus>((uint32_t)IGFX_PVC);
@@ -320,7 +319,6 @@ MhwInterfaces* MmdDeviceXe_Xpm_Plus::CreateMhwInterface(
 
     return mhw;
 }
-#endif
 
 static bool pvcRegisteredMcpy =
     MediaFactory<uint32_t, McpyDevice>::
@@ -608,7 +606,7 @@ MOS_STATUS CodechalInterfacesXe_Xpm_Plus::Initialize(
             if (CodecHalUsesVdencEngine(info->CodecFunction))
             {
             #ifdef _HEVC_ENCODE_VDENC_SUPPORTED
-            #ifdef _APOGEIOS_SUPPORTED
+            #ifdef _MEDIA_RESERVED
                 bool apogeiosEnable = true;
                 MOS_USER_FEATURE_VALUE_DATA         userFeatureData;
                 MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));

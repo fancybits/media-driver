@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2009-2022, Intel Corporation
+* Copyright (c) 2009-2025, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -51,6 +51,9 @@ class XRenderHal_Platform_Interface;
 #define MHW_RENDERHAL_ASSERTMESSAGE(_message, ...)                                        \
     MOS_ASSERTMESSAGE(MOS_COMPONENT_CM, MOS_CM_SUBCOMP_RENDERHAL, _message, ##__VA_ARGS__)
 
+#define MHW_RENDERHAL_WARNINGMESSAGE(_message, ...)                                       \
+    MOS_WARNINGMESSAGE(MOS_COMPONENT_CM, MOS_CM_SUBCOMP_RENDERHAL, _message, ##__VA_ARGS__)
+
 #define MHW_RENDERHAL_NORMALMESSAGE(_message, ...)                                        \
     MOS_NORMALMESSAGE(MOS_COMPONENT_CM, MOS_CM_SUBCOMP_RENDERHAL, _message, ##__VA_ARGS__)
 
@@ -84,6 +87,8 @@ class XRenderHal_Platform_Interface;
 #define MHW_RENDERHAL_CHK_NULL_RETURN(_ptr)                                            \
     MOS_CHK_NULL_RETURN(MOS_COMPONENT_CM, MOS_CM_SUBCOMP_RENDERHAL, _ptr)
 
+#define MHW_RENDERHAL_CHK_VALUE_RETURN(_value, _expect_value)                          \
+    MOS_CHK_STATUS_RETURN(MOS_COMPONENT_VP, MOS_VP_SUBCOMP_PUBLIC, ((_value) == (_expect_value)) ? MOS_STATUS_SUCCESS : MOS_STATUS_INVALID_PARAMETER)
 
 #define MHW_RENDERHAL_UNUSED(x)                                                         \
     MOS_UNUSED(x)
@@ -107,7 +112,7 @@ class XRenderHal_Platform_Interface;
 
 #define RENDERHAL_SSH_BINDING_TABLES        1
 #define RENDERHAL_SSH_BINDING_TABLES_MIN    1
-#define RENDERHAL_SSH_BINDING_TABLES_MAX   16
+#define RENDERHAL_SSH_BINDING_TABLES_MAX   32
 #define RENDERHAL_SSH_BINDING_TABLE_ALIGN  64
 
 #define RENDERHAL_SSH_SURFACE_STATES       40
@@ -937,7 +942,7 @@ typedef struct _RENDERHAL_STATE_HEAP
     // Current allocations
     int32_t                 iCurSshBufferIndex;                                 // Current SSH Buffer instance in the SSH heap
     int32_t                 iCurrentBindingTable;                               // Current BT
-    int32_t                 iCurrentSurfaceState;                               // Current SS
+    int32_t                 iCurrentSurfaceState;                               // Current SS. When bindlessInUse is true, this means state entry index
 
     //---------------------------
     // Instruction State Heap
@@ -1004,6 +1009,15 @@ typedef struct _RENDERHAL_INTERFACE_DESCRIPTOR_PARAMS
 //! \brief  ======== HW Abstraction Params ===================================
 //!
 
+struct RENDERHAL_STATE_LOCATION
+{
+    PMOS_RESOURCE stateHeap = 0;
+    uint32_t      offset    = 0;
+    uint32_t      size      = 0;
+    uint8_t      *statePtr  = nullptr;
+};
+using PRENDERHAL_STATE_LOCATION = RENDERHAL_STATE_LOCATION*;
+
 typedef struct _RENDERHAL_SURFACE_STATE_PARAMS
 {
     RENDERHAL_SURFACE_STATE_TYPE    Type                      : 5;              // Type of surface state
@@ -1032,6 +1046,7 @@ typedef struct _RENDERHAL_SURFACE_STATE_PARAMS
     uint32_t                        surfaceType               : 11;
     MOS_COMPONENT                   Component                 : 4;
     uint32_t                        combineChannelY           : 1;              // Combine 2 Luma Channel pixels into 1 pixel, so that kernel can reduce write times
+    uint32_t                        usePackedPlanar           : 1;              // Force using packed planr
     RENDERHAL_MEMORY_OBJECT_CONTROL MemObjCtl;                                  // Caching attributes
 } RENDERHAL_SURFACE_STATE_PARAMS, *PRENDERHAL_SURFACE_STATE_PARAMS;
 
@@ -1066,6 +1081,7 @@ typedef struct _RENDERHAL_SURFACE_STATE_ENTRY
     uint16_t                        wUYOffset;                                      //
     uint16_t                        wVXOffset;                                      // (X,Y) offset V (AVS/ADI)
     uint16_t                        wVYOffset;                                      //
+    RENDERHAL_STATE_LOCATION        stateLocation;                                  // Gfx Location of Surface State
 } RENDERHAL_SURFACE_STATE_ENTRY, *PRENDERHAL_SURFACE_STATE_ENTRY;
 
 //!
@@ -1141,6 +1157,7 @@ typedef struct _RENDERHAL_ENLARGE_PARAMS
     int32_t iKernelCount;     // Number of Kernels that can be loaded
     int32_t iKernelHeapSize;  // Size of GSH block for kernels
     int32_t iCurbeSize;       // Size of CURBE area
+    int32_t iMediaIDs;        // Number of Media Interface Descriptors
 } RENDERHAL_ENLARGE_PARAMS, *PRENDERHAL_ENLARGE_PARAMS;
 
 //!
@@ -1185,6 +1202,8 @@ typedef struct _RENDERHAL_INTERFACE
     MHW_SIP_STATE_PARAMS         SipStateParams;
     MHW_WALKER_MODE              MediaWalkerMode;                               // Media object walker mode from Regkey: repel, dual mode, quad mode
     uint32_t                     euThreadSchedulingMode;
+    uint32_t                     largeGrfMode;
+    uint32_t                     enableVariableRegisterSizeAllocationVrt;
 
     RENDERHAL_SURFACE_STATE_TYPE SurfaceTypeDefault;                            // Surface State type default
     RENDERHAL_SURFACE_STATE_TYPE SurfaceTypeAdvanced;                           // Surface State type advanced
@@ -1204,6 +1223,7 @@ typedef struct _RENDERHAL_INTERFACE
     bool                        bComputeContextInUse;                           // Compute Context use for media
     bool                        isBindlessHeapInUse;                            // Bindless Heap Mode use
 
+    uint32_t                    grfSize;                                        // The size of GRF registers, which can be get from GRF Registers from Spec
     uint32_t                    dwMaskCrsThdConDataRdLn;                        // Unifies pfnSetupInterfaceDescriptor for g75,g8,...
     uint32_t                    dwMinNumberThreadsInGroup;                      // Unifies pfnSetupInterfaceDescriptor for g75,g8,...
     uint32_t                    dwCurbeBlockAlign;                              // Unifies pfnLoadCurbeData - Curbe Block Alignment
@@ -1323,6 +1343,10 @@ typedef struct _RENDERHAL_INTERFACE
     MOS_STATUS (* pfnRefreshSync) (
                 PRENDERHAL_INTERFACE     pRenderHal);
 
+    MOS_STATUS (*pfnOverwriteEnlargedHeapParams)(
+        PRENDERHAL_INTERFACE      pRenderHal,
+        RENDERHAL_ENLARGE_PARAMS &params);
+
     //---------------------------
     // SSH, surface states
     //---------------------------
@@ -1384,6 +1408,7 @@ typedef struct _RENDERHAL_INTERFACE
 
     MOS_STATUS (*pfnSendBindlessSurfaceStates) (
                 PRENDERHAL_INTERFACE            pRenderHal,
+                PMOS_COMMAND_BUFFER             pCmdBuffer,
                 bool                            bNeedNullPatch);
 
     MOS_STATUS (* pfnBindSurfaceState) (
@@ -1478,12 +1503,12 @@ typedef struct _RENDERHAL_INTERFACE
                 PMHW_SAMPLER_STATE_PARAM    pSamplerParams,
                 int32_t                     iSamplers);
 
-    MOS_STATUS (*pfnSetAndGetSamplerStates) (
-                PRENDERHAL_INTERFACE     pRenderHal,
-                int32_t                  iMediaID,
-                PMHW_SAMPLER_STATE_PARAM pSamplerParams,
-                int32_t                  iSamplers,
-                std::map<uint32_t, uint32_t> &samplerMap);
+    MOS_STATUS (*pfnSetAndGetSamplerStates)(
+        PRENDERHAL_INTERFACE                          pRenderHal,
+        int32_t                                       iMediaID,
+        PMHW_SAMPLER_STATE_PARAM                      pSamplerParams,
+        int32_t                                       iSamplers,
+        std::map<uint32_t, RENDERHAL_STATE_LOCATION> &samplerMap);
 
     int32_t (* pfnAllocateMediaID) (
                 PRENDERHAL_INTERFACE        pRenderHal,
