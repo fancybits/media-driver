@@ -278,11 +278,7 @@ static bool DdiMedia_ReleaseBsBuffer(
         }
         return false;
     }
-    else
-    {
-        if (bufMgr->dwNumSliceData)
-            bufMgr->dwNumSliceData--;
-    }
+
     return true;
 }
 
@@ -6997,6 +6993,8 @@ static uint32_t DdiMedia_GetDrmFormatOfSeparatePlane(uint32_t fourcc, int plane)
         case VA_FOURCC_422V:
         case VA_FOURCC_444P:
         case VA_FOURCC_Y800:
+        case VA_FOURCC_Y8:
+        case VA_FOURCC('4','0','0','P'):
         case VA_FOURCC_RGBP:
         case VA_FOURCC_BGRP:
             return DRM_FORMAT_R8;
@@ -7138,6 +7136,8 @@ static uint32_t DdiMedia_GetDrmFormatOfCompositeObject(uint32_t fourcc)
     case VA_FOURCC_Y416:
         return DRM_FORMAT_Y416;
     case VA_FOURCC_Y800:
+    case VA_FOURCC_Y8:
+    case VA_FOURCC('4','0','0','P'):
         return DRM_FORMAT_R8;
     case VA_FOURCC_P010:
         return DRM_FORMAT_P010;

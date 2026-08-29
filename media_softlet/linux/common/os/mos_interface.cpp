@@ -729,7 +729,9 @@ MOS_STATUS MosInterface::AddIndirectState(
     uint32_t         *pIndirectState,
     uint32_t         *gfxAddressBottom,
     uint32_t         *gfxAddressTop,
-    const char       *stateName)
+    const char       *stateName,
+    uint32_t          gfxAddressBottomValue,
+    uint32_t          gfxAddressTopValue)
 {
     MOS_OS_CHK_NULL_RETURN(streamState);
     MOS_OS_CHK_NULL_RETURN(streamState->osDeviceContext);
@@ -737,12 +739,14 @@ MOS_STATUS MosInterface::AddIndirectState(
     if (streamState->osDeviceContext->m_dumpCommandBuffer &&
         streamState->osDeviceContext->m_dumpCommandBufferToFile)
     {
-        INDIRECT_STATE_INFO indirectStateInfo = {};
-        indirectStateInfo.stateSize           = stateSize;
-        indirectStateInfo.indirectState       = pIndirectState;
-        indirectStateInfo.gfxAddressBottom    = gfxAddressBottom;
-        indirectStateInfo.gfxAddressTop       = gfxAddressTop;
-        indirectStateInfo.stateName           = stateName;
+        INDIRECT_STATE_INFO indirectStateInfo   = {};
+        indirectStateInfo.stateSize             = stateSize;
+        indirectStateInfo.indirectState         = pIndirectState;
+        indirectStateInfo.gfxAddressBottom      = gfxAddressBottom;
+        indirectStateInfo.gfxAddressTop         = gfxAddressTop;
+        indirectStateInfo.stateName             = stateName;
+        indirectStateInfo.gfxAddressBottomValue = gfxAddressBottomValue;
+        indirectStateInfo.gfxAddressTopValue    = gfxAddressTopValue;
         streamState->indirectStateInfo.push_back(std::move(indirectStateInfo));
     }
 
@@ -1673,6 +1677,7 @@ MOS_STATUS MosInterface::ConvertResourceFromDdi(
             resource->Format = Format_A16R16G16B16;
             break;
         case Media_Format_A16B16G16R16:
+        case Media_Format_Y416_X16B16G16R16:
             resource->Format = Format_A16B16G16R16;
             break;
         case Media_Format_I420:
@@ -2018,6 +2023,8 @@ MOS_STATUS MosInterface::GetResourceInfo(
           break;
     }
     details.Format   = resource->Format;
+
+    details.MipTailStartLOD = gmmResourceInfo->GetMipTailStartLodSurfaceState();
 
     // Get planes
     MosUtilities::MosZeroMemory(reqInfo, sizeof(reqInfo));

@@ -176,13 +176,13 @@ public:
         uint32_t  mode,
         uint32_t *commandsSize,
         uint32_t *patchListSize,
-        bool      isShortFormat) = 0;
+        bool      isShortFormat) { return MOS_STATUS_UNIMPLEMENTED; }
 
     virtual MOS_STATUS GetMfxPrimitiveCommandsDataSize(
         uint32_t  mode,
         uint32_t *commandsSize,
         uint32_t *patchListSize,
-        bool      isModeSpecific) = 0;
+        bool      isModeSpecific) { return MOS_STATUS_UNIMPLEMENTED; }
 
     inline uint32_t GetMfxErrorFlagsMask() { return m_mfxErrorFlagsMask; }
 

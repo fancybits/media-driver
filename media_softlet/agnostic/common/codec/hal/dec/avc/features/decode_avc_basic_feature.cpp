@@ -89,6 +89,7 @@ namespace decode {
 
         MEDIA_FEATURE_TABLE* skuTable = m_osInterface->pfnGetSkuTable(m_osInterface);
         m_usingVeRing = (skuTable != nullptr) ? MEDIA_IS_SKU(skuTable, FtrVERing) : false;
+        m_avcd4ByteNalStartCodeSupport = (skuTable != nullptr) ? MEDIA_IS_SKU(skuTable, FtrAVCd4ByteNALStartCodeSupport) : false;
 
         if (m_avcPicParams->seq_fields.chroma_format_idc == avcChromaFormatMono &&
             (m_resMonoPicChromaBuffer == nullptr))
@@ -388,6 +389,13 @@ namespace decode {
 
             if (m_sliceRecord[slcCount].skip)
             {
+                continue;
+            }
+
+            if (m_avcd4ByteNalStartCodeSupport && slc->slice_data_size < 3)
+            {
+                m_sliceRecord[slcCount].skip = true;
+                slc++;
                 continue;
             }
 

@@ -311,6 +311,12 @@ MOS_STATUS McpyDeviceXe_Xpm::Initialize(
     MhwInterfaces* mhwInterfaces = nullptr;
 
     auto deleterOnFailure = [&](bool deleteOsInterface, bool deleteMhwInterface){
+        if (deleteMhwInterface && mhwInterfaces != nullptr)
+        {
+            mhwInterfaces->Destroy();
+            MOS_Delete(mhwInterfaces);
+        }
+
         if (deleteOsInterface && osInterface != nullptr)
         {
             if (osInterface->pfnDestroy)
@@ -318,12 +324,6 @@ MOS_STATUS McpyDeviceXe_Xpm::Initialize(
                 osInterface->pfnDestroy(osInterface, false);
             }
             MOS_FreeMemory(osInterface);
-        }
-
-        if (deleteMhwInterface && mhwInterfaces != nullptr)
-        {
-            mhwInterfaces->Destroy();
-            MOS_Delete(mhwInterfaces);
         }
 
         MOS_Delete(device);
@@ -540,6 +540,11 @@ MOS_STATUS CodechalInterfacesXe_Xpm::Initialize(
     #endif
         {
             CODECHAL_PUBLIC_ASSERTMESSAGE("Decode mode requested invalid!");
+            MOS_Delete(hwInterface);
+            mhwInterfaces->SetDestroyState(true);
+#if USE_CODECHAL_DEBUG_TOOL
+            MOS_Delete(debugInterface);
+#endif
             return MOS_STATUS_INVALID_PARAMETER;
         }
 

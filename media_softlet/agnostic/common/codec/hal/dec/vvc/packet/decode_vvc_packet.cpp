@@ -114,6 +114,8 @@ bool VvcDecodePkt::IsPrologRequired()
 MOS_STATUS VvcDecodePkt::AddForceWakeup(MOS_COMMAND_BUFFER& cmdBuffer)
 {
     DECODE_FUNC_CALL();
+    // NativeFence sync BB may cause preemption and ring idle, so force wakeup after it
+    DECODE_CHK_STATUS(AddNativeFenceSyncBBStartCmd(cmdBuffer));
 
     auto &par = m_miItf->GETPAR_MI_FORCE_WAKEUP();
     MOS_ZeroMemory(&par, sizeof(mhw::mi::MI_FORCE_WAKEUP_PAR));
@@ -193,6 +195,7 @@ MOS_STATUS VvcDecodePkt::Completed(void *mfxStatus, void *rcsStatus, void *statu
     DecodeStatusMfx *       decodeStatusMfx  = (DecodeStatusMfx *)mfxStatus;
     DecodeStatusReportData *statusReportData = (DecodeStatusReportData *)statusReport;
     DECODE_VERBOSEMESSAGE("Current Frame Index = %d", statusReportData->currDecodedPic.FrameIdx);
+
 
     return MOS_STATUS_SUCCESS;
 }
@@ -291,6 +294,8 @@ MOS_STATUS VvcDecodePkt::EndStatusReport(uint32_t srType, MOS_COMMAND_BUFFER* cm
     DECODE_CHK_NULL(cmdBuffer);
 
     DECODE_CHK_STATUS(ReadVvcpStatus(m_statusReport, *cmdBuffer));
+#if (_DEBUG || _RELEASE_INTERNAL)
+#endif
     DECODE_CHK_STATUS(MediaPacket::EndStatusReportNext(srType, cmdBuffer));
 
     MediaPerfProfiler *perfProfiler = MediaPerfProfiler::Instance();

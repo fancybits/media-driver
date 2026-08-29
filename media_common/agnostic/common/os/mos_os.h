@@ -45,6 +45,13 @@
 //!
 //! \brief OS specific includes and definitions
 //!
+enum VdboxTypePref : uint8_t
+{
+    MOS_VDBOX_PREFER_NONE = 0,
+    MOS_VDBOX_PREFER_FULL = 1,
+    MOS_VDBOX_PREFER_SLIM = 2
+};
+
 #include "mos_os_specific.h"
 #include "mos_os_virtualengine_specific.h"
 
@@ -74,7 +81,9 @@ class MhwInterfacesNext;
     ((GpuContext) == MOS_GPU_CONTEXT_VDBOX2_VIDEO3) || \
     ((GpuContext) == MOS_GPU_CONTEXT_VIDEO5)        || \
     ((GpuContext) == MOS_GPU_CONTEXT_VIDEO6)        || \
-    ((GpuContext) == MOS_GPU_CONTEXT_VIDEO7)           \
+    ((GpuContext) == MOS_GPU_CONTEXT_VIDEO7)        || \
+    ((GpuContext) == MOS_GPU_CONTEXT_VIDEO_DEC_FULL)|| \
+    ((GpuContext) == MOS_GPU_CONTEXT_VIDEO_ENC_FULL)   \
 )
 
 #define MOS_RCS_ENGINE_USED(GpuContext) (                 \
@@ -111,6 +120,19 @@ class MhwInterfacesNext;
 #define MOS_COMMAND_BUFFER_VEBOX_ENGINE    "VECS"
 #define MOS_COMMAND_BUFFER_TEE_ENGINE      "TEE"
 #define MOS_COMMAND_BUFFER_PLATFORM_LEN    4
+
+//!
+//! \brief    Map a GPU context ordinal to its command-buffer engine name
+//! \details  Behavior-preserving extract of the engine-name selection used by
+//!           the command-buffer dump path. The FULL VDBox ordinals
+//!           (MOS_GPU_CONTEXT_VIDEO_DEC_FULL / _ENC_FULL) map to the VIDEO
+//!           (VCS) engine, alongside the legacy VIDEO ordinals.
+//! \param    MOS_GPU_CONTEXT gpuContext
+//!           [in] GPU context ordinal
+//! \return   const char*
+//!           Engine-name string, or nullptr for an unsupported context
+//!
+const char *Mos_GetCmdBufferEngineName(MOS_GPU_CONTEXT gpuContext);
 #endif // MOS_COMMAND_BUFFER_DUMP_SUPPORTED
 
 #ifndef E_NOTIMPL
@@ -266,6 +288,7 @@ typedef struct _MOS_COMMAND_BUFFER
 {
     MOS_RESOURCE        OsResource;                 //!< OS Resource
     PMHW_BATCH_BUFFER   syncMhwBatchBuffer;         //!< Pointer to sync mhw batch buffer
+    bool                bNativeFenceSyncBBAdded;    //!< True after native fence MI_BATCH_BUFFER_START has been emitted
 
     // Common fields
     uint32_t            *pCmdBase;                   //!< Base    address (CPU)
@@ -333,6 +356,7 @@ typedef struct _MOS_GFXRES_FLAGS
     int32_t         bFlipChain;
     int32_t         bSVM;
     int32_t         bCacheable;
+    int32_t         bSubAllocation;                                             //!< [in] true: Resource is a sub-allocation. Only used for volume 3DLUT buffer.
 } MOS_GFXRES_FLAGS, *PMOS_GFXRES_FLAGS;
 
 //!
@@ -375,7 +399,8 @@ typedef enum _MOS_PATCH_TYPE
     MOS_PATCH_TYPE_BIND_ONLY,
     MOS_PATCH_TYPE_UV_BASE_ADDRESS,
     MOS_PATCH_TYPE_V_BASE_ADDRESS,
-    MOS_PATCH_TYPE_V_Y_OFFSET
+    MOS_PATCH_TYPE_V_Y_OFFSET,
+    MOS_PATCH_TYPE_PRE_PATCHED    //!< GPU address already written into cmd buffer at PatchOffset
 } MOS_PATCH_TYPE;
 
 //!
@@ -501,6 +526,8 @@ struct INDIRECT_STATE_INFO
     uint32_t        *gfxAddressBottom      = nullptr;  //indirect gfx address bottom
     uint32_t        *gfxAddressTop         = nullptr;  //indirect gfx address top
     const char      *stateName             = "";
+    uint32_t        gfxAddressBottomValue  = 0;
+    uint32_t        gfxAddressTopValue     = 0;
 };
 
 struct MosStreamState
@@ -749,12 +776,11 @@ typedef struct _MOS_INTERFACE
 #endif // (_DEBUG || _RELEASE_INTERNAL)
 
     bool                            apoMosEnabled;                                //!< apo mos or not
-    bool                            apoMosForLegacyRuntime = false;
     std::vector<ResourceDumpAttri>  resourceDumpAttriArray;
 
     MEMORY_OBJECT_CONTROL_STATE (* pfnCachePolicyGetMemoryObject) (
         MOS_HW_RESOURCE_DEF         Usage,
-        GMM_CLIENT_CONTEXT          *pGmmClientContext);
+        PMOS_INTERFACE              pOsInterface);
 
     uint8_t (* pfnCachePolicyGetL1Config) (
             MOS_HW_RESOURCE_DEF         Usage,
@@ -819,6 +845,16 @@ typedef struct _MOS_INTERFACE
 
     GMM_CLIENT_CONTEXT* (* pfnGetGmmClientContext) (
         PMOS_INTERFACE              pOsInterface);
+
+    //! \brief    Query the GMM cache-policy memory object for a GMM resource usage type.
+    //! \details  Command-streamer MOCS (GMM_RESOURCE_USAGE_COMMAND_STREAMER) has no
+    //!           MOS_HW_RESOURCE_DEF entry, so it cannot use pfnCachePolicyGetMemoryObject.
+    //!           This accessor takes the GMM_RESOURCE_USAGE_TYPE directly. Exposing it as a
+    //!           MOS function pointer keeps the shared mi::Impl accessor free of a direct GMM
+    //!           dependency and makes the GMM query mockable in ULT.
+    MEMORY_OBJECT_CONTROL_STATE (* pfnGetGmmCachePolicyMemoryObject) (
+        GMM_CLIENT_CONTEXT          *pGmmClientContext,
+        GMM_RESOURCE_USAGE_TYPE     Usage);
 
     MOS_STATUS (* pfnIsGpuContextValid) (
         PMOS_INTERFACE              pOsInterface,
@@ -968,6 +1004,14 @@ typedef struct _MOS_INTERFACE
         uint32_t            *gfxAddressBottom,
         uint32_t            *gfxAddressTop,
         const char          *stateName);
+
+    void (*pfnAddIndirectStateByAddressValue)(
+        PMOS_INTERFACE pOsInterface,
+        uint32_t       indirectStateSize,
+        uint32_t      *pIndirectState,
+        uint32_t       gfxAddressBottom,
+        uint32_t       gfxAddressTop,
+        const char    *stateName);
 
     #define pfnFreeResource(pOsInterface, pResource) \
        pfnFreeResource(pOsInterface, __FUNCTION__, __FILE__, __LINE__, pResource)
@@ -2276,6 +2320,8 @@ struct _MOS_GPUCTX_CREATOPTIONS_ENHANCED : public _MOS_GPUCTX_CREATOPTIONS
 
     uint32_t    LRCACount;
 
+    VdboxTypePref m_vdboxTypePref = MOS_VDBOX_PREFER_NONE;
+
 #if (_DEBUG || _RELEASE_INTERNAL)
     // Logical engine instances used by this context; valid only if flag DebugOverride is set.
     uint8_t    EngineInstance[MOS_MAX_ENGINE_INSTANCE_PER_CLASS];
@@ -2300,6 +2346,7 @@ struct _MOS_GPUCTX_CREATOPTIONS_ENHANCED : public _MOS_GPUCTX_CREATOPTIONS
         {
             Flags     = ((MOS_GPUCTX_CREATOPTIONS_ENHANCED *)createOption)->Flags;
             LRCACount = ((MOS_GPUCTX_CREATOPTIONS_ENHANCED *)createOption)->LRCACount;
+            m_vdboxTypePref = ((MOS_GPUCTX_CREATOPTIONS_ENHANCED *)createOption)->m_vdboxTypePref;
 #if (_DEBUG || _RELEASE_INTERNAL)
             for (auto i = 0; i < MOS_MAX_ENGINE_INSTANCE_PER_CLASS; i++)
             {

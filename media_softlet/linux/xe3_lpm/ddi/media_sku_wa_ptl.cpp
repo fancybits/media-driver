@@ -285,7 +285,7 @@ static bool InitPtlMediaWaExt(struct GfxDeviceInfo *devInfo,
 
     /*software wa to disable calculate the UV offset by gmmlib
       CPU blt call will add/remove padding on the platform*/
-    MEDIA_WR_WA(waTable, WaDisableGmmLibOffsetInDeriveImage, 1);
+    MEDIA_WR_WA(waTable, WaDisableGmmLibOffsetInDeriveImage, 0);
 
     /* Turn off MMC for codec, need to remove once turn it on */
     MEDIA_WR_WA(waTable, WaDisableCodecMmc, 0);
@@ -302,6 +302,16 @@ static bool InitPtlMediaWaExt(struct GfxDeviceInfo *devInfo,
     MEDIA_WR_WA(waTable, Wa_15014143531, 1);
 
     MEDIA_WR_WA(waTable, Wa_16021867713, 1);
+
+    MEDIA_WR_WA(waTable, Wa_15017726119, 1);
+
+    MEDIA_WR_WA(waTable, Wa_16025947269, 1);
+
+    if (!(drvInfo->devId == 0xFD80 || drvInfo->devId == 0xFD81) //Not WCL Device
+        &&(drvInfo->devRev == 0x0))  //A0 only
+    {
+        MEDIA_WR_WA(waTable, Wa_15017562431, 1);
+    }
 
     return true;
 }

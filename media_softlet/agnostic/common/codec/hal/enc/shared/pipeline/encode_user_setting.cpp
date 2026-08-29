@@ -102,6 +102,20 @@ MOS_STATUS EncodePipeline::InitUserSetting(MediaUserSettingSharedPtr userSetting
 
     DeclareUserSettingKey(
         userSettingPtr,
+        "TF Downscale Method",
+        MediaUserSetting::Group::Sequence,
+        uint32_t(2),
+        false);
+
+    DeclareUserSettingKey(
+        userSettingPtr,
+        "TF preENC TargetUsage",
+        MediaUserSetting::Group::Sequence,
+        uint32_t(4),
+        false);
+
+    DeclareUserSettingKey(
+        userSettingPtr,
         "Enable Frame Tracking",
         MediaUserSetting::Group::Sequence,
         int32_t(1),
@@ -166,6 +180,18 @@ MOS_STATUS EncodePipeline::InitUserSetting(MediaUserSettingSharedPtr userSetting
     DeclareUserSettingKeyForDebug(
         userSettingPtr,
         "BRC SW Simulation Modules Path",
+        MediaUserSetting::Group::Sequence,
+        "",
+        false);
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        "SLBB SW Simulation",
+        MediaUserSetting::Group::Sequence,
+        int32_t(0),
+        false);
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        "SLBB SW Simulation Modules Path",
         MediaUserSetting::Group::Sequence,
         "",
         false);

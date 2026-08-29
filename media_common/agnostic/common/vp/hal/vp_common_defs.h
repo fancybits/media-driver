@@ -203,6 +203,7 @@ enum VpKernelIDNext
     kernelHdr3DLutCalc = vpKernelIDNextBase,
     kernelHdr3DLutCalcOcl,
     kernelHVSCalc,
+    kernelHdrMandatoryLite,
 
     //Add New Kernel ID Here
 
@@ -942,6 +943,7 @@ typedef struct _VPHAL_3DLUT_PARAMS
     uint16_t       MappingMode        = 0;        // Mapping Mode
 
     VPHAL_3DLUT_INTERPOLATION InterpolationMethod = VPHAL_3DLUT_INTERPOLATION_DEFAULT;  // VEBox 3DLut interpolation mode
+    bool bUpdated = true;  // True when 3DLut content changed, default true for backward compatibility 
 } VPHAL_3DLUT_PARAMS, *PVPHAL_3DLUT_PARAMS;
 
 //!
@@ -1032,6 +1034,18 @@ typedef enum _VPHAL_SPLIT_SCREEN_DEMO_POSITION
 } VPHAL_SPLIT_SCREEN_DEMO_POSITION;
 
 //!
+//! Structure VPHAL_RENDER_COMMAND_STREAM_TYPE
+//! \brief RCS or CCS
+//!
+typedef enum _VPHAL_RENDER_COMMAND_STREAM_TYPE
+{
+    VPHAL_RENDER_COMMAND_STREAM_DEFAULT = 0,
+    VPHAL_RENDER_COMMAND_STREAM_CCS     = 1,
+    VPHAL_RENDER_COMMAND_STREAM_RCS     = 2
+    
+} VPHAL_RENDER_COMMAND_STREAM_TYPE;
+
+//!
 //! Structure VPHAL_SPLIT_SCREEN_DEMO_MODE_PARAMS
 //! \brief Split-Screen Demo Mode Parameters
 //!
@@ -1099,8 +1113,19 @@ struct VPHAL_RENDER_PARAMS
     bool bOptimizeCpuTiming = false;  //!< Optimize Cpu Timing
 
     bool bForceToRender = false;  // Force to render to perform scaling.
+    VPHAL_RENDER_COMMAND_STREAM_TYPE renderCommandStreamType = VPHAL_RENDER_COMMAND_STREAM_DEFAULT;  // CCS or RCS to Use
 
     HANDLE gpuAppTaskEvent;  //!< GPU App task event
+
+#if defined(LINUX) && !defined(WDDM_LINUX)
+    //!< Enable High Quality / Super Resolution mode (SR3) on Linux.
+    //!< TODO: DDI layer (ddi_vp_functions.cpp) must set this from a libva signal before
+    //!< SR3 can trigger. Suggested hook: VA_FILTER_SCALING_HQ in VAProcPipelineParameterBuffer::filter_flags
+    //!< (already parsed at ddi_vp_functions.cpp:4189 — extend that case to set
+    //!< vpHalRenderParams->isHighQualityModeEnabled = true). Or introduce a dedicated
+    //!< VAProcFilterSuperResolution buffer for richer control.
+    bool isHighQualityModeEnabled = false;
+#endif
 
     VPHAL_RENDER_PARAMS() : uSrcCount(0),
                             pSrc(),
@@ -1126,6 +1151,9 @@ struct VPHAL_RENDER_PARAMS
                             bUseVEHdrSfc(false),
                             bNonFirstFrame(false),
                             gpuAppTaskEvent(nullptr)
+#if defined(LINUX) && !defined(WDDM_LINUX)
+                            , isHighQualityModeEnabled(false)
+#endif
     {
     }
 };

@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2018-2021, Intel Corporation
+* Copyright (c) 2018-2026, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -27,6 +27,7 @@
 //!           this file is for the base interface which is shared by all components.
 //!
 
+#include <bitset>
 #include "media_context.h"
 #include "mos_interface.h"
 #include "mos_os_virtualengine_next.h"
@@ -35,7 +36,7 @@
 #include "decode_scalability_defs.h"
 #endif
 #include "mos_os_cp_interface_specific.h"
-MediaContext::MediaContext(uint8_t componentType, void *hwInterface, PMOS_INTERFACE osInterface)
+MediaContext::MediaContext(uint8_t componentType, void *hwInterface, PMOS_INTERFACE osInterface, VdboxTypePref pref)
 {
     if (!hwInterface)
     {
@@ -76,7 +77,14 @@ MediaContext::MediaContext(uint8_t componentType, void *hwInterface, PMOS_INTERF
     {
         if (m_osInterface->pfnGetMediaEngineInfo(m_osInterface, mediaEngineInfo) == MOS_STATUS_SUCCESS)
         {
+#ifdef _MEDIA_RESERVED
+            if (pref == MOS_VDBOX_PREFER_FULL)
+                m_numVdbox = (uint8_t)std::bitset<32>(mediaEngineInfo.VDBoxInfo.VDBoxTypeA.VDBoxTypeAValue).count();
+            else
+                m_numVdbox = (uint8_t)mediaEngineInfo.VDBoxInfo.NumberOfVDBoxEnabled;
+#else
             m_numVdbox = (uint8_t)mediaEngineInfo.VDBoxInfo.NumberOfVDBoxEnabled;
+#endif
         }
     }
     else
@@ -84,7 +92,14 @@ MediaContext::MediaContext(uint8_t componentType, void *hwInterface, PMOS_INTERF
         gtSystemInfo    = m_osInterface->pfnGetGtSystemInfo(m_osInterface);
         if(gtSystemInfo)
         {
+#ifdef _MEDIA_RESERVED
+            if (pref == MOS_VDBOX_PREFER_FULL)
+                m_numVdbox = (uint8_t)std::bitset<32>(gtSystemInfo->VDBoxInfo.VDBoxTypeA.VDBoxTypeAValue).count();
+            else
+                m_numVdbox = (uint8_t)(gtSystemInfo->VDBoxInfo.NumberOfVDBoxEnabled);
+#else
             m_numVdbox = (uint8_t)(gtSystemInfo->VDBoxInfo.NumberOfVDBoxEnabled);
+#endif
         }
     }
 
@@ -286,7 +301,7 @@ MOS_STATUS MediaContext::SearchContext(MediaFunction func, T params, uint32_t& i
                 MOS_OS_CHK_STATUS_RETURN(m_osInterface->pfnSetGpuContextHandle(m_osInterface, curAttribute.gpuContext, curAttribute.ctxForLegacyMos));
                 // set legacy MOS ve interface to current reused scalability state's ve interface
                 m_osInterface->pVEInterf = curAttribute.scalabilityState->m_veInterface;
-                if (m_osInterface->apoMosEnabled || m_osInterface->apoMosForLegacyRuntime)
+                if (m_osInterface->apoMosEnabled)
                 {
                     if (curAttribute.scalabilityState->m_veState)
                     {
@@ -635,6 +650,7 @@ MOS_STATUS MediaContext::FindGpuNodeToUse(MediaFunction func, PMHW_VDBOX_GPUNODE
                     m_osInterface->pfnSetLatestVirtualNode(m_osInterface, MOS_GPU_NODE_MAX);
                 }
             }
+
             if (func == VdboxDecodeVirtualNode0Func)
             {
                 setVideoNode = true;
@@ -741,6 +757,12 @@ MOS_STATUS MediaContext::FunctionToGpuContext(MediaFunction func, const MOS_GPUC
 
 MOS_STATUS MediaContext::FunctionToGpuContextDecode(const MOS_GPUCTX_CREATOPTIONS_ENHANCED &option, const MOS_GPU_NODE &node, MOS_GPU_CONTEXT &ctx)
 {
+    if (option.m_vdboxTypePref == MOS_VDBOX_PREFER_FULL)
+    {
+        ctx = MOS_GPU_CONTEXT_VIDEO_DEC_FULL;
+        return MOS_STATUS_SUCCESS;
+    }
+
     if (option.UsingSFC)
     {
         ctx = MOS_GPU_CONTEXT_VIDEO4;
@@ -770,6 +792,12 @@ MOS_STATUS MediaContext::FunctionToGpuContextDecode(const MOS_GPUCTX_CREATOPTION
 
 MOS_STATUS MediaContext::FunctionToGpuContextEncode(const MOS_GPUCTX_CREATOPTIONS_ENHANCED &option, MOS_GPU_CONTEXT &ctx)
 {
+    if (option.m_vdboxTypePref == MOS_VDBOX_PREFER_FULL)
+    {
+        ctx = MOS_GPU_CONTEXT_VIDEO_ENC_FULL;
+        return MOS_STATUS_SUCCESS;
+    }
+
     switch (option.LRCACount)
     {
     case 0:

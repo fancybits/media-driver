@@ -27,6 +27,7 @@
 #include "vp_platform_interface.h"
 #include "vp_visa.h"
 #include "vp_user_setting.h"
+#include "vp_feature_manager_softlet.h"
 
 using namespace vp;
 extern const Kdll_RuleEntry g_KdllRuleTable_Next[];
@@ -154,6 +155,11 @@ MOS_STATUS VpRenderKernel::Destroy()
     }
 
     return MOS_STATUS_SUCCESS;
+}
+
+VPFeatureManager* VpPlatformInterface::CreateFeatureChecker(_VP_MHWINTERFACE *hwInterface)
+{
+    return MOS_New(VPFeatureManagerSoftlet, hwInterface);
 }
 
 MOS_STATUS VpPlatformInterface::InitPolicyRules(VP_POLICY_RULES &rules)
@@ -740,7 +746,7 @@ void VpPlatformInterface::InitVpDelayedNativeAdvKernel(
 
     VpRenderKernel vpKernel;
 
-    bool localIdGeneratedByRuntime = (kernelExeEnv.uiSlmSize > 0 && kernelExeEnv.uSimdSize == 1);
+    bool localIdGeneratedByRuntime = (kernelExeEnv.uiSlmSize > 0 && kernelExeEnv.uSimdSize == 1) || (kernelExeEnv.uInlineDataPayloadSize == 64 && kernelExeEnv.uSimdSize == 1);
 
     vpKernel.SetKernelBinPointer((void *)kernelBin);
     vpKernel.SetKernelName(kernelName);

@@ -44,7 +44,15 @@ public:
 
     virtual ~AvcBasicFeatureXe3_Lpm() {}
 
+    /**
+     * @brief Get the minimum AVC QP value for Xe3_LPM platform
+     * @return uint8_t Returns CODEC_AVC_MIN_QP5 (5) for VBR rate control,
+     *                 CODEC_AVC_MIN_QP10 (10) for other rate control methods
+     */
+    virtual uint8_t GetMinAvcQp() override;
+
     MHW_SETPAR_DECL_HDR(VDENC_PIPE_MODE_SELECT);
+    MHW_SETPAR_DECL_HDR(VDENC_AVC_IMG_STATE);
 
 MEDIA_CLASS_DEFINE_END(encode__AvcBasicFeatureXe3_Lpm)
 };

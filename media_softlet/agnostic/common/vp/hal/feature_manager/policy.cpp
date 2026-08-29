@@ -199,9 +199,21 @@ MOS_STATUS Policy::RegisterFeatures()
     VP_PUBLIC_CHK_NULL_RETURN(p);
     m_RenderFeatureHandlers.emplace(FeatureTypeHdr3DLutCalOnRender, p);
 
-    p = MOS_New(PolicyRenderHdrHandler, m_hwCaps);
-    VP_PUBLIC_CHK_NULL_RETURN(p);
-    m_RenderFeatureHandlers.emplace(FeatureTypeHdrOnRender, p);
+    {
+#ifdef _MEDIA_RESERVED
+        VpPlatformInterface *vpPlatformInterface = (VpPlatformInterface *)m_vpInterface.GetHwInterface()->m_vpPlatformInterface;
+        if (vpPlatformInterface && vpPlatformInterface->GetVpFeatureSupportBits().vpFeatureSupportBitsHdrLite)
+        {
+            p = MOS_New(PolicyRenderHdrLiteHandler, m_hwCaps);
+        }
+        else
+#endif
+        {
+            p = MOS_New(PolicyRenderHdrHandler, m_hwCaps);
+        }
+        VP_PUBLIC_CHK_NULL_RETURN(p);
+        m_RenderFeatureHandlers.emplace(FeatureTypeHdrOnRender, p);
+    }
 
     p = MOS_New(PolicyDiHandler, m_hwCaps);
     VP_PUBLIC_CHK_NULL_RETURN(p);
@@ -851,6 +863,7 @@ MOS_STATUS Policy::GetCSCExecutionCapsHdr(SwFilter *HDR, SwFilter *CSC)
         return MOS_STATUS_INVALID_PARAMETER;
     }
 
+    PrintFeatureExecutionCaps(__FUNCTION__, *cscEngine);
     return MOS_STATUS_SUCCESS;
 }
 
@@ -973,6 +986,7 @@ bool Policy::IsDemosaicValidOutputFormat(MOS_FORMAT format)
 
 bool IsBeCscNeededForAlphaFill(MOS_FORMAT formatInput, MOS_FORMAT formatOutput, PVPHAL_ALPHA_PARAMS compAlpha)
 {
+    VP_FUNC_CALL();
     if (nullptr == compAlpha)
     {
         VP_PUBLIC_NORMALMESSAGE("No alpha setting exists.");
@@ -1003,6 +1017,7 @@ bool IsBeCscNeededForAlphaFill(MOS_FORMAT formatInput, MOS_FORMAT formatOutput, 
 
 bool Policy::IsAlphaSettingSupportedBySfc(MOS_FORMAT formatInput, MOS_FORMAT formatOutput, PVPHAL_ALPHA_PARAMS compAlpha)
 {
+    VP_FUNC_CALL();
     if (!IS_ALPHA_FORMAT(formatOutput))
     {
         VP_PUBLIC_NORMALMESSAGE("Alpha setting can be ignored for non-alpha output format.");
@@ -3033,6 +3048,7 @@ MOS_STATUS Policy::GetInputPipeEngineCaps(SwFilterPipe& featurePipe, VP_EngineEn
 
 MOS_STATUS Policy::BypassVeboxFeatures(SwFilterSubPipe *featureSubPipe, VP_EngineEntry &engineCaps)
 {
+    VP_FUNC_CALL();
     VP_PUBLIC_CHK_NULL_RETURN(featureSubPipe);
 
     for (auto filterID : m_featurePool)
@@ -3062,6 +3078,7 @@ MOS_STATUS Policy::BypassVeboxFeatures(SwFilterSubPipe *featureSubPipe, VP_Engin
 MOS_STATUS Policy::BuildExecuteCaps(SwFilterPipe& featurePipe, VP_EXECUTE_CAPS &caps, VP_EngineEntry &engineCapsInputPipe, VP_EngineEntry &engineCapsOutputPipe,
                                     bool &isSingleSubPipe, uint32_t &selectedPipeIndex)
 {
+    VP_FUNC_CALL();
     SwFilterSubPipe *singlePipeSelected = nullptr;
 
     caps.value = 0;
@@ -3404,6 +3421,7 @@ MOS_STATUS Policy::BuildExecuteHwFilter(VP_EXECUTE_CAPS& caps, HW_FILTER_PARAMS&
 MOS_STATUS Policy::UpdateFeatureTypeWithEngine(std::vector<int> &layerIndexes, SwFilterPipe& featurePipe, VP_EXECUTE_CAPS& caps,
                                             bool isolatedFeatureSelected, bool outputPipeNeeded)
 {
+    VP_FUNC_CALL();
     int inputSurfCount = featurePipe.GetSurfaceCount(true);
     int outputSurfCount = featurePipe.GetSurfaceCount(false);
     SwFilterSubPipe* featureSubPipe = nullptr;
@@ -3425,6 +3443,7 @@ MOS_STATUS Policy::UpdateFeatureTypeWithEngine(std::vector<int> &layerIndexes, S
 
 MOS_STATUS Policy::UpdateFeatureTypeWithEngineSingleLayer(SwFilterSubPipe *featureSubPipe, VP_EXECUTE_CAPS& caps, bool isolatedFeatureSelected)
 {
+    VP_FUNC_CALL();
     bool isolatedFeatureFound = false;
     // Set feature types with engine
     for (auto filterID : m_featurePool)
@@ -3543,6 +3562,7 @@ MOS_STATUS Policy::UpdateFeatureTypeWithEngineSingleLayer(SwFilterSubPipe *featu
 
 MOS_STATUS Policy::LayerSelectForProcess(std::vector<int> &layerIndexes, SwFilterPipe& featurePipe, bool isSingleSubPipe, uint32_t pipeIndex, VP_EXECUTE_CAPS& caps)
 {
+    VP_FUNC_CALL();
     layerIndexes.clear();
     if (isSingleSubPipe && !caps.bComposite && !caps.bRenderHdr)
     {
@@ -3557,9 +3577,21 @@ MOS_STATUS Policy::LayerSelectForProcess(std::vector<int> &layerIndexes, SwFilte
         {
             VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
         }
-        PolicyRenderHdrHandler *hdrHandler = dynamic_cast<PolicyRenderHdrHandler *>(it->second);
-        VP_PUBLIC_CHK_NULL_RETURN(hdrHandler);
-        VP_PUBLIC_CHK_STATUS_RETURN(hdrHandler->LayerSelectForProcess(layerIndexes, featurePipe, caps));
+#ifdef _MEDIA_RESERVED
+        VpPlatformInterface *vpPlatformInterface = (VpPlatformInterface *)m_vpInterface.GetHwInterface()->m_vpPlatformInterface;
+        if (vpPlatformInterface && vpPlatformInterface->GetVpFeatureSupportBits().vpFeatureSupportBitsHdrLite)
+        {
+            PolicyRenderHdrLiteHandler *hdrHandler = dynamic_cast<PolicyRenderHdrLiteHandler *>(it->second);
+            VP_PUBLIC_CHK_NULL_RETURN(hdrHandler);
+            VP_PUBLIC_CHK_STATUS_RETURN(hdrHandler->LayerSelectForProcess(layerIndexes, featurePipe, caps));
+        }
+        else
+#endif
+        {
+            PolicyRenderHdrHandler *hdrHandler = dynamic_cast<PolicyRenderHdrHandler *>(it->second);
+            VP_PUBLIC_CHK_NULL_RETURN(hdrHandler);
+            VP_PUBLIC_CHK_STATUS_RETURN(hdrHandler->LayerSelectForProcess(layerIndexes, featurePipe, caps));
+        }
         return MOS_STATUS_SUCCESS;
     }
 
@@ -3605,8 +3637,9 @@ MOS_STATUS Policy::LayerSelectForProcess(std::vector<int> &layerIndexes, SwFilte
     return MOS_STATUS_SUCCESS;
 }
 
-MOS_STATUS AddInputSurfaceForSingleLayer(SwFilterPipe &featurePipe, uint32_t pipeIndex, SwFilterPipe &executedFilters, uint32_t &executePipeIndex, VP_EXECUTE_CAPS& caps)
+MOS_STATUS Policy::AddInputSurfaceForSingleLayer(SwFilterPipe &featurePipe, uint32_t pipeIndex, SwFilterPipe &executedFilters, uint32_t &executePipeIndex, VP_EXECUTE_CAPS& caps)
 {
+    VP_FUNC_CALL();
     // Single layer add input surface
     if (caps.value)
     {
@@ -3614,11 +3647,34 @@ MOS_STATUS AddInputSurfaceForSingleLayer(SwFilterPipe &featurePipe, uint32_t pip
         VP_SURFACE *surfInput = featurePipe.GetSurface(true, pipeIndex);
         if (surfInput)
         {
+            PVP_SURFACE pastRefSurface   = nullptr;
+            PVP_SURFACE futureRefSurface = nullptr;
             // surface should be added before swFilters, since empty feature pipe will be allocated accordingly when surface being added.
             executePipeIndex = executedFilters.GetSurfaceCount(true);
             VP_PUBLIC_CHK_STATUS_RETURN(executedFilters.AddSurface(surfInput, true, executePipeIndex));
-            VP_SURFACE *pastRefSurface = featurePipe.RemovePastSurface(pipeIndex);
-            VP_SURFACE *futureRefSurface = featurePipe.RemoveFutureSurface(pipeIndex);
+            if (caps.bAiPath)
+            {
+                // For AI path, past/future ref surfaces may be used during multi passes.
+                // So copy the past/future surfaces into execute pipe instead of move them into execute pipe
+                // If common pipe also need this logic in the future, remove the "if (caps.bAiPath)" and combine the code
+                VP_PUBLIC_CHK_NULL_RETURN(m_vpInterface.GetHwInterface());
+                VP_PUBLIC_CHK_NULL_RETURN(m_vpInterface.GetHwInterface()->m_osInterface);
+                PVP_SURFACE tmpPastSurface   = featurePipe.GetPastSurface(pipeIndex);
+                PVP_SURFACE tmpFutureSurface = featurePipe.GetFutureSurface(pipeIndex);
+                if (nullptr != tmpPastSurface && 0 != tmpPastSurface->GetAllocationHandle(m_vpInterface.GetHwInterface()->m_osInterface))
+                {
+                    pastRefSurface = m_vpInterface.GetAllocator().AllocateVpSurface(*tmpPastSurface);
+                }
+                if (nullptr != tmpFutureSurface && 0 != tmpFutureSurface->GetAllocationHandle(m_vpInterface.GetHwInterface()->m_osInterface))
+                {
+                    futureRefSurface = m_vpInterface.GetAllocator().AllocateVpSurface(*tmpFutureSurface);
+                }
+            }
+            else
+            {
+                pastRefSurface = featurePipe.RemovePastSurface(pipeIndex);
+                futureRefSurface = featurePipe.RemoveFutureSurface(pipeIndex);
+            }
             executedFilters.SetPastSurface(executePipeIndex, pastRefSurface);
             executedFilters.SetFutureSurface(executePipeIndex, futureRefSurface);
             executedFilters.SetLinkedLayerIndex(executePipeIndex, pipeIndex);
@@ -3654,6 +3710,7 @@ MOS_STATUS Policy::SetupExecuteFilter(SwFilterPipe& featurePipe, std::vector<int
 MOS_STATUS Policy::UpdateFeaturePipe(SwFilterPipe &featurePipe, uint32_t pipeIndex, SwFilterPipe &executedFilters, uint32_t executePipeIndex,
                                     bool isInputPipe, VP_EXECUTE_CAPS& caps)
 {
+    VP_FUNC_CALL();
     SwFilterSubPipe* featureSubPipe = featurePipe.GetSwFilterSubPipe(isInputPipe, pipeIndex);
     uint32_t featureSelected = 0;
 
@@ -3784,6 +3841,7 @@ MOS_STATUS Policy::UpdateFeaturePipeSingleLayer(SwFilterPipe &featurePipe, uint3
 
 MOS_STATUS Policy::UpdateFeatureOutputPipe(std::vector<int> &layerIndexes, SwFilterPipe &featurePipe, SwFilterPipe &executedFilters, VP_EXECUTE_CAPS& caps)
 {
+    VP_FUNC_CALL();
     if (!caps.bOutputPipeFeatureInuse)
     {
         return MOS_STATUS_SUCCESS;
@@ -4373,6 +4431,7 @@ MOS_STATUS GetVeboxOutputParams(VP_EXECUTE_CAPS &executeCaps, MOS_FORMAT inputFo
 
 MOS_STATUS Policy::GetCscParamsOnCaps(PVP_SURFACE surfInput, PVP_SURFACE surfOutput, VP_EXECUTE_CAPS &caps, FeatureParamCsc &cscParams)
 {
+    VP_FUNC_CALL();
     if (caps.bHDR3DLUT)
     {
         cscParams.input.colorSpace   = surfInput->ColorSpace;
@@ -4439,6 +4498,7 @@ MOS_STATUS Policy::GetCscParamsOnCaps(PVP_SURFACE surfInput, PVP_SURFACE surfOut
 
 MOS_STATUS Policy::GetDnParamsOnCaps(PVP_SURFACE surfInput, PVP_SURFACE surfOutput, VP_EXECUTE_CAPS &caps, FeatureParamDenoise &dnParams)
 {
+    VP_FUNC_CALL();
     dnParams.formatInput     = surfInput->osSurface->Format;
     dnParams.heightInput     = surfInput->osSurface->dwHeight;
     dnParams.formatOutput    = Format_NV12;

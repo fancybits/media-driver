@@ -50,6 +50,13 @@ namespace encode
         HUC_CHK_NULL_RETURN(m_hucItf);
         m_hucStatus2ImemLoadedMask = m_hucItf->GetHucStatus2ImemLoadedMask();
 
+#if (_DEBUG || _RELEASE_INTERNAL)
+        if (m_pipeline->GetBypassHWLegacy())
+        {
+            m_bypassHwLegacyEnabled = true;
+        }
+#endif
+
         return MOS_STATUS_SUCCESS;
     }
 
@@ -151,6 +158,8 @@ namespace encode
     MOS_STATUS EncodeHucPkt::AddForceWakeup(MOS_COMMAND_BUFFER &cmdBuffer)
     {
         ENCODE_FUNC_CALL();
+        // NativeFence sync BB may cause preemption and ring idle, so force wakeup after it
+        ENCODE_CHK_STATUS_RETURN(AddNativeFenceSyncBBStartCmd(cmdBuffer));
 
         auto &forceWakeupParams                     = m_miItf->MHW_GETPAR_F(MI_FORCE_WAKEUP)();
         forceWakeupParams                           = {};
@@ -205,14 +214,20 @@ namespace encode
         auto &mfxWaitParams                 = m_miItf->MHW_GETPAR_F(MFX_WAIT)();
         mfxWaitParams                       = {};
         mfxWaitParams.iStallVdboxPipeline   = true;
-        MHW_MI_CHK_STATUS(m_miItf->MHW_ADDCMD_F(MFX_WAIT)(cmdBuffer));
+        if (!m_osInterface->bNullHwIsEnabled)
+        {
+            MHW_MI_CHK_STATUS(m_miItf->MHW_ADDCMD_F(MFX_WAIT)(cmdBuffer));
+        }
 
         SETPAR_AND_ADDCMD(HUC_PIPE_MODE_SELECT, m_hucItf, cmdBuffer);
 
         //for gen 11, we need to add MFX wait for both KIN and VRT before and after HUC Pipemode select...
         mfxWaitParams                       = {};
         mfxWaitParams.iStallVdboxPipeline   = true;
-        MHW_MI_CHK_STATUS(m_miItf->MHW_ADDCMD_F(MFX_WAIT)(cmdBuffer));
+        if (!m_osInterface->bNullHwIsEnabled)
+        {
+            MHW_MI_CHK_STATUS(m_miItf->MHW_ADDCMD_F(MFX_WAIT)(cmdBuffer));
+        }
 
         return MOS_STATUS_SUCCESS;
     }
@@ -226,7 +241,10 @@ namespace encode
         auto &mfxWaitParams                 = m_miItf->MHW_GETPAR_F(MFX_WAIT)();
         mfxWaitParams                       = {};
         mfxWaitParams.iStallVdboxPipeline   = true;
-        MHW_MI_CHK_STATUS(m_miItf->MHW_ADDCMD_F(MFX_WAIT)(cmdBuffer));
+        if (!m_osInterface->bNullHwIsEnabled)
+        {
+            MHW_MI_CHK_STATUS(m_miItf->MHW_ADDCMD_F(MFX_WAIT)(cmdBuffer));
+        }
 
         return MOS_STATUS_SUCCESS;
     }

@@ -59,7 +59,9 @@ public:
         uint32_t force3DLutInterpolation    = 0;
         uint32_t enabledSFCNv12P010LinearOutput = 0;
         uint32_t enabledSFCRGBPRGB24Output  = 0;
-        bool     enableIFNCC                    = false;
+        uint32_t enabledSFCLinearOutputTempSurfCompression = 0;
+        bool     enableIFNCC                = false;
+        bool     enable3DLutNewLayout       = false;  // Enable 3DLUT texture layout conversion
 #endif
         VP_CTRL enableOcl3DLut              = VP_CTRL_DEFAULT;
         VP_CTRL forceOclFC                  = VP_CTRL_DEFAULT;
@@ -106,6 +108,11 @@ public:
         return m_ctrlVal.enabledSFCRGBPRGB24Output;
     }
 
+    uint32_t EnabledSFCLinearOutputTempSurfCompression()
+    {
+        return m_ctrlVal.enabledSFCLinearOutputTempSurfCompression;
+    }
+
     bool EnableIFNCC() 
     {
         return m_ctrlVal.enableIFNCC;
@@ -114,6 +121,10 @@ public:
     bool DisableOclFcFp()
     {
         return m_ctrlVal.bDisableOclFcFp;
+    }
+    bool Is3DLutNewLayoutEnabled()
+    {
+        return m_ctrlVal.enable3DLutNewLayout;
     }
 #endif
 

@@ -40,4 +40,17 @@ MHW_SETPAR_DECL_SRC(VDENC_PIPE_MODE_SELECT, HevcBasicFeatureXe3_Lpm_Base)
     return MOS_STATUS_SUCCESS;
 }
 
+MHW_SETPAR_DECL_SRC(VDENC_CMD2, HevcBasicFeatureXe3_Lpm_Base)
+{
+    ENCODE_CHK_STATUS_RETURN(HevcBasicFeature::MHW_SETPAR_F(VDENC_CMD2)(params));
+
+    if (m_hevcSeqParams->RateControlMethod == RATECONTROL_VBR ||
+        (m_hevcSeqParams->RateControlMethod == RATECONTROL_CBR && m_hevcSeqParams->LookaheadDepth > 0))
+    {
+        params.minQp = m_hevcPicParams->BRCMinQp < CODEC_HEVC_MIN_QP1 ? CODEC_HEVC_MIN_QP1 : m_hevcPicParams->BRCMinQp;
+    }
+
+    return MOS_STATUS_SUCCESS;
+}
+
 }  // namespace encode

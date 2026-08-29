@@ -101,7 +101,7 @@ public:
         return m_kernelDllState;
     }
 
-    MOS_STATUS SetKernelName(const std::string &kernelname);
+    virtual MOS_STATUS SetKernelName(const std::string &kernelname);
 
     std::string& GetKernelName()
     {
@@ -236,10 +236,8 @@ public:
         return MOS_STATUS_UNIMPLEMENTED;
     }
     virtual MOS_STATUS        InitVpRenderHwCaps();
-    virtual VPFeatureManager *CreateFeatureChecker(_VP_MHWINTERFACE *hwInterface)
-    {
-        return nullptr;
-    }
+    virtual VPFeatureManager *CreateFeatureChecker(_VP_MHWINTERFACE *hwInterface);
+
     virtual VpCmdPacket *CreateVeboxPacket(MediaTask * task, _VP_MHWINTERFACE *hwInterface, VpAllocator *&allocator, VPMediaMemComp *mmc)
     {
         return nullptr;
@@ -469,6 +467,12 @@ public:
         return m_isOclKernelEnabled;
     }
 
+    MOS_STATUS SetHdrLiteKernelEnable()
+    {
+        m_isHdrLiteKernelEnabled = true;
+        return MOS_STATUS_SUCCESS;
+    }
+
     virtual bool IsVrtEnabled()
     {
         return false;
@@ -513,6 +517,7 @@ protected:
 
     bool m_isRenderDisabled = false;
     bool m_isOclKernelEnabled = false;
+    bool m_isHdrLiteKernelEnabled = false;
     VpFrameTracker *m_frameTracker     = nullptr;
     VP_FEATURE_SUPPORT_BITS m_vpFeatureSupportBits = {};
     MEDIA_CLASS_DEFINE_END(vp__VpPlatformInterface)

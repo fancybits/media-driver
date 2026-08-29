@@ -1273,14 +1273,25 @@ MOS_STATUS VpResourceManager::AssignFcResources(VP_EXECUTE_CAPS &caps, std::vect
     return MOS_STATUS_SUCCESS;
 }
 
-MOS_STATUS VpResourceManager::AssignAiNpuResource(VP_EXECUTE_CAPS &caps, std::vector<VP_SURFACE *> &inputSurfaces, VP_SURFACE *outputSurface, SwFilterPipe &executedFilters, VP_SURFACE_SETTING &surfSetting)
+MOS_STATUS VpResourceManager::AssignAiNpuResource(VP_EXECUTE_CAPS &caps, std::vector<VP_SURFACE *> &inputSurfaces, VP_SURFACE *outputSurface, std::vector<VP_SURFACE *> &pastSurfaces, std::vector<VP_SURFACE *> &futureSurfaces, SwFilterPipe &executedFilters, VP_SURFACE_SETTING &surfSetting)
 {
     VP_FUNC_CALL();
 
     SwFilterSubPipe *subPipe = executedFilters.GetSwFilterSubPipe(true, 0);
     VP_PUBLIC_CHK_NULL_RETURN(subPipe);
     VP_PUBLIC_CHK_VALUE_RETURN(inputSurfaces.empty(), false);
-    surfSetting.surfGroup.insert(std::make_pair((SurfaceType)(SurfaceTypeAiInput0), inputSurfaces[0]));
+    for (uint32_t i = 0; i < inputSurfaces.size(); ++i)
+    {
+        surfSetting.surfGroup.insert(std::make_pair((SurfaceType)(SurfaceTypeAiInput0 + i), inputSurfaces.at(i)));
+        if (pastSurfaces.size() > i && pastSurfaces.at(i))
+        {
+            surfSetting.surfGroup.insert(std::make_pair((SurfaceType)(SurfaceTypeAiPastInput0 + i), pastSurfaces.at(i)));
+        }
+        if (futureSurfaces.size() > i && futureSurfaces.at(i))
+        {
+            surfSetting.surfGroup.insert(std::make_pair((SurfaceType)(SurfaceTypeAiFutureInput0 + i), futureSurfaces.at(i)));
+        }
+    }
     surfSetting.surfGroup.insert(std::make_pair((SurfaceType)(SurfaceTypeAiTarget0), outputSurface));
     SwFilterAiBase *ai = nullptr;
     VP_PUBLIC_CHK_STATUS_RETURN(subPipe->GetAiSwFilter(ai));
@@ -1314,8 +1325,8 @@ MOS_STATUS VpResourceManager::AssignAiNpuResource(VP_EXECUTE_CAPS &caps, std::ve
                 PVP_SURFACE surface = m_allocator.AllocateVpSurface();
                 VP_PUBLIC_CHK_NULL_RETURN(surface);
                 handle = m_aiNpuCopiedSurface.insert(std::make_pair(intermediateSurfaceHandle.first, surface)).first;
-                VP_PUBLIC_CHK_NOT_FOUND_RETURN(handle, &m_aiIntermediateSurface);
-                VP_PUBLIC_CHK_STATUS_RETURN(m_allocator.CopyVpSurface(*handle->second, *intermediateSurfaceHandle.second));
+                VP_PUBLIC_CHK_NOT_FOUND_RETURN(handle, &m_aiNpuCopiedSurface);
+                VP_PUBLIC_CHK_STATUS_RETURN(m_allocator.CopyVpSurface(*handle-> second, *intermediateSurfaceHandle.second));
             }
             VP_PUBLIC_CHK_NULL_RETURN(handle->second);
             surfSetting.surfGroup.insert(std::make_pair(handle->first, handle->second));
@@ -1325,7 +1336,7 @@ MOS_STATUS VpResourceManager::AssignAiNpuResource(VP_EXECUTE_CAPS &caps, std::ve
     return MOS_STATUS_SUCCESS;
 }
 
-MOS_STATUS VpResourceManager::AssignAiKernelResource(VP_EXECUTE_CAPS &caps, std::vector<VP_SURFACE *> &inputSurfaces, VP_SURFACE *outputSurface, SwFilterPipe &executedFilters, VP_SURFACE_SETTING &surfSetting)
+MOS_STATUS VpResourceManager::AssignAiKernelResource(VP_EXECUTE_CAPS &caps, std::vector<VP_SURFACE *> &inputSurfaces, VP_SURFACE *outputSurface, std::vector<VP_SURFACE *> &pastSurfaces, std::vector<VP_SURFACE *> &futureSurfaces, SwFilterPipe &executedFilters, VP_SURFACE_SETTING &surfSetting)
 {
     VP_FUNC_CALL();
     bool allocated = false;
@@ -1333,7 +1344,18 @@ MOS_STATUS VpResourceManager::AssignAiKernelResource(VP_EXECUTE_CAPS &caps, std:
     SwFilterSubPipe *subPipe = executedFilters.GetSwFilterSubPipe(true, 0);
     VP_PUBLIC_CHK_NULL_RETURN(subPipe);
     VP_PUBLIC_CHK_VALUE_RETURN(inputSurfaces.empty(), false);
-    surfSetting.surfGroup.insert(std::make_pair((SurfaceType)(SurfaceTypeAiInput0), inputSurfaces[0]));
+    for (uint32_t i = 0; i < inputSurfaces.size(); ++i)
+    {
+        surfSetting.surfGroup.insert(std::make_pair((SurfaceType)(SurfaceTypeAiInput0 + i), inputSurfaces.at(i)));
+        if (pastSurfaces.size() > i && pastSurfaces.at(i))
+        {
+            surfSetting.surfGroup.insert(std::make_pair((SurfaceType)(SurfaceTypeAiPastInput0 + i), pastSurfaces.at(i)));
+        }
+        if (futureSurfaces.size() > i && futureSurfaces.at(i))
+        {
+            surfSetting.surfGroup.insert(std::make_pair((SurfaceType)(SurfaceTypeAiFutureInput0 + i), futureSurfaces.at(i)));
+        }
+    }
     surfSetting.surfGroup.insert(std::make_pair((SurfaceType)(SurfaceTypeAiTarget0), outputSurface));
     SwFilterAiBase *ai = nullptr;
     VP_PUBLIC_CHK_STATUS_RETURN(subPipe->GetAiSwFilter(ai));
@@ -1413,8 +1435,8 @@ MOS_STATUS VpResourceManager::AssignRenderResource(VP_EXECUTE_CAPS &caps, std::v
     else if (caps.bAiPath)
     {
         //Npu Resource need to be used as render input/out intermediate surface, so also need to be allocated in render path
-        VP_PUBLIC_CHK_STATUS_RETURN(AssignAiNpuResource(caps, inputSurfaces, outputSurface, executedFilters, surfSetting));
-        VP_PUBLIC_CHK_STATUS_RETURN(AssignAiKernelResource(caps, inputSurfaces, outputSurface, executedFilters, surfSetting));
+        VP_PUBLIC_CHK_STATUS_RETURN(AssignAiNpuResource(caps, inputSurfaces, outputSurface, pastSurfaces, futureSurfaces, executedFilters, surfSetting));
+        VP_PUBLIC_CHK_STATUS_RETURN(AssignAiKernelResource(caps, inputSurfaces, outputSurface, pastSurfaces, futureSurfaces, executedFilters, surfSetting));
     }
     else
     {
@@ -1434,7 +1456,7 @@ MOS_STATUS VpResourceManager::AssignNpuResource(VP_EXECUTE_CAPS &caps, std::vect
 
     if (caps.bAiPath)
     {
-        VP_PUBLIC_CHK_STATUS_RETURN(AssignAiNpuResource(caps, inputSurfaces, outputSurface, executedFilters, surfSetting));
+        VP_PUBLIC_CHK_STATUS_RETURN(AssignAiNpuResource(caps, inputSurfaces, outputSurface, pastSurfaces, futureSurfaces, executedFilters, surfSetting));
     }
 
     return MOS_STATUS_SUCCESS;
@@ -1577,6 +1599,14 @@ MOS_STATUS GetVeboxOutputParams(VP_EXECUTE_CAPS &executeCaps, MOS_FORMAT inputFo
         {
             veboxOutputFormat = Format_A16B16G16R16;
         }
+        else if (executeCaps.bLutCompound)
+        {
+            // LutCompound's Vebox IECP emits the full 10-bit RGB result (CSC+1D+3D LUT).
+            // An 8-bit A8B8G8R8 VE->SFC intermediate loses that data (observed: all-zero
+            // RGB / black output when the pass runs non-isolated as Vebox+SFC). Keep the
+            // intermediate 10-bit RGB so SFC is scaling/pack-only. See GetSfcInputFormat.
+            veboxOutputFormat = Format_R10G10B10A2;
+        }
         else
         {
             veboxOutputFormat = IS_COLOR_SPACE_BT2020(colorSpaceOutput) ? Format_R10G10B10A2 : Format_A8B8G8R8;
@@ -1647,6 +1677,12 @@ MOS_FORMAT GetSfcInputFormat(VP_EXECUTE_CAPS &executeCaps, MOS_FORMAT inputForma
             if (IS_RGB64_FLOAT_FORMAT(outputFormat))  // SFC output FP16, YUV->ABGR16
             {
                 return Format_A16B16G16R16;
+            }
+            else if (executeCaps.bLutCompound)
+            {
+                // Match GetVeboxOutputParams: LutCompound emits 10-bit RGB; keep the SFC
+                // input (VE->SFC intermediate) 10-bit so no 8-bit A8B8G8R8 data loss.
+                return Format_R10G10B10A2;
             }
             else
             {
@@ -2175,7 +2211,9 @@ MOS_STATUS VpResourceManager::AllocateVeboxResource(VP_EXECUTE_CAPS& caps, VP_SU
         bAllocated,
         false,
         IsDeferredResourceDestroyNeeded(),
-        MOS_HW_RESOURCE_USAGE_VP_INTERNAL_WRITE_FF));
+        MOS_HW_RESOURCE_USAGE_VP_INTERNAL_WRITE_FF,
+        MOS_TILE_UNSET_GMM,
+        (caps.bDI ? MOS_MEMPOOL_SYSTEMMEMORY : MOS_MEMPOOL_VIDEOMEMORY)));
 
     m_isHistogramReallocated = bAllocated;
 
@@ -2263,25 +2301,65 @@ MOS_STATUS VpResourceManager::Allocate3DLut(VP_EXECUTE_CAPS& caps)
 
     if (caps.bHDR3DLUT || caps.b3DLutCalc)
     {
-        // HDR
-        uint32_t lutWidth = 0;
-        uint32_t lutHeight = 0;
-        size = Get3DLutSize(caps.bHdr33lutsize, lutWidth, lutHeight);
-        VP_PUBLIC_CHK_STATUS_RETURN(m_allocator.ReAllocateSurface(
-            m_vebox3DLookUpTables,
-            "Vebox3DLutTableSurface",
-            Format_Buffer,
-            MOS_GFXRES_BUFFER,
-            MOS_TILE_LINEAR,
-            size,
-            1,
-            false,
-            MOS_MMC_DISABLED,
-            isAllocated,
-            false,
-            IsDeferredResourceDestroyNeeded(),
-            MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER));
-
+#if (_DEBUG || _RELEASE_INTERNAL)
+        // 3D LUT new layout feature - only available in debug and release-internal builds
+        // Check if 3DLUT new layout feature is enabled
+        bool useNewLayout = m_vpUserFeatureControl && m_vpUserFeatureControl->Is3DLutNewLayoutEnabled();
+        
+        // Determine LUT segment size based on caps
+        uint32_t lutSegSize = caps.bHdr33lutsize ? LUT33_SEG_SIZE : LUT65_SEG_SIZE;
+        
+        if (useNewLayout)
+        {
+            // New layout: Create volume surface with cubic dimensions
+            VP_PUBLIC_NORMALMESSAGE("Allocating 3DLUT as volume surface with dimensions %dx%dx%d", 
+                lutSegSize, lutSegSize, lutSegSize);
+            
+            VP_PUBLIC_CHK_STATUS_RETURN(m_allocator.ReAllocateSurface(
+                m_vebox3DLookUpTables,
+                "Vebox3DLutTableSurface",
+                Format_A16B16G16R16,
+                MOS_GFXRES_VOLUME,
+                MOS_TILE_LINEAR,
+                lutSegSize,
+                lutSegSize,
+                false,
+                MOS_MMC_DISABLED,
+                isAllocated,
+                false,
+                IsDeferredResourceDestroyNeeded(),
+                MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER,
+                MOS_TILE_UNSET_GMM,
+                MOS_MEMPOOL_VIDEOMEMORY,
+                false,
+                nullptr,
+                lutSegSize));
+        }
+        else
+#endif
+        {
+            // Existing buffer logic: Create buffer surface (always compiled as default fallback)
+            uint32_t lutWidth = 0;
+            uint32_t lutHeight = 0;
+            size = Get3DLutSize(caps.bHdr33lutsize, lutWidth, lutHeight);
+            
+            VP_PUBLIC_NORMALMESSAGE("Allocating 3DLUT as buffer surface with size %d bytes", size);
+            
+            VP_PUBLIC_CHK_STATUS_RETURN(m_allocator.ReAllocateSurface(
+                m_vebox3DLookUpTables,
+                "Vebox3DLutTableSurface",
+                Format_Buffer,
+                MOS_GFXRES_BUFFER,
+                MOS_TILE_LINEAR,
+                size,
+                1,
+                false,
+                MOS_MMC_DISABLED,
+                isAllocated,
+                false,
+                IsDeferredResourceDestroyNeeded(),
+                MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER));
+        }
     }
 
     return MOS_STATUS_SUCCESS;

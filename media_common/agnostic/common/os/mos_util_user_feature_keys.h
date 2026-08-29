@@ -134,9 +134,12 @@
 #define __MEDIA_USER_FEATURE_VALUE_SIM_ENABLE                             "Simulation Enable"
 #define __MEDIA_USER_FEATURE_VALUE_SIM_IN_USE                             "Simulation In Use"
 
+#define __MEDIA_USER_FEATURE_VALUE_TILE_B_IN_USE                          "TileBInUse"
+
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_VDBOX_ID_REPORT                 "Enable VDBOX ID Report"
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_VE_DEBUG_OVERRIDE               "Enable VE Debug Override"
 #define __MEDIA_USER_FEATURE_VALUE_FORCE_VDBOX                            "Force VDBOX"
+#define __MEDIA_USER_FEATURE_VALUE_VDBOX_TYPE_PREF                        "VDBoxTypePref"
 #define __MEDIA_USER_FEATURE_VALUE_FORCE_VEBOX                            "Force VEBOX"
 #define __MEDIA_USER_FEATURE_VALUE_FORCE_YFYS                             "Force to allocate YfYs"
 #define __MEDIA_USER_FEATURE_VALUE_USED_VDBOX_ID                          "Used VDBOX ID"
@@ -152,6 +155,12 @@
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_ENCODE_VIRTUAL_ENGINE           "Enable Encode VE"
 
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_MEDIA_CCS                       "Enable Media CCS"
+
+#define __MEDIA_USER_FEATURE_VALUE_FORCE_ENGINE_GROUP_SCHEDULING          "Force Engine Group Scheduling"
+
+#define __MEDIA_USER_FEATURE_VALUE_FORCE_DISALBE_64BIT_TOKEN              "Force Disable 64Bit Token"
+#define __MEDIA_USER_FEATURE_VALUE_REPORT_VEBOX_SCALABILITY_IN_USE        "Report Vebox Scalability In Use"
+#define __MEDIA_USER_FEATURE_VALUE_REPORT_VDBOX_SCALABILITY_IN_USE        "Report Vdbox Scalability In Use"
 
 #endif // (_DEBUG || _RELEASE_INTERNAL)
 
@@ -426,10 +435,12 @@
 #define __MEDIA_USER_FEATURE_VALUE_NULLHW_ENABLE                                "NULL HW Enable"
 #if (_DEBUG || _RELEASE_INTERNAL)
 #define __MEDIA_USER_FEATURE_VALUE_NULLHW_PROXY_REPEAT_COUNT                    "NULL HW Proxy Repeat Count"
+#define __MEDIA_USER_FEATURE_VALUE_NULLHW_PROXY_REPEAT_COUNT_FILE              "NULL HW Proxy Repeat Count File"
 #endif
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_PLATFORM                         "MockAdaptor Platform"
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_STEPPING                         "MockAdaptor Stepping"
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_DEVICE                           "MockAdaptor Device ID"
+#define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_PIPE                             "MockAdaptor Pipe"
 
 //User feature key for enable Perf Utility Tool
 #define __MEDIA_USER_FEATURE_VALUE_PERF_UTILITY_TOOL_ENABLE          "Perf Utility Tool Enable"

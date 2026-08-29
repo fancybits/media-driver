@@ -710,6 +710,7 @@ typedef enum _RENDERHAL_PLANE_DEFINITION
     RENDERHAL_PLANES_NV12_2PLANES_COMBINED,
     RENDERHAL_PLANES_P016_2PLANES_COMBINED,
     RENDERHAL_PLANES_YUY2_2PLANES_WIDTH_UNALIGNED,
+    RENDERHAL_PLANES_R16G16_FLOAT,
 
     RENDERHAL_PLANES_DEFINITION_COUNT
 } RENDERHAL_PLANE_DEFINITION, *PRENDERHAL_PLANE_DEFINITION;
@@ -1149,7 +1150,7 @@ typedef MhwMiInterface *PMHW_MI_INTERFACE;
 
 typedef struct _RENDERHAL_ENLARGE_PARAMS
 {
-    //for ReAllocateStateHeapsforAdvFeatureWithSshEnlarged and ReAllocateStateHeapsforAdvFeatureWithAllHeapsEnlarged
+    //for ReAllocateStateHeapsforAdvFeatureWithSshResize and ReAllocateStateHeapsforAdvFeatureWithAllHeapsEnlarged
     int32_t iBindingTables;   // Number of BT per SSH instance
     int32_t iSurfaceStates;   // Number of Surfaces per SSH
     int32_t  iSurfacesPerBT;   // Size of BT
@@ -1195,6 +1196,7 @@ typedef struct _RENDERHAL_INTERFACE
     PMHW_RENDER_ENGINE_CAPS       pHwCaps;                                      // HW Capabilities
     PMHW_RENDER_STATE_SIZES       pHwSizes;                                     // Sizes of HW commands/states
     RENDERHAL_STATE_HEAP_SETTINGS StateHeapSettings;                            // State Heap Settings
+    RENDERHAL_STATE_HEAP_SETTINGS defaultStateHeapSettings;                     // Default State Heap Settings
     RENDERHAL_ENLARGE_PARAMS      enlargeStateHeapSettingsForAdv;               // State Heap Settings for Adv Feature
 
     // MHW parameters
@@ -1329,8 +1331,9 @@ typedef struct _RENDERHAL_INTERFACE
                 PRENDERHAL_INTERFACE            pRenderHal,
                 PRENDERHAL_STATE_HEAP_SETTINGS  pSettings);
 
-    MOS_STATUS (* pfnReAllocateStateHeapsforAdvFeatureWithSshEnlarged)(
+    MOS_STATUS (* pfnReAllocateStateHeapsforAdvFeatureWithSshResize)(
                 PRENDERHAL_INTERFACE            pRenderHal,
+                bool                            enlarged,
                 bool                            &bAllocated);
 
     MOS_STATUS (*pfnReAllocateStateHeapsforAdvFeatureWithAllHeapsEnlarged)(

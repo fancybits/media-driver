@@ -25,24 +25,47 @@
 //!
 
 #include "encode_avc_basic_feature_xe3_lpm.h"
+#include "codec_def_encode_avc.h"
 #include "mhw_vdbox_vdenc_hwcmd_xe3_lpm.h"
 
 namespace encode
 {
+uint8_t AvcBasicFeatureXe3_Lpm::GetMinAvcQp()
+{
+    ENCODE_FUNC_CALL();
+    
+    // For VBR / LA CBR rate control, use minimum QP of 5 (CODEC_AVC_MIN_QP5)
+    // For other rate control methods, use base class default of 10 (CODEC_AVC_MIN_QP10)
+    if (m_seqParam->RateControlMethod == RATECONTROL_VBR ||
+        (m_seqParam->RateControlMethod == RATECONTROL_CBR && m_lookaheadDepth > 0))
+    {
+        return CODEC_AVC_MIN_QP5;  // Returns 5 for VBR or CBR with lookahead
+    }
+
+    return AvcBasicFeature::GetMinAvcQp();  // Returns CODEC_AVC_MIN_QP10 (10) from base class
+}
 
 MHW_SETPAR_DECL_SRC(VDENC_PIPE_MODE_SELECT, AvcBasicFeatureXe3_Lpm)
 {
     AvcBasicFeature::MHW_SETPAR_F(VDENC_PIPE_MODE_SELECT)(params);
 
-    if (m_seqParam->EnableStreamingBufferLLC || m_seqParam->EnableStreamingBufferDDR)
-    {
-        params.streamingBufferConfig = mhw::vdbox::vdenc::xe3_lpm_base::xe3_lpm::Cmd::VDENC_PIPE_MODE_SELECT_CMD::STREAMING_BUFFER_64;
-        params.captureMode           = mhw::vdbox::vdenc::xe3_lpm_base::xe3_lpm::Cmd::VDENC_PIPE_MODE_SELECT_CMD::CAPTURE_MODE_PARALLEFROMCAMERAPIPE;
-    }
-
     params.verticalShift32Minus1   = 0;
     params.numVerticalReqMinus1    = 11;
 
+    return MOS_STATUS_SUCCESS;
+}
+
+MHW_SETPAR_DECL_SRC(VDENC_AVC_IMG_STATE, AvcBasicFeatureXe3_Lpm)
+{
+    ENCODE_FUNC_CALL();
+
+    if (m_seqParam->RateControlMethod == RATECONTROL_VBR ||
+        (m_seqParam->RateControlMethod == RATECONTROL_CBR && m_lookaheadDepth > 0))
+    {
+        params.minQp = CODEC_AVC_MIN_QP5; // set init minQp to CODEC_AVC_MIN_QP5
+    }
+    
+    AvcBasicFeature::MHW_SETPAR_F(VDENC_AVC_IMG_STATE)(params);
     return MOS_STATUS_SUCCESS;
 }
 

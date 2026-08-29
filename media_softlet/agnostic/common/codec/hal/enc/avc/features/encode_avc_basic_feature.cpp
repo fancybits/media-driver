@@ -147,6 +147,8 @@ MOS_STATUS AvcBasicFeature::Update(void *params)
     }
 
     m_seqParam = m_seqParams[spsidx] = (PCODEC_AVC_ENCODE_SEQUENCE_PARAMS)(encodeParams->pSeqParams);
+    // Detect 8-bit 4:2:0 format (chroma_format_idc==1 means 4:2:0; bit_depth_luma_minus8==0 means 8-bit)
+    m_is8bit420 = (m_seqParam->chroma_format_idc == 1 && m_seqParam->bit_depth_luma_minus8 == 0);
     m_picParam = m_picParams[ppsidx] = (PCODEC_AVC_ENCODE_PIC_PARAMS)(encodeParams->pPicParams);
     m_vuiParams                      = (PCODECHAL_ENCODE_AVC_VUI_PARAMS)encodeParams->pVuiParams;
     m_sliceParams                    = (PCODEC_AVC_ENCODE_SLICE_PARAMS)encodeParams->pSliceParams;
@@ -244,6 +246,13 @@ MOS_STATUS AvcBasicFeature::SetSequenceStructs()
     ENCODE_CHK_NULL_RETURN(m_osInterface->osCpInterface);
 
     auto seqParams = m_seqParam;
+
+    // Validate tainted sequence parameters before using them in division
+    if (seqParams->FramesPer100Sec == 0)
+    {
+        ENCODE_ASSERTMESSAGE("Invalid FramesPer100Sec value (zero)");
+        return MOS_STATUS_INVALID_PARAMETER;
+    }
 
     // For G12+ TCBRC is used instead of LowDelayBRC, also needs TargetFrameSize in PPS.
     m_forcedTCBRC = false;
@@ -375,6 +384,13 @@ MOS_STATUS AvcBasicFeature::SetPictureStructs()
     auto seqParams = m_seqParam;
     auto slcParams = m_sliceParams;
 
+    // Validate tainted sequence parameters before using them in division
+    if (seqParams->FramesPer100Sec == 0)
+    {
+        ENCODE_ASSERTMESSAGE("Invalid FramesPer100Sec value (zero)");
+        return MOS_STATUS_INVALID_PARAMETER;
+    }
+
     // TCBRC forced from LowDelayBRC also needs TargetFrameSize
     if (m_forcedTCBRC)
     {
@@ -416,6 +432,7 @@ MOS_STATUS AvcBasicFeature::SetPictureStructs()
         }
         picParams->second_chroma_qp_index_offset = picParams->chroma_qp_index_offset;
     }
+    bool preserve_pic_init_qp = (picParams->QpY < 0 && seqParams->chroma_format_idc == 2 && seqParams->bit_depth_luma_minus8 == 2);
     if (picParams->QpY < 0)
     {
         picParams->QpY = 25;  // Set to default, recommended value used in simulation.
@@ -424,7 +441,10 @@ MOS_STATUS AvcBasicFeature::SetPictureStructs()
     {
         picParams->QpY = CODECHAL_ENCODE_AVC_MAX_SLICE_QP;  // Crop to 51 if larger
     }
-    picParams->pic_init_qp_minus26 = picParams->QpY - 26;
+    if (!preserve_pic_init_qp)
+    {
+        picParams->pic_init_qp_minus26 = picParams->QpY - 26;
+    }
 
     if (!seqParams->seq_scaling_matrix_present_flag)
     {
@@ -450,9 +470,28 @@ MOS_STATUS AvcBasicFeature::SetPictureStructs()
         m_lastPicInSeq = m_lastPicInStream = 0;
     }
 
-    m_frameFieldHeight     = m_frameHeight;
-    m_frameFieldHeightInMb = m_picHeightInMb;
-    m_firstField           = 1;
+    // see implementation in CodechalEncodeAvcBase::SetPictureStructs()
+    if (picParams->FieldCodingFlag == 1)
+    {
+        m_frameFieldHeight     = ((m_frameHeight + 1) >> 1);
+        m_frameFieldHeightInMb = ((m_picHeightInMb + 1) >> 1);
+        
+        if (CodecHal_PictureIsFrame(prevPic) || prevIdx != currIdx ||
+            ((prevPic.PicFlags != currPic.PicFlags) && !(slcParams->pic_order_cnt_lsb & 1)))
+        {
+            m_firstField = 1;
+        }
+        else
+        {
+            m_firstField = 0;
+        }
+    }
+    else
+    {
+        m_frameFieldHeight     = m_frameHeight;
+        m_frameFieldHeightInMb = m_picHeightInMb;
+        m_firstField = 1;
+    }
 
     seqParams->mb_adaptive_frame_field_flag = 0;
     m_mbaffEnabled                          = 0;
@@ -465,9 +504,9 @@ MOS_STATUS AvcBasicFeature::SetPictureStructs()
     }
     m_prevTargetFrameSize = picParams->TargetFrameSize;
 
-    if (picParams->FieldCodingFlag || picParams->FieldFrameCodingFlag)
+    if (picParams->FieldFrameCodingFlag)
     {
-        ENCODE_ASSERTMESSAGE("VDEnc does not support interlaced picture\n");
+        ENCODE_ASSERTMESSAGE("VDEnc does not support Field-Frame coding\n");
         eStatus = MOS_STATUS_INVALID_PARAMETER;
         return eStatus;
     }
@@ -597,6 +636,9 @@ void AvcBasicFeature::CheckResolutionChange()
         m_frame_mbs_only_flag        = frame_mbs_only_flag;
         m_frame_cropping_flag      = frame_cropping_flag;
         m_resolutionChanged = true;
+        // Initialize previous resolution to 0 for first frame
+        m_prevFrameHeight = 0;
+        m_prevFrameWidth  = 0;
     }
     else
     {
@@ -605,6 +647,9 @@ void AvcBasicFeature::CheckResolutionChange()
             (m_oriFrameWidth && (m_oriFrameWidth != frameWidth)))
         {
             m_resolutionChanged = true;
+            // Save current as previous before update
+            m_prevFrameHeight = m_oriFrameHeight;
+            m_prevFrameWidth = m_oriFrameWidth;
             m_oriFrameHeight = frameHeight;
             m_oriFrameWidth = frameWidth;
             m_frame_crop_bottom_offset = frame_crop_bottom_offset;
@@ -799,15 +844,23 @@ MOS_STATUS AvcBasicFeature::UpdateSeiParameters(EncoderParams* params)
     return eStatus;
 }
 
+uint8_t AvcBasicFeature::GetMinAvcQp()
+{
+    ENCODE_FUNC_CALL();
+    return CODEC_AVC_MIN_QP10;  // Default minimum QP for base class (value: 10)
+}
+
 void AvcBasicFeature::UpdateMinMaxQp()
 {
     ENCODE_FUNC_CALL();
 
+    uint8_t minAvcQp = GetMinAvcQp();  // Get platform-specific minimum QP
+
     m_minMaxQpControlEnabled = true;
     if (m_picParam->CodingType == I_TYPE)
     {
-        m_iMaxQp = MOS_MIN(MOS_MAX(m_picParam->ucMaximumQP, 10), 51);        // Clamp maxQP to [10, 51]
-        m_iMinQp = MOS_MIN(MOS_MAX(m_picParam->ucMinimumQP, 10), m_iMaxQp);  // Clamp minQP to [10, maxQP] to make sure minQP <= maxQP
+        m_iMaxQp = MOS_MIN(MOS_MAX(m_picParam->ucMaximumQP, minAvcQp), CODEC_AVC_MAX_QP);        // Clamp maxQP to [minAvcQp, CODEC_AVC_MAX_QP]
+        m_iMinQp = MOS_MIN(MOS_MAX(m_picParam->ucMinimumQP, minAvcQp), m_iMaxQp);  // Clamp minQP to [minAvcQp, maxQP] to make sure minQP <= maxQP
         if (!m_pFrameMinMaxQpControl)
         {
             m_pMinQp = m_iMinQp;
@@ -822,8 +875,8 @@ void AvcBasicFeature::UpdateMinMaxQp()
     else if (m_picParam->CodingType == P_TYPE)
     {
         m_pFrameMinMaxQpControl = true;
-        m_pMaxQp                = MOS_MIN(MOS_MAX(m_picParam->ucMaximumQP, 10), 51);        // Clamp maxQP to [10, 51]
-        m_pMinQp                = MOS_MIN(MOS_MAX(m_picParam->ucMinimumQP, 10), m_pMaxQp);  // Clamp minQP to [10, maxQP] to make sure minQP <= maxQP
+        m_pMaxQp                = MOS_MIN(MOS_MAX(m_picParam->ucMaximumQP, minAvcQp), CODEC_AVC_MAX_QP);        // Clamp maxQP to [minAvcQp, CODEC_AVC_MAX_QP]
+        m_pMinQp                = MOS_MIN(MOS_MAX(m_picParam->ucMinimumQP, minAvcQp), m_pMaxQp);  // Clamp minQP to [minAvcQp, maxQP] to make sure minQP <= maxQP
         if (!m_bFrameMinMaxQpControl)
         {
             m_bMinQp = m_pMinQp;
@@ -833,8 +886,8 @@ void AvcBasicFeature::UpdateMinMaxQp()
     else  // B_TYPE
     {
         m_bFrameMinMaxQpControl = true;
-        m_bMaxQp                = MOS_MIN(MOS_MAX(m_picParam->ucMaximumQP, 10), 51);        // Clamp maxQP to [10, 51]
-        m_bMinQp                = MOS_MIN(MOS_MAX(m_picParam->ucMinimumQP, 10), m_bMaxQp);  // Clamp minQP to [10, maxQP] to make sure minQP <= maxQP
+        m_bMaxQp                = MOS_MIN(MOS_MAX(m_picParam->ucMaximumQP, minAvcQp), CODEC_AVC_MAX_QP);        // Clamp maxQP to [minAvcQp, CODEC_AVC_MAX_QP]
+        m_bMinQp                = MOS_MIN(MOS_MAX(m_picParam->ucMinimumQP, minAvcQp), m_bMaxQp);  // Clamp minQP to [minAvcQp, maxQP] to make sure minQP <= maxQP
     }
     // Zero out the QP values, so we don't update the AVCState settings until new values are sent in MiscParamsRC
     m_picParam->ucMinimumQP = 0;
@@ -973,7 +1026,19 @@ MOS_STATUS AvcBasicFeature::GetTrackedBuffers()
     ENCODE_CHK_NULL_RETURN(m_allocator);
 
     auto currRefList = m_ref->GetCurrRefList();
-    ENCODE_CHK_STATUS_RETURN(m_trackedBuf->Acquire(currRefList, false));
+
+    // when encoding fields only Acquire the first field, or else encoder will hang
+    if (CodecHal_PictureIsTopField(m_currOriginalPic) || CodecHal_PictureIsBottomField(m_currOriginalPic))
+    {
+        if (m_firstField)
+        {
+            ENCODE_CHK_STATUS_RETURN(m_trackedBuf->Acquire(currRefList, false));
+        }
+    }
+    else
+    {
+        ENCODE_CHK_STATUS_RETURN(m_trackedBuf->Acquire(currRefList, false));
+    }
 
     m_resMbCodeBuffer = m_trackedBuf->GetBuffer(BufferType::mbCodedBuffer, m_trackedBuf->GetCurrIndex());
     ENCODE_CHK_NULL_RETURN(m_resMbCodeBuffer);
@@ -987,7 +1052,7 @@ MOS_STATUS AvcBasicFeature::GetTrackedBuffers()
     {
         auto alignedRawSurf = m_trackedBuf->GetSurface(BufferType::AlignedRawSurface, m_trackedBuf->GetCurrIndex());
         ENCODE_CHK_NULL_RETURN(alignedRawSurf);
-        m_allocator->GetSurfaceInfo(alignedRawSurf);
+        ENCODE_CHK_STATUS_RETURN(m_allocator->GetSurfaceInfo(alignedRawSurf));
         alignedRawSurf->OsResource.pGmmResInfo->GetSetCpSurfTag(true, m_rawSurface.OsResource.pGmmResInfo->GetSetCpSurfTag(false, 0));
         ENCODE_CHK_STATUS_RETURN(m_allocator->UpdateResourceUsageType(&alignedRawSurf->OsResource, MOS_HW_RESOURCE_USAGE_ENCODE_INPUT_RAW));
 
@@ -1132,6 +1197,12 @@ MHW_SETPAR_DECL_SRC(VDENC_PIPE_MODE_SELECT, AvcBasicFeature)
     params.numHzReqMinus1          = 0;
     params.VdencPipeModeSelectPar1 = par1table[m_seqParam->TargetUsage - 1];
     params.VdencPipeModeSelectPar0 = 1;
+
+    if (m_seqParam->EnableStreamingBufferLLC || m_seqParam->EnableStreamingBufferDDR)
+    {
+        params.streamingBufferConfig = 1; // STREAMING_BUFFER_64
+        params.captureMode           = 2; // CAPTURE_MODE_PARALLEFROMCAMERAPIPE
+    }
 
     return MOS_STATUS_SUCCESS;
 }
@@ -1297,6 +1368,19 @@ MHW_SETPAR_DECL_SRC(VDENC_AVC_IMG_STATE, AvcBasicFeature)
 
     params.pictureHeightMinusOne = m_picHeightInMb - 1;
     params.pictureWidth          = m_picWidthInMb;
+
+    if (m_picParam->FieldCodingFlag) {
+        params.plAdaptFrameField = 1;
+        params.currFrmFldPic = 1;
+        if (m_picParam->CurrOriginalPic.PicFlags == PICTURE_TOP_FIELD)
+            params.curPicType = 2;
+        else
+            params.curPicType = 3;
+    } else {
+        params.plAdaptFrameField = 0;
+        params.currFrmFldPic = 0;
+        params.curPicType = 0;
+    }
 
     ENCODE_CHK_STATUS_RETURN(m_ref->MHW_SETPAR_F(VDENC_AVC_IMG_STATE)(params));
 

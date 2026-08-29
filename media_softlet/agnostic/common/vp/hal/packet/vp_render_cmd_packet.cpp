@@ -261,14 +261,29 @@ MOS_STATUS VpRenderCmdPacket::Prepare()
             // reset render Data for current kernel
             MOS_ZeroMemory(&m_renderData, sizeof(KERNEL_PACKET_RENDER_DATA));
 
-            if (m_submissionMode != SINGLE_KERNEL_ONLY)
+            
+            if (!m_renderHal->isBindlessHeapInUse &&
+                m_hwInterface->m_vpPlatformInterface->GetKernelConfig() &&
+                m_hwInterface->m_vpPlatformInterface->GetKernelConfig()->GetRenderEnlargeOverwriteParams().needOverwrite)
             {
-                m_isMultiBindingTables = true;
+                // State Heap Setting has been overridden on this platform to require more kernels in one BB.
+                // This leads to a smaller Binding Table Size and larger Binding Table number because the BB size is not sufficient for both enlargements.
+                // For legacy single kernel mode kernels, they may need the default(Bigger) Binding Table Size because incontinuous use of Binding Tables during kernel design.
+                // So reallocate SSH.
+                bool allocated = false;
+                VP_RENDER_CHK_NULL_RETURN(m_renderHal->pfnReAllocateStateHeapsforAdvFeatureWithSshResize);
+                VP_RENDER_CHK_STATUS_RETURN(m_renderHal->pfnReAllocateStateHeapsforAdvFeatureWithSshResize(m_renderHal, false, allocated));
+                if (allocated && m_renderHal->pStateHeap)
+                {
+                    MHW_STATE_BASE_ADDR_PARAMS *pStateBaseParams = &m_renderHal->StateBaseAddressParams;
+                    pStateBaseParams->presGeneralState           = &m_renderHal->pStateHeap->GshOsResource;
+                    pStateBaseParams->presDynamicState           = &m_renderHal->pStateHeap->GshOsResource;
+                    pStateBaseParams->presIndirectObjectBuffer   = &m_renderHal->pStateHeap->GshOsResource;
+                    pStateBaseParams->presInstructionBuffer      = &m_renderHal->pStateHeap->IshOsResource;
+                }
             }
-            else
-            {
-                m_isMultiBindingTables = false;
-            }
+
+            m_isMultiBindingTables = false;
 
             VP_RENDER_CHK_STATUS_RETURN(RenderEngineSetup());
 
@@ -324,7 +339,7 @@ MOS_STATUS VpRenderCmdPacket::Prepare()
             pStateBaseParams->presInstructionBuffer      = &m_renderHal->pStateHeap->IshOsResource;
             pStateBaseParams->dwInstructionBufferSize    = m_renderHal->pStateHeap->dwSizeISH;
             uint32_t heapMocs                            = m_renderHal->pOsInterface->pfnCachePolicyGetMemoryObject(MOS_HW_RESOURCE_USAGE_VP_INPUT_PICTURE_RENDER,
-                                                             m_renderHal->pOsInterface->pfnGetGmmClientContext(m_renderHal->pOsInterface)).DwordValue;
+                                                             m_renderHal->pOsInterface).DwordValue;
             pStateBaseParams->mocs4SurfaceState         = heapMocs;
             pStateBaseParams->mocs4GeneralState         = heapMocs;
             pStateBaseParams->mocs4DynamicState         = heapMocs;
@@ -549,8 +564,12 @@ MOS_STATUS VpRenderCmdPacket::InitSurfMemCacheControl(VP_EXECUTE_CAPS packetCaps
 
     pSettings->bCompositing = packetCaps.bComposite;
     pSettings->bDnDi = true;
-    pSettings->bLace = MEDIA_IS_SKU(m_hwInterface->m_skuTable, FtrLace);
-    pSettings->bHdr  = MEDIA_IS_SKU(m_hwInterface->m_skuTable, FtrHDR);
+
+    if (m_hwInterface->m_skuTable)
+    {
+        pSettings->bLace = MEDIA_IS_SKU(m_hwInterface->m_skuTable, FtrLace);
+        pSettings->bHdr  = MEDIA_IS_SKU(m_hwInterface->m_skuTable, FtrHDR);
+    }
 
     VP_RENDER_CHK_STATUS_RETURN(InitFcMemCacheControl(pSettings));
 
@@ -730,7 +749,7 @@ MOS_STATUS VpRenderCmdPacket::SetupSurfaceState()
                 //set mem object control for cache
                 renderSurfaceParams.MemObjCtl = (m_renderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
                     MOS_HW_RESOURCE_USAGE_VP_INTERNAL_READ_WRITE_RENDER,
-                    m_renderHal->pOsInterface->pfnGetGmmClientContext(m_renderHal->pOsInterface))).DwordValue;
+                    m_renderHal->pOsInterface)).DwordValue;
             }
 
             VP_SURFACE *vpSurface = nullptr;
@@ -804,6 +823,41 @@ MOS_STATUS VpRenderCmdPacket::SetupSurfaceState()
                 for (uint32_t const& bti : bindingMap)
                 {
                     VP_RENDER_NORMALMESSAGE("Using Binded Index Surface. KernelID %d, SurfType %d, bti %d", m_kernel->GetKernelId(), type, bti);
+                }
+            }
+            // Bindless heap path - parameter validations performed inside block
+            else if (m_renderHal->isBindlessHeapInUse)
+            {
+                // Safety check: validate bindedKernel is false for unbinded kernel path
+                if (kernelSurfaceParam->surfaceOverwriteParams.bindedKernel)
+                {
+                    VP_RENDER_ASSERTMESSAGE("bindedKernel is true in bindless heap unbinded kernel path. KernelID %d, SurfType %d", m_kernel->GetKernelId(), type);
+                    VP_RENDER_CHK_STATUS_RETURN(MOS_STATUS_INVALID_PARAMETER);
+                }
+                
+                // Buffer resources require updatedSurfaceParams
+                if (kernelSurfaceParam->surfaceOverwriteParams.bufferResource && kernelSurfaceParam->surfaceOverwriteParams.updatedSurfaceParams)
+                {
+                    index = SetBufferForHwAccess(
+                        &renderHalSurface.OsSurface,
+                        &renderHalSurface,
+                        &renderSurfaceParams,
+                        bWrite,
+                        stateLocations);
+                    VP_RENDER_CHK_STATUS_RETURN(m_kernel->UpdateCurbeBindingIndex(type, index));
+                    VP_RENDER_NORMALMESSAGE("Using Bindless Heap with UnBinded Buffer. KernelID %d, SurfType %d, bti %d", m_kernel->GetKernelId(), type, index);
+                }
+                // Surface resources do not require updatedSurfaceParams
+                else
+                {
+                    index = SetSurfaceForHwAccess(
+                        &renderHalSurface.OsSurface,
+                        &renderHalSurface,
+                        &renderSurfaceParams,
+                        bWrite,
+                        stateLocations);
+                    VP_RENDER_CHK_STATUS_RETURN(m_kernel->UpdateCurbeBindingIndex(type, index));
+                    VP_RENDER_NORMALMESSAGE("Using Bindless Heap with UnBinded Surface. KernelID %d, SurfType %d, bti %d", m_kernel->GetKernelId(), type, index);
                 }
             }
             else
@@ -2244,6 +2298,33 @@ MOS_STATUS VpRenderCmdPacket::SetAiParams(PRENDER_AI_PARAMS params)
     return MOS_STATUS_SUCCESS;
 }
 
+MOS_STATUS VpRenderCmdPacket::SetHdrLiteParams(PRENDER_HDRLITE_PARAMS params)
+{
+    VP_FUNC_CALL();
+    VP_RENDER_CHK_NULL_RETURN(params);
+
+    KERNEL_PARAMS kernelParam = {};
+    for (RENDER_HDRLITE_KERNEL_PARAM &krnParams : params->kernelParams)
+    {
+        kernelParam.kernelId                       = krnParams.kernelID;
+        kernelParam.kernelArgs                     = krnParams.kernelArgs;
+        kernelParam.kernelThreadSpace.uWidth       = krnParams.threadWidth;
+        kernelParam.kernelThreadSpace.uHeight      = krnParams.threadHeight;
+        kernelParam.kernelThreadSpace.uDepth       = krnParams.threadDepth;
+        kernelParam.kernelThreadSpace.uLocalWidth  = krnParams.localWidth;
+        kernelParam.kernelThreadSpace.uLocalHeight = krnParams.localHeight;
+        kernelParam.syncFlag                       = true;
+        kernelParam.kernelStatefulSurfaces         = krnParams.kernelStatefulSurfaces;
+
+        m_renderKernelParams.push_back(kernelParam);
+    }
+
+    m_submissionMode            = MULTI_KERNELS_SINGLE_MEDIA_STATE;
+    m_isMultiBindingTables      = true;
+    m_isLargeSurfaceStateNeeded = true;
+    return MOS_STATUS_SUCCESS;
+}
+
 MOS_STATUS VpRenderCmdPacket::SetHdr3DLutParams(
     PRENDER_HDR_3DLUT_CAL_PARAMS params)
 {
@@ -2365,6 +2446,16 @@ MOS_STATUS VpRenderCmdPacket::SetHdrParams(PRENDER_HDR_PARAMS params)
     kernelParams.kernelThreadSpace.uHeight = params->threadHeight;
     kernelParams.syncFlag                  = true;
     m_renderKernelParams.push_back(kernelParams);
+
+    if (m_renderHal && !m_renderHal->isBindlessHeapInUse &&
+        m_hwInterface && m_hwInterface->m_vpPlatformInterface &&
+        m_hwInterface->m_vpPlatformInterface->GetKernelConfig() &&
+        m_hwInterface->m_vpPlatformInterface->GetKernelConfig()->GetRenderEnlargeOverwriteParams().needOverwrite)
+    {
+        m_submissionMode            = SINGLE_KERNEL_ONLY;
+        m_isMultiBindingTables      = false;
+        m_isLargeSurfaceStateNeeded = false;
+    }
 
     return MOS_STATUS_SUCCESS;
 

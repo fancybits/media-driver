@@ -64,7 +64,12 @@ MOS_STATUS EncodePipeline::Initialize(void *settings)
         m_mediaCopyWrapper->SetMediaCopyState(m_hwInterface->CreateMediaCopy(m_osInterface));
     }
 
-    m_mediaContext = MOS_New(MediaContext, scalabilityEncoder, m_hwInterface, m_osInterface);
+    if (MEDIA_IS_SKU(m_skuTable, FtrWithSlimVdbox))
+    {
+        m_pipelineVdboxTypePref = MOS_VDBOX_PREFER_FULL;
+    }
+
+    m_mediaContext = MOS_New(MediaContext, scalabilityEncoder, m_hwInterface, m_osInterface, m_pipelineVdboxTypePref);
     ENCODE_CHK_NULL_RETURN(m_mediaContext);
 
     m_allocator = MOS_New(EncodeAllocator, m_osInterface);
@@ -123,6 +128,24 @@ MOS_STATUS EncodePipeline::Initialize(void *settings)
 
     m_encodecp->setStatusReport(m_statusReport);
 
+    ENCODE_CHK_COND_RETURN(
+        SlimVdboxPrefInconsistent(m_skuTable, m_pipelineVdboxTypePref),
+        "FtrWithSlimVdbox=1 but EncodePipeline pref != FULL "
+        "(VDENC HW is Type-A only)");
+
+    if (m_osInterface->bNullHwIsEnabled)
+    {
+        m_bypassHWLegacy = MOS_New(BypassHwLegacy);
+        ENCODE_CHK_NULL_RETURN(m_bypassHWLegacy);
+
+        MOS_STATUS status = m_bypassHWLegacy->Initialize(m_osInterface, m_hwInterface->GetMiInterfaceNext());
+        if (status != MOS_STATUS_SUCCESS)
+        {
+            MOS_Delete(m_bypassHWLegacy);
+            m_bypassHWLegacy = nullptr;
+        }
+    }
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -159,6 +182,12 @@ MOS_STATUS EncodePipeline::Uninitialize()
     }
 
     MOS_Delete(m_packetUtilities);
+
+    if (m_bypassHWLegacy != nullptr)
+    {
+        m_bypassHWLegacy->Destroy();
+        MOS_Delete(m_bypassHWLegacy);
+    }
 
     return MOS_STATUS_SUCCESS;
 }
@@ -219,6 +248,11 @@ MOS_STATUS EncodePipeline::Prepare(void *params)
 
     m_osInterface->pfnIncPerfFrameID(m_osInterface);
 
+    if (m_scalPars)
+    {
+        m_scalPars->vdboxTypePref = m_pipelineVdboxTypePref;
+    }
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -246,12 +280,17 @@ MOS_STATUS EncodePipeline::GetSystemVdboxNumber()
     MOS_ZeroMemory(&mediaSysInfo, sizeof(MEDIA_ENGINE_INFO));
     MOS_STATUS eStatus = m_osInterface->pfnGetMediaEngineInfo(m_osInterface, mediaSysInfo);
 
-    if (eStatus == MOS_STATUS_SUCCESS && (!MEDIA_IS_SKU(m_skuTable, FtrWithSlimVdbox)))
+    if (eStatus == MOS_STATUS_SUCCESS)
     {
         // Both VE mode and media solo mode should be able to get the VDBOX number via the same interface
         m_numVdbox = (uint8_t)(mediaSysInfo.VDBoxInfo.NumberOfVDBoxEnabled);
     }
     else
+    {
+        m_numVdbox = 1;
+    }
+
+    if (MEDIA_IS_SKU(m_skuTable, FtrWithSlimVdbox))
     {
         m_numVdbox = 1;
     }

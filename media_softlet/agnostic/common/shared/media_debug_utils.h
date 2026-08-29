@@ -41,6 +41,10 @@ static const char *attrDumpBufferInBinary    = "DumpBufferInBinary";
 static const char *attrDumpToThreadFolder    = "DumpToThreadFolder";
 static const char *attrDumpCmdBufInBinary    = "DumpCmdBufInBinary";
 static const char *attrEnableFastDump        = "EnableFastDump";
+static const char *attrFastDumpAllowDataLoss = "FastDumpAllowDataLoss";
+static const char *attrFastDumpRenderCpyEn   = "FastDumpRenderCpyEn";
+static const char *attrFastDumpVeCpyEn       = "FastDumpVeCpyEn";
+static const char *attrFastDumpBltCpyEn      = "FastDumpBltCpyEn";
 
 //Codec Attr 
 static const char *attrPicParams               = "PicParams";
@@ -122,6 +126,8 @@ static const char *attrTileParams             = "TileParams";
 static const char *attrSubpicParams           = "SubpicParams";
 static const char *attrSliceStruct            = "SliceStruct";
 static const char *attrRplStruct              = "RplStruct";
+
+static const char *attrMvDumpOfTest           = "MvDumpOfTest"; //For Of test purpose only
 
 // MD5 attributes
 static const char *attrMD5HashEnable    = "MD5HasEnable";

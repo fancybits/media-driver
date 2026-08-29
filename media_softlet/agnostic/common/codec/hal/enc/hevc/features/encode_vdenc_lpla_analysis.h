@@ -200,7 +200,7 @@ namespace encode
     };
     //!
     //! \struct    VdencHevcLaStats
-    //! \brief     Vdenc HEVC lookahead info for BRC
+    //! \brief     Vdenc HEVC lookahead info base structure
     //!
     struct VdencHevcLaStats
     {
@@ -208,8 +208,26 @@ namespace encode
         uint32_t frameByteCount = 0;
         uint32_t headerBitCount = 0;
         uint32_t intraCuCount = 0;
-        uint32_t frameNumber  = 0;
-        uint32_t reserved[3];
+    };
+
+    //!
+    //! \struct    VdencHevcLaStatsForLAKernel
+    //! \brief     Vdenc HEVC lookahead info for LA Kernel
+    //!
+    struct VdencHevcLaStatsForLAKernel : VdencHevcLaStats
+    {
+        uint32_t reserved[4];
+    };
+
+    //!
+    //! \struct    VdencHevcLaStatsForBRCKernel
+    //! \brief     Vdenc HEVC lookahead info for BRC Kernel
+    //!
+    struct VdencHevcLaStatsForBRCKernel : VdencHevcLaStats
+    {
+        uint32_t frameNumber        = 0;
+        uint32_t rhoDomainStats[76] = {};
+        uint32_t reserved[39]       = {};
     };
 
     //!
@@ -531,8 +549,8 @@ namespace encode
         PMOS_RESOURCE              m_vdencLaUpdateDmemBuffer[CODECHAL_ENCODE_RECYCLED_BUFFER_NUM][CODECHAL_LPLA_NUM_OF_PASSES] = {};  //!< VDEnc Lookahead Update DMEM buffer
         uint32_t                   m_statsBuffer[600][4]                                                                       = {};
         bool                       m_useDSData = false;
-        bool                       m_bLastPicFlagFirstIn                                                                       = true;
-
+        bool                       m_bLastPicFlagFirstIn    = true;
+        bool                       m_skipAnalysisKernelCall = false;                                                                 
     MEDIA_CLASS_DEFINE_END(encode__VdencLplaAnalysis)
     };
 } // namespace encode

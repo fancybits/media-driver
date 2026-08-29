@@ -473,7 +473,27 @@ void Mos_AddIndirectState(
     MOS_OS_CHK_NULL_NO_STATUS_RETURN(pOsInterface->osStreamState);
     if (pOsInterface->apoMosEnabled)
     {
-        if (MOS_STATUS_SUCCESS != MosInterface::AddIndirectState(pOsInterface->osStreamState, stateSize, pIndirectState, gfxAddressBottom, gfxAddressTop, stateName))
+        if (MOS_STATUS_SUCCESS != MosInterface::AddIndirectState(pOsInterface->osStreamState, stateSize, pIndirectState, gfxAddressBottom, gfxAddressTop, stateName, 0, 0))
+        {
+            MOS_OS_ASSERTMESSAGE("Fail to Add Indirect State to Dump List");
+        }
+    }
+    return;
+}
+
+void Mos_AddIndirectStateByAddressValue(
+    PMOS_INTERFACE pOsInterface,
+    uint32_t       stateSize,
+    uint32_t      *pIndirectState,
+    uint32_t       gfxAddressBottom,
+    uint32_t       gfxAddressTop,
+    const char    *stateName)
+{
+    MOS_OS_CHK_NULL_NO_STATUS_RETURN(pOsInterface);
+    MOS_OS_CHK_NULL_NO_STATUS_RETURN(pOsInterface->osStreamState);
+    if (pOsInterface->apoMosEnabled)
+    {
+        if (MOS_STATUS_SUCCESS != MosInterface::AddIndirectState(pOsInterface->osStreamState, stateSize, pIndirectState, 0, 0, stateName, gfxAddressBottom, gfxAddressTop))
         {
             MOS_OS_ASSERTMESSAGE("Fail to Add Indirect State to Dump List");
         }
@@ -493,6 +513,41 @@ void Mos_AddIndirectState(
 //! \return   MOS_STATUS
 //!           Return MOS_STATUS_SUCCESS if successful, otherwise failed
 //!
+const char *Mos_GetCmdBufferEngineName(MOS_GPU_CONTEXT gpuContext)
+{
+    switch (gpuContext)
+    {
+        case MOS_GPU_CONTEXT_VIDEO:
+        case MOS_GPU_CONTEXT_VIDEO2:
+        case MOS_GPU_CONTEXT_VIDEO3:
+        case MOS_GPU_CONTEXT_VIDEO4:
+        case MOS_GPU_CONTEXT_VDBOX2_VIDEO:
+        case MOS_GPU_CONTEXT_VDBOX2_VIDEO2:
+        case MOS_GPU_CONTEXT_VDBOX2_VIDEO3:
+        case MOS_GPU_CONTEXT_VIDEO5:
+        case MOS_GPU_CONTEXT_VIDEO6:
+        case MOS_GPU_CONTEXT_VIDEO7:
+        case MOS_GPU_CONTEXT_VIDEO_DEC_FULL:
+        case MOS_GPU_CONTEXT_VIDEO_ENC_FULL:
+            return MOS_COMMAND_BUFFER_VIDEO_ENGINE;
+        case MOS_GPU_CONTEXT_TEE:
+            return MOS_COMMAND_BUFFER_TEE_ENGINE;
+        case MOS_GPU_CONTEXT_RENDER:
+        case MOS_GPU_CONTEXT_RENDER2:
+        case MOS_GPU_CONTEXT_RENDER3:
+        case MOS_GPU_CONTEXT_RENDER4:
+        case MOS_GPU_CONTEXT_RENDER_RA:
+        case MOS_GPU_CONTEXT_COMPUTE:
+        case MOS_GPU_CONTEXT_COMPUTE_RA:
+        case MOS_GPU_CONTEXT_CM_COMPUTE:
+            return MOS_COMMAND_BUFFER_RENDER_ENGINE;
+        case MOS_GPU_CONTEXT_VEBOX:
+            return MOS_COMMAND_BUFFER_VEBOX_ENGINE;
+        default:
+            return nullptr;
+    }
+}
+
 MOS_STATUS Mos_DumpCommandBuffer(
     PMOS_INTERFACE      pOsInterface,
     PMOS_COMMAND_BUFFER pCmdBuffer)
@@ -521,40 +576,13 @@ MOS_STATUS Mos_DumpCommandBuffer(
 
     // Set the name of the engine that is going to be used.
     MOS_GPU_CONTEXT sGpuContext = pOsInterface->pfnGetGpuContext(pOsInterface);
-    switch (sGpuContext)
+    const char     *pEngName    = Mos_GetCmdBufferEngineName(sGpuContext);
+    if (pEngName == nullptr)
     {
-        case MOS_GPU_CONTEXT_VIDEO:
-        case MOS_GPU_CONTEXT_VIDEO2:
-        case MOS_GPU_CONTEXT_VIDEO3:
-        case MOS_GPU_CONTEXT_VIDEO4:
-        case MOS_GPU_CONTEXT_VDBOX2_VIDEO:
-        case MOS_GPU_CONTEXT_VDBOX2_VIDEO2:
-        case MOS_GPU_CONTEXT_VDBOX2_VIDEO3:
-        case MOS_GPU_CONTEXT_VIDEO5:
-        case MOS_GPU_CONTEXT_VIDEO6:
-        case MOS_GPU_CONTEXT_VIDEO7:
-            MOS_SecureStrcpy(sEngName, sizeof(sEngName), MOS_COMMAND_BUFFER_VIDEO_ENGINE);
-            break;
-        case MOS_GPU_CONTEXT_TEE:
-            MOS_SecureStrcpy(sEngName, sizeof(sEngName), MOS_COMMAND_BUFFER_TEE_ENGINE);
-            break;
-        case MOS_GPU_CONTEXT_RENDER:
-        case MOS_GPU_CONTEXT_RENDER2:
-        case MOS_GPU_CONTEXT_RENDER3:
-        case MOS_GPU_CONTEXT_RENDER4:
-        case MOS_GPU_CONTEXT_RENDER_RA:
-        case MOS_GPU_CONTEXT_COMPUTE:
-        case MOS_GPU_CONTEXT_COMPUTE_RA:
-        case MOS_GPU_CONTEXT_CM_COMPUTE:
-            MOS_SecureStrcpy(sEngName, sizeof(sEngName), MOS_COMMAND_BUFFER_RENDER_ENGINE);
-            break;
-        case MOS_GPU_CONTEXT_VEBOX:
-            MOS_SecureStrcpy(sEngName, sizeof(sEngName), MOS_COMMAND_BUFFER_VEBOX_ENGINE);
-            break;
-        default:
-            MOS_OS_ASSERTMESSAGE("Unsupported GPU context.");
-            return MOS_STATUS_UNKNOWN;
+        MOS_OS_ASSERTMESSAGE("Unsupported GPU context.");
+        return MOS_STATUS_UNKNOWN;
     }
+    MOS_SecureStrcpy(sEngName, sizeof(sEngName), pEngName);
 
     dwNumberOfDwords = pCmdBuffer->iOffset / sizeof(uint32_t);
 
@@ -669,6 +697,7 @@ MOS_STATUS Mos_DumpCommandBufferInit(
     // Setup member function and variable.
     pOsInterface->pfnDumpCommandBuffer  = Mos_DumpCommandBuffer;
     pOsInterface->pfnAddIndirectState   = Mos_AddIndirectState;
+    pOsInterface->pfnAddIndirectStateByAddressValue = Mos_AddIndirectStateByAddressValue;
 
     // Check if command buffer dump was enabled in user feature.
     ReadUserSetting(
@@ -928,7 +957,7 @@ MOS_STATUS Mos_InitOsInterface(
         MediaUserSetting::Group::Device);
 #endif
 
-    if (pOsInterface->apoMosEnabled || pOsInterface->apoMosForLegacyRuntime)
+    if (pOsInterface->apoMosEnabled)
     {
         pOsInterface->osStreamState->osCpInterface = pOsInterface->osCpInterface;
     }

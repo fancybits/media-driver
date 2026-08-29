@@ -886,7 +886,7 @@ namespace decode
         params.bitDepthChromaMinus8 = m_hevcPicParams->bit_depth_chroma_minus8;
         params.bitDepthLumaMinus8   = m_hevcPicParams->bit_depth_luma_minus8;
 
-        params.requestCRC = m_hevcPicParams->RequestCRC;
+        params.requestCRC = m_hevcPicParams->RequestCRC || (m_hevcPipeline != nullptr && m_hevcPipeline->GetMemDataAccessCrcOutputEnable());
 
         // Force to false due to definition in xe_lpm_plus
         params.sseEnable                    = false;

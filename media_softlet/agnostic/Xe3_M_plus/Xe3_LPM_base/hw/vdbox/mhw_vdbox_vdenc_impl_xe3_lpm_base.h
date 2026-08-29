@@ -46,14 +46,29 @@ template <typename cmd_t>
 class BaseImpl : public vdenc::Impl<cmd_t>
 {
 public:
-    virtual uint32_t GetCmd1CommandSize() override
+    MOS_STATUS SetRowstoreCachingOffsets(const RowStorePar &par) override
     {
-        return cmd_t::VDENC_CMD1_CMD::byteSize;
-    }
-
-    virtual uint32_t GetCmd2CommandSize() override
-    {
-        return cmd_t::VDENC_CMD2_CMD::byteSize;
+        MHW_FUNCTION_ENTER;
+        base_t::SetRowstoreCachingOffsets(par);
+        
+        switch (par.mode)
+        {
+        case RowStorePar::AV1: {
+            if (this->m_rowStoreCache.vdenc.supported)
+            {
+                if (par.frameWidth > 2048)
+                {
+                    this->m_rowStoreCache.vdenc.enabled = false;
+                }
+            }
+            break;
+        }
+        default: {
+            break;
+        }
+        }
+        
+        return MOS_STATUS_SUCCESS;
     }
 
 protected:

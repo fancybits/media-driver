@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2020-2023, Intel Corporation
+* Copyright (c) 2020-2026, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -192,6 +192,10 @@ namespace encode {
 
         ENCODE_CHK_STATUS_RETURN(Mos_Solo_PostProcessEncode(m_osInterface, &m_basicFeature->m_resBitstreamBuffer, &m_basicFeature->m_reconSurface));
 
+#if USE_CODECHAL_DEBUG_TOOL
+        ENCODE_CHK_STATUS_RETURN(DumpReferences());
+#endif
+
         return MOS_STATUS_SUCCESS;
     }
 
@@ -332,9 +336,15 @@ namespace encode {
             if (!brcFeature->m_swBrc)
             {
 #endif
-            // Insert conditional batch buffer end for HuC valid IMEM loaded check
-            m_pResource = brcFeature->GetHucStatus2Buffer();
-            SETPAR_AND_ADDCMD(MI_CONDITIONAL_BATCH_BUFFER_END, m_miItf, &cmdBuffer);
+#if (_DEBUG || _RELEASE_INTERNAL)
+            // In NullHW mode HuC never runs so HucStatus2=0 would always fire the early-exit.
+            if (!m_bypassHwLegacyEnabled)
+#endif
+            {
+                // Insert conditional batch buffer end for HuC valid IMEM loaded check
+                m_pResource = brcFeature->GetHucStatus2Buffer();
+                SETPAR_AND_ADDCMD(MI_CONDITIONAL_BATCH_BUFFER_END, m_miItf, &cmdBuffer);
+            }
 #if _SW_BRC
             }
 #endif
@@ -349,11 +359,16 @@ namespace encode {
                 ENCODE_CHK_STATUS_RETURN(MediaPacket::UpdateStatusReportNext(statusReportGlobalCount, &cmdBuffer));
             }
 
-            // Insert conditional batch buffer end
-            // VDENC uses HuC BRC FW generated semaphore for conditional 2nd pass
-            m_pResource =
-                m_basicFeature->m_recycleBuf->GetBuffer(VdencBrcPakMmioBuffer, 0);
-            SETPAR_AND_ADDCMD(MI_CONDITIONAL_BATCH_BUFFER_END, m_miItf, &cmdBuffer);
+#if (_DEBUG || _RELEASE_INTERNAL)
+            if (!m_bypassHwLegacyEnabled)
+#endif
+            {
+                // Insert conditional batch buffer end
+                // VDENC uses HuC BRC FW generated semaphore for conditional 2nd pass
+                m_pResource =
+                    m_basicFeature->m_recycleBuf->GetBuffer(VdencBrcPakMmioBuffer, 0);
+                SETPAR_AND_ADDCMD(MI_CONDITIONAL_BATCH_BUFFER_END, m_miItf, &cmdBuffer);
+            }
         }
 
         if (m_pipeline->IsFirstPipe())
@@ -437,6 +452,17 @@ namespace encode {
         if (m_basicFeature->m_pictureCodingType == B_TYPE)
         {
             SETPAR_AND_ADDCMD(MFX_AVC_DIRECTMODE_STATE, m_mfxItf, &cmdBuffer);
+        }
+
+        // Log previous frame resolution for OCA debugging
+        if (m_osInterface && m_osInterface->pOsContext)
+        {
+            char ocaLogMsg[256] = {};
+            MOS_SecureStringPrint(ocaLogMsg, sizeof(ocaLogMsg), sizeof(ocaLogMsg),
+                "AVC Encode - Previous Frame Resolution: Height=%d, Width=%d",
+                m_basicFeature->m_prevFrameHeight, m_basicFeature->m_prevFrameWidth);
+            HalOcaInterfaceNext::TraceMessage(cmdBuffer, (MOS_CONTEXT_HANDLE)m_osInterface->pOsContext, 
+                ocaLogMsg, sizeof(ocaLogMsg));
         }
 
         return MOS_STATUS_SUCCESS;
@@ -1579,14 +1605,22 @@ namespace encode {
             // base part of 2nd lvl BB must be aligned for CODECHAL_CACHELINE_SIZE
             secondLevelBatchBuffer->dwOffset = MOS_ALIGN_CEIL(m_hwInterface->m_vdencBrcImgStateBufferSize, CODECHAL_CACHELINE_SIZE) +
                                                m_basicFeature->m_curNumSlices * brcFeature->GetVdencOneSliceStateSize();
-            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_BATCH_BUFFER_START)(cmdBuffer, secondLevelBatchBuffer));
-            HalOcaInterfaceNext::OnSubLevelBBStart(
-                *cmdBuffer,
-                m_osInterface->pOsContext,
-                &secondLevelBatchBuffer->OsResource,
-                secondLevelBatchBuffer->dwOffset,
-                false,
-                brcFeature->GetVdencOneSliceStateSize());
+#if (_DEBUG || _RELEASE_INTERNAL)
+            // In NullHW/BRC mode HuC never ran so the BRC img-state buffer (slice section)
+            // is uninitialized. MI_BATCH_BUFFER_START always executes even under
+            // MI_SET_PREDICATE, so jumping into this buffer causes a GPU hang.
+            if (!m_bypassHwLegacyEnabled)
+#endif
+            {
+                ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_BATCH_BUFFER_START)(cmdBuffer, secondLevelBatchBuffer));
+                HalOcaInterfaceNext::OnSubLevelBBStart(
+                    *cmdBuffer,
+                    m_osInterface->pOsContext,
+                    &secondLevelBatchBuffer->OsResource,
+                    secondLevelBatchBuffer->dwOffset,
+                    false,
+                    brcFeature->GetVdencOneSliceStateSize());
+            }
         }
 
         ENCODE_CHK_STATUS_RETURN(AddAllCmds_MFX_PAK_INSERT_OBJECT(cmdBuffer));
@@ -2674,6 +2708,18 @@ namespace encode {
                 0,
                 CODECHAL_NUM_MEDIA_STATES));
         }
+        return MOS_STATUS_SUCCESS;
+    }
+
+    MOS_STATUS AvcVdencPkt::DumpReferences()
+    {
+        ENCODE_FUNC_CALL();
+
+        auto *debugInterface = m_pipeline->GetDebugInterface();
+        ENCODE_CHK_NULL_RETURN(debugInterface);
+
+        ENCODE_CHK_STATUS_RETURN(m_basicFeature->m_ref->DumpReferences(*debugInterface));
+
         return MOS_STATUS_SUCCESS;
     }
 

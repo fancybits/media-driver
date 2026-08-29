@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2011-2023, Intel Corporation
+* Copyright (c) 2011-2026, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -3543,22 +3543,19 @@ MOS_STATUS CodechalDebugInterface::SetFastDumpConfig(MediaCopyWrapper *mediaCopy
     }
     else
     {
-        cfg.allowDataLoss = false;
+        cfg.allowDataLoss = m_configMgr->AttrIsEnabled(MediaDbgAttr::attrFastDumpAllowDataLoss);
         cfg.informOnError = false;
 
-        MediaUserSetting::Value outValue{};
-        ReadUserSettingForDebug(
-            m_userSettingPtr,
-            outValue,
-            "Enable VECopy For Surface Dump",
-            MediaUserSetting::Group::Sequence);
-
-        if (outValue.Get<bool>())
+        // E.g., when FastDumpRenderCpyEn:1, FastDumpVeCpyEn:0, FastDumpBltCpyEn:0, only use render copy
+        //       when FastDumpRenderCpyEn:1, FastDumpVeCpyEn:1, FastDumpBltCpyEn:0, randomly use render and VE copy
+        //       when FastDumpRenderCpyEn:1, FastDumpVeCpyEn:1, FastDumpBltCpyEn:1, randomly use render, VE and BLT copy
+        //       when FastDumpRenderCpyEn:0, FastDumpVeCpyEn:0, FastDumpBltCpyEn:0, use FastDump default copy method, which is VE copy
+        if (m_configMgr->AttrIsEnabled(MediaDbgAttr::attrFastDumpRenderCpyEn) || m_configMgr->AttrIsEnabled(MediaDbgAttr::attrFastDumpVeCpyEn)
+            || m_configMgr->AttrIsEnabled(MediaDbgAttr::attrFastDumpBltCpyEn))
         {
-            // use VE copy
-            cfg.weightRenderCopy = 0;
-            cfg.weightVECopy     = 100;
-            cfg.weightBLTCopy    = 0;
+            cfg.weightRenderCopy = m_configMgr->AttrIsEnabled(MediaDbgAttr::attrFastDumpRenderCpyEn) ? 100 : 0;
+            cfg.weightVECopy     = m_configMgr->AttrIsEnabled(MediaDbgAttr::attrFastDumpVeCpyEn) ? 100 : 0;
+            cfg.weightBLTCopy    = m_configMgr->AttrIsEnabled(MediaDbgAttr::attrFastDumpBltCpyEn) ? 100 : 0;
         }
     }
 
@@ -3618,12 +3615,15 @@ const char *CodechalDebugInterface::CreateFileName(
         extType = MediaDbgExtType::dat;
     }
 
+    // Mark LA-pass dumps so LPLA's two passes don't overwrite each other; non-LA keeps original filename.
+    const char *passSeg = m_isLookAheadPass ? "_LAPASS_" : "_";
+
     if (bufType != nullptr &&
         !strncmp(bufType, MediaDbgBufferType::bufSlcParams, sizeof(MediaDbgBufferType::bufSlcParams) - 1) && !strncmp(funcName, "_DDIEnc", sizeof("_DDIEnc") - 1))
     {
         m_outputFileName = m_outputFilePath +
                            std::to_string(m_bufferDumpFrameNum) + '-' +
-                           std::to_string(m_streamId) + '_' +
+                           std::to_string(m_streamId) + passSeg +
                            std::to_string(m_sliceId + 1) +
                            funcName + '_' + bufType + '_' + frameType + fieldOrder + extType;
     }
@@ -3640,7 +3640,7 @@ const char *CodechalDebugInterface::CreateFileName(
         {
             m_outputFileName = m_outputFilePath +
                                std::to_string(m_bufferDumpFrameNum) + '-' +
-                               std::to_string(m_streamId) + '_' +
+                               std::to_string(m_streamId) + passSeg +
                                funcName + frameType + fieldOrder + extType;
         }
     }
@@ -3653,14 +3653,14 @@ const char *CodechalDebugInterface::CreateFileName(
         {
             m_outputFileName = m_outputFilePath +
                                std::to_string(m_bufferDumpFrameNum) + '-' +
-                               std::to_string(m_streamId) + '_' +
+                               std::to_string(m_streamId) + passSeg +
                                funcName + '_' + bufType + '_' + frameType + fieldOrder + extType;
         }
         else
         {
             m_outputFileName = m_outputFilePath +
                                std::to_string(m_bufferDumpFrameNum) + '-' +
-                               std::to_string(m_streamId) + '_' +
+                               std::to_string(m_streamId) + passSeg +
                                funcName + '_' + frameType + fieldOrder + extType;
         }
     }

@@ -930,6 +930,13 @@ MOS_STATUS MosUserSetting::InitUserSettingForDebug(MediaUserSettingSharedPtr use
 
     DeclareUserSettingKeyForDebug(
         userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_TILE_B_IN_USE,
+        MediaUserSetting::Group::Device,
+        int32_t(0),
+        true);
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
         __MEDIA_USER_FEATURE_VALUE_MEDIA_RESET_ENABLE,
         MediaUserSetting::Group::Device,
         1,
@@ -1198,6 +1205,13 @@ MOS_STATUS MosUserSetting::InitUserSettingForDebug(MediaUserSettingSharedPtr use
 
     DeclareUserSettingKeyForDebug(
         userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_VDBOX_TYPE_PREF,
+        MediaUserSetting::Group::Device,
+        0,
+        true);
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
         __MEDIA_USER_FEATURE_VALUE_ENABLE_LINUX_FRAME_SPLIT,
         MediaUserSetting::Group::Device,
         0,
@@ -1412,6 +1426,12 @@ MOS_STATUS MosUserSetting::InitUserSettingForDebug(MediaUserSettingSharedPtr use
         MediaUserSetting::Group::Device,
         0,
         true);
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_NULLHW_PROXY_REPEAT_COUNT_FILE,
+        MediaUserSetting::Group::Device,
+        "",
+        true);  // "Path to per-pipeline repeat count config file"
 #endif
     DeclareUserSettingKeyForDebug(
         userSettingPtr,
@@ -1433,6 +1453,13 @@ MOS_STATUS MosUserSetting::InitUserSettingForDebug(MediaUserSettingSharedPtr use
         MediaUserSetting::Group::Device,
         39497,
         true); //"Device ID of mock device, default is 0x9A49"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_PIPE,
+        MediaUserSetting::Group::Device,
+        0,
+        true);  //"The pipe number of mock device, default is 1"
 
     //Tile resource info report
     DeclareUserSettingKeyForDebug(
@@ -1525,6 +1552,35 @@ MOS_STATUS MosUserSetting::InitUserSettingForDebug(MediaUserSettingSharedPtr use
         MediaUserSetting::Group::Sequence,
         uint32_t(0), // 0 chroma prefetch enabled, 1 chroma prefetch disabled ;
         false);
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_FORCE_ENGINE_GROUP_SCHEDULING,
+        MediaUserSetting::Group::Device,
+        0,
+        false);
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_FORCE_DISALBE_64BIT_TOKEN,
+        MediaUserSetting::Group::Device,
+        0,
+        false);
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_REPORT_VEBOX_SCALABILITY_IN_USE,
+        MediaUserSetting::Group::Device,
+        0,
+        true);  //"Report Vebox scalability in use status (Default 0: not in use)"
+
+    DeclareUserSettingKeyForDebug(
+        userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_REPORT_VDBOX_SCALABILITY_IN_USE,
+        MediaUserSetting::Group::Device,
+        0,
+        true);  //"Report Vdbox scalability in use status (Default 0: not in use)"
+
     return MOS_STATUS_SUCCESS;
 }
 

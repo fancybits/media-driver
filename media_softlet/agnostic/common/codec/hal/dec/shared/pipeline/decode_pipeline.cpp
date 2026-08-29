@@ -169,7 +169,9 @@ MOS_STATUS DecodePipeline::Initialize(void *settings)
             m_debugInterface->Initialize(m_hwInterface, codecSettings->codecFunction, m_mediaCopyWrapper));
     );
 
-    m_mediaContext = MOS_New(MediaContext, scalabilityDecoder, m_hwInterface, m_osInterface);
+    EvaluateVdboxTypePref();
+
+    m_mediaContext = MOS_New(MediaContext, scalabilityDecoder, m_hwInterface, m_osInterface, m_pipelineVdboxTypePref);
     DECODE_CHK_NULL(m_mediaContext);
 
     m_task = CreateTask(MediaTask::TaskType::cmdTask);
@@ -182,6 +184,18 @@ MOS_STATUS DecodePipeline::Initialize(void *settings)
     DECODE_CHK_NULL(m_allocator);
 
     DECODE_CHK_STATUS(CreateStatusReport());
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
+    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+    MOS_UserFeature_ReadValue_ID(
+        nullptr,
+        __MEDIA_USER_FEATURE_VALUE_VDBOX_COMMAND_COUNTER_OVERRIDE_ID,
+        &userFeatureData,
+        m_osInterface->pOsContext);
+    m_vdboxCommandCounterOverride = userFeatureData.i32Data;
+    DECODE_NORMALMESSAGE("m_vdboxCommandCounterOverride value read: %d", m_vdboxCommandCounterOverride);
+#endif
 
     m_decodecp = Create_DecodeCpInterface(codecSettings, m_hwInterface->GetCpInterface(), m_hwInterface->GetOsInterface());
     if (m_decodecp)
@@ -202,8 +216,56 @@ MOS_STATUS DecodePipeline::Initialize(void *settings)
     mhw::HwcmdParser::InitInstance(m_osInterface, mhw::HwcmdParser::AddOnMode::NoAddOn);
 #endif
 
+    if (m_osInterface->bNullHwIsEnabled)
+    {
+        m_bypassHWLegacy = MOS_New(BypassHwLegacy);
+        DECODE_CHK_NULL(m_bypassHWLegacy);
+
+        MOS_STATUS status = m_bypassHWLegacy->Initialize(m_osInterface, m_hwInterface->GetMiInterfaceNext());
+        if (status == MOS_STATUS_SUCCESS)
+        {
+            uint32_t bitDepth = (codecSettings->lumaChromaDepth & CODECHAL_LUMA_CHROMA_DEPTH_12_BITS) ? 12 : ((codecSettings->lumaChromaDepth & CODECHAL_LUMA_CHROMA_DEPTH_10_BITS) ? 10 : 8);
+
+            DECODE_CHK_STATUS(m_bypassHWLegacy->FetchDummyVdNode(
+                m_bypassHWLegacyGpuNode,
+                static_cast<CODECHAL_STANDARD>(codecSettings->standard),
+                false,
+                codecSettings->width,
+                codecSettings->height,
+                static_cast<uint8_t>(codecSettings->chromaFormat),
+                static_cast<uint8_t>(bitDepth),
+                0));
+            m_bypassHWLegacy->SetPipelineCharacteristics(
+                static_cast<CODECHAL_STANDARD>(codecSettings->standard),
+                static_cast<uint8_t>(codecSettings->chromaFormat),
+                codecSettings->width,
+                codecSettings->height,
+                static_cast<uint8_t>(bitDepth),
+                0);
+        }
+        else
+        {
+            MOS_Delete(m_bypassHWLegacy);
+            m_bypassHWLegacy = nullptr;
+        }
+    }
+
     return MOS_STATUS_SUCCESS;
 }
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+void DecodePipeline::InitMemDataAccessCrcOutputEnable()
+{
+    MOS_USER_FEATURE_VALUE_DATA userFeatureData;
+    MOS_ZeroMemory(&userFeatureData, sizeof(userFeatureData));
+    MOS_UserFeature_ReadValue_ID(
+        nullptr,
+        __MEDIA_USER_FEATURE_VALUE_VDBOX_CRC_OUTPUT_ENABLE_ID,
+        &userFeatureData,
+        m_osInterface->pOsContext);
+    m_memDataAccessCrcOutputEnable = userFeatureData.i32Data ? true : false;
+}
+#endif
 
 MOS_STATUS DecodePipeline::Uninitialize()
 {
@@ -228,6 +290,12 @@ MOS_STATUS DecodePipeline::Uninitialize()
     MOS_Delete(m_allocator);
 
     CODECHAL_DEBUG_TOOL(MOS_Delete(m_debugInterface););
+
+    if (m_bypassHWLegacy != nullptr)
+    {
+        m_bypassHWLegacy->Destroy();
+        MOS_Delete(m_bypassHWLegacy);
+    }
 
     return MOS_STATUS_SUCCESS;
 }
@@ -270,7 +338,43 @@ uint8_t DecodePipeline::GetSystemVdboxNumber()
         DECODE_ASSERTMESSAGE("Failed to query media engine info!!");
     }
 
+    if (MEDIA_IS_SKU(m_skuTable, FtrWithSlimVdbox))
+    {
+        numVdbox = 1;
+    }
+
     return numVdbox;
+}
+
+VdboxTypePref DecodePipeline::GetDefaultVdboxTypePref() const
+{
+    auto sku = m_osInterface->pfnGetSkuTable(m_osInterface);
+    return (sku && MEDIA_IS_SKU(sku, FtrWithSlimVdbox))
+         ? MOS_VDBOX_PREFER_SLIM : MOS_VDBOX_PREFER_NONE;
+}
+
+void DecodePipeline::EvaluateVdboxTypePref()
+{
+    m_pipelineVdboxTypePref = GetDefaultVdboxTypePref();
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+    if (MEDIA_IS_SKU(m_skuTable, FtrWithSlimVdbox))
+    {
+        uint32_t forcePref = 0;
+        ReadUserSettingForDebug(
+            m_userSettingPtr,
+            forcePref,
+            __MEDIA_USER_FEATURE_VALUE_VDBOX_TYPE_PREF,
+            MediaUserSetting::Group::Device);
+        switch (forcePref)
+        {
+            case 1: m_pipelineVdboxTypePref = MOS_VDBOX_PREFER_FULL; break;
+            case 2: m_pipelineVdboxTypePref = MOS_VDBOX_PREFER_SLIM; break;
+            case 3: m_pipelineVdboxTypePref = MOS_VDBOX_PREFER_NONE; break;
+            default: break;
+        }
+    }
+#endif
 }
 
 MOS_STATUS DecodePipeline::Prepare(void *params)
@@ -294,6 +398,12 @@ MOS_STATUS DecodePipeline::Prepare(void *params)
     }
     DECODE_CHK_STATUS(m_subPacketManager->Prepare());
 
+    // trace decode frame info after all update done
+    if (MOS_TraceEnabled())
+    {
+        TraceDecodeFrameInfo();
+    }
+
     DECODE_CHK_STATUS(Mos_Solo_SetGpuAppTaskEvent(m_osInterface, decodeParams->m_gpuAppTaskEvent));
 
 #if MHW_HWCMDPARSER_ENABLED
@@ -306,6 +416,41 @@ MOS_STATUS DecodePipeline::Prepare(void *params)
 #endif
 
     return MOS_STATUS_SUCCESS;
+}
+
+// Out-of-line to avoid I-cache pollution in the hot Prepare() path when tracing is disabled.
+void DecodePipeline::TraceDecodeFrameInfo()
+{
+    auto *basicFeature = dynamic_cast<DecodeBasicFeature *>(
+        m_featureManager->GetFeature(FeatureIDs::basicFeature));
+    if (basicFeature)
+    {
+        struct
+        {
+            uint32_t frameNum;       // m_frameNum
+            uint16_t width;          // m_width
+            uint16_t height;         // m_height
+            uint8_t  codecStandard;  // CODECHAL_STANDARD
+            uint8_t  bitDepth;       // m_bitDepth
+            uint8_t  chromaFormat;   // HCP_CHROMA_FORMAT_IDC
+            uint8_t  picCodingType;  // m_pictureCodingType
+            uint32_t numSlices;      // m_numSlices
+            uint32_t dataSize;       // m_dataSize
+            uint32_t cpInfo;         // extra decode info
+        } picInfo = {
+            basicFeature->m_frameNum,
+            (uint16_t)basicFeature->m_width,
+            (uint16_t)basicFeature->m_height,
+            (uint8_t)basicFeature->m_standard,
+            basicFeature->m_bitDepth,
+            (uint8_t)basicFeature->m_chromaFormat,
+            (uint8_t)basicFeature->m_pictureCodingType,
+            basicFeature->m_numSlices,
+            basicFeature->m_dataSize,
+            m_decodecp ? m_decodecp->GetTraceInfo() : 0,
+        };
+        MOS_TraceEvent(EVENT_DECODE_FRAME, EVENT_TYPE_INFO, &picInfo, sizeof(picInfo), nullptr, 0);
+    }
 }
 
 MOS_STATUS DecodePipeline::ExecuteActivePackets()

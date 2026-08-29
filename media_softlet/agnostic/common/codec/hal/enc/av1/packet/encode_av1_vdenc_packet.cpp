@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2019-2023, Intel Corporation
+* Copyright (c) 2019-2026, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -215,6 +215,13 @@ namespace encode{
 
         m_usePatchList = m_osInterface->bUsesPatchList;
 
+#if (_DEBUG || _RELEASE_INTERNAL)
+        if (m_pipeline->GetBypassHWLegacy())
+        {
+            m_bypassHwLegacyEnabled = true;
+        }
+#endif
+
         return MOS_STATUS_SUCCESS;
     }
 
@@ -280,7 +287,14 @@ namespace encode{
         miConditionalBatchBufferEndParams.presSemaphoreBuffer =
             m_basicFeature->m_recycleBuf->GetBuffer(VdencBrcPakMmioBuffer, 0);
 
-        ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_CONDITIONAL_BATCH_BUFFER_END)(&cmdBuffer));
+        if (m_osInterface->bNullHwIsEnabled)
+        {
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_BATCH_BUFFER_END)(&cmdBuffer));
+        }
+        else
+        {
+            ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_CONDITIONAL_BATCH_BUFFER_END)(&cmdBuffer));
+        }
 
         return MOS_STATUS_SUCCESS;
     }
@@ -365,6 +379,25 @@ namespace encode{
             ENCODE_CHK_STATUS_RETURN(perfProfiler->AddPerfCollectStartCmd(
                 (void *)m_pipeline, m_osInterface, m_miItf, &cmdBuffer));
         }
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+        if (m_bypassHwLegacyEnabled)
+        {
+            if (!m_pipeline->GetBypassHWLegacy()->IsPipelineCharacteristicsSet())
+            {
+                m_pipeline->GetBypassHWLegacy()->SetPipelineCharacteristics(
+                    CODECHAL_AV1,
+                    m_basicFeature->m_chromaFormat,
+                    m_basicFeature->m_oriFrameWidth,
+                    m_basicFeature->m_oriFrameHeight,
+                    m_basicFeature->m_bitDepth,
+                    m_basicFeature->m_av1SeqParams->TargetUsage);
+                m_pipeline->GetBypassHWLegacy()->SetPipelineCharacteristicsFlag();
+            }
+            ENCODE_CHK_STATUS_RETURN(m_pipeline->GetBypassHWLegacy()->AddNullHwProxyCmd(&cmdBuffer, true));
+            ENCODE_CHK_STATUS_RETURN(m_pipeline->GetBypassHWLegacy()->StartPredicate(&cmdBuffer));
+        }
+#endif
 
         ENCODE_CHK_STATUS_RETURN(AddPictureVdencCommands(cmdBuffer));
 
@@ -457,6 +490,13 @@ namespace encode{
         ENCODE_CHK_NULL_RETURN(scalability);
         ENCODE_CHK_STATUS_RETURN(scalability->SyncPipe(syncOnePipeWaitOthers, 0, &cmdBuffer));
 
+#if (_DEBUG || _RELEASE_INTERNAL)
+        if (m_bypassHwLegacyEnabled)
+        {
+            ENCODE_CHK_STATUS_RETURN(m_pipeline->GetBypassHWLegacy()->StopPredicate(&cmdBuffer));
+        }
+#endif
+
         if (m_pipeline->IsFirstPipe())
         {
             if (m_pipeline->IsDualEncEnabled())
@@ -523,6 +563,8 @@ namespace encode{
     MOS_STATUS Av1VdencPkt::AddForceWakeup(MOS_COMMAND_BUFFER &cmdBuffer)
     {
         ENCODE_FUNC_CALL();
+        // NativeFence sync BB may cause preemption and ring idle, so force wakeup after it
+        ENCODE_CHK_STATUS_RETURN(AddNativeFenceSyncBBStartCmd(cmdBuffer));
 
         auto &forceWakeupParams                     = m_miItf->MHW_GETPAR_F(MI_FORCE_WAKEUP)();
         forceWakeupParams                           = {};
@@ -804,11 +846,18 @@ namespace encode{
         uint32_t maxTileNumber              = CODECHAL_GET_WIDTH_IN_BLOCKS(m_basicFeature->m_frameWidth, av1MinTileWidth) *
                                               CODECHAL_GET_HEIGHT_IN_BLOCKS(m_basicFeature->m_frameHeight, av1MinTileHeight);
 
+        // VDEnc Intra Row Store Scratch buffer allocation
+        // Buffer selection during command setup is determined by dual encoding status and GetCurrentPipe()
         allocParamsForBufferLinear.dwBytes  = MOS_ROUNDUP_DIVIDE(m_basicFeature->m_frameWidth, av1SuperBlockWidth) * MHW_CACHELINE_SIZE * 2 * 2;
         allocParamsForBufferLinear.pBufName = "vdencIntraRowStoreScratch";
         allocParamsForBufferLinear.ResUsageType = MOS_HW_RESOURCE_USAGE_ENCODE_INTERNAL_READ;
-        m_vdencIntraRowStoreScratch         = m_allocator->AllocateResource(allocParamsForBufferLinear, false);
-        ENCODE_CHK_NULL_RETURN(m_vdencIntraRowStoreScratch);
+
+        // Always loop through AV1_NUM_OF_DUAL_CTX to allocate both buffers
+        for (auto i = 0; i < AV1_NUM_OF_DUAL_CTX; i++)
+        {
+            m_vdencIntraRowStoreScratch[i] = m_allocator->AllocateResource(allocParamsForBufferLinear, false);
+            ENCODE_CHK_NULL_RETURN(m_vdencIntraRowStoreScratch[i]);
+        }
 
         allocParamsForBufferLinear.Flags.bNotLockable = !(m_basicFeature->m_lockableResource);
         allocParamsForBufferLinear.dwBytes  = MOS_ALIGN_CEIL(m_basicFeature->m_vdencBrcStatsBufferSize * maxTileNumber, MHW_CACHELINE_SIZE);
@@ -1239,7 +1288,12 @@ namespace encode{
 
     MHW_SETPAR_DECL_SRC(VDENC_PIPE_BUF_ADDR_STATE, Av1VdencPkt)
     {
-        params.intraRowStoreScratchBuffer       = m_vdencIntraRowStoreScratch;
+        // Select buffer index based on dual encoding status
+        // When dual encoding is enabled: use GetCurrentPipe() to switch between buffers
+        // When dual encoding is disabled: always use index [0]
+        uint32_t idx = m_pipeline->IsDualEncEnabled() ? m_pipeline->GetCurrentPipe() : 0;
+        
+        params.intraRowStoreScratchBuffer       = m_vdencIntraRowStoreScratch[idx];
         params.tileRowStoreBuffer               = m_vdencTileRowStoreBuffer;
         params.cumulativeCuCountStreamOutBuffer = m_resCumulativeCuCountStreamoutBuffer;
 
@@ -1409,7 +1463,7 @@ namespace encode{
                         ENCODE_CHK_NULL_RETURN(pakInsertOutputBatchBuffer);
                         // send pak insert obj cmds after back annotation
                         ENCODE_CHK_STATUS_RETURN(m_miItf->MHW_ADDCMD_F(MI_BATCH_BUFFER_START)(cmdBuffer, pakInsertOutputBatchBuffer));
-                        auto slbbData = brcFeature->GetSLBData();
+                        auto slbbData = m_basicFeature->GetSLBData();
                         HalOcaInterfaceNext::OnSubLevelBBStart(
                             *cmdBuffer,
                             m_osInterface->pOsContext,
@@ -1923,7 +1977,7 @@ namespace encode{
             auto brcFeature = dynamic_cast<Av1Brc *>(m_featureManager->GetFeature(Av1FeatureIDs::av1BrcFeature));
             ENCODE_CHK_NULL_RETURN(brcFeature);
             auto vdenc2ndLevelBatchBuffer = brcFeature->GetVdenc2ndLevelBatchBuffer(m_pipeline->m_currRecycledBufIdx);
-            auto slbbData                 = brcFeature->GetSLBData();
+            auto slbbData                 = m_basicFeature->GetSLBData();
             
             //qp
             uint32_t qpOffset     = resourceOffset.dwMetaDataSize + tileNum * resourceOffset.dwMetaDataSubRegionSize + resourceOffset.dwTilePartitionSize + AV1ResourceOffset.dwQuantization + AV1ResourceOffset.dwBaseQIndex;

@@ -157,6 +157,10 @@ void SurfaceStateHeapManager::RefreshSync()
     {
         dwCurrentTag = pSurfStateHeap->pSync[0];
     }
+    if (dwCurrentTag < 1)
+    {
+        return;
+    }
     pSurfStateHeap->dwSyncTag = dwCurrentTag - 1;
 
     NullRenderingFlags = m_osInterface->pfnGetNullHWRenderFlags(

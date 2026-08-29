@@ -63,6 +63,8 @@ static constexpr uint32_t CS_ENGINE_ID_OFFSET_INIT                              
 static constexpr uint32_t HCP_DEC_STATUS_REG_OFFSET_INIT                                   = 0x1C2800;
 static constexpr uint32_t HCP_CABAC_STATUS_REG_OFFSET_INIT                                 = 0x1C2804;
 static constexpr uint32_t HCP_FRAME_CRC_REG_OFFSET_INIT                                    = 0x1C2920;
+static constexpr uint32_t HCP_COMMAND_COUNTER_REG_OFFSET_INIT                              = 0x1C2820;
+static constexpr uint32_t HCP_COMMAND_COUNTER_OVERRIDE_REG_OFFSET_INIT                     = 0x1C2824;
 static constexpr uint32_t MEMORY_ADDRESS_ATTRIBUTES_MOCS_CLEAN_MASK                        = 0xFFFFFF81;
 
 template <typename cmd_t>
@@ -407,6 +409,8 @@ public:
 
     const HcpMmioRegisters *GetMmioRegisters(const MHW_VDBOX_NODE_IND index) const override
     {
+        MHW_FUNCTION_ENTER;
+
         if (index < MHW_VDBOX_NODE_MAX)
         {
             return &m_mmioRegisters[index];
@@ -591,18 +595,6 @@ public:
         return m_pakHWTileSizeRecordSize;
     }
 
-    uint32_t GetHcpVp9PicStateCommandSize() override
-    {
-        // Just return success here, please implement logic in platform sepecific impl class.
-        return MOS_STATUS_SUCCESS;
-    }
-
-    uint32_t GetHcpVp9SegmentStateCommandSize() override
-    {
-        // Just return success here, please implement logic in platform sepecific impl class.
-        return MOS_STATUS_SUCCESS;
-    }
-
     MOS_STATUS GetHcpStateCommandSize(
         uint32_t                        mode,
         uint32_t                       *commandsSize,
@@ -737,6 +729,8 @@ private:
 
     void InitMmioRegisters()
     {
+        MHW_FUNCTION_ENTER;
+
         HcpMmioRegisters *mmioRegisters = &m_mmioRegisters[MHW_VDBOX_NODE_1];
 
         mmioRegisters->watchdogCountCtrlOffset                           = WATCHDOG_COUNT_CTRL_OFFSET_INIT;

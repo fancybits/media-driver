@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021-2023, Intel Corporation
+* Copyright (c) 2021-2026, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -274,14 +274,13 @@ MOS_STATUS MediaPerfProfiler::Initialize(void* context, MOS_INTERFACE *osInterfa
     MosUtilities::MosLockMutex(m_mutex);
 
     m_contextIndexMap[context] = 0;
+    m_refMap[pOsContext]++;  // count every Initialize caller so Destroy fires only after last one
 
     if (m_initializedMap[pOsContext] == true)
     {
         MosUtilities::MosUnlockMutex(m_mutex);
         return status;
     }
-    
-    m_refMap[pOsContext]++;
 
     m_enableProfilerDump = MosUtilities::MosIsProfilerDumpEnabled();
 
@@ -961,6 +960,8 @@ PerfGPUNode MediaPerfProfiler::GpuContextToGpuNode(MOS_GPU_CONTEXT context)
         case MOS_GPU_CONTEXT_VIDEO5:
         case MOS_GPU_CONTEXT_VIDEO6:
         case MOS_GPU_CONTEXT_VIDEO7:
+        case MOS_GPU_CONTEXT_VIDEO_DEC_FULL:
+        case MOS_GPU_CONTEXT_VIDEO_ENC_FULL:
             node = PERF_GPU_NODE_VIDEO;
             break;
         case MOS_GPU_CONTEXT_VDBOX2_VIDEO:

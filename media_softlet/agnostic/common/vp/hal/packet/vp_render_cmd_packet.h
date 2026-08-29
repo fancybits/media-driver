@@ -55,7 +55,7 @@ public:
 
     virtual MOS_STATUS SubmitWithMultiKernel(MOS_COMMAND_BUFFER* commandBuffer, uint8_t packetPhase = otherPacket);
 
-    MOS_STATUS PacketInit(
+    virtual MOS_STATUS PacketInit(
         VP_SURFACE* inputSurface,
         VP_SURFACE* outputSurface,
         VP_SURFACE* previousSurface,
@@ -71,6 +71,8 @@ public:
     virtual MOS_STATUS SetOclFcParams(PRENDER_OCL_FC_PARAMS params);
 
     virtual MOS_STATUS SetAiParams(PRENDER_AI_PARAMS params);
+
+    virtual MOS_STATUS SetHdrLiteParams(PRENDER_HDRLITE_PARAMS params);
 
     virtual MOS_STATUS DumpOutput() override;
 

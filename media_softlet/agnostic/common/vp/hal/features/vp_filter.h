@@ -181,13 +181,14 @@ struct _SFC_CSC_PARAMS
     uint32_t                        chromaDownSamplingVerticalCoef;              // Chroma DownSampling Vertical Coeff
     uint32_t                        chromaDownSamplingHorizontalCoef;            // Chroma DownSampling Horizontal Coeff
     bool                            isFullRgbG10P709;                            // Whether output colorspace is DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709
-    bool                            isDemosaicNeeded;                            // 0: demosaic is not needed; 1: demosaic is needed       
+    bool                            isDemosaicNeeded;                            // 0: demosaic is not needed; 1: demosaic is needed
+    bool                            bDV3DLutFp16Passthrough;                          // DV FP16-in/FP16-out 3DLUT passthrough: SFC passthrough (identity EOTF + identity CCM, FP16_input_select=CCM, gain=1) per HW Arch. DV FP16 3DLUT
 };
 
 struct _SFC_ROT_MIR_PARAMS
 {
     VPHAL_ROTATION                  rotationMode;                               // Rotation mode -- 0, 90, 180 or 270
-    uint32_t                        mirrorType;                               // Mirror Type -- vert/horiz
+    int32_t                         mirrorType;                                 // Mirror Type -- vert/horiz
     bool                            bMirrorEnable;                              // Mirror mode -- enable/disable
 };
 
@@ -527,6 +528,14 @@ struct _RENDER_AI_PARAMS
 using RENDER_AI_PARAMS  = _RENDER_AI_PARAMS;
 using PRENDER_AI_PARAMS = RENDER_AI_PARAMS *;
 
+typedef struct
+{
+    uint32_t reserved : 2;
+    uint32_t mantissa : 9;
+    uint32_t exponent : 3;
+    uint32_t sign : 1;
+} CSC_COEFF_FORMAT;
+
 struct _RENDER_HDR_PARAMS
 {
     VpKernelID              kernelId;
@@ -606,6 +615,28 @@ struct _RENDER_HDR_PARAMS
 };
 using RENDER_HDR_PARAMS  = _RENDER_HDR_PARAMS;
 using PRENDER_HDR_PARAMS = RENDER_HDR_PARAMS *;
+
+struct RENDER_HDRLITE_KERNEL_PARAM
+{
+    KERNEL_ARGS                  kernelArgs;
+    VpKernelID                   kernelID;
+    uint32_t                     threadWidth;
+    uint32_t                     threadHeight;
+    uint32_t                     threadDepth;
+    uint32_t                     localWidth;
+    uint32_t                     localHeight;
+    KERNEL_ARG_INDEX_SURFACE_MAP kernelStatefulSurfaces;
+    void                         Init();
+};
+
+using RENDER_HDRLITE_KERNEL_PARAMS = std::vector<RENDER_HDRLITE_KERNEL_PARAM>;
+struct _RENDER_HDRLITE_PARAMS
+{
+    RENDER_HDRLITE_KERNEL_PARAMS kernelParams = {};
+    void                      Init();
+};
+using RENDER_HDRLITE_PARAMS  = _RENDER_HDRLITE_PARAMS;
+using PRENDER_HDRLITE_PARAMS = RENDER_HDRLITE_PARAMS *;
 
 class SwFilterPipe;
 class HwFilter;

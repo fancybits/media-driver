@@ -29,6 +29,9 @@
 
 using namespace vp;
 
+#define AI_BINDLESS_NEAREST_SAMPLER_INDEX 0
+#define AI_BINDLESS_BILIEAR_SAMPLER_INDEX 1
+
 std::map<std::string, VpKernelID> VpRenderAiKernel::m_kernelBiniaryIdMap;
 VpKernelID                        VpRenderAiKernel::m_currentBiniaryID = VpKernelID(kernelAiCommon);
 
@@ -188,20 +191,30 @@ MOS_STATUS VpRenderAiKernel::SetKernelArgs(KERNEL_ARGS &kernelArgs, VP_PACKET_SH
                 }
                 else
                 {
-                    if (*(uint32_t *)srcArg.pData == MHW_SAMPLER_FILTER_BILINEAR)
+                    if (dstArg.addressMode == AddressingModeBindless)
                     {
-                        m_linearSamplerIndex = dstArg.uOffsetInPayload;
-                        srcArg.pData         = nullptr;
-                    }
-                    else if (*(uint32_t *)srcArg.pData == MHW_SAMPLER_FILTER_NEAREST)
-                    {
-                        m_nearestSamplerIndex = dstArg.uOffsetInPayload;
+                        m_linearSamplerIndex  = AI_BINDLESS_BILIEAR_SAMPLER_INDEX;
+                        m_nearestSamplerIndex = AI_BINDLESS_NEAREST_SAMPLER_INDEX;
+                        dstArg.pData          = srcArg.pData;
                         srcArg.pData          = nullptr;
                     }
                     else
                     {
-                        VP_RENDER_ASSERTMESSAGE("The Kernel Argument Sampler Data is INVALID TYPE! KernelName %s, argIndex %d, type %d", m_kernelName.c_str(), dstArg.uIndex, *(uint32_t *)srcArg.pData);
-                        return MOS_STATUS_INVALID_PARAMETER;
+                        if (*(uint32_t *)srcArg.pData == MHW_SAMPLER_FILTER_BILINEAR)
+                        {
+                            m_linearSamplerIndex = dstArg.uOffsetInPayload;
+                            srcArg.pData         = nullptr;
+                        }
+                        else if (*(uint32_t *)srcArg.pData == MHW_SAMPLER_FILTER_NEAREST)
+                        {
+                            m_nearestSamplerIndex = dstArg.uOffsetInPayload;
+                            srcArg.pData          = nullptr;
+                        }
+                        else
+                        {
+                            VP_RENDER_ASSERTMESSAGE("The Kernel Argument Sampler Data is INVALID TYPE! KernelName %s, argIndex %d, type %d", m_kernelName.c_str(), dstArg.uIndex, *(uint32_t *)srcArg.pData);
+                            return MOS_STATUS_INVALID_PARAMETER;
+                        }
                     }
                 }
             }
@@ -233,7 +246,9 @@ MOS_STATUS VpRenderAiKernel::GetCurbeState(void *&curbe, uint32_t &curbeLength)
 
     if (curbeLength == 0)
     {
-        return MOS_STATUS_INVALID_PARAMETER;
+        VP_RENDER_NORMALMESSAGE("Skip Allocate Curbe for its Size is 0");
+        curbe = nullptr;
+        return MOS_STATUS_SUCCESS;
     }
 
     uint8_t *pCurbe = (uint8_t *)MOS_AllocAndZeroMemory(curbeLength);
@@ -258,9 +273,15 @@ MOS_STATUS VpRenderAiKernel::GetCurbeState(void *&curbe, uint32_t &curbeLength)
             }
             break;
         case ARG_KIND_SURFACE:
-            if (arg.pData != nullptr)
+            if (arg.addressMode == AddressingModeBindless)
             {
-                if (arg.addressMode == AddressingModeStateless)
+                // this is bindless surface
+                VP_PUBLIC_CHK_STATUS_RETURN(SetBindlessSurfaceStateToResourceList(arg));
+                VP_RENDER_NORMALMESSAGE("Setting Curbe State Bindless Surface KernelID %d, index %d, argKind %d", m_kernelId, arg.uIndex, arg.eArgKind);
+            }
+            else if (arg.addressMode == AddressingModeStateless)
+            {
+                if (arg.pData != nullptr)
                 {
                     VP_PUBLIC_CHK_NULL_RETURN(m_surfaceGroup);
                     SURFACE_PARAMS &surfaceParam = *(SURFACE_PARAMS *)arg.pData;
@@ -282,14 +303,26 @@ MOS_STATUS VpRenderAiKernel::GetCurbeState(void *&curbe, uint32_t &curbeLength)
                     m_curbeResourceList.push_back(params);
                     VP_RENDER_NORMALMESSAGE("Setting Stateless Curbe State KernelName %s, index %d , surfType %d, argKind %d", m_kernelName.c_str(), arg.uIndex, surfaceParam.surfType, arg.eArgKind);
                 }
+                else
+                {
+                    VP_RENDER_NORMALMESSAGE("KernelName %s, index %d, argKind %d is empty", m_kernelName.c_str(), arg.uIndex, arg.eArgKind);
+                }
             }
             else
             {
-                VP_RENDER_NORMALMESSAGE("KernelName %s, index %d, argKind %d is empty", m_kernelName.c_str(), arg.uIndex, arg.eArgKind);
+                VP_RENDER_NORMALMESSAGE("KernelName %s, index %d, argKind %d will is BTI surface", m_kernelName.c_str(), arg.uIndex, arg.eArgKind);
             }
             break;
         case ARG_KIND_INLINE:
+            break;
         case ARG_KIND_SAMPLER:
+            if (arg.addressMode == AddressingModeBindless)
+            {
+                VP_RENDER_CHK_NULL_RETURN(arg.pData);
+                uint32_t samplerIndex = (*(uint32_t *)arg.pData == MHW_SAMPLER_FILTER_NEAREST) ? AI_BINDLESS_NEAREST_SAMPLER_INDEX : AI_BINDLESS_BILIEAR_SAMPLER_INDEX;
+                VP_RENDER_CHK_STATUS_RETURN(SetBindlessSamplerToResourceList(arg, samplerIndex));
+                VP_RENDER_NORMALMESSAGE("Setting Curbe State Bindless Sampler KernelID %d, index %d, argKind %d", m_kernelId, arg.uIndex, arg.eArgKind);
+            }
             break;
         default:
             VP_PUBLIC_CHK_STATUS_RETURN(MOS_STATUS_UNIMPLEMENTED);
@@ -337,7 +370,7 @@ MOS_STATUS VpRenderAiKernel::GetKernelSurfaceParam(bool isBTI, SURFACE_PARAMS &s
 
     pRenderSurfaceParams->MemObjCtl = (m_renderHal->pOsInterface->pfnCachePolicyGetMemoryObject(
                                            resourceType,
-                                           m_renderHal->pOsInterface->pfnGetGmmClientContext(m_renderHal->pOsInterface)))
+                                           m_renderHal->pOsInterface))
                                           .DwordValue;
     pRenderSurfaceParams->Component = COMPONENT_VPCommon;
 
@@ -407,12 +440,86 @@ MOS_STATUS VpRenderAiKernel::SetupSurfaceState()
         UpdateCurbeBindingIndex(surfType, bti);
     }
 
+    for (auto &handle : m_kernelArgs)
+    {
+        KRN_ARG &arg = handle.second;
+
+        if (arg.addressMode != AddressingModeBindless || arg.eArgKind != ARG_KIND_SURFACE)
+        {
+            continue;
+        }
+        uint32_t argIndex   = arg.uIndex;
+        auto     surfHandle = m_argIndexSurfMap.find(argIndex);
+        VP_PUBLIC_CHK_NOT_FOUND_RETURN(surfHandle, &m_argIndexSurfMap);
+        SURFACE_PARAMS &surfParam = surfHandle->second;
+        SurfaceType     surfType  = surfParam.surfType;
+        if (surfParam.planeIndex != 0 || surfType == SurfaceTypeSubPlane || surfType == SurfaceTypeInvalid)
+        {
+            VP_RENDER_NORMALMESSAGE("Will skip bindless surface argIndex %d for its planeIndex is set as %d, surfType %d", argIndex, surfParam.planeIndex, surfType);
+            continue;
+        }
+        if (m_surfaceState.find(surfType) != m_surfaceState.end())
+        {
+            continue;
+        }
+
+        VP_PUBLIC_CHK_STATUS_RETURN(GetKernelSurfaceParam(false, surfParam, kernelSurfaceParam));
+
+        m_surfaceState.insert(std::make_pair(surfType, kernelSurfaceParam));
+    }
+
+    return MOS_STATUS_SUCCESS;
+}
+
+MOS_STATUS VpRenderAiKernel::GetInlineData(uint8_t *inlineData)
+{
+    for (auto &handle : m_kernelArgs)
+    {
+        KRN_ARG &arg = handle.second;
+        if (arg.eArgKind == ARG_KIND_INLINE)
+        {
+            if (arg.addressMode == AddressingModeStateless)
+            {
+                if (arg.pData != nullptr)
+                {
+                    VP_PUBLIC_CHK_NULL_RETURN(m_surfaceGroup);
+                    SURFACE_PARAMS surfParam = *((SURFACE_PARAMS *)arg.pData);
+                    auto           it        = m_surfaceGroup->find(surfParam.surfType);
+                    VP_PUBLIC_CHK_NOT_FOUND_RETURN(it, m_surfaceGroup);
+                    PVP_SURFACE surface = it->second;
+                    VP_PUBLIC_CHK_NULL_RETURN(surface);
+                    VP_PUBLIC_CHK_NULL_RETURN(surface->osSurface);
+
+                    MHW_INDIRECT_STATE_RESOURCE_PARAMS params = {};
+                    params.isWrite                            = surfParam.isOutput;
+                    params.resource                           = &surface->osSurface->OsResource;
+                    params.stateOffset                        = arg.uOffsetInPayload;
+                    m_inlineResourceList.push_back(params);
+                    VP_RENDER_NORMALMESSAGE("Setting Stateless Inline Data Statelss Surface KernelID %d, index %d , surfType %d, argKind %d", m_kernelId, arg.uIndex, *(uint32_t *)arg.pData, arg.eArgKind);
+                }
+                else
+                {
+                    VP_RENDER_ASSERTMESSAGE("KernelID %d, index %d, argKind %d Stateless Surface is empty", m_kernelId, arg.uIndex, arg.eArgKind);
+                }
+            }
+            else
+            {
+                VP_PUBLIC_CHK_STATUS_RETURN(SetInlineDataParameter(arg, inlineData));
+            }
+        }
+    }
+
     return MOS_STATUS_SUCCESS;
 }
 
 MOS_STATUS VpRenderAiKernel::GetWalkerSetting(KERNEL_WALKER_PARAMS &walkerParam, KERNEL_PACKET_RENDER_DATA &renderData)
 {
     VP_FUNC_CALL();
+
+    if (m_renderHal && m_renderHal->isBindlessHeapInUse)
+    {
+        VP_PUBLIC_CHK_STATUS_RETURN(GetInlineData(m_inlineData.data()));
+    }
 
     walkerParam = m_walkerParam;
 
@@ -454,21 +561,9 @@ MOS_STATUS VpRenderAiKernel::SetWalkerSetting(KERNEL_THREAD_SPACE &threadSpace, 
     m_walkerParam.pipeControlParams.bFlushRenderTargetCache    = false;
     m_walkerParam.pipeControlParams.bInvalidateTextureCache    = false;
 
-    for (auto &handle : m_kernelArgs)
+    if (m_renderHal == nullptr || m_renderHal->isBindlessHeapInUse == false)
     {
-        KRN_ARG &arg = handle.second;
-        if (arg.eArgKind == ARG_KIND_INLINE)
-        {
-            if (arg.pData != nullptr)
-            {
-                MOS_SecureMemcpy(m_inlineData.data() + arg.uOffsetInPayload, arg.uSize, arg.pData, arg.uSize);
-                VP_RENDER_NORMALMESSAGE("Setting Inline Data KernelName %s, index %d , value %d, argKind %d", m_kernelName.c_str(), arg.uIndex, *(uint32_t *)arg.pData, arg.eArgKind);
-            }
-            else
-            {
-                VP_RENDER_NORMALMESSAGE("KernelName %s, index %d, argKind %d is empty", m_kernelName.c_str(), arg.uIndex, arg.eArgKind);
-            }
-        }
+        VP_PUBLIC_CHK_STATUS_RETURN(GetInlineData(m_inlineData.data()));
     }
     m_walkerParam.inlineDataLength = m_inlineData.size();
     m_walkerParam.inlineData       = m_inlineData.data();
@@ -476,9 +571,10 @@ MOS_STATUS VpRenderAiKernel::SetWalkerSetting(KERNEL_THREAD_SPACE &threadSpace, 
     m_walkerParam.slmSize    = m_kernelEnv.uiSlmSize;
     m_walkerParam.hasBarrier = (m_kernelEnv.uBarrierCount > 0);
 
-    if (m_kernelEnv.uSimdSize != 1)
+    m_walkerParam.isEmitInlineParameter = m_kernelEnv.uInlineDataPayloadSize > 0;
+
+    if (m_kernelEnv.uSimdSize != 1 && m_kernelPerThreadArgInfo.localIdSize > 0)
     {
-        m_walkerParam.isEmitInlineParameter = true;
         if (m_kernelEnv.bHasDPAS)
         {
             m_walkerParam.isGenerateLocalID = false;
