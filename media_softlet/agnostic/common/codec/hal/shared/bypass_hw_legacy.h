@@ -24,7 +24,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 //!
 //! \file     bypass_hw_legacy.h
-//! \brief    Hardware bypass utility class for legacy codecs (HEVC/AVC/AV1)
+//! \brief    Hardware bypass utility class for legacy codecs (HEVC/AVC/AV1/VVC)
 //! \details  Mirrors BypassHW operations using MhwMiInterface (media_common) instead of
 //!           mhw::HwItfMgr (code-gen path). Shared slot state stored in OsContextNext.
 //!
@@ -47,7 +47,7 @@ class OsContextNext;
 
 //!
 //! \class    BypassHwLegacy
-//! \brief    Hardware bypass for legacy codecs (HEVC/AVC/AV1 decode+encode)
+//! \brief    Hardware bypass for legacy codecs (HEVC/AVC/AV1 decode+encode, VVC decode)
 //! \details  Uses MhwMiInterface for MI commands. Per-pipeline slot index held locally;
 //!           all shared slot state lives in OsContextNext. Two-phase cleanup:
 //!           Destroy() must be called explicitly before MOS_Delete().
@@ -85,6 +85,37 @@ public:
         MOS_GPU_NODE       &gpuNode,
         CODECHAL_STANDARD   codec,
         bool                isEncode,
+        uint32_t            width,
+        uint32_t            height,
+        uint8_t             chromaFormat,
+        uint8_t             bitDepth,
+        uint8_t             targetUsage);
+
+    //!
+    //! \brief  Claim a dummy VDBox slot, deciding VDBox capability from the pipeline's own preference
+    //! \details Overload of the above, distinguished by arity. `isEncode` alone is not a sound
+    //!          proxy for "needs a full-capability VDBox": VVC decode is decode yet structurally
+    //!          requires a full VDBox, because VvcPipeline overrides GetDefaultVdboxTypePref() to
+    //!          MOS_VDBOX_PREFER_FULL while other legacy decode inherits MOS_VDBOX_PREFER_SLIM.
+    //!          Callers that have already resolved m_pipelineVdboxTypePref should pass it here.
+    //!          The 8-parameter overload is retained unchanged for call sites that have not
+    //!          migrated; grepping this overload's call sites gives the migration progress.
+    //! \param  [out] gpuNode                Assigned GPU node (VIDEO or VE)
+    //! \param  [in]  codec                  Codec standard enum
+    //! \param  [in]  isEncode               true for encode, false for decode
+    //! \param  [in]  pipelineVdboxTypePref  VDBox preference already resolved by the pipeline
+    //! \param  [in]  width                  Frame width
+    //! \param  [in]  height                 Frame height
+    //! \param  [in]  chromaFormat           Chroma format (420/422/444)
+    //! \param  [in]  bitDepth               Bit depth (8/10/12)
+    //! \param  [in]  targetUsage            Target usage (1-7 encode, 0 decode)
+    //! \return MOS_STATUS
+    //!
+    MOS_STATUS FetchDummyVdNode(
+        MOS_GPU_NODE       &gpuNode,
+        CODECHAL_STANDARD   codec,
+        bool                isEncode,
+        VdboxTypePref       pipelineVdboxTypePref,
         uint32_t            width,
         uint32_t            height,
         uint8_t             chromaFormat,
@@ -166,7 +197,6 @@ public:
     //!
     void SetDummyVdNodeFetchFlag();
 
-#if (_DEBUG || _RELEASE_INTERNAL)
     //! \brief  Get repeat count (debug accessor for ULT)
     uint32_t GetRepeatCount() const { return m_repeatCount; }
 
@@ -175,7 +205,6 @@ public:
 
     //! \brief  Get claimed slot index (debug accessor for ULT)
     int32_t GetClaimedSlotIndex() const { return m_claimedSlotIndex; }
-#endif
 
     // Static config file cache (shared across all BypassHwLegacy instances)
     static std::mutex                    s_configFileMutex;
@@ -183,6 +212,21 @@ public:
     static std::vector<RepeatCountEntry> s_configEntries;
 
 private:
+    //! \brief  Shared body of both FetchDummyVdNode overloads
+    //! \details The two public overloads differ only in how they derive needFullVdbox; every
+    //!          other step (re-entrance guard, scalability lookup, the claim itself) is identical,
+    //!          so it lives here once rather than being duplicated per overload.
+    MOS_STATUS FetchDummyVdNodeInternal(
+        MOS_GPU_NODE       &gpuNode,
+        CODECHAL_STANDARD   codec,
+        bool                isEncode,
+        bool                needFullVdbox,
+        uint32_t            width,
+        uint32_t            height,
+        uint8_t             chromaFormat,
+        uint8_t             bitDepth,
+        uint8_t             targetUsage);
+
     //! \brief  Get OsContextNext from m_osInterface
     OsContextNext *GetOsDeviceContext();
 

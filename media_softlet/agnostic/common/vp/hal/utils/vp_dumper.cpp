@@ -1392,7 +1392,7 @@ MOS_STATUS VpSurfaceDumper::DumpSurfaceToFile(
 
         resourceIndex = 0;
         pSurfaceBase  = pData;
-        isPlanar      = (pOsInterface->pfnGetGmmClientContext(pOsInterface)->IsPlanar(pSurface->OsResource.pGmmResInfo->GetResourceFormat()) != 0);
+        isPlanar      = (pOsInterface->pfnIsPlanar) ? pOsInterface->pfnIsPlanar(pOsInterface, pSurface->OsResource.pGmmResInfo->GetResourceFormat()) : false;
         auxDataY      = (uint8_t*)pSurfaceBase + pSurface->OsResource.pGmmResInfo->GetPlanarAuxOffset(resourceIndex, GMM_AUX_Y_CCS);
         auxDataUV     = (uint8_t*)pSurfaceBase + pSurface->OsResource.pGmmResInfo->GetPlanarAuxOffset(resourceIndex, GMM_AUX_UV_CCS);
         if (isPlanar)
@@ -2377,6 +2377,12 @@ MOS_STATUS VpSurfaceDumper::DumpSurface(
     uint32_t                        uiDDI)
 {
     VP_FUNC_CALL();
+
+    // Nothing is configured to be dumped; skip the per-call pid/timestamp/user-setting work.
+    if (m_dumpSpec.iNumDumpLocs == 0)
+    {
+        return MOS_STATUS_SUCCESS;
+    }
 
     MOS_USER_FEATURE_VALUE_DATA UserFeatureData;
     int32_t VphalSurfDumpManualTrigger = VPHAL_SURF_DUMP_MANUAL_TRIGGER_DEFAULT_NOT_SET;

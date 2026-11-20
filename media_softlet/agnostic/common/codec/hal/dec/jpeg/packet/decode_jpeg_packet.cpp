@@ -33,6 +33,35 @@
 
 namespace decode {
 
+//!
+//! \brief  Translate the JPEG chroma type to the subsampling value used by the NullHW repeat count lookup
+//!
+static uint32_t MapJpegChromaForBypassHw(uint8_t chromaType)
+{
+    switch (chromaType)
+    {
+    case jpegYUV400:
+        return 400;
+    case jpegYUV420:
+        return 420;
+    case jpegYUV422H2Y:
+    case jpegYUV422V2Y:
+    case jpegYUV422H4Y:
+    case jpegYUV422V4Y:
+        return 422;
+    case jpegYUV444:
+        return 444;
+    case jpegYUV411:
+        return 411;
+    case jpegRGB:
+        return BYPASS_HW_SUBSAMPLING_RGB;
+    case jpegBGR:
+        return BYPASS_HW_SUBSAMPLING_BGR;
+    default:
+        return 0;
+    }
+}
+
 MOS_STATUS JpegDecodePkt::Init()
 {
     DECODE_FUNC_CALL();
@@ -56,6 +85,8 @@ MOS_STATUS JpegDecodePkt::Init()
     m_picturePkt = dynamic_cast<JpegDecodePicPkt*>(subPacket);
     DECODE_CHK_NULL(m_picturePkt);
     DECODE_CHK_STATUS(m_picturePkt->CalculateCommandSize(m_pictureStatesSize, m_picturePatchListSize));
+
+    m_bypassHwLegacy = m_jpegPipeline->GetBypassHWLegacy();
 
     return MOS_STATUS_SUCCESS;
 }
@@ -251,6 +282,26 @@ MOS_STATUS JpegDecodePkt::StartStatusReport(uint32_t srType, MOS_COMMAND_BUFFER*
         StoreEngineId(cmdBuffer, decode::DecodeStatusReportType::CsEngineIdOffset_0);
     }
 #endif
+
+    if (m_bypassHwLegacy)
+    {
+        if (!m_bypassHwLegacy->IsPipelineCharacteristicsSet())
+        {
+            // JPEG decode DDI leaves codecSettings->chromaFormat at 0, so use the per-frame picture params.
+            DECODE_CHK_NULL(m_jpegBasicFeature->m_jpegPicParams);
+            const CodecDecodeJpegPicParams *picParams = m_jpegBasicFeature->m_jpegPicParams;
+            m_bypassHwLegacy->SetPipelineCharacteristics(
+                CODECHAL_JPEG,
+                MapJpegChromaForBypassHw(picParams->m_chromaType),
+                picParams->m_frameWidth,
+                picParams->m_frameHeight,
+                8,
+                0);
+            m_bypassHwLegacy->SetPipelineCharacteristicsFlag();
+        }
+        DECODE_CHK_STATUS(m_bypassHwLegacy->AddNullHwProxyCmd(cmdBuffer, false));
+        DECODE_CHK_STATUS(m_bypassHwLegacy->StartPredicate(cmdBuffer));
+    }
     return MOS_STATUS_SUCCESS;
 }
 
@@ -259,6 +310,10 @@ MOS_STATUS JpegDecodePkt::EndStatusReport(uint32_t srType, MOS_COMMAND_BUFFER* c
     DECODE_FUNC_CALL();
 
     DECODE_CHK_NULL(cmdBuffer);
+    if (m_bypassHwLegacy)
+    {
+        DECODE_CHK_STATUS(m_bypassHwLegacy->StopPredicate(cmdBuffer));
+    }
     DECODE_CHK_STATUS(ReadMfxStatus(m_statusReport, *cmdBuffer));
     DECODE_CHK_STATUS(MediaPacket::EndStatusReportNext(srType, cmdBuffer));
 

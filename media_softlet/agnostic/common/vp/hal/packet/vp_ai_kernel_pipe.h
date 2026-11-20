@@ -42,6 +42,11 @@ struct AI_SURFACE_PARAMS
     MOS_TILE_TYPE   tileType        = MOS_TILE_Y;
     uint32_t        width           = 0;
     uint32_t        height          = 0;
+    // Depth for a genuine 3D-volume intermediate surface (resourceType=MOS_GFXRES_VOLUME,
+    // e.g. an image3d_t LUT). Default 0 matches VpAllocator::ReAllocateSurface's own default
+    // and preserves exact prior behavior for every current 2D caller,
+    // none of which ever set this field.
+    uint32_t        depth           = 0;
     uint8_t        *fillContent     = nullptr;
     uint32_t        fillContentSize = 0;
 };
@@ -96,6 +101,10 @@ struct AI_SINGLE_NPU_GRAPH_SETTING : public AI_SINGLE_LAYER_BASE_SETTING
     void      Init();
     virtual   ~AI_SINGLE_NPU_GRAPH_SETTING() {};
     VP_GRAPH_ID              id        = VP_GRAPH_ID_INVALID;
+    // The shape the graph is built for, zero for a graph that does not depend on it.
+    // It is the logical frame size, never allocation pitch or padded bucket size.
+    uint32_t                 inputWidth  = 0;
+    uint32_t                 inputHeight = 0;
     std::vector<SurfaceType> graphArgs = {};
     MOS_STATUS (*pfnGetIntermediateSurfaceSetting) (SwFilterPipe &executingPipe, AI_NPU_BUFFER_ALLOCATION_MAP &surfaceMap) = nullptr;
 

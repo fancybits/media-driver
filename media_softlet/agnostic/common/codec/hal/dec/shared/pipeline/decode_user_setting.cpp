@@ -112,6 +112,12 @@ MOS_STATUS DecodePipeline::InitUserSetting(MediaUserSettingSharedPtr userSetting
         true);
     DeclareUserSettingKey(
         userSettingPtr,
+        "Decode RT TileModeGMM",
+        MediaUserSetting::Group::Sequence,
+        int32_t(0),
+        true);
+    DeclareUserSettingKey(
+        userSettingPtr,
         "Num of Codec Devices on VDBOX1",
         MediaUserSetting::Group::Sequence,
         int32_t(0),
@@ -255,12 +261,6 @@ MOS_STATUS DecodePipeline::InitUserSetting(MediaUserSettingSharedPtr userSetting
         "ApogeiosAv1dEnable",
         MediaUserSetting::Group::Sequence,
         int32_t(1),
-        true);
-    DeclareUserSettingKeyForDebug(
-        userSettingPtr,
-        "CRCDebugModeEnable",
-        MediaUserSetting::Group::Sequence,
-        int32_t(0),
         true);
 #endif
     return MOS_STATUS_SUCCESS;

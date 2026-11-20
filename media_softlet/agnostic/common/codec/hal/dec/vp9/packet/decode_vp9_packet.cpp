@@ -75,6 +75,8 @@ MOS_STATUS Vp9DecodePkt::Init()
     }
 #endif
 
+    m_bypassHwLegacy = m_vp9Pipeline->GetBypassHWLegacy();
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -308,6 +310,12 @@ MOS_STATUS Vp9DecodePkt::StartStatusReport(uint32_t srType, MOS_COMMAND_BUFFER* 
         DECODE_CHK_STATUS(m_debugPkt->AddCommandCounterCmds(*cmdBuffer, m_statusReport));
     }
 #endif
+
+    if (m_bypassHwLegacy)
+    {
+        DECODE_CHK_STATUS(m_bypassHwLegacy->AddNullHwProxyCmd(cmdBuffer, false));
+        DECODE_CHK_STATUS(m_bypassHwLegacy->StartPredicate(cmdBuffer));
+    }
     return MOS_STATUS_SUCCESS;
 }
 
@@ -323,6 +331,11 @@ MOS_STATUS Vp9DecodePkt::EndStatusReport(uint32_t srType, MOS_COMMAND_BUFFER* cm
         DECODE_CHK_STATUS(m_debugPkt->Execute(*cmdBuffer, m_statusReport));
     }
 #endif
+
+    if (m_bypassHwLegacy)
+    {
+        DECODE_CHK_STATUS(m_bypassHwLegacy->StopPredicate(cmdBuffer));
+    }
     DECODE_CHK_STATUS(ReadHcpStatus(m_statusReport, *cmdBuffer));
     DECODE_CHK_STATUS(MediaPacket::EndStatusReportNext(srType, cmdBuffer));
     

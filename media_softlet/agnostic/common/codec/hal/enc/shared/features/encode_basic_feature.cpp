@@ -95,6 +95,20 @@ MOS_STATUS EncodeBasicFeature::Init(void *setting)
     m_enableTileStitchByHW = outValue.Get<bool>();
 
 
+#if (_DEBUG || _RELEASE_INTERNAL)
+    ReadUserSettingForDebug(
+        m_userSettingPtr,
+        m_disableTileBToTile4,
+        "DisableTilebToTile4",
+        MediaUserSetting::Group::Sequence);
+
+    ReadUserSettingForDebug(
+        m_userSettingPtr,
+        m_forceTile64ReconToTile4,
+        "ForceTile64ReconSurfaceToTile4",
+        MediaUserSetting::Group::Sequence);
+#endif
+
     if (m_osInterface != nullptr)
     {
         //If Wa_16025947269 is set, disable chroma prefetch
@@ -168,11 +182,15 @@ MOS_STATUS EncodeBasicFeature::Update(void *params)
     }
 
 #if (_DEBUG || _RELEASE_INTERNAL)
-    ReportUserSettingForDebug(
-        m_userSettingPtr,
-        "Encode Raw Surface Tile",
-        m_rawSurface.TileType,
-        MediaUserSetting::Group::Sequence);
+    if (m_rawSurfaceTileTypeReported != (int32_t)m_rawSurface.TileType)
+    {
+        ReportUserSettingForDebug(
+            m_userSettingPtr,
+            "Encode Raw Surface Tile",
+            m_rawSurface.TileType,
+            MediaUserSetting::Group::Sequence);
+        m_rawSurfaceTileTypeReported = (int32_t)m_rawSurface.TileType;
+    }
 #endif
 
     m_rawSurfaceToEnc     =

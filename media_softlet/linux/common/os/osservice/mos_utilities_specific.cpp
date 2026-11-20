@@ -1824,6 +1824,17 @@ MOS_STATUS MosUtilities::MosReadEnvVariable(
     return MOS_STATUS_INVALID_PARAMETER;
 }
 
+std::string MosUtilities::MosGetRegKeySuffix(UFKEY_NEXT rootKey, const std::string &gatePath)
+{
+    // Stub. This OS keeps all settings in one flat text file with only [config]/[report] sections,
+    // so there is no key scoping to resolve and the suffixed lookup is never taken. Per-process
+    // isolation comes from GFX_FEATURE_FILE_NEXT / GFX_FEATURE_FILE_REPORT instead. Defined only
+    // to keep the OS-agnostic caller in media_user_setting_configure.cpp linkable.
+    MOS_UNUSED(rootKey);
+    MOS_UNUSED(gatePath);
+    return std::to_string(MosUtilities::MosGetPid());
+}
+
 bool MosUtilities::MosEnvVariableEqual(
     const std::string            envName,
     const std::string            targetVal)

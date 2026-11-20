@@ -30,6 +30,10 @@
 #include "vp_render_cmd_packet.h"
 #include "vp_npu_cmd_packet.h"
 
+#ifdef _MEDIA_RESERVED
+#include "sw_filter_vfi.h"
+#endif
+
 namespace vp
 {
 
@@ -241,7 +245,8 @@ MOS_STATUS VpAiFilter::InitKrnParams(AI_KERNEL_PARAMS &krnParams, SwFilterPipe &
             krnArg.addressMode   = kernelArg.addressMode;
             bool bInit           = true;
 
-            if (kernelArg.addressMode == AddressingModeBindless && kernelArg.eArgKind == ARG_KIND_SURFACE)
+            if (kernelArg.addressMode == AddressingModeBindless &&
+                (kernelArg.eArgKind == ARG_KIND_SURFACE || kernelArg.eArgKind == ARG_KIND_INLINE))
             {
                 SURFACE_PARAMS surfaceParam = {};
                 VP_PUBLIC_CHK_NULL_RETURN(singleLayerSetting.pfnSetStatefulSurface);
@@ -307,9 +312,11 @@ MOS_STATUS VpAiFilter::InitKrnParams(AI_KERNEL_PARAMS &krnParams, SwFilterPipe &
                 kernelParam.kernelStatefulSurfaces.insert(std::make_pair(uIndex, surfaceParam));
             }
         }
+        VP_PUBLIC_NORMALMESSAGE("InitKrnParams: stageIndex=%u layerIndex=%u kernel=%s kernelBtisFromPool=%zu statefulSurfacesBound=%zu kernelArgsBound=%zu",
+            swAiParam.stageIndex, layerIndex, kernelParam.kernelName.c_str(),
+            kernelBtis.size(), kernelParam.kernelStatefulSurfaces.size(), kernelParam.kernelArgs.size());
         krnParams.push_back(std::move(kernelParam));
     }
-    
     return MOS_STATUS_SUCCESS;
 }
 
@@ -611,7 +618,15 @@ MOS_STATUS PolicyAiHandler::UpdateFeaturePipe(VP_EXECUTE_CAPS caps, SwFilter &fe
     }
     else
     {
-        return PolicyFeatureHandler::UpdateFeaturePipe(caps, feature, featurePipe, executePipe, isInputPipe, index);
+        VP_PUBLIC_CHK_STATUS_RETURN(PolicyFeatureHandler::UpdateFeaturePipe(caps, feature, featurePipe, executePipe, isInputPipe, index));
+
+#ifdef _MEDIA_RESERVED
+        SwFilterVFI *vfi = dynamic_cast<SwFilterVFI *>(&feature);
+        if (vfi != nullptr)
+        {
+            VP_PUBLIC_CHK_STATUS_RETURN(vfi->PrepareFinalStage(caps, featurePipe, executePipe, isInputPipe, index));
+        }
+#endif
     }
 
     return MOS_STATUS_SUCCESS;

@@ -219,22 +219,7 @@ public:
         }
         else if (isEncoder)
         {
-            if ((frameWidth * frameHeight) >= (7680 * 4320))
-            {
-                MediaResetParam.watchdogCountThreshold = MHW_MI_ENCODER_16K_WATCHDOG_THRESHOLD_IN_MS;
-            }
-            else if ((frameWidth * frameHeight) >= (3840 * 2160))
-            {
-                MediaResetParam.watchdogCountThreshold = MHW_MI_ENCODER_8K_WATCHDOG_THRESHOLD_IN_MS;
-            }
-            else if ((frameWidth * frameHeight) >= (1920 * 1080))
-            {
-                MediaResetParam.watchdogCountThreshold = MHW_MI_ENCODER_4K_WATCHDOG_THRESHOLD_IN_MS;
-            }
-            else
-            {
-                MediaResetParam.watchdogCountThreshold = MHW_MI_ENCODER_FHD_WATCHDOG_THRESHOLD_IN_MS;
-            }
+            SetEncoderWatchdogThreshold(frameWidth, frameHeight, codecMode);
         }
         else
         {
@@ -329,10 +314,16 @@ public:
         par = {};
         par.dwData = MHW_MI_WATCHDOG_COUNTS_PER_MILLISECOND * MediaResetParam.watchdogCountThreshold *
             (this->m_osItf->bSimIsActive ? 2 : 1);
+#if (_DEBUG || _RELEASE_INTERNAL)
+        if (m_useManualThreshold)
+        {
+            par.dwData = MediaResetParam.watchdogCountThreshold;
+        }
+#endif
         par.dwRegister = MediaResetParam.watchdogCountThresholdOffset;
         MHW_ADDCMD_F(MI_LOAD_REGISTER_IMM)(cmdBuffer);
 
-        MHW_VERBOSEMESSAGE("MediaReset Threshold is %d for register 0x%x", MediaResetParam.watchdogCountThreshold * (this->m_osItf->bSimIsActive ? 2 : 1), par.dwRegister);
+        MHW_VERBOSEMESSAGE("MediaReset Threshold is %d for register 0x%x", par.dwData, par.dwRegister);
 
         //Start Watchdog Timer
         auto& par1 = MHW_GETPAR_F(MI_LOAD_REGISTER_IMM)();
@@ -708,6 +699,14 @@ protected:
         uint32_t watchdogCountThresholdOffset = 0;
     } MediaResetParam;
 
+#if (_DEBUG || _RELEASE_INTERNAL)
+    //! \brief Device-scope watchdog-threshold override, read in the constructor.
+    uint32_t m_watchdogThresholdOverride = 0;
+    //! \brief Device-scope "Force media reset threshold" flag, read in the constructor.
+    //!        When set, the threshold is written as a raw HW counter without ms conversion.
+    bool m_useManualThreshold = false;
+#endif
+
     //! \brief Watchdog timer register offsets per engine, initialized by platform.
     struct
     {
@@ -840,19 +839,36 @@ protected:
 
     virtual void GetWatchdogThreshold(PMOS_INTERFACE osInterface)
     {
-        uint32_t countThreshold = 0;
 #if (_DEBUG || _RELEASE_INTERNAL)
-        // User feature config of watchdog timer threshold
-        ReadUserSettingForDebug(
-            m_userSettingPtr,
-            countThreshold,
-            __MEDIA_USER_FEATURE_VALUE_MEDIA_RESET_TH,
-            MediaUserSetting::Group::Device);
-        if (countThreshold != 0)
+        // User feature override of the watchdog timer threshold. The key is Group::Device,
+        // so it is read once in the constructor -- see m_watchdogThresholdOverride.
+        if (m_watchdogThresholdOverride != 0)
         {
-            MediaResetParam.watchdogCountThreshold = countThreshold;
+            MediaResetParam.watchdogCountThreshold = m_watchdogThresholdOverride;
         }
 #endif
+    }
+
+    //! \brief    Set encoder-specific watchdog threshold based on resolution.
+    //!           Override in platform implementations for different threshold tiers.
+    virtual void SetEncoderWatchdogThreshold(uint32_t frameWidth, uint32_t frameHeight, uint32_t codecMode)
+    {
+        if ((frameWidth * frameHeight) >= (7680 * 4320))
+        {
+            MediaResetParam.watchdogCountThreshold = MHW_MI_ENCODER_16K_WATCHDOG_THRESHOLD_IN_MS;
+        }
+        else if ((frameWidth * frameHeight) >= (3840 * 2160))
+        {
+            MediaResetParam.watchdogCountThreshold = MHW_MI_ENCODER_8K_WATCHDOG_THRESHOLD_IN_MS;
+        }
+        else if ((frameWidth * frameHeight) >= (1920 * 1080))
+        {
+            MediaResetParam.watchdogCountThreshold = MHW_MI_ENCODER_4K_WATCHDOG_THRESHOLD_IN_MS;
+        }
+        else
+        {
+            MediaResetParam.watchdogCountThreshold = MHW_MI_ENCODER_FHD_WATCHDOG_THRESHOLD_IN_MS;
+        }
     }
 
     //! \brief    Set decoder-specific watchdog threshold based on resolution.
@@ -938,6 +954,21 @@ public:
     Impl(PMOS_INTERFACE osItf) : mhw::Impl(osItf)
     {
         MHW_FUNCTION_ENTER;
+
+#if (_DEBUG || _RELEASE_INTERNAL)
+        // Group::Device key -- its scope is this object's lifetime, so read it here rather
+        // than on every GetWatchdogThreshold() call from the per-frame encode path.
+        ReadUserSettingForDebug(
+            m_userSettingPtr,
+            m_watchdogThresholdOverride,
+            __MEDIA_USER_FEATURE_VALUE_MEDIA_RESET_TH,
+            MediaUserSetting::Group::Device);
+        ReadUserSettingForDebug(
+            m_userSettingPtr,
+            m_useManualThreshold,
+            __MEDIA_USER_FEATURE_VALUE_FORCE_RESET_THRESHOLD,
+            MediaUserSetting::Group::Device);
+#endif
     }
     _MHW_SETCMD_OVERRIDE_DECL(MI_SEMAPHORE_SIGNAL)
     {

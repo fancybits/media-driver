@@ -353,6 +353,13 @@ VAStatus MediaLibvaUtilNext::GenerateGmmParamsForNoneCompressionExternalSurface(
     // Init NotCompressed flag as true to default Create as uncompressed surface on Xe2 Compression.
     gmmCustomParams.Flags.Info.NotCompressed = 1;
 
+    if (VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME == mediaSurface->pSurfDesc->uiVaMemType ||
+        VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2 == mediaSurface->pSurfDesc->uiVaMemType ||
+        VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_3 == mediaSurface->pSurfDesc->uiVaMemType)
+    {
+        gmmCustomParams.Flags.Info.Cacheable = true;
+    }
+
     switch (mediaSurface->pSurfDesc->uiPlanes)
     {
         case 1:
@@ -661,6 +668,9 @@ VAStatus MediaLibvaUtilNext::CreateExternalSurface(
     {
         gmmCustomParams.Usage = GMM_RESOURCE_USAGE_STAGING; //temp WA for some application wrongly use flags for user ptr
         gmmCustomParams.Type = RESOURCE_1D;
+        // The buffer is allocated by the application on the CPU, so it is always CPU cacheable.
+        // GMM needs this to hand back the coherent PAT index for the user ptr binding.
+        gmmCustomParams.Flags.Info.Cacheable = 1;
     }
 
     if (params.bMemCompEnable)
@@ -1575,6 +1585,7 @@ void* MediaLibvaUtilNext::LockBuffer(DDI_MEDIA_BUFFER *buf, uint32_t flag)
         }
         else
         {
+            DDI_CHK_NULL(buf->bo, "nullptr buf->bo", nullptr);
             if (buf->pMediaCtx->bIsAtomSOC)
             {
                 mos_bo_map_gtt(buf->bo);

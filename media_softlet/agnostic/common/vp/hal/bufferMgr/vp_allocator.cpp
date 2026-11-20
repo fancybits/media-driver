@@ -327,6 +327,8 @@ VP_SURFACE *VpAllocator::AllocateVpSurface(VPHAL_SURFACE &vphalSurf)
 
     // Initialize other parameters in vp surface according to vphal surface.
     surf->ColorSpace                            = vphalSurf.ColorSpace;
+    surf->GammaType                             = vphalSurf.GammaType;
+    VP_PUBLIC_NORMALMESSAGE("AllocateVpSurface: copy GammaType %d alongside ColorSpace %d", surf->GammaType, surf->ColorSpace);
     surf->ExtendedGamut                         = vphalSurf.ExtendedGamut;
     surf->Palette                               = vphalSurf.Palette;
     surf->bQueryVariance                        = vphalSurf.bQueryVariance;
@@ -963,7 +965,8 @@ MOS_STATUS VpAllocator::ReAllocateSurface(
         Mos_MemPool             memType,
         bool                    isNotLockable,
         void *                  systemMemory,
-        uint32_t                depth)
+        uint32_t                depth,
+        bool                    checkTile64ByForce)
 {
     VP_FUNC_CALL();
     MOS_STATUS              eStatus = MOS_STATUS_SUCCESS;
@@ -991,6 +994,9 @@ MOS_STATUS VpAllocator::ReAllocateSurface(
                                         (surface->osSurface->TileType             == defaultTileType  ||
                                         MOS_TILE_Y                                == defaultTileType  &&
                                         IS_Y_MAJOR_TILE_FORMAT(surface->osSurface->TileType))         &&
+                                        (!checkTile64ByForce                                          ||
+                                        ((MOS_TILE_64_GMM == surface->osSurface->TileModeGMM)         ==
+                                        (MOS_TILE_64_GMM == tileModeByForce)))                        &&
                                         ((Format_Buffer                           == format           &&
                                         surface->bufferWidth                      == width            &&
                                         surface->bufferHeight                     == height)          ||
@@ -1070,20 +1076,23 @@ MOS_STATUS VpAllocator::ReAllocateSurface(
     if (!surfInfoCheck(surface))
     {
         VP_PUBLIC_ASSERTMESSAGE("Allocated surface is not matched with allocating parameter.");
-        VP_PUBLIC_ASSERTMESSAGE("Allocated surface : format %d, compressible %d, compressionMode %d, tileType %d, bufferWidth %d, bufferHeight %d, width %d, height %d",
+        VP_PUBLIC_ASSERTMESSAGE("Allocated surface : format %d, compressible %d, compressionMode %d, tileType %d, tileModeGMM %d, bufferWidth %d, bufferHeight %d, width %d, height %d",
             surface->osSurface->Format,
             surface->osSurface->bCompressible,
             surface->osSurface->CompressionMode,
             surface->osSurface->TileType,
+            surface->osSurface->TileModeGMM,
             surface->bufferWidth,
             surface->bufferHeight,
             surface->osSurface->dwWidth,
             surface->osSurface->dwHeight);
-        VP_PUBLIC_ASSERTMESSAGE("Parameter to allocate : format %d, compressible %d, compressionMode %d, tileType %d, width %d, height %d",
+        VP_PUBLIC_ASSERTMESSAGE("Parameter to allocate : format %d, compressible %d, compressionMode %d, tileType %d, tileModeByForce %d, checkTile64ByForce %d, width %d, height %d",
             format,
             compressible,
             compressionMode,
             defaultTileType,
+            tileModeByForce,
+            checkTile64ByForce,
             width,
             height);
     }
@@ -1250,6 +1259,8 @@ MOS_STATUS VpAllocator::ReAllocateVpSurfaceWithSameConfigOfVphalSurface(
 
     // Initialize other parameters in vp surface according to vphal surface.
     surface->ColorSpace     = vphalSurface->ColorSpace;
+    surface->GammaType      = vphalSurface->GammaType;
+    VP_PUBLIC_NORMALMESSAGE("ReAllocateVpSurfaceWithSameConfigOfVphalSurface: copy GammaType %d alongside ColorSpace %d", surface->GammaType, surface->ColorSpace);
     surface->ExtendedGamut  = vphalSurface->ExtendedGamut;
     surface->Palette        = vphalSurface->Palette;
     surface->bQueryVariance = vphalSurface->bQueryVariance;
@@ -1620,6 +1631,7 @@ MOS_STATUS VP_SURFACE::Clean()
 
     isResourceOwner     = false;
     ColorSpace          = CSpace_Any;
+    GammaType           = VPHAL_GAMMA_NONE;
     ChromaSiting        = 0;
     bQueryVariance      = 0;
     FrameID             = 0;

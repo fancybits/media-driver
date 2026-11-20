@@ -38,7 +38,7 @@
 #include "encode_tracked_buffer.h"
 #include "encode_recycle_resource.h"
 #include "encode_mem_compression.h"
-#include "encodecp.h"
+#include "encodecp_interface.h"
 #include "encode_packet_utilities.h"
 #include "encode_scalability_defs.h"
 #include "bypass_hw_legacy.h"
@@ -99,7 +99,7 @@ public:
     //!         pointer of m_statusReportDebugInterface
     //!
     CodechalDebugInterface *GetStatusReportDebugInterface() const { return m_statusReportDebugInterface; }
-    EncodeCp *               GetEncodeCp() { return m_encodecp; }
+    EncodeCpInterface *      GetEncodeCp() { return m_encodecp; }
 
     //!
     //! \brief  Update frame tracking flag
@@ -107,9 +107,7 @@ public:
     //!
     void SetFrameTrackingForMultiTaskPhase();
 
-#if (_DEBUG || _RELEASE_INTERNAL)
     virtual ::BypassHwLegacy *GetBypassHW() const { return nullptr; }
-#endif
 
     enum ComponentPacketIds
     {
@@ -343,13 +341,15 @@ protected:
     TrackedBuffer *      m_trackedBuf  = nullptr;
     RecycleResource *    m_recycleBuf  = nullptr;
     EncodeMemComp *      m_mmcState    = nullptr;
-    EncodeCp *           m_encodecp    = nullptr;
+    EncodeCpInterface *  m_encodecp    = nullptr;
     PacketUtilities *    m_packetUtilities = nullptr;
     BypassHwLegacy *     m_bypassHWLegacy = nullptr;
     MOS_GPU_NODE         m_bypassHWLegacyGpuNode = MOS_GPU_NODE_VIDEO;
     CodechalDebugInterface *m_statusReportDebugInterface = nullptr;  //!< Interface used for debug dumps in status report callback function
 
     uint8_t m_numVdbox = 0;
+    uint8_t m_numVdboxHw = 0;  //!< Enabled VDBox number before scalability-disable processing
+    uint8_t m_numVdboxEmulated = 0;  //!< NullHW emulated VDBox number, overrides m_numVdboxHw when non-zero
 
     bool m_singleTaskPhaseSupported      = true;
     bool m_singleTaskPhaseSupportedInPak = false;

@@ -322,6 +322,27 @@ MOS_STATUS AvcDecodePkt::StartStatusReport(uint32_t srType, MOS_COMMAND_BUFFER *
         DECODE_CHK_STATUS(m_debugPkt->AddCommandCounterCmds(*cmdBuffer, m_statusReport));
     }
 #endif
+
+    if (m_bypassHwLegacy)
+    {
+        if (!m_bypassHwLegacy->IsPipelineCharacteristicsSet())
+        {
+            // AVC decode DDI never sets codecSettings->chromaFormat (always 0).
+            // Use picParams->seq_fields.chroma_format_idc from bitstream SPS instead.
+            uint32_t avcChromaFmt = m_avcBasicFeature->m_avcPicParams->seq_fields.chroma_format_idc ? m_avcBasicFeature->m_avcPicParams->seq_fields.chroma_format_idc : 1;
+            m_bypassHwLegacy->SetPipelineCharacteristics(
+                CODECHAL_AVC,
+                avcChromaFmt,
+                m_avcBasicFeature->m_width,
+                m_avcBasicFeature->m_height,
+                m_avcBasicFeature->m_bitDepth,
+                0);
+            m_bypassHwLegacy->SetPipelineCharacteristicsFlag();
+        }
+        DECODE_CHK_STATUS(m_bypassHwLegacy->AddNullHwProxyCmd(cmdBuffer, false));
+        DECODE_CHK_STATUS(m_bypassHwLegacy->StartPredicate(cmdBuffer));
+    }
+
     return MOS_STATUS_SUCCESS;
 }
 
@@ -337,6 +358,10 @@ MOS_STATUS AvcDecodePkt::EndStatusReport(uint32_t srType, MOS_COMMAND_BUFFER *cm
         DECODE_CHK_STATUS(m_debugPkt->Execute(*cmdBuffer, m_statusReport));
     }
 #endif
+    if (m_bypassHwLegacy)
+    {
+        DECODE_CHK_STATUS(m_bypassHwLegacy->StopPredicate(cmdBuffer));
+    }
     DECODE_CHK_STATUS(ReadMfxStatus(m_statusReport, *cmdBuffer));
     DECODE_CHK_STATUS(MediaPacket::EndStatusReportNext(srType, cmdBuffer));
 

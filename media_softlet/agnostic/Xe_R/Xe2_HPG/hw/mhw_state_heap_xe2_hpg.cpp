@@ -25,6 +25,7 @@
 //!            all operating systems/DDIs, across MHW components.
 //!
 #include "mhw_state_heap_xe2_hpg.h"
+#include "mhw_utilities_next.h"
 #include "mhw_cp_interface.h"
 
 MHW_STATE_HEAP_INTERFACE_XE2_HPG::MHW_STATE_HEAP_INTERFACE_XE2_HPG(
@@ -118,33 +119,6 @@ MOS_STATUS MHW_STATE_HEAP_INTERFACE_XE2_HPG::AddInterfaceDescriptorData(
     return eStatus;
 }
 
-static uint32_t GetHWTileType(MOS_TILE_TYPE tileType, MOS_TILE_MODE_GMM tileModeGMM, bool gmmTileEnabled)
-{
-    uint32_t tileMode = 0;
-
-    if (gmmTileEnabled)
-    {
-        return tileModeGMM;
-    }
-
-    switch (tileType)
-    {
-    case MOS_TILE_LINEAR:
-        tileMode = mhw_state_heap_xe2_hpg::MEDIA_SURFACE_STATE_CMD::TILE_MODE_TILEMODELINEAR;
-        break;
-    case MOS_TILE_YS:
-        tileMode = mhw_state_heap_xe2_hpg::MEDIA_SURFACE_STATE_CMD::TILE_MODE_TILES_64K;
-        break;
-    case MOS_TILE_X:
-        tileMode = mhw_state_heap_xe2_hpg::MEDIA_SURFACE_STATE_CMD::TILE_MODE_TILEMODEXMAJOR;
-        break;
-    default:
-        tileMode = mhw_state_heap_xe2_hpg::MEDIA_SURFACE_STATE_CMD::TILE_MODE_TILEF;
-        break;
-    }
-    return tileMode;
-}
-
 MOS_STATUS MHW_STATE_HEAP_INTERFACE_XE2_HPG::SetSurfaceStateEntry(
         PMHW_SURFACE_STATE_PARAMS   pParams)
 {
@@ -197,7 +171,14 @@ MOS_STATUS MHW_STATE_HEAP_INTERFACE_XE2_HPG::SetSurfaceStateEntry(
     MHW_NORMALMESSAGE("Feature Graph: Cache settings of Render SurfaceState: SurfaceType is %d, Surface width is %d, Surface height is %d,\
                 Surface format is %d, SurfaceMemoryObjectControlState %d, Index to Mocs table %d",pSurfaceState->DW0.SurfaceType, pSurfaceState->DW2.Width,
                pSurfaceState->DW2.Height, pSurfaceState->DW0.SurfaceFormat, pParams->dwCacheabilityControl, (pParams->dwCacheabilityControl >> 1) & 0x0000003f);
-
+    if (pSurfaceState->DW0.SurfaceType == 2)  // 3D surface
+    {
+        pSurfaceState->DW4.RenderTargetViewExtent = pParams->dwDepth - 1;
+    }
+    else
+    {
+        pSurfaceState->DW4.RenderTargetViewExtent = 0;
+    }
     pSurfaceState->DW4.RenderTargetAndSampleUnormRotation = pParams->RotationMode;
     pSurfaceState->DW5.XOffset                            = pParams->iXOffset >> 2;
     pSurfaceState->DW5.YOffset                            = pParams->iYOffset >> 2;
@@ -224,6 +205,17 @@ MOS_STATUS MHW_STATE_HEAP_INTERFACE_XE2_HPG::SetSurfaceStateEntry(
         pSurfaceState->DW7.ShaderChannelSelectBlue  = mhw_state_heap_xe2_hpg::RENDER_SURFACE_STATE_CMD::SHADER_CHANNEL_SELECT_GREEN_GREEN;
         pSurfaceState->DW7.ShaderChannelSelectGreen = mhw_state_heap_xe2_hpg::RENDER_SURFACE_STATE_CMD::SHADER_CHANNEL_SELECT_BLUE_BLUE;
         pSurfaceState->DW7.ShaderChannelSelectRed   = mhw_state_heap_xe2_hpg::RENDER_SURFACE_STATE_CMD::SHADER_CHANNEL_SELECT_RED_RED;
+    }
+    // Typed loads from B8G8R8A8_UNORM are much slower than from R8G8B8A8_UNORM, so a caller can
+    // bind a read-only B8G8R8A8 surface as R8G8B8A8 and swap red/blue back with channel select.
+    // The data the shader sees is unchanged. Channel select does not apply to writes.
+    else if (pParams->bSwapRBChannel && pParams->dwFormat == MHW_GFX3DSTATE_SURFACEFORMAT_B8G8R8A8_UNORM)
+    {
+        pSurfaceState->DW0.SurfaceFormat            = MHW_GFX3DSTATE_SURFACEFORMAT_R8G8B8A8_UNORM;
+        pSurfaceState->DW7.ShaderChannelSelectAlpha = mhw_state_heap_xe2_hpg::RENDER_SURFACE_STATE_CMD::SHADER_CHANNEL_SELECT_ALPHA_ALPHA;
+        pSurfaceState->DW7.ShaderChannelSelectBlue  = mhw_state_heap_xe2_hpg::RENDER_SURFACE_STATE_CMD::SHADER_CHANNEL_SELECT_BLUE_RED;
+        pSurfaceState->DW7.ShaderChannelSelectGreen = mhw_state_heap_xe2_hpg::RENDER_SURFACE_STATE_CMD::SHADER_CHANNEL_SELECT_GREEN_GREEN;
+        pSurfaceState->DW7.ShaderChannelSelectRed   = mhw_state_heap_xe2_hpg::RENDER_SURFACE_STATE_CMD::SHADER_CHANNEL_SELECT_RED_BLUE;
     }
     else
     {
@@ -341,7 +333,7 @@ MOS_STATUS MHW_STATE_HEAP_INTERFACE_XE2_HPG::SetSurfaceState(
             pCmd->DW2.SurfaceFormat             = pParams->ForceSurfaceFormat[i];
             pCmd->DW2.InterleaveChroma          = pParams->bInterleaveChroma;
 
-            pCmd->DW2.TileMode = GetHWTileType(pParams->psSurface->TileType, pParams->psSurface->TileModeGMM, pParams->psSurface->bGMMTileEnabled);
+            pCmd->DW2.TileMode = MhwGetHwTileType(pParams->psSurface->TileType, pParams->psSurface->TileModeGMM, pParams->psSurface->bGMMTileEnabled);
 
             pCmd->DW5.SurfaceMemoryObjectControlState   = pParams->dwCacheabilityControl;
             MT_LOG6(MT_VP_MHW_CACHE_MOCS_TABLE, MT_NORMAL, MT_VP_MHW_CACHE_MEMORY_OBJECT_NAME, *((int64_t *)"SurfaceState"),
@@ -659,6 +651,11 @@ MOS_STATUS MHW_STATE_HEAP_INTERFACE_XE2_HPG::SetSamplerState(
 
                 pUnormSampler->DW2.IndirectStatePointer = pParam->Unorm.IndirectStateOffset >> MHW_SAMPLER_INDIRECT_SHIFT;
             }
+
+            MHW_NORMALMESSAGE("SetSamplerState (3D) final dwords: DW0=0x%08X DW1=0x%08X DW2=0x%08X DW3=0x%08X  TCX=%d TCY=%d TCZ=%d NonNormalizedCoordinateEnable=%d MinFilter=%d MagFilter=%d",
+                pUnormSampler->DW0.Value, pUnormSampler->DW1.Value, pUnormSampler->DW2.Value, pUnormSampler->DW3.Value,
+                (int)pUnormSampler->DW3.TcxAddressControlMode, (int)pUnormSampler->DW3.TcyAddressControlMode, (int)pUnormSampler->DW3.TczAddressControlMode,
+                (int)pUnormSampler->DW3.NonNormalizedCoordinateEnable, (int)pUnormSampler->DW0.MinModeFilter, (int)pUnormSampler->DW0.MagModeFilter);
         }
         else
         {

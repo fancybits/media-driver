@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2021-2025, Intel Corporation
+* Copyright (c) 2021-2026, Intel Corporation
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -39,6 +39,55 @@ struct _MHW_BATCH_BUFFER;
 
 typedef struct _MHW_RCS_SURFACE_PARAMS MHW_RCS_SURFACE_PARAMS, * PMHW_RCS_SURFACE_PARAMS;
 typedef struct _MHW_BATCH_BUFFER MHW_BATCH_BUFFER, * PMHW_BATCH_BUFFER;
+
+inline uint32_t MhwGetHwTileType(MOS_TILE_TYPE tileType, MOS_TILE_MODE_GMM tileModeGMM, bool gmmTileEnabled)
+{
+    if (gmmTileEnabled)
+    {
+        return tileModeGMM;
+    }
+
+    switch (tileType)
+    {
+    case MOS_TILE_LINEAR:
+        return 0;
+    case MOS_TILE_YS:
+        return 1;
+    case MOS_TILE_X:
+    case MOS_TILE_B:
+        return 2;
+    default:
+        return 3;
+    }
+}
+
+//!
+//! \brief    Resolve the HW tile-mode value with the encode reference/recon overrides applied.
+//! \details  Precedence: (1) the Tile64->Tile4 force (non-420-8bit encode refs, keyed on the
+//!           caller-supplied forceTile64ReconToTile4 flag + MOS_TILE_64_GMM); (2) the legacy
+//!           TileB->Tile4 workaround (keyed on overrideTileBToTile4 + MOS_TILE_B); otherwise the
+//!           plain MhwGetHwTileType result. Both override flags default false at every call site
+//!           and are set true only by encode producers, so a decode call (both flags false)
+//!           returns exactly MhwGetHwTileType(...) — decode output is byte-identical. The helper
+//!           never inspects the surface tile itself; the caller-supplied flags are the only gate.
+//!
+inline uint32_t MhwGetHwTileTypeWithOverride(
+    MOS_TILE_TYPE     tileType,
+    MOS_TILE_MODE_GMM tileModeGMM,
+    bool              gmmTileEnabled,
+    bool              forceTile64ReconToTile4,
+    bool              overrideTileBToTile4)
+{
+    if (forceTile64ReconToTile4 && tileModeGMM == MOS_TILE_64_GMM)
+    {
+        return MOS_TILE_4_GMM;  // new Tile64 policy: non-420-8bit encode refs forced to Tile4
+    }
+    if (overrideTileBToTile4 && tileType == MOS_TILE_B)
+    {
+        return MOS_TILE_4_GMM;  // legacy TileB workaround (unchanged)
+    }
+    return MhwGetHwTileType(tileType, tileModeGMM, gmmTileEnabled);
+}
 
 #define MHW_CACHELINE_SIZE      64
 #define MHW_PAGE_SIZE           0x1000

@@ -215,12 +215,7 @@ namespace encode{
 
         m_usePatchList = m_osInterface->bUsesPatchList;
 
-#if (_DEBUG || _RELEASE_INTERNAL)
-        if (m_pipeline->GetBypassHWLegacy())
-        {
-            m_bypassHwLegacyEnabled = true;
-        }
-#endif
+        m_bypassHwLegacy = m_pipeline->GetBypassHWLegacy();
 
         return MOS_STATUS_SUCCESS;
     }
@@ -380,24 +375,22 @@ namespace encode{
                 (void *)m_pipeline, m_osInterface, m_miItf, &cmdBuffer));
         }
 
-#if (_DEBUG || _RELEASE_INTERNAL)
-        if (m_bypassHwLegacyEnabled)
+        if (m_bypassHwLegacy)
         {
-            if (!m_pipeline->GetBypassHWLegacy()->IsPipelineCharacteristicsSet())
+            if (!m_bypassHwLegacy->IsPipelineCharacteristicsSet())
             {
-                m_pipeline->GetBypassHWLegacy()->SetPipelineCharacteristics(
+                m_bypassHwLegacy->SetPipelineCharacteristics(
                     CODECHAL_AV1,
                     m_basicFeature->m_chromaFormat,
                     m_basicFeature->m_oriFrameWidth,
                     m_basicFeature->m_oriFrameHeight,
                     m_basicFeature->m_bitDepth,
                     m_basicFeature->m_av1SeqParams->TargetUsage);
-                m_pipeline->GetBypassHWLegacy()->SetPipelineCharacteristicsFlag();
+                m_bypassHwLegacy->SetPipelineCharacteristicsFlag();
             }
-            ENCODE_CHK_STATUS_RETURN(m_pipeline->GetBypassHWLegacy()->AddNullHwProxyCmd(&cmdBuffer, true));
-            ENCODE_CHK_STATUS_RETURN(m_pipeline->GetBypassHWLegacy()->StartPredicate(&cmdBuffer));
+            ENCODE_CHK_STATUS_RETURN(m_bypassHwLegacy->AddNullHwProxyCmd(&cmdBuffer, true));
+            ENCODE_CHK_STATUS_RETURN(m_bypassHwLegacy->StartPredicate(&cmdBuffer));
         }
-#endif
 
         ENCODE_CHK_STATUS_RETURN(AddPictureVdencCommands(cmdBuffer));
 
@@ -490,12 +483,10 @@ namespace encode{
         ENCODE_CHK_NULL_RETURN(scalability);
         ENCODE_CHK_STATUS_RETURN(scalability->SyncPipe(syncOnePipeWaitOthers, 0, &cmdBuffer));
 
-#if (_DEBUG || _RELEASE_INTERNAL)
-        if (m_bypassHwLegacyEnabled)
+        if (m_bypassHwLegacy)
         {
-            ENCODE_CHK_STATUS_RETURN(m_pipeline->GetBypassHWLegacy()->StopPredicate(&cmdBuffer));
+            ENCODE_CHK_STATUS_RETURN(m_bypassHwLegacy->StopPredicate(&cmdBuffer));
         }
-#endif
 
         if (m_pipeline->IsFirstPipe())
         {
@@ -532,9 +523,19 @@ namespace encode{
             ENCODE_CHK_STATUS_RETURN(MediaPacket::UpdateStatusReportNext(statusReportGlobalCount, &cmdBuffer));
         }
 
+        if (m_bypassHwLegacy)
+        {
+            ENCODE_CHK_STATUS_RETURN(m_bypassHwLegacy->StartPredicate(&cmdBuffer));
+        }
+
         if (m_pipeline->IsDualEncEnabled())
         {
             SETPAR_AND_ADDCMD(VDENC_CONTROL_STATE, m_vdencItf, &cmdBuffer);
+        }
+
+        if (m_bypassHwLegacy)
+        {
+            ENCODE_CHK_STATUS_RETURN(m_bypassHwLegacy->StopPredicate(&cmdBuffer));
         }
 
         CODECHAL_DEBUG_TOOL(
@@ -1276,13 +1277,6 @@ namespace encode{
     {
         params.pakObjCmdStreamOut = m_vdencPakObjCmdStreamOutEnabled;
 
-        // needs to be enabled for 1st pass in multi-pass case
-        // This bit is ignored if PAK only second pass is enabled.
-        if ((m_pipeline->GetCurrentPass() == 0) && !m_pipeline->IsLastPass())
-        {
-            params.pakObjCmdStreamOut = true;
-        }
-
         return MOS_STATUS_SUCCESS;
     }
 
@@ -1925,7 +1919,7 @@ namespace encode{
 
         return MOS_STATUS_SUCCESS;
     }
-    MOS_STATUS Av1VdencPkt::PrepareHWMetaDataFromStreamout(MOS_COMMAND_BUFFER *cmdBuffer, const MetaDataOffset resourceOffset, const AV1MetaDataOffset AV1ResourceOffset)
+    MOS_STATUS Av1VdencPkt::PrepareHWMetaDataFromStreamout(MOS_COMMAND_BUFFER *cmdBuffer, const MetaDataOffset &resourceOffset, const AV1MetaDataOffset &AV1ResourceOffset)
     {
         ENCODE_FUNC_CALL();
         uint32_t tileNum     = 0;
@@ -2027,7 +2021,7 @@ namespace encode{
         return MOS_STATUS_SUCCESS;
     }
 
-    MOS_STATUS Av1VdencPkt::PrepareHWMetaDataFromDriver(MOS_COMMAND_BUFFER *cmdBuffer, const MetaDataOffset resourceOffset, const AV1MetaDataOffset AV1ResourceOffset)
+    MOS_STATUS Av1VdencPkt::PrepareHWMetaDataFromDriver(MOS_COMMAND_BUFFER *cmdBuffer, const MetaDataOffset &resourceOffset, const AV1MetaDataOffset &AV1ResourceOffset)
     {
         ENCODE_FUNC_CALL();
 
@@ -2415,6 +2409,35 @@ namespace encode{
         debugInterface->m_currPic            = statusReportData->currOriginalPic;
         debugInterface->m_bufferDumpFrameNum = m_statusReport->GetReportedCount();
         debugInterface->m_frameType          = encodeStatusMfx->pictureCodingType;
+
+        // VDENC frame statistics streamout
+        if (debugInterface->DumpIsEnabled(CodechalDbgAttr::attrVdencFrameStats))
+        {
+            uint32_t      numTiles         = MOS_MAX(statusReportData->numberTilesInFrame, 1u);
+            uint32_t      vdencStatsBufIdx = statusReportData->currOriginalPic.FrameIdx;
+            MOS_RESOURCE *vdencStatsBuffer = nullptr;
+            RUN_FEATURE_INTERFACE_RETURN(Av1EncodeTile, Av1FeatureIDs::encodeTile, GetTileBasedStatisticsBuffer, vdencStatsBufIdx, vdencStatsBuffer);
+            if (!Mos_ResourceIsNull(vdencStatsBuffer))
+            {
+                MOS_LOCK_PARAMS lockFlags;
+                MOS_ZeroMemory(&lockFlags, sizeof(MOS_LOCK_PARAMS));
+                lockFlags.ReadOnly = 1;
+
+                uint8_t *statsData = (uint8_t *)m_osInterface->pfnLockResource(m_osInterface, vdencStatsBuffer, &lockFlags);
+                if (statsData != nullptr)
+                {
+                    uint32_t vdencStatsOffset = MOS_ALIGN_CEIL(EncodeBasicFeature::m_sizeOfHcpPakFrameStats * numTiles, CODECHAL_PAGE_SIZE);
+                    uint8_t *statsBase        = statsData + vdencStatsOffset;
+                    debugInterface->DumpData(
+                        statsBase,
+                        static_cast<uint32_t>(VdencStatistics::byteSize) * numTiles,
+                        CodechalDbgAttr::attrVdencFrameStats,
+                        "VdencFrameStats");
+
+                    m_osInterface->pfnUnlockResource(m_osInterface, vdencStatsBuffer);
+                }
+            }
+        }
 
         if (m_resVDEncPakObjCmdStreamOutBuffer != nullptr)
         {

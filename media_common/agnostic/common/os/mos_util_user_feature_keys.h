@@ -64,6 +64,14 @@
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_HCP_SCALABILITY_DECODE        "Enable HCP Scalability Decode"
 #define __MEDIA_USER_FEATURE_VALUE_ENABLE_VEBOX_SCALABILITY_MODE        "Enable Vebox Scalability"
 
+//!
+//! \brief      Master gate for session-ID-suffixed (vs. PID-suffixed) decode settings path.
+//! \details    DWORD value under the adapter's decode settings key. 1 = enabled; absent/0/other
+//!             = disabled (default). Not declared as a user setting key -- see the concurrency
+//!             test design doc (env fallback would let a stray env var flip this global switch).
+//!
+#define __MEDIA_USER_FEATURE_VALUE_SESSION_ID_REG_PATH_ENABLE           "Enable Session Id Reg Path"
+
 #if (_DEBUG || _RELEASE_INTERNAL)
 
 //!
@@ -433,10 +441,8 @@
 #define __MEDIA_USER_FEATURE_VALUE_VP_MMC_IN_USE                                "VP MMC In Use"
 
 #define __MEDIA_USER_FEATURE_VALUE_NULLHW_ENABLE                                "NULL HW Enable"
-#if (_DEBUG || _RELEASE_INTERNAL)
 #define __MEDIA_USER_FEATURE_VALUE_NULLHW_PROXY_REPEAT_COUNT                    "NULL HW Proxy Repeat Count"
 #define __MEDIA_USER_FEATURE_VALUE_NULLHW_PROXY_REPEAT_COUNT_FILE              "NULL HW Proxy Repeat Count File"
-#endif
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_PLATFORM                         "MockAdaptor Platform"
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_STEPPING                         "MockAdaptor Stepping"
 #define __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_DEVICE                           "MockAdaptor Device ID"
@@ -454,6 +460,7 @@
 #define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_BUFFER_SIZE_KEY     "Perf Profiler Buffer Size"
 #define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_MUL_PROC_SINGLE_BIN "Perf Profiler Multi Process Single Binary"
 #define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_PARALLEL_EXEC       "Perf Profiler Parallel Execution Support"
+#define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_TS_CORRELATION      "Perf Profiler Timestamp Correlation"
 
 #define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_1      "Perf Profiler Register 1"
 #define __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_REGISTER_KEY_2      "Perf Profiler Register 2"

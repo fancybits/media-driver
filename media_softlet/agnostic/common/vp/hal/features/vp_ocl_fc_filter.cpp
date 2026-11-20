@@ -1046,7 +1046,7 @@ MOS_STATUS VpOclFcFilter::GenerateFcCommonKrnParam(OCL_FC_COMP_PARAM &compParam,
     OCL_FC_KRN_TARGET_PARAM             targetParam = {};
     for (uint32_t i = 0; i < compParam.layerNumber; ++i)
     {
-        VP_RENDER_CHK_STATUS_RETURN(GenerateInputImageParam(compParam.inputLayersParam[i], compParam.mainCSpace, imageParams.at(i)));
+        VP_RENDER_CHK_STATUS_RETURN(GenerateInputImageParam(compParam.inputLayersParam[i], compParam.mainCSpace, compParam.outputLayerParam.surf, imageParams.at(i)));
     }
     VP_RENDER_CHK_STATUS_RETURN(GenerateTargetParam(compParam, targetParam));
     PrintKrnParam(imageParams, targetParam);
@@ -1225,64 +1225,64 @@ MOS_STATUS VpOclFcFilter::SetupSingleFcCommonKrnArg(uint32_t layerNum, std::vect
         if (imageParams.size() > 0)
         {
             VP_PUBLIC_CHK_NULL_RETURN(krnArg.pData);
-            VP_PUBLIC_CHK_VALUE_RETURN(krnArg.uSize, sizeof(imageParams.at(0)));
-            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(0), sizeof(imageParams.at(0)));
+            VP_PUBLIC_CHK_VALUE_RETURN(sizeof(imageParams.at(0)) >= krnArg.uSize, true);
+            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(0), krnArg.uSize);
         }
         break;
     case FC_COMMON_FASTCOMP_IMAGEPARAM1:
         if (imageParams.size() > 1)
         {
             VP_PUBLIC_CHK_NULL_RETURN(krnArg.pData);
-            VP_PUBLIC_CHK_VALUE_RETURN(krnArg.uSize, sizeof(imageParams.at(1)));
-            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(1), sizeof(imageParams.at(1)));
+            VP_PUBLIC_CHK_VALUE_RETURN(sizeof(imageParams.at(1)) >= krnArg.uSize, true);
+            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(1), krnArg.uSize);
         }
         break;
     case FC_COMMON_FASTCOMP_IMAGEPARAM2:
         if (imageParams.size() > 2)
         {
             VP_PUBLIC_CHK_NULL_RETURN(krnArg.pData);
-            VP_PUBLIC_CHK_VALUE_RETURN(krnArg.uSize, sizeof(imageParams.at(2)));
-            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(2), sizeof(imageParams.at(2)));
+            VP_PUBLIC_CHK_VALUE_RETURN(sizeof(imageParams.at(2)) >= krnArg.uSize, true);
+            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(2), krnArg.uSize);
         }
         break;
     case FC_COMMON_FASTCOMP_IMAGEPARAM3:
         if (imageParams.size() > 3)
         {
             VP_PUBLIC_CHK_NULL_RETURN(krnArg.pData);
-            VP_PUBLIC_CHK_VALUE_RETURN(krnArg.uSize, sizeof(imageParams.at(3)));
-            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(3), sizeof(imageParams.at(3)));
+            VP_PUBLIC_CHK_VALUE_RETURN(sizeof(imageParams.at(3)) >= krnArg.uSize, true);
+            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(3), krnArg.uSize);
         }
         break;
     case FC_COMMON_FASTCOMP_IMAGEPARAM4:
         if (imageParams.size() > 4)
         {
             VP_PUBLIC_CHK_NULL_RETURN(krnArg.pData);
-            VP_PUBLIC_CHK_VALUE_RETURN(krnArg.uSize, sizeof(imageParams.at(4)));
-            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(4), sizeof(imageParams.at(4)));
+            VP_PUBLIC_CHK_VALUE_RETURN(sizeof(imageParams.at(4)) >= krnArg.uSize, true);
+            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(4), krnArg.uSize);
         }
         break;
     case FC_COMMON_FASTCOMP_IMAGEPARAM5:
         if (imageParams.size() > 5)
         {
             VP_PUBLIC_CHK_NULL_RETURN(krnArg.pData);
-            VP_PUBLIC_CHK_VALUE_RETURN(krnArg.uSize, sizeof(imageParams.at(5)));
-            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(5), sizeof(imageParams.at(5)));
+            VP_PUBLIC_CHK_VALUE_RETURN(sizeof(imageParams.at(5)) >= krnArg.uSize, true);
+            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(5), krnArg.uSize);
         }
         break;
     case FC_COMMON_FASTCOMP_IMAGEPARAM6:
         if (imageParams.size() > 6)
         {
             VP_PUBLIC_CHK_NULL_RETURN(krnArg.pData);
-            VP_PUBLIC_CHK_VALUE_RETURN(krnArg.uSize, sizeof(imageParams.at(6)));
-            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(6), sizeof(imageParams.at(6)));
+            VP_PUBLIC_CHK_VALUE_RETURN(sizeof(imageParams.at(6)) >= krnArg.uSize, true);
+            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(6), krnArg.uSize);
         }
         break;
     case FC_COMMON_FASTCOMP_IMAGEPARAM7:
         if (imageParams.size() > 7)
         {
             VP_PUBLIC_CHK_NULL_RETURN(krnArg.pData);
-            VP_PUBLIC_CHK_VALUE_RETURN(krnArg.uSize, sizeof(imageParams.at(7)));
-            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(7), sizeof(imageParams.at(7)));
+            VP_PUBLIC_CHK_VALUE_RETURN(sizeof(imageParams.at(7)) >= krnArg.uSize, true);
+            MOS_SecureMemcpy(krnArg.pData, krnArg.uSize, &imageParams.at(7), krnArg.uSize);
         }
         break;
 
@@ -2272,7 +2272,7 @@ MOS_STATUS VpOclFcFilter::GetBitNumber(MOS_FORMAT format, uint8_t *pOriginBitNum
     return MOS_STATUS_SUCCESS;
 }
 
-MOS_STATUS VpOclFcFilter::GenerateInputImageParam(OCL_FC_LAYER_PARAM &layer, VPHAL_CSPACE mainCSpace, OCL_FC_KRN_IMAGE_PARAM &imageParam)
+MOS_STATUS VpOclFcFilter::GenerateInputImageParam(OCL_FC_LAYER_PARAM &layer, VPHAL_CSPACE mainCSpace, VP_SURFACE *outputSurf, OCL_FC_KRN_IMAGE_PARAM &imageParam)
 {
     VP_FUNC_CALL();
     VP_PUBLIC_CHK_NULL_RETURN(layer.surf);
@@ -2297,6 +2297,12 @@ MOS_STATUS VpOclFcFilter::GenerateInputImageParam(OCL_FC_LAYER_PARAM &layer, VPH
         imageParam.lumaKey.low  = -1.f;
         imageParam.lumaKey.high = -1.f;
     }
+
+    // fp16 scRGB target: values can exceed 1.0, so the kernel must not clamp the post-csc value to [0,1].
+    VP_PUBLIC_CHK_NULL_RETURN(outputSurf);
+    VP_PUBLIC_CHK_NULL_RETURN(outputSurf->osSurface);
+    imageParam.extendedRange = (IS_RGB64_FLOAT_FORMAT(outputSurf->osSurface->Format) &&
+                                VPHAL_GAMMA_1P0 == outputSurf->GammaType) ? 1 : 0;
 
     return MOS_STATUS_SUCCESS;
 }
@@ -4085,7 +4091,7 @@ MOS_STATUS VpOclFcFilter::CalculateEngineParams()
             m_renderOclFcParams->Init();
         }
 
-        InitKrnParams(m_renderOclFcParams->fc_kernelParams, *m_executingPipe);
+        VP_PUBLIC_CHK_STATUS_RETURN(InitKrnParams(m_renderOclFcParams->fc_kernelParams, *m_executingPipe));
     }
     else
     {

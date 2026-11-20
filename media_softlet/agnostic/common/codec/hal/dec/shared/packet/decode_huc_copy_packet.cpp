@@ -60,8 +60,11 @@ MOS_STATUS HucCopyPkt::Execute(MOS_COMMAND_BUFFER &cmdBuffer, bool prologNeeded)
 {
     DECODE_FUNC_CALL();
     DECODE_CHK_NULL(m_hucItf);
+    DECODE_CHK_NULL(m_pipeline);
 
     SetPerfTag();
+
+    m_bypassHwLegacy = (m_pipeline != nullptr) ? m_pipeline->GetBypassHWLegacy() : nullptr;
 
     for (m_copyParamsIdx = 0; m_copyParamsIdx < m_copyParamsList.size(); m_copyParamsIdx++)
     {
@@ -70,10 +73,20 @@ MOS_STATUS HucCopyPkt::Execute(MOS_COMMAND_BUFFER &cmdBuffer, bool prologNeeded)
             DECODE_CHK_STATUS(SendPrologCmds(cmdBuffer));
         }
 
+        if (m_bypassHwLegacy)
+        {
+            DECODE_CHK_STATUS(m_bypassHwLegacy->StartPredicate(&cmdBuffer));
+        }
+
         DECODE_CHK_STATUS(AddCmd_HUC_PIPE_MODE_SELECT(cmdBuffer));
         SETPAR_AND_ADDCMD(HUC_IND_OBJ_BASE_ADDR_STATE, m_hucItf, &cmdBuffer);
         DECODE_CHK_STATUS(AddHucIndState(cmdBuffer));
         SETPAR_AND_ADDCMD(HUC_STREAM_OBJECT, m_hucItf, &cmdBuffer);
+
+        if (m_bypassHwLegacy)
+        {
+            DECODE_CHK_STATUS(m_bypassHwLegacy->StopPredicate(&cmdBuffer));
+        }
 
         // Flush the engine to ensure memory written out
         DECODE_CHK_STATUS(MemoryFlush(cmdBuffer));
@@ -95,7 +108,10 @@ MOS_STATUS HucCopyPkt::AddCmd_HUC_PIPE_MODE_SELECT(MOS_COMMAND_BUFFER &cmdBuffer
     auto &mfxWaitParams               = m_miItf->MHW_GETPAR_F(MFX_WAIT)();
     mfxWaitParams                     = {};
     mfxWaitParams.iStallVdboxPipeline = true;
-    DECODE_CHK_STATUS((m_miItf->MHW_ADDCMD_F(MFX_WAIT)(&cmdBuffer)));
+    if (!m_bypassHwLegacy)
+    {
+        DECODE_CHK_STATUS((m_miItf->MHW_ADDCMD_F(MFX_WAIT)(&cmdBuffer)));
+    }
 
     auto &par = m_hucItf->MHW_GETPAR_F(HUC_PIPE_MODE_SELECT)();
     par                                     = {};
@@ -106,7 +122,10 @@ MOS_STATUS HucCopyPkt::AddCmd_HUC_PIPE_MODE_SELECT(MOS_COMMAND_BUFFER &cmdBuffer
 
     mfxWaitParams                     = {};
     mfxWaitParams.iStallVdboxPipeline = true;
-    DECODE_CHK_STATUS((m_miItf->MHW_ADDCMD_F(MFX_WAIT)(&cmdBuffer)));
+    if (!m_bypassHwLegacy)
+    {
+        DECODE_CHK_STATUS((m_miItf->MHW_ADDCMD_F(MFX_WAIT)(&cmdBuffer)));
+    }
     return MOS_STATUS_SUCCESS;
 }
 

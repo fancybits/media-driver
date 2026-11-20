@@ -432,24 +432,22 @@ namespace encode
             StoreEngineId(&cmdBuffer, encode::EncodeStatusReportType::statusReportCsEngineIdRegs, m_pipeline->GetCurrentPipe());
         }
 #endif
-#if (_DEBUG || _RELEASE_INTERNAL)
-        if (m_bypassHwLegacyEnabled)
+        if (m_bypassHwLegacy)
         {
-            if (!m_pipeline->GetBypassHWLegacy()->IsPipelineCharacteristicsSet())
+            if (!m_bypassHwLegacy->IsPipelineCharacteristicsSet())
             {
-                m_pipeline->GetBypassHWLegacy()->SetPipelineCharacteristics(
+                m_bypassHwLegacy->SetPipelineCharacteristics(
                     CODECHAL_HEVC,
                     m_basicFeature->m_hevcSeqParams->chroma_format_idc,
                     m_basicFeature->m_oriFrameWidth,
                     m_basicFeature->m_oriFrameHeight,
                     m_basicFeature->m_hevcSeqParams->bit_depth_luma_minus8 + 8,
                     m_basicFeature->m_hevcSeqParams->TargetUsage);
-                m_pipeline->GetBypassHWLegacy()->SetPipelineCharacteristicsFlag();
+                m_bypassHwLegacy->SetPipelineCharacteristicsFlag();
             }
-            ENCODE_CHK_STATUS_RETURN(m_pipeline->GetBypassHWLegacy()->AddNullHwProxyCmd(&cmdBuffer, true));
-            ENCODE_CHK_STATUS_RETURN(m_pipeline->GetBypassHWLegacy()->StartPredicate(&cmdBuffer));
+            ENCODE_CHK_STATUS_RETURN(m_bypassHwLegacy->AddNullHwProxyCmd(&cmdBuffer, true));
+            ENCODE_CHK_STATUS_RETURN(m_bypassHwLegacy->StartPredicate(&cmdBuffer));
         }
-#endif
         ENCODE_CHK_STATUS_RETURN(AddPictureHcpCommands(cmdBuffer));
 
         ENCODE_CHK_STATUS_RETURN(AddPictureVdencCommands(cmdBuffer));
@@ -522,6 +520,11 @@ namespace encode
         SETPAR_AND_ADDCMD(VD_PIPELINE_FLUSH, m_vdencItf, &cmdBuffer);
 
         ENCODE_CHK_STATUS_RETURN(EnsureAllCommandsExecuted(cmdBuffer));
+
+        if (m_bypassHwLegacy)
+        {
+            ENCODE_CHK_STATUS_RETURN(m_bypassHwLegacy->StopPredicate(&cmdBuffer));
+        }
 
         ENCODE_CHK_STATUS_RETURN(ReadHcpStatus(m_vdboxIndex, m_statusReport, cmdBuffer));
         // BRC PAK statistics different for each pass
@@ -869,12 +872,10 @@ namespace encode
         auto scalability = m_pipeline->GetMediaScalability();
         ENCODE_CHK_STATUS_RETURN(scalability->SyncPipe(syncOnePipeWaitOthers, 0, &cmdBuffer));
 
-#if (_DEBUG || _RELEASE_INTERNAL)
-        if (m_bypassHwLegacyEnabled)
+        if (m_bypassHwLegacy)
         {
-            ENCODE_CHK_STATUS_RETURN(m_pipeline->GetBypassHWLegacy()->StopPredicate(&cmdBuffer));
+            ENCODE_CHK_STATUS_RETURN(m_bypassHwLegacy->StopPredicate(&cmdBuffer));
         }
-#endif
 
         MediaPerfProfiler *perfProfiler = MediaPerfProfiler::Instance();
         ENCODE_CHK_NULL_RETURN(perfProfiler);
@@ -1673,12 +1674,7 @@ MOS_STATUS HevcVdencPkt::AddAllCmds_HCP_PAK_INSERT_OBJECT_BRC(PMOS_COMMAND_BUFFE
         m_packetUtilities = m_pipeline->GetPacketUtilities();
         ENCODE_CHK_NULL_RETURN(m_packetUtilities);
 
-#if (_DEBUG || _RELEASE_INTERNAL)
-        if (m_pipeline->GetBypassHWLegacy())
-        {
-            m_bypassHwLegacyEnabled = true;
-        }
-#endif
+        m_bypassHwLegacy = m_pipeline->GetBypassHWLegacy();
 
         return MOS_STATUS_SUCCESS;
     }
@@ -1995,7 +1991,10 @@ MOS_STATUS HevcVdencPkt::AddAllCmds_HCP_PAK_INSERT_OBJECT_BRC(PMOS_COMMAND_BUFFE
         ENCODE_CHK_NULL_RETURN(cmdBuffer);
 
         ENCODE_CHK_STATUS_RETURN(MediaPacket::StartStatusReportNext(srType, cmdBuffer));
-        m_encodecp->StartCpStatusReport(cmdBuffer);
+        if (m_encodecp)
+        {
+            m_encodecp->StartCpStatusReport(cmdBuffer);
+        }
 
         return MOS_STATUS_SUCCESS;
     }
@@ -2006,13 +2005,6 @@ MOS_STATUS HevcVdencPkt::AddAllCmds_HCP_PAK_INSERT_OBJECT_BRC(PMOS_COMMAND_BUFFE
     {
         ENCODE_FUNC_CALL();
         ENCODE_CHK_NULL_RETURN(cmdBuffer);
-
-#if (_DEBUG || _RELEASE_INTERNAL)
-        if (m_bypassHwLegacyEnabled)
-        {
-            ENCODE_CHK_STATUS_RETURN(m_pipeline->GetBypassHWLegacy()->StopPredicate(cmdBuffer));
-        }
-#endif
 
         ENCODE_CHK_STATUS_RETURN(MediaPacket::EndStatusReportNext(srType, cmdBuffer));
 
@@ -2150,7 +2142,7 @@ MOS_STATUS HevcVdencPkt::AddAllCmds_HCP_PAK_INSERT_OBJECT_BRC(PMOS_COMMAND_BUFFE
 
         EncodeStatusMfx *       encodeStatusMfx  = (EncodeStatusMfx *)mfxStatus;
         EncodeStatusReportData *statusReportData = (EncodeStatusReportData *)statusReport;
-        if (statusReportData->hwCtr)
+        if (statusReportData->hwCtr && m_encodecp)
         {
             m_encodecp->UpdateCpStatusReport(statusReport);
         }
@@ -2830,6 +2822,46 @@ MOS_STATUS HevcVdencPkt::AddAllCmds_HCP_PAK_INSERT_OBJECT_BRC(PMOS_COMMAND_BUFFE
             CodechalDbgAttr::attrStatusReport,
             "EncodeStatusReport_Buffer"));
 
+        // VDENC frame statistics streamout
+        if (debugInterface->DumpIsEnabled(CodechalDbgAttr::attrVdencFrameStats))
+        {
+            uint32_t      numTiles         = MOS_MAX(statusReportData->numberTilesInFrame, 1u);
+            PMOS_RESOURCE vdencStatsBuffer = m_basicFeature->m_recycleBuf->GetBuffer(VdencStatsBuffer, 0);
+            uint32_t      vdencStatsOffset = 0;
+            if (numTiles > 1)
+            {
+                uint32_t      statsBufIdx     = statusReportData->currOriginalPic.FrameIdx;
+                MOS_RESOURCE *tileStatsBuffer = nullptr;
+                RUN_FEATURE_INTERFACE_RETURN(HevcEncodeTile, HevcFeatureIDs::encodeTile, GetTileBasedStatisticsBuffer, statsBufIdx, tileStatsBuffer);
+
+                if (!Mos_ResourceIsNull(tileStatsBuffer))
+                {
+                    vdencStatsBuffer = tileStatsBuffer;
+                    vdencStatsOffset = MOS_ALIGN_CEIL(EncodeBasicFeature::m_sizeOfHcpPakFrameStats * numTiles, CODECHAL_PAGE_SIZE);
+                }
+            }
+            if (!Mos_ResourceIsNull(vdencStatsBuffer))
+            {
+                MOS_LOCK_PARAMS lockFlags;
+                MOS_ZeroMemory(&lockFlags, sizeof(MOS_LOCK_PARAMS));
+                lockFlags.ReadOnly = 1;
+
+                uint8_t *statsData = (uint8_t *)m_osInterface->pfnLockResource(m_osInterface, vdencStatsBuffer, &lockFlags);
+                if (statsData != nullptr)
+                {
+                    uint8_t *statsBase = statsData + vdencStatsOffset;
+
+                    debugInterface->DumpData(
+                        statsBase,
+                        CODECHAL_HEVC_VDENC_STATS_SIZE * numTiles,
+                        CodechalDbgAttr::attrVdencFrameStats,
+                        "VdencFrameStats");
+
+                    m_osInterface->pfnUnlockResource(m_osInterface, vdencStatsBuffer);
+                }
+            }
+        }
+
         PMOS_RESOURCE frameStatStreamOutBuffer = m_basicFeature->m_recycleBuf->GetBuffer(FrameStatStreamOutBuffer, 0);
         ENCODE_CHK_NULL_RETURN(frameStatStreamOutBuffer);
         ENCODE_CHK_STATUS_RETURN(debugInterface->DumpBuffer(
@@ -3259,6 +3291,13 @@ MOS_STATUS HevcVdencPkt::AddAllCmds_HCP_PAK_INSERT_OBJECT_BRC(PMOS_COMMAND_BUFFE
             m_basicFeature->m_reconSurface.MmcState = params.PreDeblockSurfMmcState;)
 
         m_basicFeature->m_ref.MHW_SETPAR_F(HCP_PIPE_BUF_ADDR_STATE)(params);
+
+        if (!m_basicFeature->m_disableTileBToTile4 && m_basicFeature->m_reconSurface.TileType == MOS_TILE_B && m_basicFeature->m_reconSurface.TileModeGMM == MOS_TILE_X_GMM)
+        {
+            params.overrideTileBToTile4 = true;
+        }
+
+        params.forceTile64ReconToTile4 = m_basicFeature->ShouldForceReconTile64ToTile4(m_basicFeature->m_reconSurface);
 
         return MOS_STATUS_SUCCESS;
     }

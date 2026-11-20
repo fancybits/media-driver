@@ -265,6 +265,15 @@ MOS_STATUS MosUserSetting::InitMosCommonUserSetting(MediaUserSettingSharedPtr us
 
     DeclareUserSettingKey(
         userSettingPtr,
+        __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_TS_CORRELATION,
+        MediaUserSetting::Group::Device,
+        false,
+        true,
+        true,
+        USER_SETTING_CONFIG_PERF_PATH); //"Perf Profiler CPU/GPU Timestamp Correlation."
+
+    DeclareUserSettingKey(
+        userSettingPtr,
         __MEDIA_USER_FEATURE_VALUE_PERF_PROFILER_OUTPUT_FILE_NAME,
         MediaUserSetting::Group::Device,
         "Perf_DATA_00_00.bin",
@@ -1419,7 +1428,6 @@ MOS_STATUS MosUserSetting::InitUserSettingForDebug(MediaUserSettingSharedPtr use
         MediaUserSetting::Group::Device,
         0,
         true); // "Enable NULL HW or not"
-#if (_DEBUG || _RELEASE_INTERNAL)
     DeclareUserSettingKeyForDebug(
         userSettingPtr,
         __MEDIA_USER_FEATURE_VALUE_NULLHW_PROXY_REPEAT_COUNT,
@@ -1432,7 +1440,6 @@ MOS_STATUS MosUserSetting::InitUserSettingForDebug(MediaUserSettingSharedPtr use
         MediaUserSetting::Group::Device,
         "",
         true);  // "Path to per-pipeline repeat count config file"
-#endif
     DeclareUserSettingKeyForDebug(
         userSettingPtr,
         __MEDIA_USER_FEATURE_VALUE_MOCKADAPTOR_PLATFORM,

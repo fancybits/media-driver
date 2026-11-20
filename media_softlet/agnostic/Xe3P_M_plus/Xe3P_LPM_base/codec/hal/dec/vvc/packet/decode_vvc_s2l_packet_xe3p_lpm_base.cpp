@@ -45,6 +45,8 @@ namespace decode
 
         DECODE_CHK_STATUS(VvcDecodeS2LPkt::Init());
 
+        m_bypassHwLegacy = m_vvcPipeline->GetBypassHWLegacy();
+
         if (m_isPpgttMode)
         {
             std::shared_ptr<mhw::vdbox::huc::ItfPPGTT> itf =
@@ -71,10 +73,19 @@ namespace decode
         }
 
         DECODE_CHK_STATUS(StartPerfCollect(cmdBuffer));
+        if (m_bypassHwLegacy)
+        {
+            DECODE_CHK_STATUS(m_bypassHwLegacy->StartPredicate(&cmdBuffer));
+        }
 
         DECODE_CHK_STATUS(PackPictureLevelCmds(cmdBuffer));
         DECODE_CHK_STATUS(PackSliceLevelCmds(cmdBuffer));
         DECODE_CHK_STATUS(VdPipelineFlush(cmdBuffer));
+
+        if (m_bypassHwLegacy)
+        {
+            DECODE_CHK_STATUS(m_bypassHwLegacy->StopPredicate(&cmdBuffer));
+        }
         DECODE_CHK_STATUS(EndPerfCollect(cmdBuffer));
         // Flush the engine to ensure memory written out
         DECODE_CHK_STATUS(MemoryFlush(cmdBuffer));
@@ -90,8 +101,11 @@ namespace decode
         uint32_t compareOperation = mhw::mi::COMPARE_OPERATION_MADGREATERTHANIDD;
         CodechalHwInterfaceXe3P_Lpm_Base *hwInterface = dynamic_cast<CodechalHwInterfaceXe3P_Lpm_Base *>(m_hwInterface);
         DECODE_CHK_NULL(hwInterface);
-        DECODE_CHK_STATUS(hwInterface->SendCondBbEndCmd(
-            osResource, offset, 0, false, false, compareOperation, &cmdBuffer));
+        if (!m_osInterface->bNullHwIsEnabled)
+        {
+            DECODE_CHK_STATUS(hwInterface->SendCondBbEndCmd(
+                osResource, offset, 0, false, false, compareOperation, &cmdBuffer));
+        }
 
         if (!m_vvcPipeline->IsSingleTaskPhaseSupported())
         {
@@ -181,7 +195,10 @@ namespace decode
         auto &mfxWaitParams               = m_miItf->MHW_GETPAR_F(MFX_WAIT)();
         mfxWaitParams                     = {};
         mfxWaitParams.iStallVdboxPipeline = true;
-        DECODE_CHK_STATUS((m_miItf->MHW_ADDCMD_F(MFX_WAIT)(&cmdBuffer)));
+        if (!m_osInterface->bNullHwIsEnabled)
+        {
+            DECODE_CHK_STATUS((m_miItf->MHW_ADDCMD_F(MFX_WAIT)(&cmdBuffer)));
+        }
 
         return MOS_STATUS_SUCCESS;
     }

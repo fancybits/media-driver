@@ -53,7 +53,7 @@ public:
 
     MOS_STATUS SetOutputSurfaceFormatType(
         typename cmd_t::SFC_STATE_CMD *cmd,
-        SFC_STATE_PAR                          params,
+        const SFC_STATE_PAR                    &params,
         PMHW_SFC_OUT_SURFACE_PARAMS            pOutSurface,
         bool                                   &bInterleaveChroma,
         uint16_t                               &wUYOffset)
@@ -148,10 +148,15 @@ public:
             cmd->DW3.OutputSurfaceFormatType = cmd->OUTPUT_SURFACE_FORMAT_TYPE_A8B8G8R85;
             cmd->DW4.Bitdepth                = 0;
             cmd->DW3.Fp16OutputEnable        = 1;
-            if (params.bDV3DLutFp16Passthrough)
+            // Both passthrough flags land on the same branch here, unlike the newer generation
+            // where they select different taps. This generation's FP16_INPUT_SELECT is a ONE-bit
+            // field, so the plain 16-bit bypass tap (value 2) cannot be encoded at all and the
+            // colour-matrix tap is the only reachable choice.
+            if (params.bFp16OutputPassthrough || params.bRgb3DLutFp16Passthrough)
             {
-                // DV 3DLUT FP16 output (HW Arch): FP16_input_select=0 (CCM tap), FP16_gain=1.
-                // Identity EOTF + identity CCM indirect state is programmed separately. DV FP16 3DLUT
+                // FP16 output passthrough (DV 3DLUT, or LutCompound) per HW Arch:
+                // FP16_input_select=0 (CCM tap), FP16_gain=1. Identity EOTF + identity CCM indirect
+                // state is programmed separately.
                 cmd->DW3.Fp16InputSelect                      = 0;
                 cmd->DW66.GainFactorForRgb232ToFp16Conversion = 1;
             }
@@ -176,7 +181,7 @@ public:
 
     MOS_STATUS SetOutputFrameSurface(
         typename cmd_t::SFC_STATE_CMD *cmd,
-        SFC_STATE_PAR                          params,
+        const SFC_STATE_PAR                    &params,
         PMHW_SFC_OUT_SURFACE_PARAMS            pOutSurface)
     {
         MHW_CHK_NULL_RETURN(cmd);
@@ -202,7 +207,7 @@ public:
         uint16_t                               wUXOffset,
         uint16_t                               wVYOffset,
         uint16_t                               wVXOffset,
-        SFC_STATE_PAR                          params,
+        const SFC_STATE_PAR                    &params,
         PMHW_SFC_OUT_SURFACE_PARAMS            pOutSurface)
     {
         MHW_CHK_NULL_RETURN(cmd);
@@ -305,7 +310,7 @@ public:
         // DW29: tile mode, pitch, interleave chroma, format
         mhw::sfc::common::SetSfcStateSurfaceParams<cmd_t>(
             cmd, pOutSurface, bHalfPitchForChroma, bInterleaveChroma,
-            this->MosGetHWTileType(pOutSurface->TileType, pOutSurface->TileModeGMM, pOutSurface->bGMMTileEnabled));
+            MhwGetHwTileType(pOutSurface->TileType, pOutSurface->TileModeGMM, pOutSurface->bGMMTileEnabled));
 
         // DW30-DW32: output surface UV offsets (member function, unchanged)
         SetOutputSurfaceOffset(&cmd, wUYOffset, wUXOffset, wVYOffset, wVXOffset, params, pOutSurface);
@@ -324,14 +329,14 @@ public:
             addResFn, initMocsFn));
 
         // Group C platform-specific: sfcIndirectState buffer (DW63_64/DW65)
-        if ((params.isFullRgbG10P709 || params.bDV3DLutFp16Passthrough) && params.sfcIndirectState && !Mos_ResourceIsNull(params.sfcIndirectState))
+        if ((params.isFullRgbG10P709 || params.bFp16OutputPassthrough || params.bRgb3DLutFp16Passthrough) && params.sfcIndirectState && !Mos_ResourceIsNull(params.sfcIndirectState))
         {
             MOS_ZeroMemory(&resourceParams, sizeof(resourceParams));
             resourceParams.presResource    = params.sfcIndirectState;
             resourceParams.pdwCmd          = &(cmd.DW63_64.Value[0]);
             resourceParams.dwLocationInCmd = 63;
             resourceParams.HwCommandType   = MOS_SFC_STATE;
-            resourceParams.bIsWritable     = true;
+            resourceParams.bIsWritable     = false;
             InitMocsParams(resourceParams, &cmd.DW65.Value, 1, 6);
             MHW_CHK_STATUS_RETURN(this->AddResourceToCmd(
                 pOsInterface,

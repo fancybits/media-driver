@@ -323,7 +323,10 @@ typedef struct _MOS_LOCK_PARAMS
             uint32_t ForceCached         : 1;                                    //!< Prefer normal map to global GTT map(Uncached) if both can work
             uint32_t DumpBeforeSubmit    : 1;                                    //!< Lock only for dump before submit
             uint32_t DumpAfterSubmit     : 1;                                    //!< Lock only for dump after submit
-            uint32_t Reserved            : 23;                                   //!< Reserved for expansion.
+            uint32_t AfterCmdCompletion  : 1;                                    //!< Caller has already confirmed full GPU cmd completion
+                                                                                  //!< (e.g. via pfnWaitAllCmdCompletion); safe to bypass
+                                                                                  //!< the "still in Cmd list" recycler gate.
+            uint32_t Reserved            : 22;                                   //!< Reserved for expansion.
         };
         uint32_t    Value;
     };
@@ -856,6 +859,17 @@ typedef struct _MOS_INTERFACE
         GMM_CLIENT_CONTEXT          *pGmmClientContext,
         GMM_RESOURCE_USAGE_TYPE     Usage);
 
+    uint64_t (* pfnGetGmmExtDevice)(
+        PMOS_INTERFACE              pOsInterface);
+
+    uint32_t (* pfnGetMediaSurfaceCompressionFormat) (
+        PMOS_INTERFACE              pOsInterface,
+        GMM_RESOURCE_FORMAT         gmmResFmt);
+
+    bool (* pfnIsPlanar)(
+        PMOS_INTERFACE              pOsInterface,
+        GMM_RESOURCE_FORMAT         gmmResFmt);
+  
     MOS_STATUS (* pfnIsGpuContextValid) (
         PMOS_INTERFACE              pOsInterface,
         MOS_GPU_CONTEXT             GpuContext);
@@ -1983,6 +1997,25 @@ typedef struct _MOS_INTERFACE
         PMOS_INTERFACE         pOsInterface);
 
     //!
+    //! \brief    Query a CPU/GPU timestamp correlation point
+    //! \details  Samples the CPU clock and the command streamer clock of the given domain at the
+    //!           same moment, so that GPU timestamps can be placed on an absolute CPU timeline.
+    //!           Optional, only implemented where the KMD exposes it, so check for nullptr.
+    //! \param    PMOS_INTERFACE pOsInterface
+    //!           [in] OS Interface
+    //! \param    MOS_GPU_TIMESTAMP_DOMAIN domain
+    //!           [in] Clock domain to correlate against
+    //! \param    PMOS_GPU_CPU_TIMESTAMPS pTimestamps
+    //!           [out] Correlation point, untouched on failure
+    //! \return   MOS_STATUS
+    //!           MOS_STATUS_SUCCESS if success, else fail reason
+    //!
+    MOS_STATUS (*pfnQueryGpuCpuTimestamps)(
+        PMOS_INTERFACE           pOsInterface,
+        MOS_GPU_TIMESTAMP_DOMAIN domain,
+        PMOS_GPU_CPU_TIMESTAMPS  pTimestamps);
+
+    //!
     //! \brief    Set hint parameters
     //! \details  
     //! \param    PMOS_INTERFACE pOsInterface
@@ -2277,23 +2310,6 @@ MOS_STATUS Mos_AddCommand(
 //!
 MOS_USER_FEATURE_KEY_PATH_INFO *Mos_GetDeviceUfPathInfo(
     PMOS_CONTEXT mosContext);
-
-
-#if !EMUL
-//!
-//! \brief    Get memory object based on resource usage
-//! \details  Get memory object based on resource usage
-//! \param    MOS_HW_RESOURCE_DEF MosUsage
-//!           [in] Current usage for resource
-//!           [in] Gmm client context
-//! \return   MEMORY_OBJECT_CONTROL_STATE
-//!           Populated memory object
-//!
-MEMORY_OBJECT_CONTROL_STATE Mos_CachePolicyGetMemoryObject(
-    MOS_HW_RESOURCE_DEF MosUsage,
-    GMM_CLIENT_CONTEXT  *pGmmClientContext);
-
-#endif
 
 #ifdef __cplusplus
 }

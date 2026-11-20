@@ -24,7 +24,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 //!
 //! \file     bypass_hw_legacy.cpp
-//! \brief    Implementation of BypassHwLegacy for legacy codecs (HEVC/AVC/AV1)
+//! \brief    Implementation of BypassHwLegacy for legacy codecs (HEVC/AVC/AV1/VVC/VP9/JPEG/JXS)
 //!
 
 #include "bypass_hw_legacy.h"
@@ -68,16 +68,12 @@ MOS_STATUS BypassHwLegacy::Initialize(PMOS_INTERFACE pOsInterface, std::shared_p
     m_osInterface = pOsInterface;
     m_miItf       = std::move(pMiItf);
 
-#if (_DEBUG || _RELEASE_INTERNAL)
     OsContextNext *osDevCtx = GetOsDeviceContext();
     if (osDevCtx == nullptr)
     {
         return MOS_STATUS_NULL_POINTER;
     }
     return osDevCtx->InitDummyVdboxSlots();
-#else
-    return MOS_STATUS_SUCCESS;
-#endif // (_DEBUG || _RELEASE_INTERNAL)
 }
 
 MOS_STATUS BypassHwLegacy::FetchDummyVdNode(
@@ -90,7 +86,41 @@ MOS_STATUS BypassHwLegacy::FetchDummyVdNode(
     uint8_t            bitDepth,
     uint8_t            targetUsage)
 {
-#if (_DEBUG || _RELEASE_INTERNAL)
+    // Call sites that have not migrated have no VdboxTypePref to offer, so this overload
+    // keeps the original approximation: encode needs a full VDBox, decode does not. It agrees
+    // with the pipeline-preference rule for AVC/HEVC/AV1 in both directions and differs only
+    // for VVC decode, which is why the 9-parameter overload exists.
+    return FetchDummyVdNodeInternal(
+        gpuNode, codec, isEncode, isEncode, width, height, chromaFormat, bitDepth, targetUsage);
+}
+
+MOS_STATUS BypassHwLegacy::FetchDummyVdNode(
+    MOS_GPU_NODE      &gpuNode,
+    CODECHAL_STANDARD  codec,
+    bool               isEncode,
+    VdboxTypePref      pipelineVdboxTypePref,
+    uint32_t           width,
+    uint32_t           height,
+    uint8_t            chromaFormat,
+    uint8_t            bitDepth,
+    uint8_t            targetUsage)
+{
+    return FetchDummyVdNodeInternal(
+        gpuNode, codec, isEncode, (pipelineVdboxTypePref == MOS_VDBOX_PREFER_FULL),
+        width, height, chromaFormat, bitDepth, targetUsage);
+}
+
+MOS_STATUS BypassHwLegacy::FetchDummyVdNodeInternal(
+    MOS_GPU_NODE      &gpuNode,
+    CODECHAL_STANDARD  codec,
+    bool               isEncode,
+    bool               needFullVdbox,
+    uint32_t           width,
+    uint32_t           height,
+    uint8_t            chromaFormat,
+    uint8_t            bitDepth,
+    uint8_t            targetUsage)
+{
     // Re-entrance guard: reuse existing slot
     if (m_claimedSlotIndex >= 0)
     {
@@ -112,23 +142,20 @@ MOS_STATUS BypassHwLegacy::FetchDummyVdNode(
 
     bool isScalable = LookupScalabilityFromConfig(codec, isEncode, width, height, chromaFormat, bitDepth, targetUsage);
 
-    MOS_STATUS eStatus = osDevCtx->SelectAndClaimDummyVdSlot(isEncode, isScalable, gpuNode, m_claimedSlotIndex);
+    // isScalable is passed through as configured even when needFullVdbox is set. Downgrading a
+    // scalable request here would also disable legitimate scalable encode on non-slim SKUs; on a
+    // slim topology the pool's own eligibility filter is what collapses the group claim.
+    MOS_STATUS eStatus = osDevCtx->SelectAndClaimDummyVdSlot(isEncode, needFullVdbox, isScalable, gpuNode, m_claimedSlotIndex);
     if (eStatus != MOS_STATUS_SUCCESS)
     {
+        MOS_OS_WARNINGMESSAGE("NullHW: Failed to claim dummy VDBox slot (isEncode=%d, isScalable=%d)", isEncode, isScalable);
         return eStatus;
     }
 
+    MOS_OS_NORMALMESSAGE("NullHW: Claimed slot %d (node=%d) for %s pipeline (isScalable=%d)",
+        m_claimedSlotIndex, gpuNode, isEncode ? "encode" : "decode", isScalable);
+
     m_isScalable = isScalable;
-#else
-    MOS_UNUSED(gpuNode);
-    MOS_UNUSED(codec);
-    MOS_UNUSED(isEncode);
-    MOS_UNUSED(width);
-    MOS_UNUSED(height);
-    MOS_UNUSED(chromaFormat);
-    MOS_UNUSED(bitDepth);
-    MOS_UNUSED(targetUsage);
-#endif // (_DEBUG || _RELEASE_INTERNAL)
 
     return MOS_STATUS_SUCCESS;
 }
@@ -195,7 +222,6 @@ MOS_STATUS BypassHwLegacy::AddNullHwProxyCmd(PMOS_COMMAND_BUFFER cmdBuffer, bool
         return MOS_STATUS_SUCCESS;
     }
 
-#if (_DEBUG || _RELEASE_INTERNAL)
     // Read repeat count once per pipeline lifetime
     if (!m_readRepeatCount)
     {
@@ -209,6 +235,7 @@ MOS_STATUS BypassHwLegacy::AddNullHwProxyCmd(PMOS_COMMAND_BUFFER cmdBuffer, bool
         if (configValue > 0)
         {
             m_repeatCount = configValue;
+            MOS_OS_NORMALMESSAGE("NullHW: Using repeat count %u from config file match", m_repeatCount);
         }
         else
         {
@@ -217,11 +244,14 @@ MOS_STATUS BypassHwLegacy::AddNullHwProxyCmd(PMOS_COMMAND_BUFFER cmdBuffer, bool
                 m_repeatCount,
                 __MEDIA_USER_FEATURE_VALUE_NULLHW_PROXY_REPEAT_COUNT,
                 MediaUserSetting::Group::Device);
+            MOS_OS_NORMALMESSAGE("NullHW: No config file match, using fallback repeat count %u from regkey", m_repeatCount);
         }
 
         if (m_isScalable && m_repeatCount > 1)
         {
+            uint32_t preHalveCount = m_repeatCount;
             m_repeatCount /= 2;
+            MOS_OS_NORMALMESSAGE("NullHW: Scalable pipeline - halving repeat count %u -> %u", preHalveCount, m_repeatCount);
         }
 
         m_readRepeatCount = true;
@@ -302,7 +332,6 @@ MOS_STATUS BypassHwLegacy::AddNullHwProxyCmd(PMOS_COMMAND_BUFFER cmdBuffer, bool
     {
         return eStatus;
     }
-#endif // (_DEBUG || _RELEASE_INTERNAL)
 
     return MOS_STATUS_SUCCESS;
 }
@@ -320,7 +349,6 @@ MOS_STATUS BypassHwLegacy::Destroy()
         return MOS_STATUS_SUCCESS;
     }
 
-#if (_DEBUG || _RELEASE_INTERNAL)
     // Release slot ref count
     OsContextNext *osDevCtx = GetOsDeviceContext();
     if (osDevCtx && m_claimedSlotIndex >= 0)
@@ -335,13 +363,16 @@ MOS_STATUS BypassHwLegacy::Destroy()
         // Buffer is unlocked after init; only unlock here if init never completed
         if (!m_secondLevelBBInitialized)
         {
-            Mhw_UnlockBb(m_osInterface, &m_secondLevelBB, true);
+            MOS_STATUS eStatus = Mhw_UnlockBb(m_osInterface, &m_secondLevelBB, true);
+            if (eStatus != MOS_STATUS_SUCCESS)
+            {
+                MOS_OS_ASSERTMESSAGE("NullHW: Mhw_UnlockBb failed in Destroy, status %d", eStatus);
+            }
         }
         Mhw_FreeBb(m_osInterface, &m_secondLevelBB, nullptr);
         m_secondLevelBBAllocated    = false;
         m_secondLevelBBInitialized  = false;
     }
-#endif // (_DEBUG || _RELEASE_INTERNAL)
 
     m_destroyed = true;
     return MOS_STATUS_SUCCESS;
@@ -357,6 +388,15 @@ std::string BypassHwLegacy::MapCodecName(CODECHAL_STANDARD codec)
         return "avc";
     case CODECHAL_AV1:
         return "av1";
+    case CODECHAL_VVC:
+        return "vvc";
+    case CODECHAL_VP9:
+        return "vp9";
+    case CODECHAL_JPEG:
+        return "jpeg";
+    case CODECHAL_RESERVED2:
+        // JXS decode reports CODECHAL_RESERVED2
+        return "jxs";
     default:
         return "";
     }
@@ -375,6 +415,20 @@ std::string BypassHwLegacy::MapSubsampling(uint32_t chromaFormat)
     case 3:
     case 444:
         return "444";
+    case 400:
+        return "400";
+    case 411:
+        return "411";
+    case 4224:
+        return "4224";
+    case 4444:
+        return "4444";
+    case BYPASS_HW_SUBSAMPLING_BAYER:
+        return "bayer";
+    case BYPASS_HW_SUBSAMPLING_RGB:
+        return "rgb";
+    case BYPASS_HW_SUBSAMPLING_BGR:
+        return "bgr";
     default:
         return "";
     }
@@ -426,6 +480,7 @@ bool BypassHwLegacy::LoadConfigFile(const std::string &filePath)
     std::ifstream file(filePath);
     if (!file.is_open())
     {
+        MOS_OS_WARNINGMESSAGE("NullHW: Cannot open repeat count config file: %s", filePath.c_str());
         return false;
     }
 
@@ -502,6 +557,8 @@ bool BypassHwLegacy::LoadConfigFile(const std::string &filePath)
         s_configEntries.push_back(std::move(entry));
     }
 
+    MOS_OS_NORMALMESSAGE("NullHW: Loaded %zu entries from config file: %s",
+        s_configEntries.size(), filePath.c_str());
     return !s_configEntries.empty();
 }
 
@@ -512,12 +569,26 @@ uint32_t BypassHwLegacy::LookupRepeatCount(bool isEncode)
     std::string subsampling = MapSubsampling(m_pipelineChromaFormat);
 
     if (codecName.empty() || subsampling.empty())
+    {
+        MOS_OS_WARNINGMESSAGE("NullHW: Cannot classify pipeline for repeat count lookup (codec=%s, sub=%s) - skipping config match",
+            codecName.c_str(), subsampling.c_str());
         return 0;
+    }
 
     const RepeatCountEntry *entry = FindEntry(
         codecName, direction, subsampling,
         m_pipelineWidth, m_pipelineHeight, m_pipelineBitDepth, m_pipelineTU);
-    return entry ? entry->repeatCount : 0;
+
+    if (entry)
+    {
+        MOS_OS_NORMALMESSAGE("NullHW: Matched config entry (codec=%s, direction=%s, sub=%s, %ux%u, bitDepth=%u, tu=%u) -> repeatCount=%u",
+            codecName.c_str(), direction.c_str(), subsampling.c_str(), m_pipelineWidth, m_pipelineHeight, m_pipelineBitDepth, m_pipelineTU, entry->repeatCount);
+        return entry->repeatCount;
+    }
+
+    MOS_OS_WARNINGMESSAGE("NullHW: No config entry matched (codec=%s, direction=%s, sub=%s, %ux%u, bitDepth=%u, tu=%u) - falling back to default repeat count regkey",
+        codecName.c_str(), direction.c_str(), subsampling.c_str(), m_pipelineWidth, m_pipelineHeight, m_pipelineBitDepth, m_pipelineTU);
+    return 0;
 }
 
 bool BypassHwLegacy::LookupScalabilityFromConfig(
@@ -537,12 +608,21 @@ bool BypassHwLegacy::LookupScalabilityFromConfig(
     std::string subsampling = MapSubsampling(chromaFormat);
 
     if (codecName.empty() || subsampling.empty())
+    {
+        MOS_OS_WARNINGMESSAGE("NullHW: Cannot classify pipeline for scalability lookup (codec=%s, sub=%s) - defaulting to non-scalable",
+            codecName.c_str(), subsampling.c_str());
         return false;
+    }
 
     const RepeatCountEntry *entry = FindEntry(
         codecName, direction, subsampling,
         width, height, bitDepth, targetUsage);
-    return entry ? entry->scalability == 1 : false;
+
+    bool isScalable = entry ? entry->scalability == 1 : false;
+    MOS_OS_NORMALMESSAGE("NullHW: Scalability lookup (codec=%s, direction=%s, sub=%s, %ux%u, bitDepth=%u, tu=%u) -> %s (%s)",
+        codecName.c_str(), direction.c_str(), subsampling.c_str(), width, height, bitDepth, targetUsage,
+        isScalable ? "scalable" : "non-scalable", entry ? "config match" : "no match, default");
+    return isScalable;
 }
 
 bool BypassHwLegacy::IsPipelineCharacteristicsSet()
